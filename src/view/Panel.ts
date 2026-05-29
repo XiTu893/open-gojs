@@ -61,6 +61,8 @@ export class Panel extends GraphObject {
   private _graduatedMax: number = 100;
   private _graduatedTickUnit: number = 1;
   private _graduatedTickBase: number = 0;
+  private _graduatedStart: number = 0;
+  private _graduatedEnd: number = 1;
   private _viewboxStretch: EnumValue = StretchUniform;
   _viewboxScaleX: number = 1;
   _viewboxScaleY: number = 1;
@@ -273,6 +275,18 @@ export class Panel extends GraphObject {
   set graduatedTickBase(val: number) {
     if (this._graduatedTickBase === val) return;
     this._graduatedTickBase = val;
+  }
+
+  get graduatedStart(): number { return this._graduatedStart; }
+  set graduatedStart(val: number) {
+    if (this._graduatedStart === val) return;
+    this._graduatedStart = val;
+  }
+
+  get graduatedEnd(): number { return this._graduatedEnd; }
+  set graduatedEnd(val: number) {
+    if (this._graduatedEnd === val) return;
+    this._graduatedEnd = val;
   }
 
   get viewboxStretch(): EnumValue { return this._viewboxStretch; }
@@ -520,6 +534,8 @@ export class Panel extends GraphObject {
     copy._graduatedMax = this._graduatedMax;
     copy._graduatedTickUnit = this._graduatedTickUnit;
     copy._graduatedTickBase = this._graduatedTickBase;
+    copy._graduatedStart = this._graduatedStart;
+    copy._graduatedEnd = this._graduatedEnd;
     copy._viewboxStretch = this._viewboxStretch;
     copy._viewboxScaleX = this._viewboxScaleX;
     copy._viewboxScaleY = this._viewboxScaleY;

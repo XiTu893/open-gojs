@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Graduated Panel Test</title>
+  <style>
+    body { font-family: sans-serif; margin: 10px; }
+    #myDiagramDiv { width: 700px; height: 500px; border: 1px solid black; }
+  </style>
+</head>
+<body>
+  <h2>Graduated Panel Test</h2>
+  <div id="myDiagramDiv"></div>
+
+  <script src="../dist/open-gojs.umd.js"></script>
+  <script>
+    const $ = go.GraphObject.make;
+
+    const diagram = new go.Diagram('myDiagramDiv');
+
+    // Test 1: Horizontal graduated panel (ruler)
+    const rulerH =
+      $(go.Part, 'Graduated',
+        {
+          graduatedMin: 0, graduatedMax: 100, graduatedTickUnit: 1,
+          graduatedTickBase: 0,
+          position: new go.Point(50, 50)
+        },
+        $(go.Shape, { geometryString: 'M0 0 H400', stroke: 'gray', strokeWidth: 0.5 }),
+        $(go.Shape, { geometryString: 'M0 0 V4', stroke: '#999', interval: 1 }),
+        $(go.Shape, { geometryString: 'M0 0 V8', stroke: '#666', strokeWidth: 1, interval: 5 }),
+        $(go.Shape, { geometryString: 'M0 0 V14', stroke: '#333', strokeWidth: 1.5, interval: 10 }),
+        $(go.TextBlock, {
+          font: '9px sans-serif', interval: 10,
+          alignmentFocus: go.Spot.TopLeft,
+          segmentOffset: new go.Point(0, 14)
+        })
+      );
+    diagram.add(rulerH);
+
+    // Test 2: Vertical graduated panel (thermometer-like)
+    const rulerV =
+      $(go.Part, 'Graduated',
+        {
+          graduatedMin: 0, graduatedMax: 50, graduatedTickUnit: 1,
+          graduatedTickBase: 0,
+          position: new go.Point(500, 50)
+        },
+        $(go.Shape, { geometryString: 'M0 0 V300', stroke: 'gray', strokeWidth: 0.5 }),
+        $(go.Shape, { geometryString: 'M0 0 H4', stroke: '#999', interval: 1 }),
+        $(go.Shape, { geometryString: 'M0 0 H10', stroke: '#666', strokeWidth: 1, interval: 5 }),
+        $(go.Shape, { geometryString: 'M0 0 H16', stroke: '#333', strokeWidth: 1.5, interval: 10 }),
+        $(go.TextBlock, {
+          font: '9px sans-serif', interval: 10,
+          alignmentFocus: go.Spot.Left,
+          segmentOffset: new go.Point(18, 0)
+        })
+      );
+    diagram.add(rulerV);
+
+    // Test 3: Graduated panel with graduatedStart/End (partial path)
+    const partialRuler =
+      $(go.Part, 'Graduated',
+        {
+          graduatedMin: 0, graduatedMax: 100, graduatedTickUnit: 1,
+          graduatedTickBase: 0,
+          graduatedStart: 0.1, graduatedEnd: 0.9,
+          position: new go.Point(50, 120)
+        },
+        $(go.Shape, { geometryString: 'M0 0 H400', stroke: '#ccc', strokeWidth: 0.5 }),
+        $(go.Shape, { geometryString: 'M0 0 V6', stroke: '#666', interval: 5 }),
+        $(go.Shape, { geometryString: 'M0 0 V12', stroke: '#333', strokeWidth: 1.5, interval: 10 }),
+        $(go.TextBlock, {
+          font: '9px sans-serif', interval: 10,
+          alignmentFocus: go.Spot.TopLeft,
+          segmentOffset: new go.Point(0, 12)
+        })
+      );
+    diagram.add(partialRuler);
+
+    // Test 4: Different tickBase
+    const offsetRuler =
+      $(go.Part, 'Graduated',
+        {
+          graduatedMin: -20, graduatedMax: 80, graduatedTickUnit: 1,
+          graduatedTickBase: 0,
+          position: new go.Point(50, 200)
+        },
+        $(go.Shape, { geometryString: 'M0 0 H400', stroke: 'gray', strokeWidth: 0.5 }),
+        $(go.Shape, { geometryString: 'M0 0 V4', stroke: '#999', interval: 1 }),
+        $(go.Shape, { geometryString: 'M0 0 V10', stroke: '#333', strokeWidth: 1.5, interval: 10 }),
+        $(go.TextBlock, {
+          font: '9px sans-serif', interval: 10,
+          alignmentFocus: go.Spot.TopLeft,
+          segmentOffset: new go.Point(0, 10)
+        })
+      );
+    diagram.add(offsetRuler);
+
+    diagram.commandHandler.zoomToFit();
+  </script>
+</body>
+</html>

@@ -16,6 +16,7 @@ import { Spot } from '../core/Spot';
 import { Margin } from '../core/Margin';
 import { Brush, BrushLike, Color } from '../core/Brush';
 import { Geometry } from '../core/Geometry';
+import { getFigureGeometry } from '../figures/Figures';
 import {
   PanelAuto, PanelVertical, PanelHorizontal, PanelSpot, PanelTable,
   PanelPosition, PanelGrid, PanelLink, PanelViewbox, PanelGraduated,
@@ -1013,68 +1014,227 @@ export class CanvasRenderer {
     ctx.restore();
   }
 
-  /** Render a Graduated panel - draws tick marks along a graduated scale */
   private _renderGraduated(panel: Panel, panelX: number, panelY: number, panelW: number, panelH: number): void {
     const ctx = this.ctx;
     if (!ctx) return;
 
     const elements = (panel as any)._elements as GraphObject[];
-    for (const elem of elements) {
-      this.renderGraphObject(elem, panelX, panelY);
-    }
+    const mainElement = this._findGraduatedMain(elements);
+    if (!mainElement) return;
+
+    this.renderGraphObject(mainElement, panelX, panelY);
 
     const gradMin = (panel as any)._graduatedMin as number;
     const gradMax = (panel as any)._graduatedMax as number;
     const tickUnit = (panel as any)._graduatedTickUnit as number;
     const tickBase = (panel as any)._graduatedTickBase as number;
+    const gradStart = (panel as any)._graduatedStart as number;
+    const gradEnd = (panel as any)._graduatedEnd as number;
     const pad = (panel as any)._padding as Margin;
 
     const range = gradMax - gradMin;
     if (range <= 0 || tickUnit <= 0) return;
 
-    const innerX = panelX + pad.left;
-    const innerY = panelY + pad.top;
-    const innerW = Math.max(0, panelW - pad.left - pad.right);
-    const innerH = Math.max(0, panelH - pad.top - pad.bottom);
+    const effectiveStart = gradStart;
+    const effectiveEnd = gradEnd;
 
-    const mainElement = this._findGraduatedMain(elements);
-    let lineY: number;
-    if (mainElement) {
-      const mainAb = mainElement.actualBounds;
-      lineY = panelY + mainAb.y + mainAb.height / 2;
-    } else {
-      lineY = innerY + innerH / 2;
-    }
+    const mainAb = mainElement.actualBounds;
+    const mainX = panelX + mainAb.x;
+    const mainY = panelY + mainAb.y;
+    const mainW = mainAb.width;
+    const mainH = mainAb.height;
 
-    ctx.save();
-    ctx.strokeStyle = 'black';
-    ctx.fillStyle = 'black';
-    ctx.lineWidth = 1;
+    const geo = this._getShapeGeometry(mainElement);
+    const pathPoints = geo ? this._computePathPoints(geo, mainW, mainH) : null;
 
-    const majorInterval = tickUnit * 5;
+    const templates = elements.filter(e => e !== mainElement && e.visible);
 
-    for (let val = gradMin; val <= gradMax; val += tickUnit) {
-      const adjustedVal = val + tickBase;
+    for (let val = gradMin; val <= gradMax + tickUnit * 0.001; val += tickUnit) {
       const fraction = (val - gradMin) / range;
-      const x = innerX + fraction * innerW;
+      if (fraction < -0.001 || fraction > 1.001) continue;
 
-      const isMajor = majorInterval > 0 && Math.abs((adjustedVal - gradMin - tickBase) % majorInterval) < 0.0001;
-      const tickH = isMajor ? 10 : 5;
+      let px: number, py: number, angle: number;
+      if (pathPoints && pathPoints.length >= 2) {
+        const pathFraction = effectiveStart + fraction * (effectiveEnd - effectiveStart);
+        const pt = this._interpolatePath(pathPoints, pathFraction);
+        px = mainX + pt.x;
+        py = mainY + pt.y;
+        angle = pt.angle;
+      } else {
+        const pathFraction = effectiveStart + fraction * (effectiveEnd - effectiveStart);
+        px = mainX + pathFraction * mainW;
+        py = mainY + mainH / 2;
+        angle = 0;
+      }
 
-      ctx.beginPath();
-      ctx.moveTo(x, lineY - tickH / 2);
-      ctx.lineTo(x, lineY + tickH / 2);
-      ctx.stroke();
+      for (const tmpl of templates) {
+        const interval = (tmpl as any)._interval || 1;
+        const tickIndex = Math.round((val - gradMin) / tickUnit);
+        if (tickIndex % interval !== 0) continue;
 
-      if (isMajor) {
-        ctx.font = '10px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'top';
-        ctx.fillText(String(Math.round(adjustedVal)), x, lineY + tickH / 2 + 2);
+        const focus = (tmpl as any)._alignmentFocus || Spot.Default;
+        const mb = tmpl.measuredBounds;
+        const focusX = focus.x * mb.width + (focus.offsetX || 0);
+        const focusY = focus.y * mb.height + (focus.offsetY || 0);
+
+        const segOffset = (tmpl as any)._segmentOffset;
+        let offX = 0, offY = 0;
+        if (segOffset && !isNaN(segOffset.x)) offX = segOffset.x;
+        if (segOffset && !isNaN(segOffset.y)) offY = segOffset.y;
+
+        const drawX = px - focusX + offX;
+        const drawY = py - focusY + offY;
+
+        if (tmpl instanceof Shape) {
+          this._renderGraduatedShape(tmpl, drawX, drawY, mb.width, mb.height, angle);
+        } else if (tmpl instanceof TextBlock) {
+          this._renderGraduatedText(tmpl, val, tickBase, drawX, drawY, mb.width, mb.height, angle);
+        }
       }
     }
+  }
 
+  private _renderGraduatedShape(shape: Shape, x: number, y: number, w: number, h: number, angle: number): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+
+    const geo = this._getShapeGeometry(shape);
+    if (!geo) return;
+
+    ctx.save();
+    ctx.translate(x, y);
+
+    const stroke = (shape as any)._stroke;
+    if (stroke) {
+      ctx.strokeStyle = typeof stroke === 'string' ? stroke : 'black';
+    }
+    const strokeWidth = (shape as any)._strokeWidth;
+    if (strokeWidth !== undefined) {
+      ctx.lineWidth = strokeWidth;
+    }
+
+    this._drawGeometryPath(ctx, geo, w, h);
+    ctx.stroke();
     ctx.restore();
+  }
+
+  private _renderGraduatedText(textBlock: TextBlock, val: number, tickBase: number, x: number, y: number, w: number, h: number, angle: number): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+
+    const text = String(Math.round(val + tickBase));
+    const font = (textBlock as any)._font || '10px sans-serif';
+    const stroke = (textBlock as any)._stroke || 'black';
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.font = font;
+    ctx.fillStyle = typeof stroke === 'string' ? stroke : 'black';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, w / 2, h / 2);
+    ctx.restore();
+  }
+
+  private _getShapeGeometry(elem: GraphObject): Geometry | null {
+    if (!(elem instanceof Shape)) return null;
+    const shape = elem as Shape;
+    const geo = (shape as any)._geometry as Geometry | null;
+    if (geo) return geo;
+    const figName = (shape as any)._figure as string;
+    if (figName) {
+      const w = shape.desiredSize.width > 0 ? shape.desiredSize.width : shape.measuredBounds.width;
+      const h = shape.desiredSize.height > 0 ? shape.desiredSize.height : shape.measuredBounds.height;
+      return getFigureGeometry(figName, w, h) || null;
+    }
+    const geoStr = (shape as any)._geometryString as string;
+    if (geoStr) {
+      return Geometry.parse(geoStr);
+    }
+    return null;
+  }
+
+  private _computePathPoints(geo: Geometry, width: number, height: number): Array<{x: number, y: number, angle: number}> {
+    const points: Array<{x: number, y: number, angle: number}> = [];
+    const it = geo.figures.iterator;
+    while (it.next()) {
+      const fig = it.value;
+      let prevX = fig.startX;
+      let prevY = fig.startY;
+      points.push({ x: prevX, y: prevY, angle: 0 });
+
+      const segIt = fig.segments.iterator;
+      while (segIt.next()) {
+        const seg = segIt.value;
+        const segName = seg.type._name;
+        if (segName === 'Close') continue;
+        const endX = seg.endX;
+        const endY = seg.endY;
+        const angle = Math.atan2(endY - prevY, endX - prevX) * 180 / Math.PI;
+        points.push({ x: endX, y: endY, angle: angle });
+        prevX = endX;
+        prevY = endY;
+      }
+    }
+    return points;
+  }
+
+  private _interpolatePath(points: Array<{x: number, y: number, angle: number}>, fraction: number): {x: number, y: number, angle: number} {
+    if (points.length === 0) return { x: 0, y: 0, angle: 0 };
+    if (points.length === 1) return { x: points[0].x, y: points[0].y, angle: 0 };
+
+    let totalLen = 0;
+    const segLens: number[] = [];
+    for (let i = 1; i < points.length; i++) {
+      const dx = points[i].x - points[i - 1].x;
+      const dy = points[i].y - points[i - 1].y;
+      const len = Math.sqrt(dx * dx + dy * dy);
+      segLens.push(len);
+      totalLen += len;
+    }
+    if (totalLen === 0) return { x: points[0].x, y: points[0].y, angle: 0 };
+
+    const targetLen = fraction * totalLen;
+    let accum = 0;
+    for (let i = 0; i < segLens.length; i++) {
+      if (accum + segLens[i] >= targetLen || i === segLens.length - 1) {
+        const segFrac = segLens[i] > 0 ? (targetLen - accum) / segLens[i] : 0;
+        const clampedFrac = Math.max(0, Math.min(1, segFrac));
+        const x = points[i].x + (points[i + 1].x - points[i].x) * clampedFrac;
+        const y = points[i].y + (points[i + 1].y - points[i].y) * clampedFrac;
+        const angle = points[i + 1].angle;
+        return { x, y, angle };
+      }
+      accum += segLens[i];
+    }
+    return { x: points[points.length - 1].x, y: points[points.length - 1].y, angle: points[points.length - 1].angle };
+  }
+
+  private _drawGeometryPath(ctx: CanvasRenderingContext2D, geo: Geometry, w: number, h: number): void {
+    const it = geo.figures.iterator;
+    ctx.beginPath();
+    while (it.next()) {
+      const fig = it.value;
+      ctx.moveTo(fig.startX, fig.startY);
+      const segIt = fig.segments.iterator;
+      while (segIt.next()) {
+        const seg = segIt.value;
+        const segName = seg.type._name;
+        if (segName === 'Line') {
+          ctx.lineTo(seg.endX, seg.endY);
+        } else if (segName === 'MoveTo') {
+          ctx.moveTo(seg.endX, seg.endY);
+        } else if (segName === 'Close') {
+          ctx.closePath();
+        } else if (segName === 'QuadraticBezier' && !isNaN(seg.x1)) {
+          ctx.quadraticCurveTo(seg.x1, seg.y1, seg.endX, seg.endY);
+        } else if (segName === 'CubicBezier' && !isNaN(seg.x1) && !isNaN(seg.x2)) {
+          ctx.bezierCurveTo(seg.x1, seg.y1, seg.x2, seg.y2, seg.endX, seg.endY);
+        } else {
+          ctx.lineTo(seg.endX, seg.endY);
+        }
+      }
+    }
   }
 
   private _findGraduatedMain(elements: GraphObject[]): GraphObject | null {
