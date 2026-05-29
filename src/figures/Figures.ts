@@ -294,6 +294,365 @@ defineFigure('Cylinder1', (shape, w, h) => {
   return geo;
 });
 
+defineFigure('Cylinder2', (shape, w, h) => {
+  const r = getP1(shape, Math.min(w / 2, h / 8));
+  const geo = new Geometry();
+  const fig = new PathFigure(w, r);
+  fig.add(PathSegment.Line(w, h - r));
+  fig.add(PathSegment.Arc(0, h - r, w / 2, r, 0, false, false));
+  fig.add(PathSegment.Line(0, r));
+  fig.add(PathSegment.Arc(w, r, w / 2, r, 0, false, true));
+  fig.add(PathSegment.Close());
+  geo.add(fig);
+  return geo;
+});
+
+defineFigure('Cylinder3', (shape, w, h) => {
+  const r = getP1(shape, Math.min(w / 2, h / 8));
+  const geo = new Geometry();
+  const fig = new PathFigure(w, r);
+  fig.add(PathSegment.Line(w, h - r));
+  fig.add(PathSegment.Arc(0, h - r, w / 2, r, 0, false, false));
+  fig.add(PathSegment.Arc(w, h - r, w / 2, r, 0, false, true));
+  fig.add(PathSegment.Line(w, r));
+  fig.add(PathSegment.Arc(0, r, w / 2, r, 0, false, false));
+  fig.add(PathSegment.Close());
+  geo.add(fig);
+  const fig2 = new PathFigure(0, r);
+  fig2.add(PathSegment.Arc(w, r, w / 2, r, 0, false, false));
+  fig2.add(PathSegment.Arc(0, r, w / 2, r, 0, false, true));
+  fig2.add(PathSegment.Close());
+  geo.add(fig2);
+  return geo;
+});
+
+defineFigure('Cylinder4', (shape, w, h) => {
+  const r = getP1(shape, Math.min(w / 2, h / 8));
+  const geo = new Geometry();
+  const fig = new PathFigure(w, r);
+  fig.add(PathSegment.Arc(0, r, w / 2, r, 0, false, true));
+  fig.add(PathSegment.Line(0, h - r));
+  fig.add(PathSegment.Arc(w, h - r, w / 2, r, 0, false, false));
+  fig.add(PathSegment.Close());
+  geo.add(fig);
+  const fig2 = new PathFigure(0, h - r);
+  fig2.add(PathSegment.Arc(w, h - r, w / 2, r, 0, false, true));
+  fig2.add(PathSegment.Arc(0, h - r, w / 2, r, 0, false, false));
+  fig2.add(PathSegment.Close());
+  geo.add(fig2);
+  return geo;
+});
+
+defineFigure('Database', (shape, w, h) => {
+  const r = getP1(shape, Math.min(w / 2, h / 8));
+  const geo = new Geometry();
+  const fig = new PathFigure(w, r);
+  fig.add(PathSegment.Line(w, h - r));
+  fig.add(PathSegment.Arc(0, h - r, w / 2, r, 0, false, true));
+  fig.add(PathSegment.Line(0, r));
+  fig.add(PathSegment.Arc(w, r, w / 2, r, 0, false, false));
+  fig.add(PathSegment.Close());
+  geo.add(fig);
+  const fig2 = new PathFigure(0, r);
+  fig2.add(PathSegment.Arc(w, r, w / 2, r, 0, false, false));
+  fig2.add(PathSegment.Arc(0, r, w / 2, r, 0, false, true));
+  fig2.add(PathSegment.Close());
+  geo.add(fig2);
+  const fig3 = new PathFigure(0, h - r);
+  fig3.add(PathSegment.Arc(w, h - r, w / 2, r, 0, false, false));
+  fig3.add(PathSegment.Arc(0, h - r, w / 2, r, 0, false, true));
+  fig3.add(PathSegment.Close());
+  geo.add(fig3);
+  return geo;
+});
+
+defineFigure('Note', (shape, w, h) => {
+  const geo = new Geometry();
+  const fig = new PathFigure(0, 0);
+  fig.add(PathSegment.Line(w * 0.8, 0));
+  fig.add(PathSegment.Line(w, h * 0.15));
+  fig.add(PathSegment.Line(w, h));
+  fig.add(PathSegment.Line(0, h));
+  fig.add(PathSegment.Close());
+  geo.add(fig);
+  const fig2 = new PathFigure(w * 0.8, 0, false);
+  fig2.add(PathSegment.Line(w * 0.8, h * 0.15));
+  fig2.add(PathSegment.Line(w, h * 0.15));
+  geo.add(fig2);
+  return geo;
+});
+
+defineFigure('Terminator', (shape, w, h) => {
+  const r = getP1(shape, h / 2);
+  const cr = Math.min(r, w / 2, h / 2);
+  if (cr <= 0) return getFigureGeometry('Rectangle', w, h, NaN, NaN, shape)!;
+  const geo = new Geometry();
+  const fig = new PathFigure(cr, 0);
+  fig.add(PathSegment.Line(w - cr, 0));
+  fig.add(PathSegment.Arc(w, cr, cr, cr, 0, false, false));
+  fig.add(PathSegment.Line(w, h - cr));
+  fig.add(PathSegment.Arc(w - cr, h, cr, cr, 0, false, false));
+  fig.add(PathSegment.Line(cr, h));
+  fig.add(PathSegment.Arc(0, h - cr, cr, cr, 0, false, false));
+  fig.add(PathSegment.Line(0, cr));
+  fig.add(PathSegment.Arc(cr, 0, cr, cr, 0, false, false));
+  fig.add(PathSegment.Close());
+  geo.add(fig);
+  return geo;
+});
+
+defineFigure('Process', (shape, w, h) => {
+  const indent = getP1(shape, w * 0.1);
+  const geo = new Geometry();
+  const fig = new PathFigure(indent, 0);
+  fig.add(PathSegment.Line(w - indent, 0));
+  fig.add(PathSegment.Line(w - indent, h));
+  fig.add(PathSegment.Line(indent, h));
+  fig.add(PathSegment.Close());
+  geo.add(fig);
+  return geo;
+});
+
+defineFigure('Procedure', (shape, w, h) => {
+  const indent = getP1(shape, w * 0.1);
+  const geo = new Geometry();
+  const fig = new PathFigure(0, 0);
+  fig.add(PathSegment.Line(w, 0));
+  fig.add(PathSegment.Line(w, h));
+  fig.add(PathSegment.Line(0, h));
+  fig.add(PathSegment.Close());
+  geo.add(fig);
+  const fig2 = new PathFigure(indent, 0, false);
+  fig2.add(PathSegment.Line(indent, h));
+  geo.add(fig2);
+  const fig3 = new PathFigure(w - indent, 0, false);
+  fig3.add(PathSegment.Line(w - indent, h));
+  geo.add(fig3);
+  return geo;
+});
+
+defineFigure('PredefinedProcess', (shape, w, h) => {
+  const indent = getP1(shape, w * 0.1);
+  const geo = new Geometry();
+  const fig = new PathFigure(0, 0);
+  fig.add(PathSegment.Line(w, 0));
+  fig.add(PathSegment.Line(w, h));
+  fig.add(PathSegment.Line(0, h));
+  fig.add(PathSegment.Close());
+  geo.add(fig);
+  const fig2 = new PathFigure(indent, 0, false);
+  fig2.add(PathSegment.Line(indent, h));
+  geo.add(fig2);
+  const fig3 = new PathFigure(w - indent, 0, false);
+  fig3.add(PathSegment.Line(w - indent, h));
+  geo.add(fig3);
+  return geo;
+});
+
+defineFigure('InternalStorage', (shape, w, h) => {
+  const indent = getP1(shape, w * 0.1);
+  const geo = new Geometry();
+  const fig = new PathFigure(0, 0);
+  fig.add(PathSegment.Line(w, 0));
+  fig.add(PathSegment.Line(w, h));
+  fig.add(PathSegment.Line(0, h));
+  fig.add(PathSegment.Close());
+  geo.add(fig);
+  const fig2 = new PathFigure(indent, 0, false);
+  fig2.add(PathSegment.Line(indent, h));
+  geo.add(fig2);
+  const fig3 = new PathFigure(0, indent, false);
+  fig3.add(PathSegment.Line(w, indent));
+  geo.add(fig3);
+  return geo;
+});
+
+defineFigure('ManualInput', (shape, w, h) => {
+  const geo = new Geometry();
+  const fig = new PathFigure(w, 0);
+  fig.add(PathSegment.Line(w, h));
+  fig.add(PathSegment.Line(0, h));
+  fig.add(PathSegment.Line(w * 0.2, 0));
+  fig.add(PathSegment.Close());
+  geo.add(fig);
+  return geo;
+});
+
+defineFigure('ManualOperation', (shape, w, h) => {
+  const geo = new Geometry();
+  const fig = new PathFigure(0, 0);
+  fig.add(PathSegment.Line(w, 0));
+  fig.add(PathSegment.Line(w * 0.8, h));
+  fig.add(PathSegment.Line(w * 0.2, h));
+  fig.add(PathSegment.Close());
+  geo.add(fig);
+  return geo;
+});
+
+defineFigure('Preparation', (shape, w, h) => {
+  const geo = new Geometry();
+  const fig = new PathFigure(w * 0.15, 0);
+  fig.add(PathSegment.Line(w * 0.85, 0));
+  fig.add(PathSegment.Line(w, h / 2));
+  fig.add(PathSegment.Line(w * 0.85, h));
+  fig.add(PathSegment.Line(w * 0.15, h));
+  fig.add(PathSegment.Line(0, h / 2));
+  fig.add(PathSegment.Close());
+  geo.add(fig);
+  return geo;
+});
+
+defineFigure('Delay', (shape, w, h) => {
+  const geo = new Geometry();
+  const fig = new PathFigure(0, 0);
+  fig.add(PathSegment.Line(w * 0.7, 0));
+  fig.add(PathSegment.CubicBezier(w, h / 2, w, 0, w, h / 2));
+  fig.add(PathSegment.CubicBezier(w * 0.7, h, w, h, w * 0.7, h));
+  fig.add(PathSegment.Line(0, h));
+  fig.add(PathSegment.Close());
+  geo.add(fig);
+  return geo;
+});
+
+defineFigure('Display', (shape, w, h) => {
+  const geo = new Geometry();
+  const fig = new PathFigure(w * 0.2, 0);
+  fig.add(PathSegment.Line(w, 0));
+  fig.add(PathSegment.Line(w * 0.8, h));
+  fig.add(PathSegment.Line(0, h));
+  fig.add(PathSegment.Close());
+  geo.add(fig);
+  return geo;
+});
+
+defineFigure('OffPageLink', (shape, w, h) => {
+  const geo = new Geometry();
+  const fig = new PathFigure(0, 0);
+  fig.add(PathSegment.Line(w, 0));
+  fig.add(PathSegment.Line(w, h * 0.7));
+  fig.add(PathSegment.Line(w / 2, h));
+  fig.add(PathSegment.Line(0, h * 0.7));
+  fig.add(PathSegment.Close());
+  geo.add(fig);
+  return geo;
+});
+
+defineFigure('Card', (shape, w, h) => {
+  const indent = getP1(shape, w * 0.1);
+  const geo = new Geometry();
+  const fig = new PathFigure(indent, 0);
+  fig.add(PathSegment.Line(w, 0));
+  fig.add(PathSegment.Line(w, h));
+  fig.add(PathSegment.Line(0, h));
+  fig.add(PathSegment.Line(0, indent));
+  fig.add(PathSegment.Close());
+  geo.add(fig);
+  return geo;
+});
+
+defineFigure('Annotation', (shape, w, h) => {
+  const indent = getP1(shape, w * 0.1);
+  const geo = new Geometry();
+  const fig = new PathFigure(0, 0, false);
+  fig.add(PathSegment.Line(w, 0));
+  fig.add(PathSegment.Line(w, h));
+  fig.add(PathSegment.Line(0, h));
+  geo.add(fig);
+  const fig2 = new PathFigure(indent, 0, false);
+  fig2.add(PathSegment.Line(indent, h));
+  geo.add(fig2);
+  return geo;
+});
+
+defineFigure('DataStorage', (shape, w, h) => {
+  const geo = new Geometry();
+  const fig = new PathFigure(w * 0.2, 0);
+  fig.add(PathSegment.Line(w, 0));
+  fig.add(PathSegment.CubicBezier(w * 0.8, h / 2, w, h / 2, w * 0.8, h / 2));
+  fig.add(PathSegment.CubicBezier(w, h, w * 0.8, h, w, h));
+  fig.add(PathSegment.Line(w * 0.2, h));
+  fig.add(PathSegment.CubicBezier(0, h / 2, w * 0.2, h / 2, 0, h / 2));
+  fig.add(PathSegment.CubicBezier(w * 0.2, 0, 0, h / 2, w * 0.2, 0));
+  fig.add(PathSegment.Close());
+  geo.add(fig);
+  return geo;
+});
+
+defineFigure('ThickCross', (shape, w, h) => {
+  const geo = new Geometry();
+  const fig = new PathFigure(w * 0.25, 0);
+  fig.add(PathSegment.Line(w * 0.75, 0));
+  fig.add(PathSegment.Line(w * 0.75, h * 0.25));
+  fig.add(PathSegment.Line(w, h * 0.25));
+  fig.add(PathSegment.Line(w, h * 0.75));
+  fig.add(PathSegment.Line(w * 0.75, h * 0.75));
+  fig.add(PathSegment.Line(w * 0.75, h));
+  fig.add(PathSegment.Line(w * 0.25, h));
+  fig.add(PathSegment.Line(w * 0.25, h * 0.75));
+  fig.add(PathSegment.Line(0, h * 0.75));
+  fig.add(PathSegment.Line(0, h * 0.25));
+  fig.add(PathSegment.Line(w * 0.25, h * 0.25));
+  fig.add(PathSegment.Close());
+  geo.add(fig);
+  return geo;
+});
+
+defineFigure('ThinX', (shape, w, h) => {
+  const geo = new Geometry();
+  const fig = new PathFigure(0, 0, false);
+  fig.add(PathSegment.Line(w, h));
+  geo.add(fig);
+  const fig2 = new PathFigure(w, 0, false);
+  fig2.add(PathSegment.Line(0, h));
+  geo.add(fig2);
+  return geo;
+});
+
+defineFigure('ThickX', (shape, w, h) => {
+  const geo = new Geometry();
+  const fig = new PathFigure(w * 0.2, 0);
+  fig.add(PathSegment.Line(w, h * 0.8));
+  fig.add(PathSegment.Line(w * 0.8, h));
+  fig.add(PathSegment.Line(0, h * 0.2));
+  fig.add(PathSegment.Close());
+  geo.add(fig);
+  const fig2 = new PathFigure(w * 0.8, 0);
+  fig2.add(PathSegment.Line(w, h * 0.2));
+  fig2.add(PathSegment.Line(w * 0.2, h));
+  fig2.add(PathSegment.Line(0, h * 0.8));
+  fig2.add(PathSegment.Close());
+  geo.add(fig2);
+  return geo;
+});
+
+defineFigure('FramedRectangle', (shape, w, h) => {
+  const geo = new Geometry();
+  const fig = new PathFigure(0, 0);
+  fig.add(PathSegment.Line(w, 0));
+  fig.add(PathSegment.Line(w, h));
+  fig.add(PathSegment.Line(0, h));
+  fig.add(PathSegment.Close());
+  geo.add(fig);
+  const fig2 = new PathFigure(w * 0.1, h * 0.1, false);
+  fig2.add(PathSegment.Line(w * 0.9, h * 0.1));
+  fig2.add(PathSegment.Line(w * 0.9, h * 0.9));
+  fig2.add(PathSegment.Line(w * 0.1, h * 0.9));
+  fig2.add(PathSegment.Close());
+  geo.add(fig2);
+  return geo;
+});
+
+defineFigure('End', (shape, w, h) => {
+  const geo = new Geometry();
+  const fig = new PathFigure(w / 2, 0);
+  fig.add(PathSegment.Line(w, h / 2));
+  fig.add(PathSegment.Line(w / 2, h));
+  fig.add(PathSegment.Line(0, h / 2));
+  fig.add(PathSegment.Close());
+  geo.add(fig);
+  return geo;
+});
+
 defineFigure('Trapezoid', (shape, w, h) => {
   const geo = new Geometry();
   const indent = getP1(shape, w * 0.2);
@@ -506,5 +865,145 @@ defineFigure('ThinArrow', (shape, w, h) => {
   fig.add(PathSegment.Line(w * 0.5, h * 0.35));
   fig.add(PathSegment.Close());
   geo.add(fig);
+  return geo;
+});
+
+defineFigure('RoundedTopRectangle', (shape, w, h) => {
+  const r = getP1(shape, 5);
+  const cr = Math.min(r, w / 2, h / 2);
+  if (cr <= 0) return getFigureGeometry('Rectangle', w, h, NaN, NaN, shape)!;
+  const geo = new Geometry();
+  const fig = new PathFigure(cr, 0);
+  fig.add(PathSegment.Line(w - cr, 0));
+  fig.add(PathSegment.Arc(w, cr, cr, cr, 0, false, false));
+  fig.add(PathSegment.Line(w, h));
+  fig.add(PathSegment.Line(0, h));
+  fig.add(PathSegment.Line(0, cr));
+  fig.add(PathSegment.Arc(cr, 0, cr, cr, 0, false, false));
+  fig.add(PathSegment.Close());
+  geo.add(fig);
+  return geo;
+});
+
+defineFigure('RoundedBottomRectangle', (shape, w, h) => {
+  const r = getP1(shape, 5);
+  const cr = Math.min(r, w / 2, h / 2);
+  if (cr <= 0) return getFigureGeometry('Rectangle', w, h, NaN, NaN, shape)!;
+  const geo = new Geometry();
+  const fig = new PathFigure(0, 0);
+  fig.add(PathSegment.Line(w, 0));
+  fig.add(PathSegment.Line(w, h - cr));
+  fig.add(PathSegment.Arc(w - cr, h, cr, cr, 0, false, false));
+  fig.add(PathSegment.Line(cr, h));
+  fig.add(PathSegment.Arc(0, h - cr, cr, cr, 0, false, false));
+  fig.add(PathSegment.Close());
+  geo.add(fig);
+  return geo;
+});
+
+defineFigure('RoundedLeftRectangle', (shape, w, h) => {
+  const r = getP1(shape, 5);
+  const cr = Math.min(r, w / 2, h / 2);
+  if (cr <= 0) return getFigureGeometry('Rectangle', w, h, NaN, NaN, shape)!;
+  const geo = new Geometry();
+  const fig = new PathFigure(0, cr);
+  fig.add(PathSegment.Arc(cr, 0, cr, cr, 0, false, false));
+  fig.add(PathSegment.Line(w, 0));
+  fig.add(PathSegment.Line(w, h));
+  fig.add(PathSegment.Line(cr, h));
+  fig.add(PathSegment.Arc(0, h - cr, cr, cr, 0, false, false));
+  fig.add(PathSegment.Close());
+  geo.add(fig);
+  return geo;
+});
+
+defineFigure('RoundedRightRectangle', (shape, w, h) => {
+  const r = getP1(shape, 5);
+  const cr = Math.min(r, w / 2, h / 2);
+  if (cr <= 0) return getFigureGeometry('Rectangle', w, h, NaN, NaN, shape)!;
+  const geo = new Geometry();
+  const fig = new PathFigure(0, 0);
+  fig.add(PathSegment.Line(w - cr, 0));
+  fig.add(PathSegment.Arc(w, cr, cr, cr, 0, false, false));
+  fig.add(PathSegment.Line(w, h - cr));
+  fig.add(PathSegment.Arc(w - cr, h, cr, cr, 0, false, false));
+  fig.add(PathSegment.Line(0, h));
+  fig.add(PathSegment.Close());
+  geo.add(fig);
+  return geo;
+});
+
+defineFigure('Border', (shape, w, h) => {
+  const geo = new Geometry();
+  const fig = new PathFigure(0, 0, false);
+  fig.add(PathSegment.Line(w, 0));
+  fig.add(PathSegment.Line(w, h));
+  fig.add(PathSegment.Line(0, h));
+  fig.add(PathSegment.Close());
+  geo.add(fig);
+  return geo;
+});
+
+defineFigure('BarH', (shape, w, h) => {
+  return getFigureGeometry('Rectangle', w, h, NaN, NaN, shape)!;
+});
+
+defineFigure('BarV', (shape, w, h) => {
+  return getFigureGeometry('Rectangle', w, h, NaN, NaN, shape)!;
+});
+
+defineFigure('LineRight', (shape, w, h) => {
+  const geo = new Geometry();
+  const fig = new PathFigure(0, h / 2, false);
+  fig.add(PathSegment.Line(w, h / 2));
+  geo.add(fig);
+  return geo;
+});
+
+defineFigure('LineDown', (shape, w, h) => {
+  const geo = new Geometry();
+  const fig = new PathFigure(w / 2, 0, false);
+  fig.add(PathSegment.Line(w / 2, h));
+  geo.add(fig);
+  return geo;
+});
+
+defineFigure('LineLeft', (shape, w, h) => {
+  const geo = new Geometry();
+  const fig = new PathFigure(w, h / 2, false);
+  fig.add(PathSegment.Line(0, h / 2));
+  geo.add(fig);
+  return geo;
+});
+
+defineFigure('LineUp', (shape, w, h) => {
+  const geo = new Geometry();
+  const fig = new PathFigure(w / 2, h, false);
+  fig.add(PathSegment.Line(w / 2, 0));
+  geo.add(fig);
+  return geo;
+});
+
+defineFigure('None', (shape, w, h) => {
+  const geo = new Geometry();
+  const fig = new PathFigure(0, 0, false);
+  geo.add(fig);
+  return geo;
+});
+
+defineFigure('Borders', (shape, w, h) => {
+  const geo = new Geometry();
+  const fig = new PathFigure(0, 0, false);
+  fig.add(PathSegment.Line(w, 0));
+  fig.add(PathSegment.Line(w, h));
+  fig.add(PathSegment.Line(0, h));
+  fig.add(PathSegment.Close());
+  geo.add(fig);
+  const fig2 = new PathFigure(w * 0.05, h * 0.05, false);
+  fig2.add(PathSegment.Line(w * 0.95, h * 0.05));
+  fig2.add(PathSegment.Line(w * 0.95, h * 0.95));
+  fig2.add(PathSegment.Line(w * 0.05, h * 0.95));
+  fig2.add(PathSegment.Close());
+  geo.add(fig2);
   return geo;
 });

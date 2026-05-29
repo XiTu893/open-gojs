@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Figure Gallery Test</title>
+  <style>
+    body { font-family: sans-serif; margin: 10px; background: #f5f5f5; }
+    .grid { display: flex; flex-wrap: wrap; gap: 12px; }
+    .card { background: white; border: 1px solid #ddd; border-radius: 6px; padding: 8px; text-align: center; width: 90px; }
+    .card canvas { display: block; margin: 0 auto; }
+    .card .name { font-size: 10px; margin-top: 4px; color: #333; }
+    h2 { margin-top: 20px; }
+  </style>
+</head>
+<body>
+  <h1>Open-GoJS Figure Gallery</h1>
+  <div id="gallery" class="grid"></div>
+
+  <script src="../dist/open-gojs.umd.js"></script>
+  <script>
+    const $ = go.GraphObject.make;
+
+    const allFigures = [
+      'Rectangle', 'Square', 'RoundedRectangle', 'RoundedTopRectangle',
+      'RoundedBottomRectangle', 'RoundedLeftRectangle', 'RoundedRightRectangle',
+      'Border', 'Borders', 'Ellipse', 'Circle', 'Capsule',
+      'Triangle', 'TriangleUp', 'TriangleDown', 'TriangleLeft', 'TriangleRight',
+      'Diamond', 'Pentagon', 'Hexagon', 'Octagon',
+      'Star', 'Cross', 'ThickCross',
+      'Arrow', 'DoubleArrow', 'ThinArrow', 'Chevron',
+      'LineH', 'LineV', 'LineRight', 'LineDown', 'LineLeft', 'LineUp',
+      'MinusLine', 'PlusLine', 'XLine', 'ThinX', 'ThickX',
+      'Bar', 'BarH', 'BarV', 'HalfEllipse',
+      'RightTriangle', 'Kite',
+      'Cloud', 'Cylinder1', 'Cylinder2', 'Cylinder3', 'Cylinder4',
+      'Database', 'Trapezoid', 'Parallelogram',
+      'File', 'Document', 'Note', 'Shield',
+      'Terminator', 'Process', 'Procedure', 'PredefinedProcess',
+      'InternalStorage', 'ManualInput', 'ManualOperation',
+      'Preparation', 'Delay', 'Display', 'OffPageLink',
+      'Card', 'Annotation', 'DataStorage',
+      'FramedRectangle', 'End', 'None'
+    ];
+
+    const gallery = document.getElementById('gallery');
+
+    for (const figName of allFigures) {
+      const card = document.createElement('div');
+      card.className = 'card';
+
+      const div = document.createElement('div');
+      div.style.width = '70px';
+      div.style.height = '50px';
+      div.id = 'fig-' + figName;
+      card.appendChild(div);
+
+      const nameEl = document.createElement('div');
+      nameEl.className = 'name';
+      nameEl.textContent = figName;
+      card.appendChild(nameEl);
+
+      gallery.appendChild(card);
+
+      try {
+        const diagram = new go.Diagram(div.id, {
+          'animationManager.isEnabled': false,
+          allowSelect: false,
+          allowHorizontalScroll: false,
+          allowVerticalScroll: false
+        });
+
+        diagram.div.style.border = 'none';
+
+        diagram.nodeTemplate =
+          $(go.Node,
+            $(go.Shape, figName, {
+              width: 60, height: 40,
+              fill: '#ace', stroke: '#369', strokeWidth: 1.5
+            })
+          );
+
+        diagram.model = new go.Model([{ key: 1 }]);
+        diagram.contentAlignment = go.Spot.Center;
+        diagram.zoomToFit();
+      } catch (e) {
+        nameEl.style.color = 'red';
+        nameEl.textContent = figName + ' (ERR)';
+      }
+    }
+  </script>
+</body>
+</html>
