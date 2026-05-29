@@ -945,6 +945,17 @@ export class Diagram {
       this._addNodeForData(nodeData);
     }
 
+    for (const nodeData of model.nodeDataArray) {
+      const groupKey = model.getGroupKeyForNodeData(nodeData);
+      if (groupKey !== undefined && groupKey !== null) {
+        const node = this._nodeKeyMap.get(nodeData.key);
+        const groupNode = this._nodeKeyMap.get(groupKey);
+        if (node && groupNode && (groupNode as any)._memberParts !== undefined) {
+          node.containingGroup = groupNode;
+        }
+      }
+    }
+
     if (model instanceof GraphLinksModel) {
       const glm = model as GraphLinksModel;
       for (const linkData of glm.linkDataArray) {
@@ -1394,7 +1405,16 @@ export class Diagram {
       if (e.isInsertChange && e.propertyName === 'nodeDataArray') {
         const data = e.newValue;
         if (data) {
-          this._addNodeForData(data);
+          const node = this._addNodeForData(data);
+          if (node) {
+            const groupKey = this._model.getGroupKeyForNodeData(data);
+            if (groupKey !== undefined && groupKey !== null) {
+              const groupNode = this._nodeKeyMap.get(groupKey);
+              if (groupNode && (groupNode as any)._memberParts !== undefined) {
+                node.containingGroup = groupNode;
+              }
+            }
+          }
           needsLayout = true;
         }
       } else if (e.isRemoveChange && e.propertyName === 'nodeDataArray') {
@@ -1426,6 +1446,18 @@ export class Diagram {
             if (e.propertyName === this._model.nodeKeyProperty && part instanceof Node) {
               this._nodeKeyMap.remove(e.oldValue);
               this._nodeKeyMap.set(e.newValue, part);
+            }
+            if (e.propertyName === this._model.nodeGroupKeyProperty && part instanceof Node) {
+              const newGroupKey = e.newValue;
+              if (newGroupKey !== undefined && newGroupKey !== null) {
+                const groupNode = this._nodeKeyMap.get(newGroupKey);
+                if (groupNode && (groupNode as any)._memberParts !== undefined) {
+                  part.containingGroup = groupNode;
+                }
+              } else {
+                part.containingGroup = null;
+              }
+              needsLayout = true;
             }
             if (part instanceof Link && this._model instanceof GraphLinksModel) {
               const glm = this._model as GraphLinksModel;

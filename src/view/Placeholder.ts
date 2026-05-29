@@ -31,12 +31,19 @@ export class Placeholder extends GraphObject {
     const group = this._findGroup();
     if (group) {
       let bounds = new Rect();
+      const groupPos = group.position;
       const it = group.memberParts.iterator;
       while (it.next()) {
         const part = it.value;
         if (!part.visible) continue;
         const partBounds = part.getDocumentBounds();
-        bounds = bounds.union(partBounds);
+        const localBounds = new Rect(
+          partBounds.x - groupPos.x,
+          partBounds.y - groupPos.y,
+          partBounds.width,
+          partBounds.height
+        );
+        bounds = bounds.union(localBounds);
       }
       const pad = this._padding;
       this._measuredBounds = new Rect(0, 0, bounds.width + pad * 2, bounds.height + pad * 2);

@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Group / Placeholder Test</title>
+  <style>
+    body { font-family: sans-serif; margin: 10px; }
+    #myDiagramDiv { width: 700px; height: 500px; border: 1px solid black; }
+    button { margin: 4px; padding: 4px 12px; }
+  </style>
+</head>
+<body>
+  <h2>Group / Placeholder Test</h2>
+  <div id="myDiagramDiv"></div>
+  <br>
+  <button onclick="addGroup()">Add Group</button>
+  <button onclick="addNodeToGroup()">Add Node to Group</button>
+  <button onclick="collapseGroup()">Collapse Group</button>
+  <button onclick="expandGroup()">Expand Group</button>
+
+  <script src="../dist/open-gojs.umd.js"></script>
+  <script>
+    const $ = go.GraphObject.make;
+
+    const diagram = new go.Diagram('myDiagramDiv', {
+      'undoManager.isEnabled': true,
+      'animationManager.isEnabled': false
+    });
+
+    diagram.groupTemplate =
+      $(go.Group, 'Auto',
+        {
+          ungroupable: true,
+          layout: $(go.GridLayout, { cellSize: new go.Size(80, 80) })
+        },
+        $(go.Shape, 'RoundedRectangle', {
+          fill: 'rgba(128,128,128,0.15)', stroke: 'gray', strokeWidth: 2
+        }),
+        $(go.Panel, 'Vertical',
+          { defaultAlignment: go.Spot.Left },
+          $(go.Panel, 'Horizontal',
+            { margin: 5 },
+            $('SubGraphExpanderButton'),
+            $(go.TextBlock, { font: 'bold 12px sans-serif', margin: new go.Margin(0, 0, 0, 5) },
+              new go.Binding('text', 'text'))
+          ),
+          $(go.Placeholder, { padding: 10 })
+        )
+      );
+
+    diagram.nodeTemplate =
+      $(go.Node, 'Auto',
+        $(go.Shape, 'Ellipse', { fill: '#ace', stroke: '#369', minSize: new go.Size(40, 40) }),
+        $(go.TextBlock, { margin: 5, font: '11px sans-serif' }, new go.Binding('text', 'text'))
+      );
+
+    diagram.linkTemplate =
+      $(go.Link,
+        { routing: go.Routing.Orthogonal, corner: 5 },
+        $(go.Shape, { strokeWidth: 1.5 }),
+        $(go.Shape, { toArrow: 'Standard' })
+      );
+
+    diagram.model = new go.GraphLinksModel(
+      [
+        { key: 1, text: 'Group A', isGroup: true },
+        { key: 2, text: 'Alpha', group: 1 },
+        { key: 3, text: 'Beta', group: 1 },
+        { key: 4, text: 'Group B', isGroup: true },
+        { key: 5, text: 'Gamma', group: 4 },
+        { key: 6, text: 'Delta', group: 4 },
+        { key: 7, text: 'Standalone' }
+      ],
+      [
+        { from: 2, to: 3 },
+        { from: 5, to: 6 },
+        { from: 3, to: 5 }
+      ]
+    );
+
+    function addGroup() {
+      diagram.startTransaction('add group');
+      const model = diagram.model;
+      model.addNodeData({ key: 100, text: 'New Group', isGroup: true });
+      diagram.commitTransaction('add group');
+    }
+
+    function addNodeToGroup() {
+      diagram.startTransaction('add node');
+      const model = diagram.model;
+      model.addNodeData({ key: 101, text: 'New', group: 1 });
+      diagram.commitTransaction('add node');
+    }
+
+    function collapseGroup() {
+      const group = diagram.findNodeForKey(1);
+      if (group) diagram.commandHandler.collapseSubGraph(group);
+    }
+
+    function expandGroup() {
+      const group = diagram.findNodeForKey(1);
+      if (group) diagram.commandHandler.expandSubGraph(group);
+    }
+  </script>
+</body>
+</html>
