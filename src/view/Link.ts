@@ -36,6 +36,8 @@ export class Link extends Part {
   private _relinkableFrom: boolean = false;
   private _relinkableTo: boolean = false;
   private _reshapable: boolean = false;
+  private _jumpOver: number = 8;
+  private _jumpGap: number = 8;
 
   constructor(type?: EnumValue, init?: Partial<Link>) {
     super(type || PanelLink);
@@ -72,6 +74,12 @@ export class Link extends Part {
 
   get curviness(): number { return this._curviness; }
   set curviness(val: number) { this._curviness = val; }
+
+  get jumpOver(): number { return this._jumpOver; }
+  set jumpOver(val: number) { this._jumpOver = val; }
+
+  get jumpGap(): number { return this._jumpGap; }
+  set jumpGap(val: number) { this._jumpGap = val; }
 
   get points(): List<Point> { return this._points; }
   set points(val: List<Point>) { this._points = val; }

@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>JumpOver / JumpGap Test</title>
+  <style>
+    body { font-family: sans-serif; margin: 10px; }
+    .diagram { width: 600px; height: 400px; border: 1px solid black; display: inline-block; margin: 10px; }
+    h3 { margin: 5px 0; }
+  </style>
+</head>
+<body>
+  <h2>JumpOver / JumpGap Link Crossing Test</h2>
+
+  <h3>CurveJumpOver (semicircular arc at crossings)</h3>
+  <div id="jumpOverDiv" class="diagram"></div>
+
+  <h3>CurveJumpGap (gap at crossings)</h3>
+  <div id="jumpGapDiv" class="diagram"></div>
+
+  <h3>CurveNone (default, no crossing handling)</h3>
+  <div id="normalDiv" class="diagram"></div>
+
+  <script src="../dist/open-gojs.umd.js"></script>
+  <script>
+    const $ = go.GraphObject.make;
+
+    function makeDiagram(divId, curveType) {
+      const diagram = new go.Diagram(divId, {
+        'undoManager.isEnabled': true,
+        'animationManager.isEnabled': false
+      });
+
+      diagram.nodeTemplate =
+        $(go.Node, 'Auto',
+          $(go.Shape, 'RoundedRectangle', { fill: '#ace', stroke: '#369' }),
+          $(go.TextBlock, { margin: 8 }, new go.Binding('text', 'name'))
+        );
+
+      diagram.linkTemplate =
+        $(go.Link,
+          { routing: go.Routing.Orthogonal, curve: curveType, corner: 5 },
+          $(go.Shape, { strokeWidth: 2, stroke: '#369' }),
+          $(go.Shape, { toArrow: 'Standard', stroke: '#369', fill: '#369' })
+        );
+
+      diagram.model = new go.GraphLinksModel(
+        [
+          { key: 1, name: 'Alpha' },
+          { key: 2, name: 'Beta' },
+          { key: 3, name: 'Gamma' },
+          { key: 4, name: 'Delta' }
+        ],
+        [
+          { from: 1, to: 2 },
+          { from: 3, to: 4 }
+        ]
+      );
+
+      return diagram;
+    }
+
+    makeDiagram('jumpOverDiv', go.Curve.JumpOver);
+    makeDiagram('jumpGapDiv', go.Curve.JumpGap);
+    makeDiagram('normalDiv', go.Curve.None);
+  </script>
+</body>
+</html>

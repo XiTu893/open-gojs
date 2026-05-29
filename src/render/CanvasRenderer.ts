@@ -21,7 +21,7 @@ import {
   PanelAuto, PanelVertical, PanelHorizontal, PanelSpot, PanelTable,
   PanelPosition, PanelGrid, PanelLink, PanelViewbox, PanelGraduated,
   StretchFill, StretchNone, StretchUniform,
-  CurveBezier, CurveNone,
+  CurveBezier, CurveNone, CurveJumpOver, CurveJumpGap,
   BrushSolid, BrushLinear, BrushRadial,
   RoutingOrthogonal,
   ImageStretchNone, ImageStretchFill, ImageStretchUniform, ImageStretchUniformToFill
@@ -328,12 +328,19 @@ export class CanvasRenderer {
 
     ctx.save();
 
-    // Build the path
-    ctx.beginPath();
     const arr = points.toArray();
-    ctx.moveTo(arr[0].x, arr[0].y);
+    const curve = (link as any)._curve;
 
-    if ((link as any)._curve === CurveBezier) {
+    if (curve === CurveJumpOver || curve === CurveJumpGap) {
+      const crossings = this._findCrossings(link);
+      if (curve === CurveJumpOver) {
+        this._drawPathWithJumpOver(ctx, arr, crossings, (link as any)._jumpOver || 8);
+      } else {
+        this._drawPathWithJumpGap(ctx, arr, crossings, (link as any)._jumpGap || 8);
+      }
+    } else if (curve === CurveBezier) {
+      ctx.beginPath();
+      ctx.moveTo(arr[0].x, arr[0].y);
       if (arr.length === 2) {
         const curviness = (link as any)._curviness;
         if (curviness && isFinite(curviness) && curviness !== 0) {
@@ -362,12 +369,13 @@ export class CanvasRenderer {
         }
       }
     } else {
+      ctx.beginPath();
+      ctx.moveTo(arr[0].x, arr[0].y);
       for (let i = 1; i < arr.length; i++) {
         ctx.lineTo(arr[i].x, arr[i].y);
       }
     }
 
-    // Stroke the path
     if (shape.stroke && shape.strokeWidth > 0) {
       ctx.strokeStyle = this._applyBrush(ctx, shape.stroke, link.getDocumentBounds());
       ctx.lineWidth = shape.strokeWidth;
@@ -378,6 +386,177 @@ export class CanvasRenderer {
     }
 
     ctx.restore();
+  }
+
+  private _findCrossings(link: Link): number[] {
+    const diagram = (this as any)._diagram;
+    if (!diagram) return [];
+
+    const myPoints = link.points.toArray();
+    if (myPoints.length < 2) return [];
+
+    const crossings: number[] = [];
+    const layers = diagram._layers;
+    if (!layers) return [];
+
+    for (const layer of layers) {
+      if (layer.isTemporary) continue;
+      const it = layer.parts;
+      while (it.next()) {
+        const other = it.value;
+        if (other === link) continue;
+        if (!(other instanceof Link) && (other as any)._className !== 'Link') continue;
+        if (!other.visible) continue;
+
+        const otherPoints = other.points.toArray();
+        if (otherPoints.length < 2) continue;
+
+        for (let i = 0; i < myPoints.length - 1; i++) {
+          const a1 = myPoints[i];
+          const a2 = myPoints[i + 1];
+          for (let j = 0; j < otherPoints.length - 1; j++) {
+            const b1 = otherPoints[j];
+            const b2 = otherPoints[j + 1];
+            const pt = this._segmentIntersection(a1, a2, b1, b2);
+            if (pt) {
+              const dist = Math.sqrt((pt.x - myPoints[0].x) ** 2 + (pt.y - myPoints[0].y) ** 2);
+              crossings.push(dist);
+            }
+          }
+        }
+      }
+    }
+
+    crossings.sort((a, b) => a - b);
+    return crossings;
+  }
+
+  private _segmentIntersection(p1: Point, p2: Point, p3: Point, p4: Point): Point | null {
+    const dx1 = p2.x - p1.x;
+    const dy1 = p2.y - p1.y;
+    const dx2 = p4.x - p3.x;
+    const dy2 = p4.y - p3.y;
+
+    const denom = dx1 * dy2 - dy1 * dx2;
+    if (Math.abs(denom) < 1e-10) return null;
+
+    const t = ((p3.x - p1.x) * dy2 - (p3.y - p1.y) * dx2) / denom;
+    const u = ((p3.x - p1.x) * dy1 - (p3.y - p1.y) * dx1) / denom;
+
+    if (t > 0.001 && t < 0.999 && u > 0.001 && u < 0.999) {
+      return new Point(p1.x + t * dx1, p1.y + t * dy1);
+    }
+    return null;
+  }
+
+  private _drawPathWithJumpOver(ctx: CanvasRenderingContext2D, arr: Point[], crossings: number[], jumpSize: number): void {
+    ctx.beginPath();
+    ctx.moveTo(arr[0].x, arr[0].y);
+
+    if (crossings.length === 0) {
+      for (let i = 1; i < arr.length; i++) {
+        ctx.lineTo(arr[i].x, arr[i].y);
+      }
+      return;
+    }
+
+    let cumDist = 0;
+    const halfJump = jumpSize / 2;
+
+    for (let i = 1; i < arr.length; i++) {
+      const prev = arr[i - 1];
+      const curr = arr[i];
+      const segDx = curr.x - prev.x;
+      const segDy = curr.y - prev.y;
+      const segLen = Math.sqrt(segDx * segDx + segDy * segDy);
+      if (segLen === 0) continue;
+
+      const ux = segDx / segLen;
+      const uy = segDy / segLen;
+
+      let segStart = cumDist;
+      const segEnd = cumDist + segLen;
+
+      let pos = segStart;
+      for (const crossDist of crossings) {
+        if (crossDist <= segStart + halfJump || crossDist >= segEnd - halfJump) continue;
+
+        const beforeDist = crossDist - segStart - halfJump;
+        if (beforeDist > 0.01) {
+          const t1 = (pos - segStart) / segLen;
+          const t2 = (crossDist - halfJump - segStart) / segLen;
+          ctx.lineTo(prev.x + segDx * t2, prev.y + segDy * t2);
+        }
+
+        const cx = prev.x + (crossDist - segStart) / segLen * segDx;
+        const cy = prev.y + (crossDist - segStart) / segLen * segDy;
+
+        const startJumpX = cx - ux * halfJump;
+        const startJumpY = cy - uy * halfJump;
+        const endJumpX = cx + ux * halfJump;
+        const endJumpY = cy + uy * halfJump;
+
+        const perpX = -uy;
+        const perpY = ux;
+        const radius = halfJump;
+
+        ctx.arc(cx + perpX * 0, cy + perpY * 0, radius, Math.atan2(-perpX, -perpY) + Math.PI, Math.atan2(-perpX, -perpY), false);
+
+        pos = crossDist + halfJump;
+      }
+
+      if (pos < segEnd - 0.01) {
+        ctx.lineTo(curr.x, curr.y);
+      }
+
+      cumDist = segEnd;
+    }
+  }
+
+  private _drawPathWithJumpGap(ctx: CanvasRenderingContext2D, arr: Point[], crossings: number[], gapSize: number): void {
+    ctx.beginPath();
+    ctx.moveTo(arr[0].x, arr[0].y);
+
+    if (crossings.length === 0) {
+      for (let i = 1; i < arr.length; i++) {
+        ctx.lineTo(arr[i].x, arr[i].y);
+      }
+      return;
+    }
+
+    let cumDist = 0;
+    const halfGap = gapSize / 2;
+
+    for (let i = 1; i < arr.length; i++) {
+      const prev = arr[i - 1];
+      const curr = arr[i];
+      const segDx = curr.x - prev.x;
+      const segDy = curr.y - prev.y;
+      const segLen = Math.sqrt(segDx * segDx + segDy * segDy);
+      if (segLen === 0) continue;
+
+      const segStart = cumDist;
+      const segEnd = cumDist + segLen;
+
+      let pos = segStart;
+      for (const crossDist of crossings) {
+        if (crossDist <= segStart + halfGap || crossDist >= segEnd - halfGap) continue;
+
+        const tGapStart = (crossDist - halfGap - segStart) / segLen;
+        ctx.lineTo(prev.x + segDx * tGapStart, prev.y + segDy * tGapStart);
+
+        const tGapEnd = (crossDist + halfGap - segStart) / segLen;
+        ctx.moveTo(prev.x + segDx * tGapEnd, prev.y + segDy * tGapEnd);
+
+        pos = crossDist + halfGap;
+      }
+
+      if (pos < segEnd - 0.01) {
+        ctx.lineTo(curr.x, curr.y);
+      }
+
+      cumDist = segEnd;
+    }
   }
 
   /** Render an arrowhead at the end of a link */
