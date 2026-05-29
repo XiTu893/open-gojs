@@ -96,6 +96,10 @@ export class RotatingTool extends Tool {
     if (!this.isActive) return;
     this.transactionResult = this.name;
     this.stopTool();
+    const diagram = this.diagram;
+    if (diagram && this._adornedElement) {
+      diagram.raiseDiagramEvent('PartRotated', this._adornedElement.part);
+    }
   }
 
   doDeactivate(): void {

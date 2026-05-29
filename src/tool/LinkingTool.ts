@@ -161,6 +161,10 @@ export class LinkingTool extends LinkingBaseTool {
       if (fromKey !== undefined) linkData[model.linkFromKeyProperty || 'from'] = fromKey;
       if (toKey !== undefined) linkData[model.linkToKeyProperty || 'to'] = toKey;
       model.addLinkData(linkData);
+      const newLink = diagram.findLinkForData(linkData);
+      if (newLink) {
+        diagram.raiseDiagramEvent('LinkDrawn', newLink);
+      }
     }
 
     return null;

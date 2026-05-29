@@ -104,6 +104,7 @@ export class RelinkingTool extends LinkingBaseTool {
       if (this.isValidLink(this._originalLink.fromNode, this._originalFromPort!, toNode, targetPort)) {
         this._originalLink.toNode = toNode;
         this.transactionResult = this.name;
+        diagram.raiseDiagramEvent('LinkRelinked', this._originalLink);
       }
     }
 

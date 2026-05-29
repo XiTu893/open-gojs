@@ -95,6 +95,10 @@ export class LinkReshapingTool extends Tool {
     if (!this.isActive) return;
     this.transactionResult = this.name;
     this.stopTool();
+    const diagram = this.diagram;
+    if (diagram && this._adornedLink) {
+      diagram.raiseDiagramEvent('LinkReshaped', this._adornedLink);
+    }
   }
 
   doDeactivate(): void {

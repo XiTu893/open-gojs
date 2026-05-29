@@ -103,6 +103,10 @@ export class ResizingTool extends Tool {
     if (!this.isActive) return;
     this.transactionResult = this.name;
     this.stopTool();
+    const diagram = this.diagram;
+    if (diagram && this._adornedElement) {
+      diagram.raiseDiagramEvent('PartResized', this._adornedElement.part);
+    }
   }
 
   doDeactivate(): void {

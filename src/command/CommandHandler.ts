@@ -47,15 +47,43 @@ export class CommandHandler {
     while (it.next()) {
       parts.push(it.value);
     }
+
+    const linksToRemove: any[] = [];
+    const nodesToRemove: any[] = [];
+
     for (const part of parts) {
-      if (part.data) {
-        this._diagram.model.removeNodeData(part.data);
+      if (!part.data) continue;
+      if ((part as any)._className === 'Link') {
+        linksToRemove.push(part.data);
+      } else {
+        nodesToRemove.push(part.data);
+        const connectedLinks = this._diagram.findLinksConnected(part);
+        if (connectedLinks) {
+          const lit = connectedLinks.iterator;
+          while (lit.next()) {
+            const link = lit.value;
+            if (link.data && linksToRemove.indexOf(link.data) < 0) {
+              linksToRemove.push(link.data);
+            }
+          }
+        }
       }
     }
-    this._diagram.commitTransaction('delete selection');
-  }
 
-  // ============ Copy ============
+    const model = this._diagram.model;
+    const isGraphLinks = typeof (model as any).removeLinkData === 'function';
+    for (const linkData of linksToRemove) {
+      if (isGraphLinks) {
+        (model as any).removeLinkData(linkData);
+      }
+    }
+    for (const nodeData of nodesToRemove) {
+      model.removeNodeData(nodeData);
+    }
+
+    this._diagram.commitTransaction('delete selection');
+    this._diagram.raiseDiagramEvent('SelectionDeleted');
+  }
 
   canCopy(): boolean {
     if (!this._isEnabled) return false;
@@ -78,6 +106,7 @@ export class CommandHandler {
         CommandHandler._clipboard.push({ data: dataCopy, isLink: isLink });
       }
     }
+    this._diagram.raiseDiagramEvent('ClipboardChanged');
   }
 
   // ============ Cut ============
