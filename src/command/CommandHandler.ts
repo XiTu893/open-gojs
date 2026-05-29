@@ -2,6 +2,8 @@
  * CommandHandler - handles keyboard and programmatic commands for a Diagram.
  * Provides canXxx() and doXxx() methods for each supported command.
  */
+import { Point } from '../core/Point';
+
 export class CommandHandler {
 
   private _diagram: any = null;
@@ -72,7 +74,8 @@ export class CommandHandler {
       const part = it.value;
       if (part.data) {
         const dataCopy = JSON.parse(JSON.stringify(part.data));
-        CommandHandler._clipboard.push(dataCopy);
+        const isLink = (part as any)._className === 'Link';
+        CommandHandler._clipboard.push({ data: dataCopy, isLink: isLink });
       }
     }
   }
@@ -105,8 +108,12 @@ export class CommandHandler {
     this._diagram.startTransaction('paste');
     const model = this._diagram.model;
     const offset = 20;
-    for (const data of CommandHandler._clipboard) {
-      const newData = JSON.parse(JSON.stringify(data));
+    const keyMap = new Map<any, any>();
+
+    for (const item of CommandHandler._clipboard) {
+      if (item.isLink) continue;
+      const newData = JSON.parse(JSON.stringify(item.data));
+      const oldKey = model.getKeyForNodeData(newData);
       if (newData.key !== undefined) {
         newData.key = model.makeKey ? model.makeKey() : model.makeUniqueKeyString ? model.makeUniqueKeyString() : newData.key + '_copy';
       }
@@ -117,7 +124,33 @@ export class CommandHandler {
         newData.loc = (x + offset) + ' ' + (y + offset);
       }
       model.addNodeData(newData);
+      if (oldKey !== undefined) {
+        keyMap.set(oldKey, model.getKeyForNodeData(newData));
+      }
     }
+
+    const isGraphLinks = model.nodeDataArray !== undefined && typeof (model as any).addLinkData === 'function';
+    if (isGraphLinks) {
+      for (const item of CommandHandler._clipboard) {
+        if (!item.isLink) continue;
+        const newData = JSON.parse(JSON.stringify(item.data));
+        const glm = model as any;
+        const fromProp = glm.linkFromKeyProperty || 'from';
+        const toProp = glm.linkToKeyProperty || 'to';
+        const oldFrom = newData[fromProp];
+        const oldTo = newData[toProp];
+        if (keyMap.has(oldFrom)) newData[fromProp] = keyMap.get(oldFrom);
+        if (keyMap.has(oldTo)) newData[toProp] = keyMap.get(oldTo);
+        if (newData.loc !== undefined) {
+          const parts = String(newData.loc).split(' ');
+          const x = parseFloat(parts[0]) || 0;
+          const y = parseFloat(parts[1]) || 0;
+          newData.loc = (x + offset) + ' ' + (y + offset);
+        }
+        glm.addLinkData(newData);
+      }
+    }
+
     this._diagram.commitTransaction('paste');
   }
 
@@ -420,6 +453,31 @@ export class CommandHandler {
     // Stub: send selected parts to back
   }
 
+  canMoveSelection(): boolean {
+    if (!this._isEnabled) return false;
+    if (!this._diagram) return false;
+    if (this._diagram.isReadOnly) return false;
+    if (!this._diagram.allowMove) return false;
+    return this._diagram.selection.count > 0;
+  }
+
+  moveSelection(dx: number, dy: number): void {
+    if (!this.canMoveSelection()) return;
+    this._diagram.startTransaction('move selection');
+    const sel = this._diagram.selection;
+    const it = sel.iterator;
+    while (it.next()) {
+      const part = it.value;
+      if ((part as any)._className === 'Node' || (part as any)._className === 'Group') {
+        const pos = part.position;
+        if (pos) {
+          part.move(new Point(pos.x + dx, pos.y + dy));
+        }
+      }
+    }
+    this._diagram.commitTransaction('move selection');
+  }
+
   // ============ Keyboard Handling ============
 
   doKeyDown(): void {
@@ -460,6 +518,14 @@ export class CommandHandler {
       } else {
         if (this.canGroupSelection()) this.groupSelection();
       }
+    } else if (key === 'ArrowLeft') {
+      if (this.canMoveSelection()) this.moveSelection(shift ? -10 : -1, 0);
+    } else if (key === 'ArrowRight') {
+      if (this.canMoveSelection()) this.moveSelection(shift ? 10 : 1, 0);
+    } else if (key === 'ArrowUp') {
+      if (this.canMoveSelection()) this.moveSelection(0, shift ? -10 : -1);
+    } else if (key === 'ArrowDown') {
+      if (this.canMoveSelection()) this.moveSelection(0, shift ? 10 : 1);
     }
   }
 }

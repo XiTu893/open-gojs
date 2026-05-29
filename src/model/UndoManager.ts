@@ -1,6 +1,6 @@
 import { Transaction } from './Transaction';
 import { ChangedEvent } from './ChangedEvent';
-import { ChangedEventTransaction } from '../core/EnumValues';
+import { ChangedEventTransaction, ChangedEventInsert, ChangedEventRemove } from '../core/EnumValues';
 
 /**
  * UndoManager - 撤销管理器
@@ -231,14 +231,30 @@ export class UndoManager {
       if (change.object && change.propertyName) {
         const arr = (change.object as any)[change.propertyName];
         if (Array.isArray(arr)) {
+          const data = arr[change.index];
           arr.splice(change.index, 1);
+          if (this._model && change.object === this._model && change.propertyName === 'nodeDataArray') {
+            const key = this._model.getKeyForNodeData(data);
+            if (key !== undefined) (this._model as any)._keyMap.remove(key);
+            this._model.raiseChangedEvent(ChangedEventRemove, this._model, 'nodeDataArray', data, null, change.index);
+          } else if (this._model && change.object === this._model && change.propertyName === 'linkDataArray') {
+            this._model.raiseChangedEvent(ChangedEventRemove, this._model, 'linkDataArray', data, null, change.index);
+          }
         }
       }
     } else if (change.isRemoveChange) {
       if (change.object && change.propertyName) {
         const arr = (change.object as any)[change.propertyName];
         if (Array.isArray(arr)) {
-          arr.splice(change.index, 0, change.oldValue);
+          const data = change.oldValue;
+          arr.splice(change.index, 0, data);
+          if (this._model && change.object === this._model && change.propertyName === 'nodeDataArray') {
+            const key = this._model.getKeyForNodeData(data);
+            if (key !== undefined) (this._model as any)._keyMap.add(key, data);
+            this._model.raiseChangedEvent(ChangedEventInsert, this._model, 'nodeDataArray', null, data, change.index);
+          } else if (this._model && change.object === this._model && change.propertyName === 'linkDataArray') {
+            this._model.raiseChangedEvent(ChangedEventInsert, this._model, 'linkDataArray', null, data, change.index);
+          }
         }
       }
     }
@@ -257,14 +273,30 @@ export class UndoManager {
       if (change.object && change.propertyName) {
         const arr = (change.object as any)[change.propertyName];
         if (Array.isArray(arr)) {
-          arr.splice(change.index, 0, change.newValue);
+          const data = change.newValue;
+          arr.splice(change.index, 0, data);
+          if (this._model && change.object === this._model && change.propertyName === 'nodeDataArray') {
+            const key = this._model.getKeyForNodeData(data);
+            if (key !== undefined) (this._model as any)._keyMap.add(key, data);
+            this._model.raiseChangedEvent(ChangedEventInsert, this._model, 'nodeDataArray', null, data, change.index);
+          } else if (this._model && change.object === this._model && change.propertyName === 'linkDataArray') {
+            this._model.raiseChangedEvent(ChangedEventInsert, this._model, 'linkDataArray', null, data, change.index);
+          }
         }
       }
     } else if (change.isRemoveChange) {
       if (change.object && change.propertyName) {
         const arr = (change.object as any)[change.propertyName];
         if (Array.isArray(arr)) {
+          const data = arr[change.index];
           arr.splice(change.index, 1);
+          if (this._model && change.object === this._model && change.propertyName === 'nodeDataArray') {
+            const key = this._model.getKeyForNodeData(data);
+            if (key !== undefined) (this._model as any)._keyMap.remove(key);
+            this._model.raiseChangedEvent(ChangedEventRemove, this._model, 'nodeDataArray', data, null, change.index);
+          } else if (this._model && change.object === this._model && change.propertyName === 'linkDataArray') {
+            this._model.raiseChangedEvent(ChangedEventRemove, this._model, 'linkDataArray', data, null, change.index);
+          }
         }
       }
     }

@@ -391,8 +391,8 @@ export class CanvasRenderer {
     const arr = points.toArray();
     const isToArrow = !!(shape as any)._toArrow;
     const arrowType = isToArrow ? (shape as any)._toArrow : (shape as any)._fromArrow;
+    if (arrowType === 'None') return;
 
-    // Get the direction at the endpoint
     let tipX: number, tipY: number, dirX: number, dirY: number;
     if (isToArrow) {
       const tip = arr[arr.length - 1];
@@ -410,39 +410,40 @@ export class CanvasRenderer {
       dirY = next.y - tip.y;
     }
 
-    // Normalize direction
     const len = Math.sqrt(dirX * dirX + dirY * dirY);
     if (len === 0) return;
     dirX /= len;
     dirY /= len;
 
-    // Arrow size
-    const arrowLen = 10;
-    const arrowWidth = 6;
+    const arrowW = (shape as any).width || 10;
+    const arrowH = (shape as any).height || 10;
 
-    // Compute arrowhead triangle points
-    const baseX = tipX + dirX * arrowLen;
-    const baseY = tipY + dirY * arrowLen;
-    const leftX = baseX + (-dirY) * arrowWidth;
-    const leftY = baseY + dirX * arrowWidth;
-    const rightX = baseX + dirY * arrowWidth;
-    const rightY = baseY + (-dirX) * arrowWidth;
+    const geo = (Shape as any)._getArrowheadGeometry(arrowType || 'Standard');
+    if (!geo) return;
 
     ctx.save();
-    ctx.beginPath();
-    ctx.moveTo(tipX, tipY);
-    ctx.lineTo(leftX, leftY);
-    ctx.lineTo(rightX, rightY);
-    ctx.closePath();
+    ctx.translate(tipX, tipY);
+    const angle = Math.atan2(dirY, dirX);
+    ctx.rotate(angle);
 
-    if (shape.fill) {
-      ctx.fillStyle = this._applyBrush(ctx, shape.fill, new Rect(tipX - arrowLen, tipY - arrowLen, arrowLen * 2, arrowLen * 2));
+    const stroke = (shape as any)._stroke;
+    const fill = (shape as any)._fill;
+    const strokeWidth = (shape as any)._strokeWidth || 1;
+
+    this._drawGeometryPath(ctx, geo, arrowW, arrowH);
+
+    if (fill) {
+      ctx.fillStyle = typeof fill === 'string' ? fill : 'black';
       ctx.fill();
     }
-    if (shape.stroke && shape.strokeWidth > 0) {
-      ctx.strokeStyle = this._applyBrush(ctx, shape.stroke, new Rect(tipX - arrowLen, tipY - arrowLen, arrowLen * 2, arrowLen * 2));
-      ctx.lineWidth = shape.strokeWidth;
+    if (stroke) {
+      ctx.strokeStyle = typeof stroke === 'string' ? stroke : 'black';
+      ctx.lineWidth = strokeWidth;
       ctx.stroke();
+    }
+    if (!fill && !stroke) {
+      ctx.fillStyle = 'black';
+      ctx.fill();
     }
 
     ctx.restore();
