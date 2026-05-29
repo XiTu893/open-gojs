@@ -369,10 +369,16 @@ export class CanvasRenderer {
         }
       }
     } else {
+      const corner = (link as any)._corner || 0;
+      const isOrthogonal = (link as any)._routing === RoutingOrthogonal;
       ctx.beginPath();
       ctx.moveTo(arr[0].x, arr[0].y);
-      for (let i = 1; i < arr.length; i++) {
-        ctx.lineTo(arr[i].x, arr[i].y);
+      if (isOrthogonal && corner > 0 && arr.length > 2) {
+        this._drawOrthogonalPathWithCorners(ctx, arr, corner);
+      } else {
+        for (let i = 1; i < arr.length; i++) {
+          ctx.lineTo(arr[i].x, arr[i].y);
+        }
       }
     }
 
@@ -386,6 +392,42 @@ export class CanvasRenderer {
     }
 
     ctx.restore();
+  }
+
+  private _drawOrthogonalPathWithCorners(ctx: CanvasRenderingContext2D, arr: Point[], corner: number): void {
+    for (let i = 1; i < arr.length - 1; i++) {
+      const prev = arr[i - 1];
+      const curr = arr[i];
+      const next = arr[i + 1];
+
+      const dx1 = curr.x - prev.x;
+      const dy1 = curr.y - prev.y;
+      const dx2 = next.x - curr.x;
+      const dy2 = next.y - curr.y;
+
+      const len1 = Math.sqrt(dx1 * dx1 + dy1 * dy1);
+      const len2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
+
+      const r = Math.min(corner, len1 / 2, len2 / 2);
+      if (r <= 0) {
+        ctx.lineTo(curr.x, curr.y);
+        continue;
+      }
+
+      const ux1 = dx1 / len1;
+      const uy1 = dy1 / len1;
+      const ux2 = dx2 / len2;
+      const uy2 = dy2 / len2;
+
+      const beforeX = curr.x - ux1 * r;
+      const beforeY = curr.y - uy1 * r;
+      const afterX = curr.x + ux2 * r;
+      const afterY = curr.y + uy2 * r;
+
+      ctx.lineTo(beforeX, beforeY);
+      ctx.arcTo(curr.x, curr.y, afterX, afterY, r);
+    }
+    ctx.lineTo(arr[arr.length - 1].x, arr[arr.length - 1].y);
   }
 
   private _findCrossings(link: Link): number[] {

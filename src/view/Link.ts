@@ -167,19 +167,56 @@ export class Link extends Part {
       const fromSegLen = (fromPort as any).fromEndSegmentLength || 10;
       const toSegLen = (toPort as any).toEndSegmentLength || 10;
 
-      const dx = toPoint.x - fromPoint.x;
-      const dy = toPoint.y - fromPoint.y;
+      const fromDir = this._getPortDirection(fromPort, fromSpot, fromPoint, fromCenter);
+      const toDir = this._getPortDirection(toPort, toSpot, toPoint, toCenter);
 
-      if (Math.abs(dx) > Math.abs(dy)) {
-        const segLen = Math.min(fromSegLen, Math.abs(dx) / 2);
-        const toSegLenActual = Math.min(toSegLen, Math.abs(dx) / 2);
-        this._points.add(new Point(fromPoint.x + (dx > 0 ? segLen : -segLen), fromPoint.y));
-        this._points.add(new Point(toPoint.x - (dx > 0 ? toSegLenActual : -toSegLenActual), toPoint.y));
+      const fromEnd = this._offsetPoint(fromPoint, fromDir, fromSegLen);
+      const toEnd = this._offsetPoint(toPoint, toDir, toSegLen);
+
+      if (fromDir === toDir) {
+        const perpDir = this._perpendicularDir(fromDir);
+        const midDist = this._distAlongDir(fromEnd, toEnd, perpDir);
+        const mid1 = this._offsetPoint(fromEnd, perpDir, midDist / 2);
+        const mid2 = this._offsetPoint(toEnd, perpDir, midDist / 2);
+        this._points.add(fromEnd);
+        this._points.add(mid1);
+        this._points.add(mid2);
+        this._points.add(toEnd);
+      } else if (this._isOppositeDir(fromDir, toDir)) {
+        const perpDir = this._perpendicularDir(fromDir);
+        const midDist = this._distAlongDir(fromEnd, toEnd, perpDir);
+        const midAlong = this._distAlongDir(fromEnd, toEnd, fromDir);
+        if ((midAlong > 0 && fromDir === 'right') || (midAlong > 0 && fromDir === 'down') ||
+            (midAlong < 0 && fromDir === 'left') || (midAlong < 0 && fromDir === 'up')) {
+          const mid1 = this._offsetPoint(fromEnd, fromDir, midAlong / 2);
+          const mid2 = this._offsetPoint(toEnd, toDir, -midAlong / 2);
+          this._points.add(fromEnd);
+          this._points.add(mid1);
+          this._points.add(mid2);
+          this._points.add(toEnd);
+        } else {
+          const perpMid = this._distAlongDir(fromEnd, toEnd, perpDir) / 2;
+          const mid1 = this._offsetPoint(fromEnd, perpDir, perpMid);
+          const mid2 = this._offsetPoint(toEnd, perpDir, perpMid);
+          this._points.add(fromEnd);
+          this._points.add(mid1);
+          this._points.add(mid2);
+          this._points.add(toEnd);
+        }
       } else {
-        const segLen = Math.min(fromSegLen, Math.abs(dy) / 2);
-        const toSegLenActual = Math.min(toSegLen, Math.abs(dy) / 2);
-        this._points.add(new Point(fromPoint.x, fromPoint.y + (dy > 0 ? segLen : -segLen)));
-        this._points.add(new Point(toPoint.x, toPoint.y - (dy > 0 ? toSegLenActual : -toSegLenActual)));
+        const canTurn = this._canReachWithCorner(fromEnd, fromDir, toEnd, toDir);
+        if (canTurn) {
+          const corner = this._cornerPoint(fromEnd, fromDir, toEnd, toDir);
+          this._points.add(fromEnd);
+          this._points.add(corner);
+          this._points.add(toEnd);
+        } else {
+          const perpDir = this._perpendicularDir(fromDir);
+          const mid1 = this._offsetPoint(fromEnd, perpDir, this._distAlongDir(fromEnd, toEnd, perpDir));
+          this._points.add(fromEnd);
+          this._points.add(mid1);
+          this._points.add(toEnd);
+        }
       }
     }
 
@@ -214,6 +251,74 @@ export class Link extends Part {
       if (nodeSpot && !nodeSpot.isDefault) return nodeSpot;
     }
     return new Spot(NaN, NaN);
+  }
+
+  private _getPortDirection(port: GraphObject, spot: Spot, portPoint: Point, center: Point): string {
+    if (spot && !spot.isNone && !spot.isDefault) {
+      if (spot.x <= 0.01) return 'left';
+      if (spot.x >= 0.99) return 'right';
+      if (spot.y <= 0.01) return 'up';
+      if (spot.y >= 0.99) return 'down';
+    }
+    const bounds = port.getDocumentBounds();
+    const cx = bounds.x + bounds.width / 2;
+    const cy = bounds.y + bounds.height / 2;
+    const dx = portPoint.x - cx;
+    const dy = portPoint.y - cy;
+    if (Math.abs(dx) > Math.abs(dy)) {
+      return dx > 0 ? 'right' : 'left';
+    }
+    return dy > 0 ? 'down' : 'up';
+  }
+
+  private _offsetPoint(pt: Point, dir: string, dist: number): Point {
+    switch (dir) {
+      case 'right': return new Point(pt.x + dist, pt.y);
+      case 'left': return new Point(pt.x - dist, pt.y);
+      case 'down': return new Point(pt.x, pt.y + dist);
+      case 'up': return new Point(pt.x, pt.y - dist);
+      default: return pt;
+    }
+  }
+
+  private _perpendicularDir(dir: string): string {
+    switch (dir) {
+      case 'right': case 'left': return 'down';
+      case 'down': case 'up': return 'right';
+      default: return 'right';
+    }
+  }
+
+  private _isOppositeDir(dir1: string, dir2: string): boolean {
+    return (dir1 === 'right' && dir2 === 'left') || (dir1 === 'left' && dir2 === 'right') ||
+           (dir1 === 'down' && dir2 === 'up') || (dir1 === 'up' && dir2 === 'down');
+  }
+
+  private _distAlongDir(from: Point, to: Point, dir: string): number {
+    switch (dir) {
+      case 'right': return to.x - from.x;
+      case 'left': return from.x - to.x;
+      case 'down': return to.y - from.y;
+      case 'up': return from.y - to.y;
+      default: return 0;
+    }
+  }
+
+  private _canReachWithCorner(from: Point, fromDir: string, to: Point, toDir: string): boolean {
+    if ((fromDir === 'right' || fromDir === 'left') && (toDir === 'up' || toDir === 'down')) {
+      return true;
+    }
+    if ((fromDir === 'up' || fromDir === 'down') && (toDir === 'right' || toDir === 'left')) {
+      return true;
+    }
+    return false;
+  }
+
+  private _cornerPoint(from: Point, fromDir: string, to: Point, toDir: string): Point {
+    if (fromDir === 'right' || fromDir === 'left') {
+      return new Point(from.x, to.y);
+    }
+    return new Point(to.x, from.y);
   }
 
   /** Get the intersection of a line from center to target with the rectangle edge */

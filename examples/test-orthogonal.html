@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Orthogonal Routing Test</title>
+  <style>
+    body { font-family: sans-serif; margin: 10px; }
+    #myDiagramDiv { width: 700px; height: 500px; border: 1px solid black; }
+  </style>
+</head>
+<body>
+  <h2>Orthogonal Routing Test</h2>
+  <div id="myDiagramDiv"></div>
+
+  <script src="../dist/open-gojs.umd.js"></script>
+  <script>
+    const $ = go.GraphObject.make;
+
+    const diagram = new go.Diagram('myDiagramDiv', {
+      'undoManager.isEnabled': true,
+      'animationManager.isEnabled': false
+    });
+
+    diagram.nodeTemplate =
+      $(go.Node, 'Auto',
+        {
+          fromSpot: go.Spot.Right,
+          toSpot: go.Spot.Left,
+          fromEndSegmentLength: 20,
+          toEndSegmentLength: 20
+        },
+        $(go.Shape, 'RoundedRectangle', { fill: '#ace', stroke: '#369', parameter1: 5 }),
+        $(go.TextBlock, { margin: 8 }, new go.Binding('text', 'name'))
+      );
+
+    diagram.linkTemplate =
+      $(go.Link,
+        { routing: go.Routing.Orthogonal, corner: 8 },
+        $(go.Shape, { strokeWidth: 1.5, stroke: '#369' }),
+        $(go.Shape, { toArrow: 'Standard', stroke: '#369', fill: '#369' })
+      );
+
+    diagram.model = new go.GraphLinksModel(
+      [
+        { key: 1, name: 'Alpha', loc: '50 50' },
+        { key: 2, name: 'Beta', loc: '250 50' },
+        { key: 3, name: 'Gamma', loc: '250 200' },
+        { key: 4, name: 'Delta', loc: '50 200' },
+        { key: 5, name: 'Epsilon', loc: '450 120' },
+        { key: 6, name: 'Zeta', loc: '450 300' }
+      ],
+      [
+        { from: 1, to: 2 },
+        { from: 2, to: 3 },
+        { from: 3, to: 4 },
+        { from: 4, to: 1 },
+        { from: 2, to: 5 },
+        { from: 3, to: 6 },
+        { from: 1, to: 3 },
+        { from: 5, to: 6 }
+      ]
+    );
+  </script>
+</body>
+</html>
