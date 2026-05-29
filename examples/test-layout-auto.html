@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Layout Auto-Trigger Test</title>
+  <style>
+    body { font-family: sans-serif; margin: 10px; }
+    #myDiagramDiv { width: 800px; height: 500px; border: 1px solid black; }
+    button { margin: 5px; padding: 5px 10px; }
+  </style>
+</head>
+<body>
+  <h2>Layout Auto-Trigger Test</h2>
+  <p>Test that layout is automatically triggered when nodes/links are added/removed.</p>
+  <button onclick="addNode()">Add Node</button>
+  <button onclick="removeNode()">Remove Last Node</button>
+  <button onclick="addLink()">Add Link</button>
+  <button onclick="removeLink()">Remove Last Link</button>
+  <button onclick="resetModel()">Reset Model</button>
+  <div id="myDiagramDiv"></div>
+  <script src="../dist/open-gojs.js"></script>
+  <script>
+    const go = window.go;
+
+    const diagram = new go.Diagram("myDiagramDiv", {
+      layout: new go.TreeLayout({ angle: 90, layerSpacing: 30, nodeSpacing: 10 }),
+      "undoManager.isEnabled": true
+    });
+
+    diagram.nodeTemplate =
+      new go.Node("Auto")
+        .add(
+          new go.Shape("Ellipse", { fill: "lightblue", stroke: "#333", strokeWidth: 1, width: 40, height: 40 }),
+          new go.TextBlock({ font: "bold 12pt sans-serif", stroke: "#333" })
+            .bind("text", "key")
+        );
+
+    diagram.linkTemplate =
+      new go.Link()
+        .add(
+          new go.Shape({ strokeWidth: 1.5, stroke: "#555" })
+        );
+
+    diagram.model = new go.GraphLinksModel(
+      [
+        { key: "Alpha" },
+        { key: "Beta" },
+        { key: "Gamma" },
+        { key: "Delta" }
+      ],
+      [
+        { from: "Alpha", to: "Beta" },
+        { from: "Alpha", to: "Gamma" },
+        { from: "Gamma", to: "Delta" }
+      ]
+    );
+
+    let nodeCounter = 0;
+    function addNode() {
+      const model = diagram.model;
+      model.startTransaction("add node");
+      const name = "Node" + (++nodeCounter);
+      model.addNodeData({ key: name });
+      const allNodes = model.nodeDataArray;
+      if (allNodes.length > 1) {
+        const parentKey = allNodes[allNodes.length - 2].key;
+        model.addLinkData({ from: parentKey, to: name });
+      }
+      model.commitTransaction("add node");
+      console.log("Added node:", name);
+    }
+
+    function removeNode() {
+      const model = diagram.model;
+      const allNodes = model.nodeDataArray;
+      if (allNodes.length <= 1) return;
+      model.startTransaction("remove node");
+      const lastNode = allNodes[allNodes.length - 1];
+      model.removeNodeData(lastNode);
+      model.commitTransaction("remove node");
+      console.log("Removed node:", lastNode.key);
+    }
+
+    function addLink() {
+      const model = diagram.model;
+      const allNodes = model.nodeDataArray;
+      if (allNodes.length < 2) return;
+      model.startTransaction("add link");
+      const from = allNodes[Math.floor(Math.random() * allNodes.length)].key;
+      const to = allNodes[Math.floor(Math.random() * allNodes.length)].key;
+      if (from !== to) {
+        model.addLinkData({ from: from, to: to });
+      }
+      model.commitTransaction("add link");
+      console.log("Added link:", from, "->", to);
+    }
+
+    function removeLink() {
+      const model = diagram.model;
+      if (!(model instanceof go.GraphLinksModel)) return;
+      const allLinks = model.linkDataArray;
+      if (allLinks.length === 0) return;
+      model.startTransaction("remove link");
+      model.removeLinkData(allLinks[allLinks.length - 1]);
+      model.commitTransaction("remove link");
+      console.log("Removed last link");
+    }
+
+    function resetModel() {
+      nodeCounter = 0;
+      diagram.model = new go.GraphLinksModel(
+        [
+          { key: "Alpha" },
+          { key: "Beta" },
+          { key: "Gamma" },
+          { key: "Delta" }
+        ],
+        [
+          { from: "Alpha", to: "Beta" },
+          { from: "Alpha", to: "Gamma" },
+          { from: "Gamma", to: "Delta" }
+        ]
+      );
+      console.log("Model reset");
+    }
+  </script>
+</body>
+</html>

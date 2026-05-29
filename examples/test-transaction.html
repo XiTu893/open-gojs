@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Transaction System Test</title>
+  <style>
+    body { font-family: sans-serif; margin: 10px; }
+    #myDiagramDiv { width: 600px; height: 400px; border: 1px solid black; }
+    #log { width: 600px; height: 200px; overflow-y: auto; border: 1px solid #ccc; padding: 5px; font-size: 12px; font-family: monospace; }
+    button { margin: 4px; padding: 4px 12px; }
+    .pass { color: green; }
+    .fail { color: red; }
+  </style>
+</head>
+<body>
+  <h2>Transaction System Test</h2>
+  <div id="myDiagramDiv"></div>
+  <br>
+  <button onclick="testBasicTransaction()">1. Basic Transaction</button>
+  <button onclick="testNestedTransaction()">2. Nested Transaction</button>
+  <button onclick="testRollback()">3. Rollback</button>
+  <button onclick="testUndoRedo()">4. Undo/Redo</button>
+  <button onclick="testTransactionEvents()">5. Transaction Events</button>
+  <button onclick="testIsTransactionFinished()">6. isTransactionFinished</button>
+  <button onclick="testTransactionToUndoRedo()">7. transactionToUndo/Redo</button>
+  <button onclick="runAll()">Run All</button>
+  <br><br>
+  <div id="log"></div>
+
+  <script src="../dist/open-gojs.umd.js"></script>
+  <script>
+    const $ = go.GraphObject.make;
+    const logEl = document.getElementById('log');
+    let passCount = 0;
+    let failCount = 0;
+
+    function log(msg, cls) {
+      const div = document.createElement('div');
+      div.className = cls || '';
+      div.textContent = msg;
+      logEl.appendChild(div);
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function assert(cond, msg) {
+      if (cond) {
+        passCount++;
+        log('  PASS: ' + msg, 'pass');
+      } else {
+        failCount++;
+        log('  FAIL: ' + msg, 'fail');
+      }
+    }
+
+    function clearLog() {
+      logEl.innerHTML = '';
+      passCount = 0;
+      failCount = 0;
+    }
+
+    const diagram = $(go.Diagram, 'myDiagramDiv', {
+      'undoManager.isEnabled': true
+    });
+
+    diagram.nodeTemplate =
+      $(go.Node, 'Auto',
+        $(go.Shape, 'RoundedRectangle', { fill: 'white', stroke: 'gray' }),
+        $(go.TextBlock, { margin: 8 }, new go.Binding('text', 'name'))
+      );
+
+    diagram.model = new go.GraphLinksModel(
+      [{ key: 1, name: 'Alpha' }, { key: 2, name: 'Beta' }],
+      [{ from: 1, to: 2 }]
+    );
+
+    function testBasicTransaction() {
+      clearLog();
+      log('=== Test 1: Basic Transaction ===');
+
+      const model = diagram.model;
+      const um = model.undoManager;
+
+      assert(um.transactionLevel === 0, 'transactionLevel starts at 0');
+      assert(!um.isInTransaction, 'not in transaction initially');
+
+      model.startTransaction('test1');
+      assert(um.transactionLevel === 1, 'transactionLevel is 1 after start');
+      assert(um.isInTransaction, 'isInTransaction is true');
+
+      model.setDataProperty(model.nodeDataArray[0], 'name', 'Alpha-Modified');
+      assert(um.currentTransaction !== null, 'currentTransaction exists');
+
+      model.commitTransaction('test1');
+      assert(um.transactionLevel === 0, 'transactionLevel is 0 after commit');
+      assert(!um.isInTransaction, 'not in transaction after commit');
+      assert(um.canUndo, 'canUndo after commit');
+      assert(model.nodeDataArray[0].name === 'Alpha-Modified', 'data was modified');
+
+      log('--- Undo ---');
+      um.undo();
+      assert(model.nodeDataArray[0].name === 'Alpha', 'data restored after undo');
+      assert(um.canRedo, 'canRedo after undo');
+
+      log('--- Redo ---');
+      um.redo();
+      assert(model.nodeDataArray[0].name === 'Alpha-Modified', 'data re-applied after redo');
+
+      log('\nResult: ' + passCount + ' passed, ' + failCount + ' failed');
+    }
+
+    function testNestedTransaction() {
+      clearLog();
+      log('=== Test 2: Nested Transaction ===');
+
+      const model = diagram.model;
+      const um = model.undoManager;
+
+      model.startTransaction('outer');
+      assert(um.transactionLevel === 1, 'level 1 after outer start');
+
+      model.startTransaction('inner');
+      assert(um.transactionLevel === 2, 'level 2 after inner start');
+
+      model.setDataProperty(model.nodeDataArray[0], 'name', 'Nested-Mod');
+
+      model.commitTransaction('inner');
+      assert(um.transactionLevel === 1, 'level 1 after inner commit');
+      assert(um.canUndo === false, 'cannot undo yet (outer not committed)');
+
+      model.commitTransaction('outer');
+      assert(um.transactionLevel === 0, 'level 0 after outer commit');
+      assert(um.canUndo, 'can undo after outer commit');
+
+      um.undo();
+      assert(model.nodeDataArray[0].name === 'Alpha-Modified', 'undo restores to pre-nested state');
+
+      um.redo();
+
+      log('\nResult: ' + passCount + ' passed, ' + failCount + ' failed');
+    }
+
+    function testRollback() {
+      clearLog();
+      log('=== Test 3: Rollback ===');
+
+      const model = diagram.model;
+      const um = model.undoManager;
+      const savedName = model.nodeDataArray[0].name;
+
+      model.startTransaction('will-rollback');
+      model.setDataProperty(model.nodeDataArray[0], 'name', 'ShouldBeReverted');
+      assert(model.nodeDataArray[0].name === 'ShouldBeReverted', 'data changed in transaction');
+
+      model.rollbackTransaction();
+      assert(model.nodeDataArray[0].name === savedName, 'data restored after rollback');
+      assert(um.transactionLevel === 0, 'level 0 after rollback');
+      assert(!um.canUndo || um.transactionToUndo === null || um.transactionToUndo.name !== 'will-rollback',
+        'rollback does not add to undo stack');
+
+      log('\nResult: ' + passCount + ' passed, ' + failCount + ' failed');
+    }
+
+    function testUndoRedo() {
+      clearLog();
+      log('=== Test 4: Undo/Redo ===');
+
+      const model = diagram.model;
+      const um = model.undoManager;
+
+      model.startTransaction('add-node');
+      model.addNodeData({ key: 99, name: 'TempNode' });
+      model.commitTransaction('add-node');
+
+      assert(diagram.findNodeForKey(99) !== null, 'node 99 exists after add');
+      assert(um.canUndo, 'can undo');
+
+      um.undo();
+      assert(diagram.findNodeForKey(99) === null, 'node 99 removed after undo');
+      assert(um.canRedo, 'can redo');
+
+      um.redo();
+      assert(diagram.findNodeForKey(99) !== null, 'node 99 restored after redo');
+
+      model.startTransaction('remove-node');
+      model.removeNodeData(model.findNodeDataForKey(99));
+      model.commitTransaction('remove-node');
+      assert(diagram.findNodeForKey(99) === null, 'node 99 removed');
+
+      log('\nResult: ' + passCount + ' passed, ' + failCount + ' failed');
+    }
+
+    function testTransactionEvents() {
+      clearLog();
+      log('=== Test 5: Transaction Events ===');
+
+      const events = [];
+      const listener = (e) => {
+        if (e.isTransactionChange) {
+          events.push(e.propertyName);
+        }
+      };
+      diagram.addChangedListener(listener);
+
+      diagram.model.startTransaction('evt-test');
+      diagram.model.setDataProperty(diagram.model.nodeDataArray[0], 'name', 'EventTest');
+      diagram.model.commitTransaction('evt-test');
+
+      diagram.removeChangedListener(listener);
+
+      assert(events.indexOf('StartingTransaction') >= 0, 'StartingTransaction fired');
+      assert(events.indexOf('StartedTransaction') >= 0, 'StartedTransaction fired');
+      assert(events.indexOf('CommittingTransaction') >= 0, 'CommittingTransaction fired');
+      assert(events.indexOf('CommittedTransaction') >= 0, 'CommittedTransaction fired');
+
+      log('Events received: ' + events.join(', '));
+
+      const undoEvents = [];
+      const undoListener = (e) => {
+        if (e.isTransactionChange) {
+          undoEvents.push(e.propertyName);
+        }
+      };
+      diagram.addChangedListener(undoListener);
+      diagram.model.undoManager.undo();
+      diagram.removeChangedListener(undoListener);
+
+      assert(undoEvents.indexOf('FinishedUndo') >= 0, 'FinishedUndo fired');
+
+      const redoEvents = [];
+      const redoListener = (e) => {
+        if (e.isTransactionChange) {
+          redoEvents.push(e.propertyName);
+        }
+      };
+      diagram.addChangedListener(redoListener);
+      diagram.model.undoManager.redo();
+      diagram.removeChangedListener(redoListener);
+
+      assert(redoEvents.indexOf('FinishedRedo') >= 0, 'FinishedRedo fired');
+
+      log('\nResult: ' + passCount + ' passed, ' + failCount + ' failed');
+    }
+
+    function testIsTransactionFinished() {
+      clearLog();
+      log('=== Test 6: isTransactionFinished ===');
+
+      const finishedEvents = [];
+      const listener = (e) => {
+        if (e.isTransactionChange) {
+          finishedEvents.push({ name: e.propertyName, finished: e.isTransactionFinished });
+        }
+      };
+      diagram.addChangedListener(listener);
+
+      diagram.model.startTransaction('finish-test');
+      diagram.model.commitTransaction('finish-test');
+
+      diagram.model.undoManager.undo();
+      diagram.model.undoManager.redo();
+
+      diagram.removeChangedListener(listener);
+
+      const committed = finishedEvents.find(e => e.name === 'CommittedTransaction');
+      const finishedUndo = finishedEvents.find(e => e.name === 'FinishedUndo');
+      const finishedRedo = finishedEvents.find(e => e.name === 'FinishedRedo');
+      const starting = finishedEvents.find(e => e.name === 'StartingTransaction');
+
+      assert(committed && committed.finished === true, 'CommittedTransaction isTransactionFinished=true');
+      assert(finishedUndo && finishedUndo.finished === true, 'FinishedUndo isTransactionFinished=true');
+      assert(finishedRedo && finishedRedo.finished === true, 'FinishedRedo isTransactionFinished=true');
+      assert(starting && starting.finished === false, 'StartingTransaction isTransactionFinished=false');
+
+      log('\nResult: ' + passCount + ' passed, ' + failCount + ' failed');
+    }
+
+    function testTransactionToUndoRedo() {
+      clearLog();
+      log('=== Test 7: transactionToUndo/Redo ===');
+
+      const um = diagram.model.undoManager;
+
+      assert(um.transactionToUndo !== null, 'transactionToUndo is not null (has history)');
+      assert(typeof um.transactionToUndo.name === 'string', 'transactionToUndo has name');
+
+      um.undo();
+      assert(um.transactionToRedo !== null, 'transactionToRedo is not null after undo');
+
+      um.redo();
+
+      log('\nResult: ' + passCount + ' passed, ' + failCount + ' failed');
+    }
+
+    function runAll() {
+      clearLog();
+      testBasicTransaction();
+      testNestedTransaction();
+      testRollback();
+      testUndoRedo();
+      testTransactionEvents();
+      testIsTransactionFinished();
+      testTransactionToUndoRedo();
+      log('\n=== TOTAL: ' + passCount + ' passed, ' + failCount + ' failed ===');
+    }
+  </script>
+</body>
+</html>

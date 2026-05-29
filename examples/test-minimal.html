@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Open-GoJS Test</title>
+</head>
+<body>
+<div id="myDiagramDiv" style="border: solid 1px black; width: 400px; height: 400px"></div>
+<div id="output" style="margin: 10px; font-family: monospace; white-space: pre;"></div>
+<script src="../dist/open-gojs.umd.js"></script>
+<script>
+const out = document.getElementById('output');
+function log(msg) { out.textContent += msg + '\n'; }
+
+try {
+  log('go.Diagram: ' + typeof go.Diagram);
+  log('go.Node: ' + typeof go.Node);
+  log('go.Shape: ' + typeof go.Shape);
+  log('go.TextBlock: ' + typeof go.TextBlock);
+  log('go.GraphLinksModel: ' + typeof go.GraphLinksModel);
+
+  const myDiagram = new go.Diagram('myDiagramDiv', {
+    'undoManager.isEnabled': true
+  });
+
+  log('Diagram created: ' + (myDiagram !== null));
+
+  myDiagram.nodeTemplate =
+    new go.Node('Auto')
+      .add(
+        new go.Shape('RoundedRectangle', { strokeWidth: 0, fill: 'white' })
+          .bind('fill', 'color'),
+        new go.TextBlock({ margin: 8, font: 'bold 14px sans-serif', stroke: '#333' })
+          .bind('text')
+      );
+
+  log('Node template set');
+
+  myDiagram.model = new go.GraphLinksModel(
+    [
+      { key: 1, text: 'Alpha', color: 'lightblue' },
+      { key: 2, text: 'Beta', color: 'orange' },
+      { key: 3, text: 'Gamma', color: 'lightgreen' },
+      { key: 4, text: 'Delta', color: 'pink' }
+    ],
+    [
+      { from: 1, to: 2 },
+      { from: 1, to: 3 },
+      { from: 2, to: 2 },
+      { from: 3, to: 4 },
+      { from: 4, to: 1 }
+    ]
+  );
+
+  log('Model set');
+  log('Node count: ' + myDiagram.parts.count);
+
+  const n1 = myDiagram.findNodeForKey(1);
+  log('Node 1: ' + (n1 ? n1.data.text : 'NOT FOUND'));
+
+  const n2 = myDiagram.findNodeForKey(2);
+  log('Node 2: ' + (n2 ? n2.data.text : 'NOT FOUND'));
+
+  log('SUCCESS: All basic tests passed!');
+} catch (e) {
+  log('ERROR: ' + e.message);
+  log('Stack: ' + e.stack);
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Comprehensive Feature Test</title>
+  <style>
+    body { font-family: sans-serif; margin: 10px; }
+    #myDiagramDiv { width: 800px; height: 500px; border: 1px solid black; }
+    button { margin: 3px; padding: 5px 10px; }
+    #info { margin-top: 10px; font-size: 12px; color: #555; }
+  </style>
+</head>
+<body>
+  <h2>Comprehensive Feature Test</h2>
+  <p>Tests: Layout auto-trigger, initialContentAlignment, selection adornments, drag-select box</p>
+  <div>
+    <button onclick="addNode()">Add Node</button>
+    <button onclick="removeLastNode()">Remove Last Node</button>
+    <button onclick="switchLayout('Tree')">Tree Layout</button>
+    <button onclick="switchLayout('ForceDirected')">ForceDirected Layout</button>
+    <button onclick="switchLayout('Grid')">Grid Layout</button>
+    <button onclick="switchLayout('LayeredDigraph')">LayeredDigraph Layout</button>
+    <button onclick="switchLayout('Circular')">Circular Layout</button>
+  </div>
+  <div id="myDiagramDiv"></div>
+  <div id="info"></div>
+  <script src="../dist/open-gojs.js"></script>
+  <script>
+    const go = window.go;
+
+    const diagram = new go.Diagram("myDiagramDiv", {
+      layout: new go.TreeLayout({ angle: 90, layerSpacing: 40, nodeSpacing: 20 }),
+      initialContentAlignment: go.Spot.Center,
+      "undoManager.isEnabled": true
+    });
+
+    diagram.addDiagramListener("LayoutCompleted", function() {
+      document.getElementById("info").textContent = "Layout completed! Nodes: " + diagram.nodes.count;
+    });
+
+    diagram.addDiagramListener("InitialLayoutCompleted", function() {
+      document.getElementById("info").textContent = "Initial layout completed! Content aligned to center.";
+    });
+
+    diagram.nodeTemplate =
+      new go.Node("Auto")
+        .add(
+          new go.Shape("RoundedRectangle", { fill: "lightblue", stroke: "#555", strokeWidth: 1.5, parameter1: 5 }),
+          new go.TextBlock({ font: "bold 11pt sans-serif", margin: 6, stroke: "#333" })
+            .bind("text", "key")
+        );
+
+    diagram.linkTemplate =
+      new go.Link({ routing: go.Routing.Normal, corner: 5 })
+        .add(
+          new go.Shape({ strokeWidth: 1.5, stroke: "#888" }),
+          new go.Shape({ toArrow: "Standard", stroke: "#888", fill: "#888", scale: 0.8 })
+        );
+
+    diagram.model = new go.GraphLinksModel(
+      [
+        { key: "Alpha" },
+        { key: "Beta" },
+        { key: "Gamma" },
+        { key: "Delta" },
+        { key: "Epsilon" },
+        { key: "Zeta" }
+      ],
+      [
+        { from: "Alpha", to: "Beta" },
+        { from: "Alpha", to: "Gamma" },
+        { from: "Beta", to: "Delta" },
+        { from: "Gamma", to: "Epsilon" },
+        { from: "Delta", to: "Zeta" }
+      ]
+    );
+
+    let nodeCounter = 0;
+    function addNode() {
+      const model = diagram.model;
+      model.startTransaction("add node");
+      const name = "N" + (++nodeCounter);
+      model.addNodeData({ key: name });
+      const allNodes = model.nodeDataArray;
+      if (allNodes.length > 1) {
+        const parentKey = allNodes[allNodes.length - 2].key;
+        model.addLinkData({ from: parentKey, to: name });
+      }
+      model.commitTransaction("add node");
+    }
+
+    function removeLastNode() {
+      const model = diagram.model;
+      const allNodes = model.nodeDataArray;
+      if (allNodes.length <= 1) return;
+      model.startTransaction("remove node");
+      model.removeNodeData(allNodes[allNodes.length - 1]);
+      model.commitTransaction("remove node");
+    }
+
+    function switchLayout(type) {
+      let newLayout;
+      switch (type) {
+        case 'Tree': newLayout = new go.TreeLayout({ angle: 90, layerSpacing: 40, nodeSpacing: 20 }); break;
+        case 'ForceDirected': newLayout = new go.ForceDirectedLayout({ defaultSpringLength: 30, defaultElectricalCharge: 100 }); break;
+        case 'Grid': newLayout = new go.GridLayout(); break;
+        case 'LayeredDigraph': newLayout = new go.LayeredDigraphLayout(); break;
+        case 'Circular': newLayout = new go.CircularLayout(); break;
+      }
+      diagram.layout = newLayout;
+    }
+  </script>
+</body>
+</html>

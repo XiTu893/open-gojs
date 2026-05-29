@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Dimensioning Links - Open GoJS</title>
+</head>
+<body>
+  <div id="myDiagramDiv" style="border: solid 1px black; width: 100%; height: 500px"></div>
+  <script src="../dist/open-gojs.umd.js"></script>
+  <script>
+    var myDiagram = new go.Diagram("myDiagramDiv", {
+      "undoManager.isEnabled": true
+    });
+    myDiagram.nodeTemplate =
+      new go.Node("Auto")
+        .add(
+          new go.Shape("Rectangle", { fill: "lightgray", stroke: "gray", desiredSize: new go.Size(40, 40) }),
+          new go.TextBlock({ font: "bold 10px sans-serif" })
+            .bind("text")
+        );
+    myDiagram.linkTemplate =
+      new go.Link()
+        .add(
+          new go.Shape({ strokeWidth: 1, stroke: "gray", strokeDashArray: [4, 2] }),
+          new go.TextBlock({ segmentOffset: new go.Point(0, -10), font: "10px sans-serif", stroke: "gray" })
+            .bind("text", "distance")
+        );
+    myDiagram.model = new go.GraphLinksModel(
+      [
+        { key: 1, text: "A" },
+        { key: 2, text: "B" },
+        { key: 3, text: "C" },
+        { key: 4, text: "D" }
+      ],
+      [
+        { from: 1, to: 2, distance: "100px" },
+        { from: 2, to: 3, distance: "150px" },
+        { from: 3, to: 4, distance: "80px" },
+        { from: 1, to: 4, distance: "200px" }
+      ]
+    );
+  </script>
+</body>
+</html>
