@@ -13837,6 +13837,11 @@ var DraggingTool = /** @class */ (function (_super) {
         _this._startPoint = null;
         _this._draggedParts = null;
         _this._copiedParts = null;
+        _this._isDragOut = false;
+        _this._targetDiagram = null;
+        _this._dragOutParts = null;
+        _this._globalMouseMoveHandler = null;
+        _this._globalMouseUpHandler = null;
         _this.name = 'Dragging';
         return _this;
     }
@@ -13889,7 +13894,7 @@ var DraggingTool = /** @class */ (function (_super) {
         var diagram = this.diagram;
         if (!diagram || !this.isEnabled)
             return false;
-        if (!diagram.allowMove && !diagram.allowCopy)
+        if (!diagram.allowMove && !diagram.allowCopy && !diagram.allowDragOut)
             return false;
         var lastInput = diagram.lastInput;
         if (!lastInput)
@@ -13906,6 +13911,9 @@ var DraggingTool = /** @class */ (function (_super) {
         if (!diagram)
             return;
         this._isActive = true;
+        this._isDragOut = false;
+        this._targetDiagram = null;
+        this._dragOutParts = null;
         var lastInput = diagram.lastInput;
         this._startPoint = new Point(lastInput.documentPoint.x, lastInput.documentPoint.y);
         this._draggedParts = new Map$1();
@@ -13919,7 +13927,8 @@ var DraggingTool = /** @class */ (function (_super) {
             var it = selection.iterator;
             while (it.next()) {
                 var part = it.value;
-                if (!part.movable && !part.copyable)
+                var isDragOutSource = diagram.allowDragOut && !part.movable;
+                if (!part.movable && !part.copyable && !isDragOutSource)
                     continue;
                 var cg = part.containingGroup;
                 var skip = false;
@@ -13937,15 +13946,46 @@ var DraggingTool = /** @class */ (function (_super) {
         }
         this._isCopy = false;
         this._copiedParts = null;
+        if (diagram.allowDragOut) {
+            this._setupGlobalListeners();
+        }
         this.startTransaction(this.name);
     };
     DraggingTool.prototype.doMouseMove = function () {
         var diagram = this.diagram;
         if (!diagram || !this.isActive || !this._startPoint)
             return;
+        if (this._isDragOut && this._targetDiagram && this._dragOutParts) {
+            var lastInput_1 = this._targetDiagram.lastInput;
+            if (lastInput_1) {
+                var point_1 = new Point(lastInput_1.documentPoint.x, lastInput_1.documentPoint.y);
+                var it = this._dragOutParts.iterator;
+                while (it.next()) {
+                    var part = it.key;
+                    var origLoc = it.value;
+                    var dx = point_1.x - this._startPoint.x;
+                    var dy = point_1.y - this._startPoint.y;
+                    part.move(new Point(origLoc.x + dx, origLoc.y + dy));
+                }
+                this._targetDiagram.requestUpdate();
+            }
+            return;
+        }
         var lastInput = diagram.lastInput;
         if (!lastInput)
             return;
+        if (diagram.allowDragOut && !this._isDragOut) {
+            var div = diagram.div;
+            if (div && lastInput.event) {
+                var evt = lastInput.event;
+                var rect = div.getBoundingClientRect();
+                if (evt.clientX < rect.left || evt.clientX > rect.right ||
+                    evt.clientY < rect.top || evt.clientY > rect.bottom) {
+                    this._startDragOut(evt);
+                    return;
+                }
+            }
+        }
         var wasCopy = this._isCopy;
         this._isCopy = this.mayCopy();
         if (this._isCopy && !wasCopy) {
@@ -13981,6 +14021,11 @@ var DraggingTool = /** @class */ (function (_super) {
     DraggingTool.prototype.doMouseUp = function () {
         if (!this.isActive)
             return;
+        this._removeGlobalListeners();
+        if (this._isDragOut) {
+            this._finishDragOut();
+            return;
+        }
         if (this._isCopy && this._copiedParts) {
             this._copiedParts = null;
         }
@@ -13992,10 +14037,14 @@ var DraggingTool = /** @class */ (function (_super) {
         }
     };
     DraggingTool.prototype.doDeactivate = function () {
+        this._removeGlobalListeners();
         this._startPoint = null;
         this._draggedParts = null;
         this._copiedParts = null;
         this._isCopy = false;
+        this._isDragOut = false;
+        this._targetDiagram = null;
+        this._dragOutParts = null;
         _super.prototype.doDeactivate.call(this);
     };
     DraggingTool.prototype.doCancel = function () {
@@ -14065,6 +14114,122 @@ var DraggingTool = /** @class */ (function (_super) {
             diagram.remove(it.key);
         }
         this._copiedParts = null;
+    };
+    DraggingTool.prototype._startDragOut = function (evt) {
+        var diagram = this.diagram;
+        if (!diagram || !this._draggedParts)
+            return;
+        this._isDragOut = true;
+        var target = this._findTargetDiagram(evt);
+        if (!target)
+            return;
+        this._targetDiagram = target;
+        this._dragOutParts = new Map$1();
+        var targetDocPoint = this._clientToDoc(target, evt);
+        var it = this._draggedParts.iterator;
+        while (it.next()) {
+            var part = it.key;
+            if (part.data) {
+                var model = target.model;
+                if (model) {
+                    var dataCopy = model.cloneDeep(part.data);
+                    model.addNodeData(dataCopy);
+                    var newPart = target.findNodeForKey(model.getKeyForNodeData(dataCopy));
+                    if (newPart) {
+                        newPart.location = targetDocPoint.copy();
+                        this._dragOutParts.add(newPart, targetDocPoint.copy());
+                    }
+                }
+            }
+        }
+        this._startPoint = targetDocPoint;
+    };
+    DraggingTool.prototype._finishDragOut = function () {
+        if (this._targetDiagram && this._dragOutParts) {
+            this._targetDiagram.raiseDiagramEvent('ExternalObjectsDropped');
+            this._targetDiagram.requestUpdate();
+        }
+        var sourceDiagram = this.diagram;
+        if (sourceDiagram) {
+            if (this._draggedParts) {
+                var it = this._draggedParts.iterator;
+                while (it.next()) {
+                    it.key.location = it.value.copy();
+                }
+            }
+        }
+        this._isDragOut = false;
+        this._targetDiagram = null;
+        this._dragOutParts = null;
+        this.stopTool();
+    };
+    DraggingTool.prototype._findTargetDiagram = function (evt) {
+        var e_1, _a;
+        var elements = document.elementsFromPoint(evt.clientX, evt.clientY);
+        try {
+            for (var elements_1 = __values(elements), elements_1_1 = elements_1.next(); !elements_1_1.done; elements_1_1 = elements_1.next()) {
+                var el = elements_1_1.value;
+                var div = el.closest('div');
+                if (!div)
+                    continue;
+                var diagram = div._goDiagram;
+                if (diagram && diagram !== this.diagram) {
+                    return diagram;
+                }
+            }
+        }
+        catch (e_1_1) { e_1 = { error: e_1_1 }; }
+        finally {
+            try {
+                if (elements_1_1 && !elements_1_1.done && (_a = elements_1.return)) _a.call(elements_1);
+            }
+            finally { if (e_1) throw e_1.error; }
+        }
+        return null;
+    };
+    DraggingTool.prototype._clientToDoc = function (diagram, evt) {
+        var div = diagram.div;
+        if (!div)
+            return new Point(0, 0);
+        var rect = div.getBoundingClientRect();
+        var viewX = evt.clientX - rect.left;
+        var viewY = evt.clientY - rect.top;
+        return diagram.transformViewToDoc(new Point(viewX, viewY));
+    };
+    DraggingTool.prototype._setupGlobalListeners = function () {
+        var _this = this;
+        this._globalMouseMoveHandler = function (e) {
+            if (_this._isDragOut && _this._targetDiagram && _this._dragOutParts) {
+                var point = _this._clientToDoc(_this._targetDiagram, e);
+                var it = _this._dragOutParts.iterator;
+                while (it.next()) {
+                    var part = it.key;
+                    var origLoc = it.value;
+                    var dx = point.x - _this._startPoint.x;
+                    var dy = point.y - _this._startPoint.y;
+                    part.move(new Point(origLoc.x + dx, origLoc.y + dy));
+                }
+                _this._targetDiagram.requestUpdate();
+            }
+        };
+        this._globalMouseUpHandler = function (_e) {
+            if (_this._isDragOut) {
+                _this._removeGlobalListeners();
+                _this._finishDragOut();
+            }
+        };
+        document.addEventListener('mousemove', this._globalMouseMoveHandler);
+        document.addEventListener('mouseup', this._globalMouseUpHandler);
+    };
+    DraggingTool.prototype._removeGlobalListeners = function () {
+        if (this._globalMouseMoveHandler) {
+            document.removeEventListener('mousemove', this._globalMouseMoveHandler);
+            this._globalMouseMoveHandler = null;
+        }
+        if (this._globalMouseUpHandler) {
+            document.removeEventListener('mouseup', this._globalMouseUpHandler);
+            this._globalMouseUpHandler = null;
+        }
     };
     return DraggingTool;
 }(Tool));
@@ -17047,6 +17212,11 @@ var Animation = /** @class */ (function () {
             this._animations.push(targetOrConfig);
         }
     };
+    Animation.prototype.clear = function () {
+        this._animations.length = 0;
+        this._isRunning = false;
+        this._state = AnimationState.Inactive;
+    };
     Animation.prototype.start = function () {
         if (this._isRunning)
             return;
@@ -19307,7 +19477,31 @@ var Diagram = /** @class */ (function () {
         }
     };
     Diagram.prototype._performLayout = function () {
-        var e_25, _a;
+        var e_25, _a, e_26, _b;
+        var oldPositions = new Map$1();
+        if (this._animationManager.isEnabled) {
+            try {
+                for (var _c = __values(this._layers), _d = _c.next(); !_d.done; _d = _c.next()) {
+                    var layer = _d.value;
+                    if (layer.isTemporary)
+                        continue;
+                    var partsIt = layer.parts;
+                    while (partsIt.next()) {
+                        var part = partsIt.value;
+                        if (part instanceof Node && part.isLayoutPositioned && part.visible) {
+                            oldPositions.add(part, part.location.copy());
+                        }
+                    }
+                }
+            }
+            catch (e_25_1) { e_25 = { error: e_25_1 }; }
+            finally {
+                try {
+                    if (_d && !_d.done && (_a = _c.return)) _a.call(_c);
+                }
+                finally { if (e_25) throw e_25.error; }
+            }
+        }
         if (this._layout && typeof this._layout.doLayout === 'function') {
             if (this._layout.diagram !== this) {
                 this._layout.diagram = this;
@@ -19317,8 +19511,8 @@ var Diagram = /** @class */ (function () {
             }
         }
         try {
-            for (var _b = __values(this._layers), _c = _b.next(); !_c.done; _c = _b.next()) {
-                var layer = _c.value;
+            for (var _e = __values(this._layers), _f = _e.next(); !_f.done; _f = _e.next()) {
+                var layer = _f.value;
                 if (layer.isTemporary)
                     continue;
                 var partsIt = layer.parts;
@@ -19334,12 +19528,32 @@ var Diagram = /** @class */ (function () {
                 }
             }
         }
-        catch (e_25_1) { e_25 = { error: e_25_1 }; }
+        catch (e_26_1) { e_26 = { error: e_26_1 }; }
         finally {
             try {
-                if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
+                if (_f && !_f.done && (_b = _e.return)) _b.call(_e);
             }
-            finally { if (e_25) throw e_25.error; }
+            finally { if (e_26) throw e_26.error; }
+        }
+        if (this._animationManager.isEnabled && oldPositions.count > 0) {
+            var anim = this._animationManager.defaultAnimation;
+            anim.clear();
+            anim.duration = this._animationManager.duration;
+            var hasChanges = false;
+            var it = oldPositions.iterator;
+            while (it.next()) {
+                var node = it.key;
+                var oldLoc = it.value;
+                var newLoc = node.location;
+                if (oldLoc.x !== newLoc.x || oldLoc.y !== newLoc.y) {
+                    node.location = oldLoc;
+                    anim.add(node, 'location', oldLoc, newLoc);
+                    hasChanges = true;
+                }
+            }
+            if (hasChanges) {
+                this._animationManager.startAnimation(anim);
+            }
         }
         this._raiseDiagramEvent('LayoutCompleted');
         if (!this._hasPerformedInitialLayout) {
@@ -19401,7 +19615,7 @@ var Diagram = /** @class */ (function () {
         this.alignDocument(this._contentAlignment, this._contentAlignment);
     };
     Diagram.prototype._updateGeometry = function () {
-        var e_26, _a, e_27, _b, e_28, _c;
+        var e_27, _a, e_28, _b, e_29, _c;
         var viewSize = this.viewSize;
         var availW = viewSize.width > 0 ? viewSize.width : 800;
         viewSize.height > 0 ? viewSize.height : 600;
@@ -19421,12 +19635,12 @@ var Diagram = /** @class */ (function () {
                 }
             }
         }
-        catch (e_26_1) { e_26 = { error: e_26_1 }; }
+        catch (e_27_1) { e_27 = { error: e_27_1 }; }
         finally {
             try {
                 if (_e && !_e.done && (_a = _d.return)) _a.call(_d);
             }
-            finally { if (e_26) throw e_26.error; }
+            finally { if (e_27) throw e_27.error; }
         }
         if (!this._layout) {
             var autoX = 50;
@@ -19453,12 +19667,12 @@ var Diagram = /** @class */ (function () {
                     }
                 }
             }
-            catch (e_27_1) { e_27 = { error: e_27_1 }; }
+            catch (e_28_1) { e_28 = { error: e_28_1 }; }
             finally {
                 try {
                     if (partsToLayout_1_1 && !partsToLayout_1_1.done && (_b = partsToLayout_1.return)) _b.call(partsToLayout_1);
                 }
-                finally { if (e_27) throw e_27.error; }
+                finally { if (e_28) throw e_28.error; }
             }
         }
         try {
@@ -19474,12 +19688,12 @@ var Diagram = /** @class */ (function () {
                 }
             }
         }
-        catch (e_28_1) { e_28 = { error: e_28_1 }; }
+        catch (e_29_1) { e_29 = { error: e_29_1 }; }
         finally {
             try {
                 if (partsToLayout_2_1 && !partsToLayout_2_1.done && (_c = partsToLayout_2.return)) _c.call(partsToLayout_2);
             }
-            finally { if (e_28) throw e_28.error; }
+            finally { if (e_29) throw e_29.error; }
         }
     };
     Diagram.prototype._setupResizeObserver = function () {
@@ -19630,22 +19844,21 @@ var Diagram = /** @class */ (function () {
     return Diagram;
 }());
 
-/**
- * Overview - shows a zoomed-out view of another diagram.
- * Renders a scaled-down version of the observed diagram and shows a rectangle
- * representing the current viewport.
- */
 var Overview = /** @class */ (function () {
     function Overview(divId) {
         this._observedDiagram = null;
         this._box = null;
         this._isViewportSized = false;
+        this._canvas = null;
+        this._isDragging = false;
+        this._dragStart = new Point(0, 0);
+        this._observedPositionAtDragStart = new Point(0, 0);
+        this._viewportChangedListener = null;
+        this._observedModelChangedListener = null;
         this._diagram = new Diagram(divId);
         this._setupOverview();
     }
     Object.defineProperty(Overview.prototype, "diagram", {
-        // ============ Properties ============
-        /** The Diagram shown by this Overview. */
         get: function () {
             return this._diagram;
         },
@@ -19653,21 +19866,21 @@ var Overview = /** @class */ (function () {
         configurable: true
     });
     Object.defineProperty(Overview.prototype, "observedDiagram", {
-        /** The diagram being observed by this Overview. */
         get: function () {
             return this._observedDiagram;
         },
         set: function (val) {
             if (this._observedDiagram === val)
                 return;
+            this._removeListeners();
             this._observedDiagram = val;
+            this._addListeners();
             this.update();
         },
         enumerable: false,
         configurable: true
     });
     Object.defineProperty(Overview.prototype, "box", {
-        /** The viewport box Adornment that indicates the current viewport of the observed diagram. */
         get: function () {
             return this._box;
         },
@@ -19678,7 +19891,6 @@ var Overview = /** @class */ (function () {
         configurable: true
     });
     Object.defineProperty(Overview.prototype, "isViewportSized", {
-        /** Whether the Overview sizes itself to match the observed diagram's viewport. */
         get: function () {
             return this._isViewportSized;
         },
@@ -19691,17 +19903,13 @@ var Overview = /** @class */ (function () {
         enumerable: false,
         configurable: true
     });
-    // ============ Methods ============
-    /** Redraw the overview. */
     Overview.prototype.update = function () {
         this.drawOverview();
         this.drawBox();
     };
-    /** Render the observed diagram in miniature. */
     Overview.prototype.drawOverview = function () {
         if (!this._observedDiagram)
             return;
-        // Scale the overview to fit the observed diagram's document bounds
         var docBounds = this._observedDiagram.documentBounds;
         if (docBounds.isEmpty)
             return;
@@ -19713,37 +19921,32 @@ var Overview = /** @class */ (function () {
         this._diagram.position = new Point(docBounds.x, docBounds.y);
         this._diagram.requestUpdate();
     };
-    /** Draw the viewport indicator box. */
     Overview.prototype.drawBox = function () {
         if (!this._observedDiagram)
             return;
         var vpBounds = this._observedDiagram.viewportBounds;
         if (vpBounds.isEmpty)
             return;
-        // The box represents the viewport rectangle in overview coordinates
-        // Stub: actual box drawing would create/update an Adornment on the overview diagram
         if (this._box) {
             this._box.position = new Point(vpBounds.x, vpBounds.y);
             this._box.width = vpBounds.width;
             this._box.height = vpBounds.height;
         }
+        this._drawViewportBox(vpBounds);
     };
-    /** Compute the bounds of all parts in the observed diagram. */
     Overview.prototype.computeBounds = function () {
         if (!this._observedDiagram)
             return new Rect();
         return this._observedDiagram.documentBounds;
     };
-    /** Create a copy of this Overview. */
     Overview.prototype.copy = function () {
         var overview = new Overview(this._diagram.div || '');
         overview.observedDiagram = this._observedDiagram;
         overview.isViewportSized = this._isViewportSized;
         return overview;
     };
-    // ============ Internal Methods ============
-    /** Set up the overview diagram with appropriate settings. */
     Overview.prototype._setupOverview = function () {
+        var _this = this;
         this._diagram.isReadOnly = true;
         this._diagram.allowSelect = false;
         this._diagram.allowMove = false;
@@ -19752,6 +19955,115 @@ var Overview = /** @class */ (function () {
         this._diagram.allowZoom = false;
         this._diagram.allowHorizontalScroll = false;
         this._diagram.allowVerticalScroll = false;
+        var div = this._diagram.div;
+        if (div) {
+            this._canvas = div.querySelector('canvas');
+            if (this._canvas) {
+                this._canvas.addEventListener('mousedown', function (e) { return _this._onMouseDown(e); });
+                this._canvas.addEventListener('mousemove', function (e) { return _this._onMouseMove(e); });
+                this._canvas.addEventListener('mouseup', function (e) { return _this._onMouseUp(e); });
+                this._canvas.addEventListener('mouseleave', function (e) { return _this._onMouseUp(e); });
+            }
+        }
+        this._diagram.addDiagramListener('ViewportChanged', function () {
+            _this.drawBox();
+        });
+    };
+    Overview.prototype._drawViewportBox = function (vpBounds) {
+        if (!this._canvas)
+            return;
+        var ctx = this._canvas.getContext('2d');
+        if (!ctx)
+            return;
+        var scale = this._diagram.scale;
+        var pos = this._diagram.position;
+        var dpr = window.devicePixelRatio || 1;
+        ctx.save();
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        var x = (vpBounds.x - pos.x) * scale;
+        var y = (vpBounds.y - pos.y) * scale;
+        var w = vpBounds.width * scale;
+        var h = vpBounds.height * scale;
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
+        ctx.fillRect(x, y, w, h);
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.4)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x, y, w, h);
+        ctx.restore();
+    };
+    Overview.prototype._onMouseDown = function (e) {
+        if (!this._observedDiagram)
+            return;
+        var rect = this._canvas.getBoundingClientRect();
+        var canvasX = e.clientX - rect.left;
+        var canvasY = e.clientY - rect.top;
+        var scale = this._diagram.scale;
+        var pos = this._diagram.position;
+        var docX = canvasX / scale + pos.x;
+        var docY = canvasY / scale + pos.y;
+        var vpBounds = this._observedDiagram.viewportBounds;
+        var vpCenterX = vpBounds.x + vpBounds.width / 2;
+        var vpCenterY = vpBounds.y + vpBounds.height / 2;
+        this._isDragging = true;
+        this._dragStart = new Point(docX, docY);
+        this._observedPositionAtDragStart = this._observedDiagram.position.copy();
+        if (docX < vpBounds.x || docX > vpBounds.x + vpBounds.width ||
+            docY < vpBounds.y || docY > vpBounds.y + vpBounds.height) {
+            var dx = docX - vpCenterX;
+            var dy = docY - vpCenterY;
+            this._observedDiagram.position = new Point(this._observedPositionAtDragStart.x + dx, this._observedPositionAtDragStart.y + dy);
+            this._observedPositionAtDragStart = this._observedDiagram.position.copy();
+            this._dragStart = new Point(docX, docY);
+        }
+        e.preventDefault();
+    };
+    Overview.prototype._onMouseMove = function (e) {
+        if (!this._isDragging || !this._observedDiagram)
+            return;
+        var rect = this._canvas.getBoundingClientRect();
+        var canvasX = e.clientX - rect.left;
+        var canvasY = e.clientY - rect.top;
+        var scale = this._diagram.scale;
+        var pos = this._diagram.position;
+        var docX = canvasX / scale + pos.x;
+        var docY = canvasY / scale + pos.y;
+        var dx = docX - this._dragStart.x;
+        var dy = docY - this._dragStart.y;
+        this._observedDiagram.position = new Point(this._observedPositionAtDragStart.x + dx, this._observedPositionAtDragStart.y + dy);
+    };
+    Overview.prototype._onMouseUp = function (_e) {
+        this._isDragging = false;
+    };
+    Overview.prototype._addListeners = function () {
+        var _this = this;
+        if (!this._observedDiagram)
+            return;
+        this._viewportChangedListener = function () {
+            _this.drawBox();
+        };
+        this._observedDiagram.addDiagramListener('ViewportChanged', this._viewportChangedListener);
+        var model = this._observedDiagram.model;
+        if (model) {
+            this._observedModelChangedListener = function () {
+                _this.update();
+            };
+            model.addChangedListener(this._observedModelChangedListener);
+        }
+    };
+    Overview.prototype._removeListeners = function () {
+        if (this._observedDiagram) {
+            if (this._viewportChangedListener) {
+                this._observedDiagram.removeDiagramListener('ViewportChanged', this._viewportChangedListener);
+            }
+            if (this._observedModelChangedListener) {
+                var model = this._observedDiagram.model;
+                if (model) {
+                    model.removeChangedListener(this._observedModelChangedListener);
+                }
+            }
+        }
+        this._viewportChangedListener = null;
+        this._observedModelChangedListener = null;
     };
     return Overview;
 }());

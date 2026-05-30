@@ -93,6 +93,12 @@ export class Animation {
     }
   }
 
+  clear(): void {
+    this._animations.length = 0;
+    this._isRunning = false;
+    this._state = AnimationState.Inactive;
+  }
+
   start(): void {
     if (this._isRunning) return;
     this._isRunning = true;

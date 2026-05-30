@@ -8,6 +8,11 @@ export declare class DraggingTool extends Tool {
     private _startPoint;
     private _draggedParts;
     private _copiedParts;
+    private _isDragOut;
+    private _targetDiagram;
+    private _dragOutParts;
+    private _globalMouseMoveHandler;
+    private _globalMouseUpHandler;
     constructor();
     get isCopy(): boolean;
     set isCopy(val: boolean);
@@ -28,4 +33,10 @@ export declare class DraggingTool extends Tool {
     computeMove(part: Part, newLoc: Point): Point;
     private _copyParts;
     private _removeCopiedParts;
+    private _startDragOut;
+    private _finishDragOut;
+    private _findTargetDiagram;
+    private _clientToDoc;
+    private _setupGlobalListeners;
+    private _removeGlobalListeners;
 }

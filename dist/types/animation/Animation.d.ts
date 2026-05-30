@@ -25,6 +25,7 @@ export declare class Animation {
     get finished(): (() => void) | null;
     set finished(val: (() => void) | null);
     add(targetOrConfig: object | AnimationConfig, property?: string, fromValue?: any, toValue?: any): void;
+    clear(): void;
     start(): void;
     stop(): void;
     finish(): void;

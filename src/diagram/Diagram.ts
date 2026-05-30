@@ -1580,6 +1580,20 @@ export class Diagram {
   }
 
   private _performLayout(): void {
+    const oldPositions = new Map<Node, Point>();
+    if (this._animationManager.isEnabled) {
+      for (const layer of this._layers) {
+        if (layer.isTemporary) continue;
+        const partsIt = layer.parts;
+        while (partsIt.next()) {
+          const part = partsIt.value;
+          if (part instanceof Node && part.isLayoutPositioned && part.visible) {
+            oldPositions.add(part, part.location.copy());
+          }
+        }
+      }
+    }
+
     if (this._layout && typeof this._layout.doLayout === 'function') {
       if ((this._layout as any).diagram !== this) {
         (this._layout as any).diagram = this;
@@ -1600,6 +1614,27 @@ export class Diagram {
             groupLayout.doLayout(part);
           }
         }
+      }
+    }
+
+    if (this._animationManager.isEnabled && oldPositions.count > 0) {
+      const anim = this._animationManager.defaultAnimation;
+      anim.clear();
+      anim.duration = this._animationManager.duration;
+      let hasChanges = false;
+      const it = oldPositions.iterator;
+      while (it.next()) {
+        const node = it.key;
+        const oldLoc = it.value;
+        const newLoc = node.location;
+        if (oldLoc.x !== newLoc.x || oldLoc.y !== newLoc.y) {
+          node.location = oldLoc;
+          anim.add(node, 'location', oldLoc, newLoc);
+          hasChanges = true;
+        }
+      }
+      if (hasChanges) {
+        this._animationManager.startAnimation(anim);
       }
     }
 
