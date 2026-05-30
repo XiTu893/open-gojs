@@ -1,9 +1,7 @@
-/**
- * Animation - represents a single animation that can animate properties of objects.
- */
-export class Animation {
+import { Point } from '../core/Point';
+import { Rect } from '../core/Rect';
 
-  // ============ Static Easing Functions ============
+export class Animation {
 
   static EaseLinear(t: number): number {
     return t;
@@ -24,8 +22,6 @@ export class Animation {
     return t * (2 - t);
   }
 
-  // ============ Instance Properties ============
-
   private _isRunning: boolean = false;
   private _duration: number = 200;
   private _easing: (t: number) => number = Animation.EaseInOut;
@@ -33,9 +29,8 @@ export class Animation {
   private _state: AnimationState = AnimationState.Inactive;
   private _animations: AnimationConfig[] = [];
   private _startTime: number = 0;
-  private _frameId: number = 0;
-
-  // ============ Properties ============
+  private _manager: any = null;
+  private _finished: (() => void) | null = null;
 
   get isRunning(): boolean {
     return this._isRunning;
@@ -69,10 +64,33 @@ export class Animation {
     return this._state;
   }
 
-  // ============ Methods ============
+  get manager(): any {
+    return this._manager;
+  }
 
-  add(config: AnimationConfig): void {
-    this._animations.push(config);
+  set manager(val: any) {
+    this._manager = val;
+  }
+
+  get finished(): (() => void) | null {
+    return this._finished;
+  }
+
+  set finished(val: (() => void) | null) {
+    this._finished = val;
+  }
+
+  add(targetOrConfig: object | AnimationConfig, property?: string, fromValue?: any, toValue?: any): void {
+    if (typeof targetOrConfig === 'object' && property !== undefined) {
+      this._animations.push({
+        target: targetOrConfig,
+        property: property,
+        from: fromValue,
+        to: toValue
+      });
+    } else {
+      this._animations.push(targetOrConfig as AnimationConfig);
+    }
   }
 
   start(): void {
@@ -80,25 +98,22 @@ export class Animation {
     this._isRunning = true;
     this._state = AnimationState.Running;
     this._startTime = performance.now();
-    this._tick();
+    if (this._manager && typeof this._manager.registerAnimation === 'function') {
+      this._manager.registerAnimation(this);
+    }
   }
 
   stop(): void {
     if (!this._isRunning) return;
     this._isRunning = false;
     this._state = AnimationState.Stopped;
-    if (this._frameId) {
-      cancelAnimationFrame(this._frameId);
-      this._frameId = 0;
-    }
   }
 
   finish(): void {
     if (!this._isRunning) return;
-    // Jump to end state
     for (const config of this._animations) {
       if (config.target && config.property) {
-        (config.target as any)[config.property] = config.to;
+        this._setPropertyValue(config, config.to);
       }
       if (config.onFinish) {
         config.onFinish();
@@ -106,63 +121,88 @@ export class Animation {
     }
     this._isRunning = false;
     this._state = AnimationState.Finished;
-    if (this._frameId) {
-      cancelAnimationFrame(this._frameId);
-      this._frameId = 0;
+    if (this._finished) {
+      this._finished();
     }
   }
 
   restart(): void {
     this.stop();
-    // Reset to start state
     for (const config of this._animations) {
       if (config.target && config.property) {
-        (config.target as any)[config.property] = config.from;
+        this._setPropertyValue(config, config.from);
       }
     }
     this.start();
   }
 
-  // ============ Internal Methods ============
-
-  private _tick(): void {
+  update(now: number): void {
     if (!this._isRunning) return;
 
-    const elapsed = performance.now() - this._startTime;
+    const elapsed = now - this._startTime;
     let progress = Math.min(elapsed / this._duration, 1);
 
-    // Apply easing
     const easedProgress = this._easing(progress);
 
-    // Update all animated properties
     for (const config of this._animations) {
       if (config.target && config.property) {
-        const from = config.from;
-        const to = config.to;
-        const current = from + (to - from) * easedProgress;
-        (config.target as any)[config.property] = current;
+        this._interpolate(config, easedProgress);
       }
     }
 
-    if (progress < 1) {
-      this._frameId = requestAnimationFrame(() => this._tick());
-    } else {
+    if (progress >= 1) {
       this._isRunning = false;
       this._state = AnimationState.Finished;
-      this._frameId = 0;
-      // Call finish callbacks
       for (const config of this._animations) {
         if (config.onFinish) {
           config.onFinish();
         }
       }
+      if (this._finished) {
+        this._finished();
+      }
+    }
+  }
+
+  private _interpolate(config: AnimationConfig, t: number): void {
+    const from = config.from;
+    const to = config.to;
+
+    if (from instanceof Point && to instanceof Point) {
+      const current = new Point(
+        from.x + (to.x - from.x) * t,
+        from.y + (to.y - from.y) * t
+      );
+      (config.target as any)[config.property] = current;
+    } else if (from instanceof Rect && to instanceof Rect) {
+      const current = new Rect(
+        from.x + (to.x - from.x) * t,
+        from.y + (to.y - from.y) * t,
+        from.width + (to.width - from.width) * t,
+        from.height + (to.height - from.height) * t
+      );
+      (config.target as any)[config.property] = current;
+    } else if (typeof from === 'number' && typeof to === 'number') {
+      const current = from + (to - from) * t;
+      (config.target as any)[config.property] = current;
+    } else {
+      if (t >= 1) {
+        (config.target as any)[config.property] = to;
+      }
+    }
+  }
+
+  private _setPropertyValue(config: AnimationConfig, value: any): void {
+    if (value instanceof Point) {
+      (config.target as any)[config.property] = value.copy();
+    } else if (value instanceof Rect) {
+      (config.target as any)[config.property] = value.copy();
+    } else {
+      (config.target as any)[config.property] = value;
     }
   }
 }
 
-/**
- * Animation state enum values
- */
 export enum AnimationState {
   Inactive = 'Inactive',
   Running = 'Running',
@@ -170,13 +210,10 @@ export enum AnimationState {
   Finished = 'Finished'
 }
 
-/**
- * Configuration for a single property animation
- */
 export interface AnimationConfig {
   target: object;
   property: string;
-  from: number;
-  to: number;
+  from: any;
+  to: any;
   onFinish?: () => void;
 }

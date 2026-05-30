@@ -73,6 +73,15 @@ export class Node extends Part {
         (this as any).layout.invalidateLayout();
       }
     }
+    const diagram = this._diagram;
+    if (diagram) {
+      if (typeof (diagram as any)._updateBindingsForPart === 'function') {
+        (diagram as any)._updateBindingsForPart(this, 'isSubGraphExpanded');
+      }
+      if (typeof (diagram as any)._handlePartPropertyChanged === 'function') {
+        (diagram as any)._handlePartPropertyChanged(this, this, 'isSubGraphExpanded', val);
+      }
+    }
   }
 
   get treeExpandedDirection(): EnumValue { return this._treeExpandedDirection; }

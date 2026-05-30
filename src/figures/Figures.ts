@@ -50,25 +50,25 @@ defineFigure('RoundedRectangle', (shape, w, h) => {
   const fig = new PathFigure(tl ? cr : 0, 0);
   fig.add(PathSegment.Line(tr ? w - cr : w, 0));
   if (tr) {
-    fig.add(PathSegment.Arc(w, cr, cr, cr, 0, false, false));
+    fig.add(PathSegment.Arc(w, cr, cr, cr, 0, false, true));
   } else {
     fig.add(PathSegment.Line(w, 0));
   }
   fig.add(PathSegment.Line(w, br ? h - cr : h));
   if (br) {
-    fig.add(PathSegment.Arc(w - cr, h, cr, cr, 0, false, false));
+    fig.add(PathSegment.Arc(w - cr, h, cr, cr, 0, false, true));
   } else {
     fig.add(PathSegment.Line(w, h));
   }
   fig.add(PathSegment.Line(bl ? cr : 0, h));
   if (bl) {
-    fig.add(PathSegment.Arc(0, h - cr, cr, cr, 0, false, false));
+    fig.add(PathSegment.Arc(0, h - cr, cr, cr, 0, false, true));
   } else {
     fig.add(PathSegment.Line(0, h));
   }
   fig.add(PathSegment.Line(0, tl ? cr : 0));
   if (tl) {
-    fig.add(PathSegment.Arc(cr, 0, cr, cr, 0, false, false));
+    fig.add(PathSegment.Arc(cr, 0, cr, cr, 0, false, true));
   } else {
     fig.add(PathSegment.Line(0, 0));
   }
@@ -82,8 +82,8 @@ defineFigure('Ellipse', (shape, w, h) => {
   const rx = w / 2;
   const ry = h / 2;
   const fig = new PathFigure(w, ry);
-  fig.add(PathSegment.Arc(0, ry, rx, ry, 0, false, false));
-  fig.add(PathSegment.Arc(w, ry, rx, ry, 0, false, false));
+  fig.add(PathSegment.Arc(0, ry, rx, ry, 0, false, true));
+  fig.add(PathSegment.Arc(w, ry, rx, ry, 0, false, true));
   fig.add(PathSegment.Close());
   geo.add(fig);
   return geo;
@@ -95,8 +95,8 @@ defineFigure('Circle', (shape, w, h) => {
   const cx = w / 2;
   const cy = h / 2;
   const fig = new PathFigure(cx + r, cy);
-  fig.add(PathSegment.Arc(cx - r, cy, r, r, 0, false, false));
-  fig.add(PathSegment.Arc(cx + r, cy, r, r, 0, false, false));
+  fig.add(PathSegment.Arc(cx - r, cy, r, r, 0, false, true));
+  fig.add(PathSegment.Arc(cx + r, cy, r, r, 0, false, true));
   fig.add(PathSegment.Close());
   geo.add(fig);
   return geo;
@@ -281,13 +281,13 @@ defineFigure('Cylinder1', (shape, w, h) => {
   const r = getP1(shape, Math.min(w / 2, h / 8));
   const fig = new PathFigure(w, r);
   fig.add(PathSegment.Line(w, h - r));
-  fig.add(PathSegment.Arc(0, h - r, w / 2, r, 0, false, false));
+  fig.add(PathSegment.Arc(0, h - r, w / 2, r, 0, false, true));
   fig.add(PathSegment.Line(0, r));
   fig.add(PathSegment.Arc(w, r, w / 2, r, 0, false, true));
   fig.add(PathSegment.Close());
   geo.add(fig);
   const fig2 = new PathFigure(0, r);
-  fig2.add(PathSegment.Arc(w, r, w / 2, r, 0, false, false));
+  fig2.add(PathSegment.Arc(w, r, w / 2, r, 0, false, true));
   fig2.add(PathSegment.Arc(0, r, w / 2, r, 0, false, true));
   fig2.add(PathSegment.Close());
   geo.add(fig2);
@@ -299,7 +299,7 @@ defineFigure('Cylinder2', (shape, w, h) => {
   const geo = new Geometry();
   const fig = new PathFigure(w, r);
   fig.add(PathSegment.Line(w, h - r));
-  fig.add(PathSegment.Arc(0, h - r, w / 2, r, 0, false, false));
+  fig.add(PathSegment.Arc(0, h - r, w / 2, r, 0, false, true));
   fig.add(PathSegment.Line(0, r));
   fig.add(PathSegment.Arc(w, r, w / 2, r, 0, false, true));
   fig.add(PathSegment.Close());
@@ -312,14 +312,14 @@ defineFigure('Cylinder3', (shape, w, h) => {
   const geo = new Geometry();
   const fig = new PathFigure(w, r);
   fig.add(PathSegment.Line(w, h - r));
-  fig.add(PathSegment.Arc(0, h - r, w / 2, r, 0, false, false));
+  fig.add(PathSegment.Arc(0, h - r, w / 2, r, 0, false, true));
   fig.add(PathSegment.Arc(w, h - r, w / 2, r, 0, false, true));
   fig.add(PathSegment.Line(w, r));
-  fig.add(PathSegment.Arc(0, r, w / 2, r, 0, false, false));
+  fig.add(PathSegment.Arc(0, r, w / 2, r, 0, false, true));
   fig.add(PathSegment.Close());
   geo.add(fig);
   const fig2 = new PathFigure(0, r);
-  fig2.add(PathSegment.Arc(w, r, w / 2, r, 0, false, false));
+  fig2.add(PathSegment.Arc(w, r, w / 2, r, 0, false, true));
   fig2.add(PathSegment.Arc(0, r, w / 2, r, 0, false, true));
   fig2.add(PathSegment.Close());
   geo.add(fig2);
@@ -332,12 +332,12 @@ defineFigure('Cylinder4', (shape, w, h) => {
   const fig = new PathFigure(w, r);
   fig.add(PathSegment.Arc(0, r, w / 2, r, 0, false, true));
   fig.add(PathSegment.Line(0, h - r));
-  fig.add(PathSegment.Arc(w, h - r, w / 2, r, 0, false, false));
+  fig.add(PathSegment.Arc(w, h - r, w / 2, r, 0, false, true));
   fig.add(PathSegment.Close());
   geo.add(fig);
   const fig2 = new PathFigure(0, h - r);
   fig2.add(PathSegment.Arc(w, h - r, w / 2, r, 0, false, true));
-  fig2.add(PathSegment.Arc(0, h - r, w / 2, r, 0, false, false));
+  fig2.add(PathSegment.Arc(0, h - r, w / 2, r, 0, false, true));
   fig2.add(PathSegment.Close());
   geo.add(fig2);
   return geo;
@@ -350,16 +350,16 @@ defineFigure('Database', (shape, w, h) => {
   fig.add(PathSegment.Line(w, h - r));
   fig.add(PathSegment.Arc(0, h - r, w / 2, r, 0, false, true));
   fig.add(PathSegment.Line(0, r));
-  fig.add(PathSegment.Arc(w, r, w / 2, r, 0, false, false));
+  fig.add(PathSegment.Arc(w, r, w / 2, r, 0, false, true));
   fig.add(PathSegment.Close());
   geo.add(fig);
   const fig2 = new PathFigure(0, r);
-  fig2.add(PathSegment.Arc(w, r, w / 2, r, 0, false, false));
+  fig2.add(PathSegment.Arc(w, r, w / 2, r, 0, false, true));
   fig2.add(PathSegment.Arc(0, r, w / 2, r, 0, false, true));
   fig2.add(PathSegment.Close());
   geo.add(fig2);
   const fig3 = new PathFigure(0, h - r);
-  fig3.add(PathSegment.Arc(w, h - r, w / 2, r, 0, false, false));
+  fig3.add(PathSegment.Arc(w, h - r, w / 2, r, 0, false, true));
   fig3.add(PathSegment.Arc(0, h - r, w / 2, r, 0, false, true));
   fig3.add(PathSegment.Close());
   geo.add(fig3);
@@ -389,13 +389,13 @@ defineFigure('Terminator', (shape, w, h) => {
   const geo = new Geometry();
   const fig = new PathFigure(cr, 0);
   fig.add(PathSegment.Line(w - cr, 0));
-  fig.add(PathSegment.Arc(w, cr, cr, cr, 0, false, false));
+  fig.add(PathSegment.Arc(w, cr, cr, cr, 0, false, true));
   fig.add(PathSegment.Line(w, h - cr));
-  fig.add(PathSegment.Arc(w - cr, h, cr, cr, 0, false, false));
+  fig.add(PathSegment.Arc(w - cr, h, cr, cr, 0, false, true));
   fig.add(PathSegment.Line(cr, h));
-  fig.add(PathSegment.Arc(0, h - cr, cr, cr, 0, false, false));
+  fig.add(PathSegment.Arc(0, h - cr, cr, cr, 0, false, true));
   fig.add(PathSegment.Line(0, cr));
-  fig.add(PathSegment.Arc(cr, 0, cr, cr, 0, false, false));
+  fig.add(PathSegment.Arc(cr, 0, cr, cr, 0, false, true));
   fig.add(PathSegment.Close());
   geo.add(fig);
   return geo;
@@ -754,7 +754,7 @@ defineFigure('Bar', (shape, w, h) => {
 defineFigure('HalfEllipse', (shape, w, h) => {
   const geo = new Geometry();
   const fig = new PathFigure(0, h / 2);
-  fig.add(PathSegment.Arc(w, h / 2, w / 2, h / 2, 0, false, false));
+  fig.add(PathSegment.Arc(w, h / 2, w / 2, h / 2, 0, false, true));
   fig.add(PathSegment.Line(0, h / 2));
   fig.add(PathSegment.Close());
   geo.add(fig);
@@ -766,13 +766,13 @@ defineFigure('Capsule', (shape, w, h) => {
   const r = Math.min(w, h) / 2;
   const fig = new PathFigure(r, 0);
   fig.add(PathSegment.Line(w - r, 0));
-  fig.add(PathSegment.Arc(w, r, r, r, 0, false, false));
+  fig.add(PathSegment.Arc(w, r, r, r, 0, false, true));
   fig.add(PathSegment.Line(w, h - r));
-  fig.add(PathSegment.Arc(w - r, h, r, r, 0, false, false));
+  fig.add(PathSegment.Arc(w - r, h, r, r, 0, false, true));
   fig.add(PathSegment.Line(r, h));
-  fig.add(PathSegment.Arc(0, h - r, r, r, 0, false, false));
+  fig.add(PathSegment.Arc(0, h - r, r, r, 0, false, true));
   fig.add(PathSegment.Line(0, r));
-  fig.add(PathSegment.Arc(r, 0, r, r, 0, false, false));
+  fig.add(PathSegment.Arc(r, 0, r, r, 0, false, true));
   fig.add(PathSegment.Close());
   geo.add(fig);
   return geo;
@@ -875,11 +875,11 @@ defineFigure('RoundedTopRectangle', (shape, w, h) => {
   const geo = new Geometry();
   const fig = new PathFigure(cr, 0);
   fig.add(PathSegment.Line(w - cr, 0));
-  fig.add(PathSegment.Arc(w, cr, cr, cr, 0, false, false));
+  fig.add(PathSegment.Arc(w, cr, cr, cr, 0, false, true));
   fig.add(PathSegment.Line(w, h));
   fig.add(PathSegment.Line(0, h));
   fig.add(PathSegment.Line(0, cr));
-  fig.add(PathSegment.Arc(cr, 0, cr, cr, 0, false, false));
+  fig.add(PathSegment.Arc(cr, 0, cr, cr, 0, false, true));
   fig.add(PathSegment.Close());
   geo.add(fig);
   return geo;
@@ -893,9 +893,9 @@ defineFigure('RoundedBottomRectangle', (shape, w, h) => {
   const fig = new PathFigure(0, 0);
   fig.add(PathSegment.Line(w, 0));
   fig.add(PathSegment.Line(w, h - cr));
-  fig.add(PathSegment.Arc(w - cr, h, cr, cr, 0, false, false));
+  fig.add(PathSegment.Arc(w - cr, h, cr, cr, 0, false, true));
   fig.add(PathSegment.Line(cr, h));
-  fig.add(PathSegment.Arc(0, h - cr, cr, cr, 0, false, false));
+  fig.add(PathSegment.Arc(0, h - cr, cr, cr, 0, false, true));
   fig.add(PathSegment.Close());
   geo.add(fig);
   return geo;
@@ -907,11 +907,11 @@ defineFigure('RoundedLeftRectangle', (shape, w, h) => {
   if (cr <= 0) return getFigureGeometry('Rectangle', w, h, NaN, NaN, shape)!;
   const geo = new Geometry();
   const fig = new PathFigure(0, cr);
-  fig.add(PathSegment.Arc(cr, 0, cr, cr, 0, false, false));
+  fig.add(PathSegment.Arc(cr, 0, cr, cr, 0, false, true));
   fig.add(PathSegment.Line(w, 0));
   fig.add(PathSegment.Line(w, h));
   fig.add(PathSegment.Line(cr, h));
-  fig.add(PathSegment.Arc(0, h - cr, cr, cr, 0, false, false));
+  fig.add(PathSegment.Arc(0, h - cr, cr, cr, 0, false, true));
   fig.add(PathSegment.Close());
   geo.add(fig);
   return geo;
@@ -924,9 +924,9 @@ defineFigure('RoundedRightRectangle', (shape, w, h) => {
   const geo = new Geometry();
   const fig = new PathFigure(0, 0);
   fig.add(PathSegment.Line(w - cr, 0));
-  fig.add(PathSegment.Arc(w, cr, cr, cr, 0, false, false));
+  fig.add(PathSegment.Arc(w, cr, cr, cr, 0, false, true));
   fig.add(PathSegment.Line(w, h - cr));
-  fig.add(PathSegment.Arc(w - cr, h, cr, cr, 0, false, false));
+  fig.add(PathSegment.Arc(w - cr, h, cr, cr, 0, false, true));
   fig.add(PathSegment.Line(0, h));
   fig.add(PathSegment.Close());
   geo.add(fig);

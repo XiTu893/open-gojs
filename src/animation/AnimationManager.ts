@@ -1,10 +1,5 @@
 import { Animation } from './Animation';
 
-/**
- * AnimationManager - manages all animations for a Diagram.
- * Controls whether animations are enabled, their default duration,
- * and the overall animation tick loop.
- */
 export class AnimationManager {
 
   private _diagram: any = null;
@@ -15,8 +10,7 @@ export class AnimationManager {
   private _isTicking: boolean = false;
   private _activeAnimations: Animation[] = [];
   private _frameId: number = 0;
-
-  // ============ Properties ============
+  private _defaultAnimation: Animation | null = null;
 
   get diagram(): any {
     return this._diagram;
@@ -61,10 +55,25 @@ export class AnimationManager {
     return this._isTicking;
   }
 
-  // ============ Methods ============
+  get defaultAnimation(): Animation {
+    if (!this._defaultAnimation) {
+      this._defaultAnimation = this._createDefaultAnimation();
+    }
+    return this._defaultAnimation;
+  }
 
-  startAnimation(): void {
+  private _createDefaultAnimation(): Animation {
+    const anim = new Animation();
+    anim.duration = this._duration;
+    anim.manager = this;
+    return anim;
+  }
+
+  startAnimation(anim?: Animation): void {
     if (!this._isEnabled) return;
+    if (anim) {
+      this.registerAnimation(anim);
+    }
     if (this._isAnimating) return;
     this._isAnimating = true;
     this._isInitial = false;
@@ -74,7 +83,6 @@ export class AnimationManager {
   stopAnimation(): void {
     if (!this._isAnimating) return;
     this._isAnimating = false;
-    // Stop all active animations
     for (const anim of this._activeAnimations) {
       anim.stop();
     }
@@ -82,21 +90,43 @@ export class AnimationManager {
     this._stopTicking();
   }
 
-  defineAnimationEffect(name: string, effect: (obj: object, from: number, to: number, duration: number) => Animation): void {
+  registerAnimation(anim: Animation): void {
+    if (this._activeAnimations.indexOf(anim) < 0) {
+      this._activeAnimations.push(anim);
+    }
+    anim.manager = this;
+    if (!this._isAnimating && this._isEnabled) {
+      this._isAnimating = true;
+      this._isInitial = false;
+      this._startTicking();
+    }
+  }
+
+  defineAnimationEffect(name: string, effect: (obj: object, from: any, to: any, duration: number) => Animation): void {
     (AnimationManager as any)._effects[name] = effect;
+  }
+
+  static getEffect(name: string): ((obj: object, from: any, to: any, duration: number) => Animation) | undefined {
+    return (AnimationManager as any)._effects[name];
   }
 
   updateAnimation(): void {
     if (!this._isAnimating) return;
-    // Remove finished animations
+    const now = performance.now();
+    for (const anim of this._activeAnimations) {
+      if (anim.isRunning) {
+        anim.update(now);
+      }
+    }
     this._activeAnimations = this._activeAnimations.filter(a => a.isRunning);
     if (this._activeAnimations.length === 0) {
       this._isAnimating = false;
       this._stopTicking();
     }
+    if (this._diagram && typeof this._diagram.requestUpdate === 'function') {
+      this._diagram.requestUpdate();
+    }
   }
-
-  // ============ Internal Methods ============
 
   private _startTicking(): void {
     if (this._isTicking) return;
@@ -120,7 +150,5 @@ export class AnimationManager {
     }
   }
 
-  // ============ Static ============
-
-  private static _effects: Record<string, (obj: object, from: number, to: number, duration: number) => Animation> = {};
+  private static _effects: Record<string, (obj: object, from: any, to: any, duration: number) => Animation> = {};
 }

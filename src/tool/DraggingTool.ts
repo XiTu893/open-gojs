@@ -1,6 +1,7 @@
 import { Tool } from './Tool';
 import { Point } from '../core/Point';
 import { Map } from '../core/Map';
+import { Set } from '../core/Set';
 import { List } from '../core/List';
 import type { Part } from '../view/Part';
 
@@ -69,12 +70,23 @@ export class DraggingTool extends Tool {
     this._draggedParts = new Map<Part, Point>();
     const selection = (diagram as any).selection;
     if (selection) {
+      const selectedSet = new Set<Part>();
+      const it0 = selection.iterator;
+      while (it0.next()) {
+        selectedSet.add(it0.value as Part);
+      }
       const it = selection.iterator;
       while (it.next()) {
         const part = it.value as Part;
-        if (part.movable || part.copyable) {
-          this._draggedParts.add(part, part.location.copy());
+        if (!part.movable && !part.copyable) continue;
+        let cg = part.containingGroup;
+        let skip = false;
+        while (cg) {
+          if (selectedSet.contains(cg)) { skip = true; break; }
+          cg = cg.containingGroup;
         }
+        if (skip) continue;
+        this._draggedParts.add(part, part.location.copy());
       }
     }
 
