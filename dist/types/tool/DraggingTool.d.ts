@@ -1,0 +1,31 @@
+import { Tool } from './Tool';
+import { Point } from '../core/Point';
+import { Map } from '../core/Map';
+import type { Part } from '../view/Part';
+export declare class DraggingTool extends Tool {
+    private _isCopy;
+    private _isCopyEnabled;
+    private _startPoint;
+    private _draggedParts;
+    private _copiedParts;
+    constructor();
+    get isCopy(): boolean;
+    set isCopy(val: boolean);
+    get isCopyEnabled(): boolean;
+    set isCopyEnabled(val: boolean);
+    get copiedParts(): Map<Part, Point> | null;
+    set copiedParts(val: Map<Part, Point> | null);
+    get draggedParts(): Map<Part, Point> | null;
+    set draggedParts(val: Map<Part, Point> | null);
+    mayCopy(): boolean;
+    mayMove(): boolean;
+    canStart(): boolean;
+    doActivate(): void;
+    doMouseMove(): void;
+    doMouseUp(): void;
+    doDeactivate(): void;
+    doCancel(): void;
+    computeMove(part: Part, newLoc: Point): Point;
+    private _copyParts;
+    private _removeCopiedParts;
+}

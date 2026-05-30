@@ -1,0 +1,36 @@
+import { GraphObject } from './GraphObject';
+import { Rect } from '../core/Rect';
+import { EnumValue } from '../core/EnumValues';
+export declare class Picture extends GraphObject {
+    static None: EnumValue;
+    static Fill: EnumValue;
+    static Uniform: EnumValue;
+    static UniformToFill: EnumValue;
+    private _source;
+    private _image;
+    private _loadedImage;
+    private _imageStretch;
+    private _imageAlignment;
+    private _sourceRect;
+    private _errorFunction;
+    private _crossOrigin;
+    constructor(source?: string | Partial<Picture>, init?: Partial<Picture>);
+    get source(): string;
+    set source(val: string);
+    get element(): HTMLImageElement | null;
+    get image(): HTMLImageElement | null;
+    set image(val: HTMLImageElement | null);
+    get imageStretch(): EnumValue;
+    set imageStretch(val: EnumValue);
+    get imageAlignment(): string;
+    set imageAlignment(val: string);
+    get sourceRect(): Rect | null;
+    set sourceRect(val: Rect | null);
+    get errorFunction(): ((pic: Picture, e: Event) => void) | null;
+    set errorFunction(val: ((pic: Picture, e: Event) => void) | null);
+    get crossOrigin(): string | null;
+    set crossOrigin(val: string | null);
+    private _loadImage;
+    _measure(widthConstraint: number, heightConstraint: number): void;
+    copy(): Picture;
+}

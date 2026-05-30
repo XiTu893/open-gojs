@@ -1,0 +1,33 @@
+import { Tool } from './Tool';
+import { Point } from '../core/Point';
+import { Size } from '../core/Size';
+import { GraphObject } from '../view/GraphObject';
+export declare class ResizingTool extends Tool {
+    private _handle;
+    private _adornedElement;
+    private _minSize;
+    private _maxSize;
+    private _originalBounds;
+    private _resizeObjectName;
+    protected _handleArchetype: GraphObject | null;
+    constructor();
+    private _createHandleArchetype;
+    get handle(): GraphObject | null;
+    set handle(val: GraphObject | null);
+    get adornedElement(): GraphObject | null;
+    set adornedElement(val: GraphObject | null);
+    get minSize(): Size;
+    set minSize(val: Size);
+    get maxSize(): Size;
+    set maxSize(val: Size);
+    get handleArchetype(): GraphObject | null;
+    set handleArchetype(val: GraphObject | null);
+    canStart(): boolean;
+    doActivate(): void;
+    doMouseMove(): void;
+    doMouseUp(): void;
+    doDeactivate(): void;
+    computeResize(element: GraphObject, newPoint: Point): Size;
+    updateAdornments(part: any): void;
+    private _makeResizeAdornment;
+}

@@ -1,0 +1,34 @@
+import { Animation } from './Animation';
+export declare class AnimationManager {
+    private _diagram;
+    private _isEnabled;
+    private _duration;
+    private _isAnimating;
+    private _isInitial;
+    private _isTicking;
+    private _activeAnimations;
+    private _frameId;
+    private _defaultAnimation;
+    get diagram(): any;
+    set diagram(val: any);
+    get isEnabled(): boolean;
+    set isEnabled(val: boolean);
+    get duration(): number;
+    set duration(val: number);
+    get isAnimating(): boolean;
+    get isInitial(): boolean;
+    set isInitial(val: boolean);
+    get isTicking(): boolean;
+    get defaultAnimation(): Animation;
+    private _createDefaultAnimation;
+    startAnimation(anim?: Animation): void;
+    stopAnimation(): void;
+    registerAnimation(anim: Animation): void;
+    defineAnimationEffect(name: string, effect: (obj: object, from: any, to: any, duration: number) => Animation): void;
+    static getEffect(name: string): ((obj: object, from: any, to: any, duration: number) => Animation) | undefined;
+    updateAnimation(): void;
+    private _startTicking;
+    private _stopTicking;
+    private _tick;
+    private static _effects;
+}
