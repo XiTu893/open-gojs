@@ -113,6 +113,7 @@ export const CircularArrangementPacked = new EnumValue('CircularArrangementPacke
 
 // ============ 环形布局方向 ============
 export const CircularDirectionClockwise = new EnumValue('CircularDirectionClockwise');
+export const CircularDirectionCounterclockwise = new EnumValue('CircularDirectionCounterclockwise');
 export const CircularDirectionBidirectionalLeft = new EnumValue('CircularDirectionBidirectionalLeft');
 export const CircularDirectionBidirectionalRight = new EnumValue('CircularDirectionBidirectionalRight');
 

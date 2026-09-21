@@ -971,10 +971,7 @@ export class Diagram {
       }
     }
 
-    if (this._isInitial && this._layout) {
-      this._layoutInvalid = true;
-    }
-
+     this._layoutInvalid = true;
     this.requestUpdate();
   }
 
@@ -1114,8 +1111,14 @@ export class Diagram {
     const link = new Link();
     const shape = new Shape();
     shape.stroke = 'black';
+    shape.strokeWidth = 1;
     shape.isPanelMain = true;
     link.add(shape);
+    const arrow = new Shape('Standard');
+    arrow.toArrow = 'Standard';
+    arrow.fill = 'black';
+    arrow.stroke = null;
+    link.add(arrow);
     return link;
   }
 
@@ -1331,7 +1334,9 @@ export class Diagram {
     if (bindings && bindings.length > 0) {
       for (const binding of bindings) {
         const val = this._resolveBindingValue(binding, obj, data, part);
-        (obj as any)[binding.targetProperty] = val;
+        if (val !== undefined) {
+          (obj as any)[binding.targetProperty] = val;
+        }
       }
     }
     if (obj instanceof Panel) {
@@ -1354,7 +1359,9 @@ export class Diagram {
       for (const binding of bindings) {
         if (binding.sourceObject !== null || propname === undefined || propname === binding.sourceProperty) {
           const val = this._resolveBindingValue(binding, obj, data, part!);
-          (obj as any)[binding.targetProperty] = val;
+          if (val !== undefined) {
+            (obj as any)[binding.targetProperty] = val;
+          }
         }
       }
     }
@@ -1720,40 +1727,124 @@ export class Diagram {
     }
 
     if (!this._layout) {
-      let autoX = 50;
-      let autoY = 50;
-      const spacing = 20;
-      let rowMaxHeight = 0;
+      const hSpacing = 20;
+      const vSpacing = 36;
+      const pad = 10;
       const maxWidth = availW - 100;
+      // available width for a group's member grid
+      const groupInnerWidth = Math.max(120, Math.min(400, maxWidth - 80));
 
+      const isGroupPart = (p: Part): boolean => (p as any)._className === 'Group';
+      const isMember = (p: Part): boolean => !!(p as any).containingGroup;
+
+      // Collect the top-level layout units: non-member nodes and groups.
+      const topUnits: Part[] = [];
+      const memberUnits: Part[] = [];
       for (const part of partsToLayout) {
         if (part instanceof Link) continue;
+        if (isMember(part)) {
+          memberUnits.push(part);
+          continue;
+        }
+        topUnits.push(part);
+      }
 
+      // Place top-level nodes and groups in a uniform square-ish grid:
+      // every column has the same width and every row the same height, so the
+      // result reads as a neat grid (matching GoJS's default GridLayout look).
+      let cellW = 0;
+      let cellH = 0;
+      for (const part of topUnits) {
+        const mb = part.measuredBounds;
+        cellW = Math.max(cellW, mb.width);
+        cellH = Math.max(cellH, mb.height);
+      }
+      cellW += hSpacing;
+      cellH += vSpacing;
+      const cols = Math.max(1, Math.floor((maxWidth - 50) / cellW));
+      let gridCol = 0;
+      let gridY = 50;
+      for (const part of topUnits) {
         const loc = part.location;
-        if (isNaN(loc.x) || isNaN(loc.y)) {
-          const mb = part.measuredBounds;
-          if (autoX + mb.width > maxWidth && autoX > 50) {
-            autoX = 50;
-            autoY += rowMaxHeight + spacing;
-            rowMaxHeight = 0;
+        if (!isNaN(loc.x) && !isNaN(loc.y)) continue;
+
+        const mb = part.measuredBounds;
+        // If this unit is wider than the remaining columns, start a new row so
+        // it does not overlap the cells to its right (keeps columns aligned).
+        if (gridCol > 0 && mb.width > (cols - gridCol) * cellW - hSpacing) {
+          gridCol = 0;
+          gridY += cellH;
+        }
+        part.location = new Point(50 + gridCol * cellW, gridY);
+        gridCol++;
+        if (gridCol >= cols) {
+          gridCol = 0;
+          gridY += cellH;
+        }
+      }
+
+      // Place each group's member nodes inside the group's bounds.
+      const memberGroups: any[] = [];
+      for (const part of topUnits) {
+        if (isGroupPart(part) && (part as any).memberParts && (part as any).memberParts.count > 0) {
+          memberGroups.push(part as any);
+        }
+      }
+      for (const group of memberGroups) {
+        const gloc = group.location;
+        const gx = isNaN(gloc.x) ? 0 : gloc.x;
+        const gy = isNaN(gloc.y) ? 0 : gloc.y;
+        let mx = gx + pad;
+        let my = gy + pad;
+        let rowMax = 0;
+        const mIt = group.memberParts.iterator;
+        while (mIt.next()) {
+          const member = mIt.value;
+          const mmb = member.measuredBounds;
+          if (mx + mmb.width > gx + groupInnerWidth && mx > gx + pad) {
+            mx = gx + pad;
+            my += rowMax + vSpacing;
+            rowMax = 0;
           }
-          part.location = new Point(autoX, autoY);
-          autoX += mb.width + spacing;
-          rowMaxHeight = Math.max(rowMaxHeight, mb.height);
+          member.location = new Point(mx, my);
+          mx += mmb.width + hSpacing;
+          rowMax = Math.max(rowMax, mmb.height);
         }
       }
     }
 
     for (const part of partsToLayout) {
+      if (part instanceof Link) continue;
       const loc = part.location;
       const x = isNaN(loc.x) ? 0 : loc.x;
       const y = isNaN(loc.y) ? 0 : loc.y;
       const mb = part.measuredBounds;
       part._arrange(new Rect(x, y, mb.width, mb.height));
+    }
 
-      if (part instanceof Link) {
-        (part as Link).computePoints();
+    for (const part of partsToLayout) {
+      if (!(part instanceof Link)) continue;
+      const loc = part.location;
+      const x = isNaN(loc.x) ? 0 : loc.x;
+      const y = isNaN(loc.y) ? 0 : loc.y;
+      const mb = part.measuredBounds;
+      part._arrange(new Rect(x, y, mb.width, mb.height));
+      (part as Link).computePoints();
+    }
+
+    const groupsToRemeasure: Part[] = [];
+    for (const part of partsToLayout) {
+      if ((part as any)._className === 'Group') {
+        groupsToRemeasure.push(part);
       }
+    }
+    for (const group of groupsToRemeasure) {
+      group._measure(availW, availH);
+      const loc = group.location;
+      const x = isNaN(loc.x) ? 0 : loc.x;
+      const y = isNaN(loc.y) ? 0 : loc.y;
+      const mb = group.measuredBounds;
+      group._arrange(new Rect(x, y, mb.width, mb.height));
     }
   }
 

@@ -8,9 +8,11 @@ import {
   TreeStyleLayered, TreeStyleAlternating, TreeStyleLastParents, TreeStyleCompact, TreeStyleRootOnly,
   TreePathDefault, TreePathDestination, TreePathSource,
   TreeArrangementVertical, TreeArrangementHorizontal, TreeArrangementFixedRoots,
-  TreeLayerStyleIndividual, TreeLayerStyleUniform,
+  TreeLayerStyleIndividual, TreeLayerStyleUniform, TreeLayerStyleSiblings,
   TreeSortingForwards, TreeSortingReverse, TreeSortingAscending, TreeSortingDescending,
-  TreeCompactionBlock, TreeCompactionNone
+  TreeCompactionBlock, TreeCompactionNone,
+  TreeAlignmentTopLeftBus, TreeAlignmentBottomRightBus, TreeAlignmentBus, TreeAlignmentBusBranching,
+  TreeAlignmentCenterChildren, TreeAlignmentCenterSubtrees, TreeAlignmentStart, TreeAlignmentEnd
 } from '../core/EnumValues';
 import { Node } from '../view/Node';
 import { Link } from '../view/Link';
@@ -18,6 +20,7 @@ import { Layout } from './Layout';
 import { LayoutNetwork } from './LayoutNetwork';
 import { LayoutVertex } from './LayoutVertex';
 import { LayoutEdge } from './LayoutEdge';
+import { TreeVertex } from '../core/TreeVertex';
 
 interface TreeNodeInfo {
   vertex: LayoutVertex;
@@ -48,50 +51,114 @@ export class TreeLayout extends Layout {
   private _alternateCompaction: EnumValue = TreeCompactionBlock;
   private _alternateSorting: EnumValue = TreeSortingForwards;
 
+  constructor() {
+    super();
+    const rd = new TreeVertex();
+    (rd as any).angle = 0;
+    (rd as any).alignment = TreeAlignmentCenterChildren;
+    (rd as any).layerSpacing = 50;
+    (rd as any).nodeSpacing = 20;
+    (rd as any).breadthLimit = NaN;
+    (rd as any).rowSpacing = 0;
+    (rd as any).sorting = TreeSortingForwards;
+    (rd as any).compaction = TreeCompactionBlock;
+    this._rootDefaults = rd;
+
+    const ad = new TreeVertex();
+    (ad as any).angle = 90;
+    (ad as any).alignment = TreeAlignmentCenterChildren;
+    (ad as any).layerSpacing = 20;
+    (ad as any).nodeSpacing = 20;
+    (ad as any).breadthLimit = NaN;
+    (ad as any).rowSpacing = 0;
+    (ad as any).sorting = TreeSortingForwards;
+    (ad as any).compaction = TreeCompactionBlock;
+    this._alternateDefaults = ad;
+  }
+
   get angle(): number { return this._angle; }
-  set angle(val: number) { this._angle = val; }
+  set angle(val: number) { this._angle = val; this.invalidateLayout(); }
 
   get layerSpacing(): number { return this._layerSpacing; }
-  set layerSpacing(val: number) { this._layerSpacing = val; }
+  set layerSpacing(val: number) { this._layerSpacing = val; this.invalidateLayout(); }
 
   get nodeSpacing(): number { return this._nodeSpacing; }
-  set nodeSpacing(val: number) { this._nodeSpacing = val; }
+  set nodeSpacing(val: number) { this._nodeSpacing = val; this.invalidateLayout(); }
 
   get treeStyle(): EnumValue { return this._treeStyle; }
-  set treeStyle(val: EnumValue) { this._treeStyle = val; }
+  set treeStyle(val: EnumValue) { this._treeStyle = val; this.invalidateLayout(); }
 
   get arrangement(): EnumValue { return this._arrangement; }
-  set arrangement(val: EnumValue) { this._arrangement = val; }
+  set arrangement(val: EnumValue) { this._arrangement = val; this.invalidateLayout(); }
 
   get layerStyle(): EnumValue { return this._layerStyle; }
-  set layerStyle(val: EnumValue) { this._layerStyle = val; }
+  set layerStyle(val: EnumValue) { this._layerStyle = val; this.invalidateLayout(); }
 
   get compaction(): EnumValue { return this._compaction; }
-  set compaction(val: EnumValue) { this._compaction = val; }
+  set compaction(val: EnumValue) { this._compaction = val; this.invalidateLayout(); }
 
   get sorting(): EnumValue { return this._sorting; }
-  set sorting(val: EnumValue) { this._sorting = val; }
+  set sorting(val: EnumValue) { this._sorting = val; this.invalidateLayout(); }
 
   get path(): EnumValue { return this._path; }
-  set path(val: EnumValue) { this._path = val; }
+  set path(val: EnumValue) { this._path = val; this.invalidateLayout(); }
 
   get alternateAngle(): number { return this._alternateAngle; }
-  set alternateAngle(val: number) { this._alternateAngle = val; }
+  set alternateAngle(val: number) { this._alternateAngle = val; this.invalidateLayout(); }
 
   get alternateLayerSpacing(): number { return this._alternateLayerSpacing; }
-  set alternateLayerSpacing(val: number) { this._alternateLayerSpacing = val; }
+  set alternateLayerSpacing(val: number) { this._alternateLayerSpacing = val; this.invalidateLayout(); }
 
   get alternateNodeSpacing(): number { return this._alternateNodeSpacing; }
-  set alternateNodeSpacing(val: number) { this._alternateNodeSpacing = val; }
+  set alternateNodeSpacing(val: number) { this._alternateNodeSpacing = val; this.invalidateLayout(); }
 
   get alternateAlignment(): EnumValue { return this._alternateAlignment; }
-  set alternateAlignment(val: EnumValue) { this._alternateAlignment = val; }
+  set alternateAlignment(val: EnumValue) { this._alternateAlignment = val; this.invalidateLayout(); }
 
   get alternateCompaction(): EnumValue { return this._alternateCompaction; }
-  set alternateCompaction(val: EnumValue) { this._alternateCompaction = val; }
+  set alternateCompaction(val: EnumValue) { this._alternateCompaction = val; this.invalidateLayout(); }
 
   get alternateSorting(): EnumValue { return this._alternateSorting; }
-  set alternateSorting(val: EnumValue) { this._alternateSorting = val; }
+  set alternateSorting(val: EnumValue) { this._alternateSorting = val; this.invalidateLayout(); }
+
+  // ============ Static enum constants ============
+  static StyleLayered = TreeStyleLayered;
+  static StyleAlternating = TreeStyleAlternating;
+  static StyleLastParents = TreeStyleLastParents;
+  static StyleRootOnly = TreeStyleRootOnly;
+  static PathDefault = TreePathDefault;
+  static PathDestination = TreePathDestination;
+  static PathSource = TreePathSource;
+  static ArrangementVertical = TreeArrangementVertical;
+  static ArrangementHorizontal = TreeArrangementHorizontal;
+  static ArrangementFixedRoots = TreeArrangementFixedRoots;
+  static LayerIndividual = TreeLayerStyleIndividual;
+  static LayerSiblings = TreeLayerStyleSiblings;
+  static LayerUniform = TreeLayerStyleUniform;
+  static SortingForwards = TreeSortingForwards;
+  static SortingReverse = TreeSortingReverse;
+  static SortingAscending = TreeSortingAscending;
+  static SortingDescending = TreeSortingDescending;
+  static CompactionBlock = TreeCompactionBlock;
+  static CompactionNone = TreeCompactionNone;
+  static AlignmentTopLeftBus = TreeAlignmentTopLeftBus;
+  static AlignmentBottomRightBus = TreeAlignmentBottomRightBus;
+  static AlignmentBus = TreeAlignmentBus;
+  static AlignmentBusBranching = TreeAlignmentBusBranching;
+  static AlignmentCenterChildren = TreeAlignmentCenterChildren;
+  static AlignmentCenterSubtrees = TreeAlignmentCenterSubtrees;
+  static AlignmentStart = TreeAlignmentStart;
+  static AlignmentEnd = TreeAlignmentEnd;
+
+  // ============ rootDefaults / alternateDefaults ============
+  private _rootDefaults: any = null;
+  private _alternateDefaults: any = null;
+
+  get rootDefaults(): any { return this._rootDefaults; }
+  set rootDefaults(val: any) { this._rootDefaults = val; }
+
+  get alternateDefaults(): any { return this._alternateDefaults; }
+  set alternateDefaults(val: any) { this._alternateDefaults = val; }
 
   copy(): TreeLayout {
     const copy = new TreeLayout();

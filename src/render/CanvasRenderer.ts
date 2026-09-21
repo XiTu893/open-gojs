@@ -620,8 +620,8 @@ export class CanvasRenderer {
       const prev = arr[arr.length - 2];
       tipX = tip.x;
       tipY = tip.y;
-      dirX = prev.x - tip.x;
-      dirY = prev.y - tip.y;
+      dirX = tip.x - prev.x;
+      dirY = tip.y - prev.y;
     } else {
       const tip = arr[0];
       const next = arr[1];
@@ -651,7 +651,40 @@ export class CanvasRenderer {
     const fill = (shape as any)._fill;
     const strokeWidth = (shape as any)._strokeWidth || 1;
 
-    this._drawGeometryPath(ctx, geo, arrowW, arrowH);
+    const gbounds = geo.bounds;
+    if (gbounds.width > 0 && gbounds.height > 0) {
+      const dir = isToArrow ? 1 : -1;
+      const sx = dir * arrowW / gbounds.width;
+      const sy = arrowH / gbounds.height;
+      ctx.transform(sx, 0, 0, sy, -(gbounds.x + gbounds.width) * sx, -(gbounds.y + gbounds.height / 2) * sy);
+    }
+
+    ctx.beginPath();
+    const fit = geo.figures.iterator;
+    while (fit.next()) {
+      const fig = fit.value;
+      ctx.moveTo(fig.startX, fig.startY);
+      const segIt = fig.segments.iterator;
+      while (segIt.next()) {
+        const seg = segIt.value;
+        const segName = seg.type._name;
+        if (segName === 'Line') {
+          ctx.lineTo(seg.endX, seg.endY);
+        } else if (segName === 'MoveTo') {
+          ctx.moveTo(seg.endX, seg.endY);
+        } else if (segName === 'Close') {
+          ctx.closePath();
+        } else if (segName === 'QuadraticBezier') {
+          ctx.quadraticCurveTo(seg.x1, seg.y1, seg.endX, seg.endY);
+        } else if (segName === 'CubicBezier') {
+          ctx.bezierCurveTo(seg.x1, seg.y1, seg.x2, seg.y2, seg.endX, seg.endY);
+        } else if (segName === 'Arc') {
+          this._drawArcSegment(ctx, fig.startX, fig.startY, seg);
+        } else {
+          ctx.lineTo(seg.endX, seg.endY);
+        }
+      }
+    }
 
     if (fill) {
       ctx.fillStyle = typeof fill === 'string' ? fill : 'black';
@@ -1433,6 +1466,18 @@ export class CanvasRenderer {
   }
 
   private _drawGeometryPath(ctx: CanvasRenderingContext2D, geo: Geometry, w: number, h: number): void {
+    const bounds = geo.bounds;
+    const bw = bounds.width || 1;
+    const bh = bounds.height || 1;
+    const sx = w / bw;
+    const sy = h / bh;
+    const tx = -bounds.x * sx;
+    const ty = -bounds.y * sy;
+
+    ctx.save();
+    ctx.translate(tx, ty);
+    ctx.scale(sx, sy);
+
     const it = geo.figures.iterator;
     ctx.beginPath();
     while (it.next()) {
@@ -1457,6 +1502,8 @@ export class CanvasRenderer {
         }
       }
     }
+
+    ctx.restore();
   }
 
   private _findGraduatedMain(elements: GraphObject[]): GraphObject | null {

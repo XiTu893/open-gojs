@@ -67,15 +67,31 @@ export class Panel extends GraphObject {
   _viewboxScaleX: number = 1;
   _viewboxScaleY: number = 1;
 
-  constructor(type?: EnumValue, init?: Partial<Panel>) {
+  constructor(type?: EnumValue | string, init?: Partial<Panel>) {
     super();
     this._className = 'Panel';
     if (type !== undefined) {
-      this._type = type;
+      this._type = typeof type === 'string' ? Panel._resolvePanelTypeStr(type) : type;
     }
     if (init) {
       this.set(init);
     }
+  }
+
+  private static _resolvePanelTypeStr(type: string): EnumValue {
+    const map: Record<string, EnumValue> = {
+      'Auto': PanelAuto,
+      'Vertical': PanelVertical,
+      'Horizontal': PanelHorizontal,
+      'Spot': PanelSpot,
+      'Table': PanelTable,
+      'Position': PanelPosition,
+      'Grid': PanelGrid,
+      'Viewbox': PanelViewbox,
+      'Graduated': PanelGraduated,
+      'Link': PanelLink,
+    };
+    return map[type] || PanelAuto;
   }
 
   // ============ Properties ============
@@ -308,15 +324,17 @@ export class Panel extends GraphObject {
 
   // ============ Public methods ============
 
-  add(element: GraphObject): Panel {
-    if (!(element instanceof GraphObject)) {
-      throw new Error('Panel.add: argument must be a GraphObject');
+  add(...elements: GraphObject[]): Panel {
+    for (const element of elements) {
+      if (!(element instanceof GraphObject)) {
+        throw new Error('Panel.add: argument must be a GraphObject');
+      }
+      (element as any)._panel = this;
+      this._elements.push(element);
+      this._invalidateMeasure();
+      // Propagate _part to child elements
+      this._propagatePart(element);
     }
-    (element as any)._panel = this;
-    this._elements.push(element);
-    this._invalidateMeasure();
-    // Propagate _part to child elements
-    this._propagatePart(element);
     return this;
   }
 
@@ -695,14 +713,15 @@ export class Panel extends GraphObject {
     // Step 2: Measure the main element, sized to fit around the content
     if (main !== null) {
       const m = main.margin;
-      const mainAvailW = Math.min(availW, contentW + m.left + m.right);
-      const mainAvailH = Math.min(availH, contentH + m.top + m.bottom);
+      const strokeW = (main as any)._strokeWidth ? (main as any)._strokeWidth * 2 : 0;
+      const mainAvailW = Math.min(availW, contentW + m.left + m.right + strokeW);
+      const mainAvailH = Math.min(availH, contentH + m.top + m.bottom + strokeW);
       main._measure(mainAvailW, mainAvailH);
 
       // The main element should be at least as large as the content area
       const mb = main.measuredBounds;
-      const mainW = Math.max(mb.width + m.left + m.right, contentW + m.left + m.right);
-      const mainH = Math.max(mb.height + m.top + m.bottom, contentH + m.top + m.bottom);
+      const mainW = Math.max(mb.width + m.left + m.right, contentW + m.left + m.right + strokeW);
+      const mainH = Math.max(mb.height + m.top + m.bottom, contentH + m.top + m.bottom + strokeW);
 
       this._measuredBounds = new Rect(0, 0,
         mainW + pad.left + pad.right,

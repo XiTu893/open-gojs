@@ -137,6 +137,11 @@ export class Link extends Part {
 
     const fromBounds = fromPort.getDocumentBounds();
     const toBounds = toPort.getDocumentBounds();
+
+    if (from === to) {
+      return this._computeSelfLinkPoints(fromBounds);
+    }
+
     const fromCenter = fromBounds.center;
     const toCenter = toBounds.center;
 
@@ -221,7 +226,51 @@ export class Link extends Part {
     }
 
     this._points.add(toPoint);
+
+    this._applyShortLengths();
+
     return true;
+  }
+
+  private _applyShortLengths(): void {
+    const fromShort = (this as any)._fromShortLength as number || 0;
+    const toShort = (this as any)._toShortLength as number || 0;
+    if (fromShort <= 0 && toShort <= 0) return;
+    if (this._points.count < 2) return;
+
+    const pts = this._points.toArray();
+
+    if (fromShort > 0 && pts.length >= 2) {
+      const dx = pts[1].x - pts[0].x;
+      const dy = pts[1].y - pts[0].y;
+      const len = Math.sqrt(dx * dx + dy * dy);
+      if (len > 0) {
+        const ratio = Math.min(fromShort / len, 1);
+        pts[0] = new Point(
+          pts[0].x + dx * ratio,
+          pts[0].y + dy * ratio
+        );
+      }
+    }
+
+    if (toShort > 0 && pts.length >= 2) {
+      const last = pts.length - 1;
+      const dx = pts[last - 1].x - pts[last].x;
+      const dy = pts[last - 1].y - pts[last].y;
+      const len = Math.sqrt(dx * dx + dy * dy);
+      if (len > 0) {
+        const ratio = Math.min(toShort / len, 1);
+        pts[last] = new Point(
+          pts[last].x + dx * ratio,
+          pts[last].y + dy * ratio
+        );
+      }
+    }
+
+    this._points.clear();
+    for (const pt of pts) {
+      this._points.add(pt);
+    }
   }
 
   /** Resolve the effective fromSpot for this link */
@@ -350,6 +399,26 @@ export class Link extends Part {
 
     if (t === Infinity) return center;
     return new Point(center.x + t * dx, center.y + t * dy);
+  }
+
+  private _computeSelfLinkPoints(nodeBounds: Rect): boolean {
+    const w = nodeBounds.width;
+    const h = nodeBounds.height;
+    const bottom = nodeBounds.bottom;
+
+    const fromX = nodeBounds.x + w * 0.7;
+    const toX = nodeBounds.x + w * 0.3;
+    const cpY = bottom + h * 1.0;
+    const cpXOffset = Math.max(w * 0.5, 20);
+
+    this._points.clear();
+    this._points.add(new Point(fromX, bottom));
+    this._points.add(new Point(fromX + cpXOffset, cpY));
+    this._points.add(new Point(toX - cpXOffset, cpY));
+    this._points.add(new Point(toX, bottom));
+
+    this._curve = CurveBezier;
+    return true;
   }
 
   get midPoint(): Point {

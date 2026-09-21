@@ -25,7 +25,7 @@ export {
   TreeAlignmentStart, TreeAlignmentEnd,
   CircularArrangementConstantDistance, CircularArrangementConstantAngle,
   CircularArrangementConstantRadius, CircularArrangementPacked,
-  CircularDirectionClockwise, CircularDirectionBidirectionalLeft, CircularDirectionBidirectionalRight,
+  CircularDirectionClockwise, CircularDirectionCounterclockwise, CircularDirectionBidirectionalLeft, CircularDirectionBidirectionalRight,
   CircularSortingForwards, CircularSortingReverse, CircularSortingAscending,
   CircularSortingDescending, CircularSortingOptimized,
   LayeredDigraphDirectionDown, LayeredDigraphDirectionUp,
@@ -180,14 +180,21 @@ import {
   TreeAlignmentStart, TreeAlignmentEnd,
   CircularArrangementConstantDistance, CircularArrangementConstantAngle,
   CircularArrangementConstantRadius, CircularArrangementPacked,
+  CircularDirectionClockwise, CircularDirectionCounterclockwise, CircularDirectionBidirectionalLeft, CircularDirectionBidirectionalRight,
   CircularSortingForwards, CircularSortingReverse, CircularSortingAscending,
   CircularSortingDescending, CircularSortingOptimized,
   LayeredDigraphAggressiveNone, LayeredDigraphAggressiveHorizontal,
   LayeredDigraphAggressiveVertical, LayeredDigraphAggressiveAll,
   LayeredDigraphAggressiveLess, LayeredDigraphAggressiveMore,
   LayeredDigraphAlignNone, LayeredDigraphPackNone,
+  LayeredDigraphDirectionDown, LayeredDigraphDirectionUp,
+  LayeredDigraphDirectionLeft, LayeredDigraphDirectionRight,
+  LayeredDigraphInitDepthFirstOut, LayeredDigraphInitDepthFirstIn, LayeredDigraphInitNaive,
+  LayeredDigraphLayeringOptimalLinkLength, LayeredDigraphLayeringLongestPathSink, LayeredDigraphLayeringLongestPathSource,
+  LayeredDigraphCycleRemoveDepthFirst, LayeredDigraphCycleRemoveGreedy,
   GridLayoutLocation, GridLayoutCenter,
   GridArrangementLeftToRight, GridArrangementRightToLeft,
+  GridArrangementTopToBottom, GridArrangementBottomToTop,
   GridSortingForwards, GridSortingReverse, GridSortingAscending, GridSortingDescending,
   GridAlignmentLocation, GridAlignmentPosition,
   AutoScaleNone, AutoScaleUniform, AutoScaleUniformToFill,
@@ -206,6 +213,8 @@ import {
   LinkingDirectionForwardsOnly, TriggerStartBundled,
   OverflowClip, OverflowEllipsis,
 } from './core/EnumValues';
+
+import { Binding } from './model/Binding';
 
 export const GridSorting = {
   Forwards: GridSortingForwards,
@@ -336,6 +345,59 @@ export const LayeredDigraphPack = {
 export const GridArrangement = {
   LeftToRight: GridArrangementLeftToRight,
   RightToLeft: GridArrangementRightToLeft,
+  TopToBottom: GridArrangementTopToBottom,
+  BottomToTop: GridArrangementBottomToTop,
+};
+
+export const PanelTypes = {
+  Auto: PanelAuto,
+  Position: PanelPosition,
+  Vertical: PanelVertical,
+  Horizontal: PanelHorizontal,
+  Spot: PanelSpot,
+  Table: PanelTable,
+  TableColumn: PanelTableColumn,
+  TableRow: PanelTableRow,
+  Viewbox: PanelViewbox,
+  Link: PanelLink,
+  Grid: PanelGrid,
+  Graduated: PanelGraduated,
+};
+
+export const BindingMode = {
+  OneWay: Binding.OneWay,
+  TwoWay: Binding.TwoWay,
+};
+
+export const CircularDirection = {
+  Clockwise: CircularDirectionClockwise,
+  Counterclockwise: CircularDirectionCounterclockwise,
+  BidirectionalLeft: CircularDirectionBidirectionalLeft,
+  BidirectionalRight: CircularDirectionBidirectionalRight,
+};
+
+export const LayeredDigraphDirection = {
+  Down: LayeredDigraphDirectionDown,
+  Up: LayeredDigraphDirectionUp,
+  Left: LayeredDigraphDirectionLeft,
+  Right: LayeredDigraphDirectionRight,
+};
+
+export const LayeredDigraphInit = {
+  DepthFirstOut: LayeredDigraphInitDepthFirstOut,
+  DepthFirstIn: LayeredDigraphInitDepthFirstIn,
+  Naive: LayeredDigraphInitNaive,
+};
+
+export const LayeredDigraphLayering = {
+  OptimalLinkLength: LayeredDigraphLayeringOptimalLinkLength,
+  LongestPathSink: LayeredDigraphLayeringLongestPathSink,
+  LongestPathSource: LayeredDigraphLayeringLongestPathSource,
+};
+
+export const LayeredDigraphCycleRemove = {
+  DepthFirst: LayeredDigraphCycleRemoveDepthFirst,
+  Greedy: LayeredDigraphCycleRemoveGreedy,
 };
 
 export const ImageStretch = {

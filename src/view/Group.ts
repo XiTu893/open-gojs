@@ -62,6 +62,9 @@ export class Group extends Node {
       part.containingGroup = this;
       this._memberParts.add(part);
     }
+    if (this._layout && this._layout.isOngoing) {
+      this._layout.invalidateLayout();
+    }
     return true;
   }
 
@@ -82,6 +85,7 @@ export class Group extends Node {
     super.move(newLoc);
     const dx = newLoc.x - oldLoc.x;
     const dy = newLoc.y - oldLoc.y;
+    if (isNaN(dx) || isNaN(dy)) return;
     if (dx !== 0 || dy !== 0) {
       const it = this._memberParts.iterator;
       while (it.next()) {

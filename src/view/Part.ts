@@ -72,6 +72,18 @@ export class Part extends Panel {
     const p = val && typeof val.copy === 'function' ? val.copy() : (val ? new Point(val.x || 0, val.y || 0) : new Point(NaN, NaN));
     if (this._location.equals(p)) return;
     this._location = p;
+    this.position = p;
+    this._actualBounds.x = p.x;
+    this._actualBounds.y = p.y;
+    if (this._diagram && this._isLayoutPositioned) {
+      const layout = this._diagram.layout;
+      if (layout && layout.isOngoing) {
+        layout.invalidateLayout();
+      }
+    }
+    if (this._containingGroup && this._containingGroup.layout && this._containingGroup.layout.isOngoing) {
+      this._containingGroup.layout.invalidateLayout();
+    }
   }
 
   get locationSpot(): Spot { return this._locationSpot; }
@@ -233,18 +245,15 @@ export class Part extends Panel {
 
   /** Get the bounding rectangle in document coordinates */
   getDocumentBounds(): Rect {
-    const bounds = this._actualBounds.copy();
-    const loc = this._location;
-    if (!isNaN(loc.x) && !isNaN(loc.y)) {
-      bounds.x = loc.x;
-      bounds.y = loc.y;
-    }
-    return bounds;
+    return this._actualBounds.copy();
   }
 
   /** Move this Part to a new location */
   move(newLoc: Point): void {
     this._location = newLoc.copy();
+    this.position = newLoc.copy();
+    this._actualBounds.x = newLoc.x;
+    this._actualBounds.y = newLoc.y;
   }
 
   /** Add an adornment for the given category */

@@ -18,29 +18,29 @@ import { Layout } from './Layout';
 export class GridLayout extends Layout {
 
   private _wrappingWidth: number = NaN;
-  private _cellSize: Size = new Size(10, 10);
+  private _cellSize: Size = new Size(NaN, NaN);
   private _spacing: Size = new Size(10, 10);
   private _alignment: EnumValue = GridLayoutLocation;
   private _arrangement: EnumValue = GridArrangementLeftToRight;
-  private _sorting: EnumValue = TreeSortingForwards;
+   private _sorting: EnumValue = GridSortingAscending;
 
   get wrappingWidth(): number { return this._wrappingWidth; }
-  set wrappingWidth(val: number) { this._wrappingWidth = val; }
+  set wrappingWidth(val: number) { this._wrappingWidth = val; this.invalidateLayout(); }
 
   get cellSize(): Size { return this._cellSize; }
-  set cellSize(val: Size) { this._cellSize = val.copy(); }
+  set cellSize(val: Size) { this._cellSize = val.copy(); this.invalidateLayout(); }
 
   get spacing(): Size { return this._spacing; }
-  set spacing(val: Size) { this._spacing = val.copy(); }
+  set spacing(val: Size) { this._spacing = val.copy(); this.invalidateLayout(); }
 
   get alignment(): EnumValue { return this._alignment; }
-  set alignment(val: EnumValue) { this._alignment = val; }
+  set alignment(val: EnumValue) { this._alignment = val; this.invalidateLayout(); }
 
   get arrangement(): EnumValue { return this._arrangement; }
-  set arrangement(val: EnumValue) { this._arrangement = val; }
+  set arrangement(val: EnumValue) { this._arrangement = val; this.invalidateLayout(); }
 
   get sorting(): EnumValue { return this._sorting; }
-  set sorting(val: EnumValue) { this._sorting = val; }
+  set sorting(val: EnumValue) { this._sorting = val; this.invalidateLayout(); }
 
   copy(): GridLayout {
     const copy = new GridLayout();
@@ -111,8 +111,8 @@ export class GridLayout extends Layout {
       }
 
       const bounds = this.getLayoutBounds(nodes[i]);
-      const cellWidth = Math.max(this._cellSize.width, bounds.width);
-      const cellHeight = Math.max(this._cellSize.height, bounds.height);
+      const cellWidth = isNaN(this._cellSize.width) ? bounds.width : Math.max(this._cellSize.width, bounds.width);
+      const cellHeight = isNaN(this._cellSize.height) ? bounds.height : Math.max(this._cellSize.height, bounds.height);
 
       let x = origin.x + col * (cellWidth + this._spacing.width);
       let y = origin.y + row * (cellHeight + this._spacing.height);
@@ -131,24 +131,24 @@ export class GridLayout extends Layout {
 
   private _sortNodes(nodes: Node[]): void {
     switch (this._sorting) {
-      case TreeSortingReverse:
+      case GridSortingReverse:
         nodes.reverse();
         break;
-      case TreeSortingAscending:
+      case GridSortingAscending:
         nodes.sort((a, b) => {
           const ak = (a as any).data ? String((a as any).data.key) : '';
           const bk = (b as any).data ? String((b as any).data.key) : '';
           return ak.localeCompare(bk);
         });
         break;
-      case TreeSortingDescending:
+      case GridSortingDescending:
         nodes.sort((a, b) => {
           const ak = (a as any).data ? String((a as any).data.key) : '';
           const bk = (b as any).data ? String((b as any).data.key) : '';
           return bk.localeCompare(ak);
         });
         break;
-      case TreeSortingForwards:
+      case GridSortingForwards:
       default:
         // Keep original order
         break;
@@ -158,11 +158,19 @@ export class GridLayout extends Layout {
   static Location = GridLayoutLocation;
   static Center = GridLayoutCenter;
   static Forwards = GridSortingForwards;
+  static Forward = GridSortingForwards;
   static Reverse = GridSortingReverse;
   static Ascending = GridSortingAscending;
   static Descending = GridSortingDescending;
   static Position = GridAlignmentPosition;
+  static LeftToRight = GridArrangementLeftToRight;
+  static RightToLeft = GridArrangementRightToLeft;
   static smartComparer(a: any, b: any): number {
+    const na = (a && a.data && a.data.name) || '';
+    const nb = (b && b.data && b.data.name) || '';
+    return na < nb ? -1 : na > nb ? 1 : 0;
+  }
+  static standardComparer(a: any, b: any): number {
     const na = (a && a.data && a.data.name) || '';
     const nb = (b && b.data && b.data.name) || '';
     return na < nb ? -1 : na > nb ? 1 : 0;

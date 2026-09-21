@@ -4,6 +4,8 @@ import {
   CircularArrangementConstantDistance, CircularArrangementConstantAngle,
   CircularArrangementConstantRadius, CircularArrangementPacked,
   CircularDirectionClockwise, CircularDirectionBidirectionalLeft, CircularDirectionBidirectionalRight,
+  CircularSortingForwards, CircularSortingReverse, CircularSortingAscending, CircularSortingDescending,
+  CircularSortingOptimized,
   CircularNodeDiameterFormulaCircular
 } from '../core/EnumValues';
 import { Node } from '../view/Node';
@@ -20,30 +22,39 @@ export class CircularLayout extends Layout {
   private _startAngle: number = 0;
   private _sweepAngle: number = 360;
   private _arrangement: EnumValue = CircularArrangementConstantDistance;
-  private _spacing: number = 20;
+  private _spacing: number = 6;
   private _direction: EnumValue = CircularDirectionClockwise;
   private _aspectRatio: number = 1;
+  private _actualXRadius: number = NaN;
+  private _actualYRadius: number = NaN;
+  private _sorting: EnumValue = CircularSortingForwards;
 
   get radius(): number { return this._radius; }
-  set radius(val: number) { this._radius = val; }
+  set radius(val: number) { this._radius = val; this.invalidateLayout(); }
 
   get startAngle(): number { return this._startAngle; }
-  set startAngle(val: number) { this._startAngle = val; }
+  set startAngle(val: number) { this._startAngle = val; this.invalidateLayout(); }
 
   get sweepAngle(): number { return this._sweepAngle; }
-  set sweepAngle(val: number) { this._sweepAngle = val; }
+  set sweepAngle(val: number) { this._sweepAngle = val; this.invalidateLayout(); }
 
   get arrangement(): EnumValue { return this._arrangement; }
-  set arrangement(val: EnumValue) { this._arrangement = val; }
+  set arrangement(val: EnumValue) { this._arrangement = val; this.invalidateLayout(); }
 
   get spacing(): number { return this._spacing; }
-  set spacing(val: number) { this._spacing = val; }
+  set spacing(val: number) { this._spacing = val; this.invalidateLayout(); }
 
   get direction(): EnumValue { return this._direction; }
-  set direction(val: EnumValue) { this._direction = val; }
+  set direction(val: EnumValue) { this._direction = val; this.invalidateLayout(); }
 
-  get aspectRatio(): number { return this._aspectRatio; }
-  set aspectRatio(val: number) { this._aspectRatio = val; }
+get aspectRatio(): number { return this._aspectRatio; }
+  set aspectRatio(val: number) { this._aspectRatio = val; this.invalidateLayout(); }
+
+  get actualXRadius(): number { return this._actualXRadius; }
+  get actualYRadius(): number { return this._actualYRadius; }
+
+  get sorting(): EnumValue { return this._sorting; }
+  set sorting(val: EnumValue) { this._sorting = val; this.invalidateLayout(); }
 
   copy(): CircularLayout {
     const copy = new CircularLayout();
@@ -55,6 +66,7 @@ export class CircularLayout extends Layout {
     copy._spacing = this._spacing;
     copy._direction = this._direction;
     copy._aspectRatio = this._aspectRatio;
+    copy._sorting = this._sorting;
     return copy;
   }
 
@@ -126,6 +138,10 @@ export class CircularLayout extends Layout {
       radius = this._computeRadius(vertexes);
     }
 
+    // Store the actual radii used (aspectRatio scales the Y axis).
+    this._actualXRadius = radius;
+    this._actualYRadius = radius * this._aspectRatio;
+
     // Determine direction multiplier
     const clockwise = this._direction === CircularDirectionClockwise;
     const dirMult = clockwise ? 1 : -1;
@@ -166,8 +182,8 @@ export class CircularLayout extends Layout {
         }
       }
 
-      const x = centerX + radius * Math.cos(angle) * this._aspectRatio;
-      const y = centerY + radius * Math.sin(angle);
+      const x = centerX + radius * Math.cos(angle);
+      const y = centerY + radius * Math.sin(angle) * this._aspectRatio;
 
       v.x = x - v.width / 2;
       v.y = y - v.height / 2;

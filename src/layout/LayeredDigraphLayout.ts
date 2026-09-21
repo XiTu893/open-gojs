@@ -40,28 +40,28 @@ export class LayeredDigraphLayout extends Layout {
   private _cycleRemoveOption: string = 'depthfirst';
 
   get direction(): EnumValue { return this._direction; }
-  set direction(val: EnumValue) { this._direction = val; }
+  set direction(val: EnumValue) { this._direction = val; this.invalidateLayout(); }
 
   get layerSpacing(): number { return this._layerSpacing; }
-  set layerSpacing(val: number) { this._layerSpacing = val; }
+  set layerSpacing(val: number) { this._layerSpacing = val; this.invalidateLayout(); }
 
   get columnSpacing(): number { return this._columnSpacing; }
-  set columnSpacing(val: number) { this._columnSpacing = val; }
+  set columnSpacing(val: number) { this._columnSpacing = val; this.invalidateLayout(); }
 
   get setsPortSpots(): boolean { return this._setsPortSpots; }
-  set setsPortSpots(val: boolean) { this._setsPortSpots = val; }
+  set setsPortSpots(val: boolean) { this._setsPortSpots = val; this.invalidateLayout(); }
 
   get aggressiveOption(): EnumValue { return this._aggressiveOption; }
-  set aggressiveOption(val: EnumValue) { this._aggressiveOption = val; }
+  set aggressiveOption(val: EnumValue) { this._aggressiveOption = val; this.invalidateLayout(); }
 
   get packOption(): EnumValue { return this._packOption; }
-  set packOption(val: EnumValue) { this._packOption = val; }
+  set packOption(val: EnumValue) { this._packOption = val; this.invalidateLayout(); }
 
   get layeringOption(): string { return this._layeringOption; }
-  set layeringOption(val: string) { this._layeringOption = val; }
+  set layeringOption(val: string) { this._layeringOption = val; this.invalidateLayout(); }
 
   get cycleRemoveOption(): string { return this._cycleRemoveOption; }
-  set cycleRemoveOption(val: string) { this._cycleRemoveOption = val; }
+  set cycleRemoveOption(val: string) { this._cycleRemoveOption = val; this.invalidateLayout(); }
 
   copy(): LayeredDigraphLayout {
     const copy = new LayeredDigraphLayout();

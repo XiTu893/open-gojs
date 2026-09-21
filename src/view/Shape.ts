@@ -30,12 +30,12 @@ export class Shape extends GraphObject {
   private _strokeDashOffset: number = 0;
   private _strokeCap: string = 'butt';
   private _strokeJoin: string = 'miter';
-  private _figure: string = '';
+  private _figure: string = 'None';
   private _geometry: Geometry | null = null;
   private _geometryString: string = '';
   private _parameter1: number = NaN;
   private _parameter2: number = NaN;
-  private _toArrow: string = '';
+  private _toArrow: string = 'None';
   private _fromArrow: string = '';
   private _geometryStretch: EnumValue = GeometryStretchUniform;
   private _fillRule: string = 'nonzero';
@@ -168,10 +168,10 @@ export class Shape extends GraphObject {
     if (this._geometryString) {
       return Geometry.parse(this._geometryString);
     }
-    if (this._toArrow) {
+    if (this._toArrow && this._toArrow !== 'None') {
       return Shape._getArrowheadGeometry(this._toArrow);
     }
-    if (this._fromArrow) {
+    if (this._fromArrow && this._fromArrow !== 'None') {
       return Shape._getArrowheadGeometry(this._fromArrow);
     }
     if (this._figure) {
@@ -269,6 +269,32 @@ export class Shape extends GraphObject {
 
   /** 在 canvas 上绘制几何路径 */
   private _drawGeometry(ctx: CanvasRenderingContext2D, geo: Geometry): void {
+    // Fast path for rounded rectangles: the native roundRect draws a
+    // perfectly convex, seamlessly-joined border (avoids concave arcs and
+    // gaps at the straight/arc junctions when stroking).
+    if (
+      !this._geometry &&
+      !this._geometryString &&
+      (!this._toArrow || this._toArrow === 'None') &&
+      (!this._fromArrow || this._fromArrow === 'None') &&
+      this._figure && this._figure.toLowerCase() === 'roundedrectangle'
+    ) {
+      const ab = this._actualBounds;
+      const w = ab.width;
+      const h = ab.height;
+      if (w > 0 && h > 0) {
+        let r = isNaN(this._parameter1) ? 5 : this._parameter1;
+        r = Math.min(r, w / 2, h / 2);
+        ctx.beginPath();
+        if (typeof (ctx as any).roundRect === 'function') {
+          (ctx as any).roundRect(ab.x, ab.y, w, h, r);
+        } else {
+          ctx.rect(ab.x, ab.y, w, h);
+        }
+        return;
+      }
+    }
+
     ctx.beginPath();
     const it = geo.figures.iterator;
     while (it.next()) {
@@ -480,28 +506,28 @@ export class Shape extends GraphObject {
     const line = (x: number, y: number) => PathSegment.Line(x, y);
     const close = () => PathSegment.Close();
 
-    geos['Standard'] = makeGeo([fig(0, 0, [line(10, 5), line(0, 10), close()])]);
-    geos['Triangle'] = makeGeo([fig(0, 0, [line(10, 5), line(0, 10), close()])]);
-    geos['Backward'] = makeGeo([fig(10, 0, [line(0, 5), line(10, 10), close()])]);
-    geos['OpenTriangle'] = makeGeo([fig(0, 0, [line(10, 5), line(0, 10)])]);
-    geos['BackwardOpenTriangle'] = makeGeo([fig(10, 0, [line(0, 5), line(10, 10)])]);
-    geos['Circle'] = makeGeo([fig(5, 0, [PathSegment.Arc(10, 5, 5, 5)])]);
-    geos['BackwardCircle'] = makeGeo([fig(5, 0, [PathSegment.Arc(10, 5, 5, 5)])]);
-    geos['Diamond'] = makeGeo([fig(0, 5, [line(5, 0), line(10, 5), line(5, 10), close()])]);
-    geos['BackwardDiamond'] = makeGeo([fig(10, 5, [line(5, 0), line(0, 5), line(5, 10), close()])]);
-    geos['Chevron'] = makeGeo([fig(0, 0, [line(10, 5), line(0, 10)])]);
-    geos['BackwardChevron'] = makeGeo([fig(10, 0, [line(0, 5), line(10, 10)])]);
+    geos['Standard'] = makeGeo([fig(0, -5, [line(10, 0), line(0, 5), line(2.5, 0), close()])]);
+    geos['Triangle'] = makeGeo([fig(0, -4, [line(15, 0), line(0, 4), close()])]);
+    geos['Backward'] = makeGeo([fig(0, -5, [line(10, 0), line(0, 5), close()])]);
+    geos['OpenTriangle'] = makeGeo([fig(0, -5, [line(10, 0), line(0, 5)])]);
+    geos['BackwardOpenTriangle'] = makeGeo([fig(0, -5, [line(10, 0), line(0, 5)])]);
+    geos['Circle'] = makeGeo([fig(0, 0, [PathSegment.Arc(0, 0, 5, 5)])]);
+    geos['BackwardCircle'] = makeGeo([fig(0, 0, [PathSegment.Arc(0, 0, 5, 5)])]);
+    geos['Diamond'] = makeGeo([fig(0, 0, [line(5, -5), line(10, 0), line(5, 5), close()])]);
+    geos['BackwardDiamond'] = makeGeo([fig(0, 0, [line(-5, -5), line(-10, 0), line(-5, 5), close()])]);
+    geos['Chevron'] = makeGeo([fig(0, -5, [line(10, 0), line(0, 5)])]);
+    geos['BackwardChevron'] = makeGeo([fig(0, -5, [line(-10, 0), line(0, 5)])]);
     geos['DoubleTriangle'] = makeGeo([
-      fig(0, 0, [line(5, 5), line(0, 10), close()]),
-      fig(5, 0, [line(10, 5), line(5, 10), close()])
+      fig(0, -5, [line(5, 0), line(5, 5), close()]),
+      fig(0, 5, [line(5, 0), line(5, -5), close()])
     ]);
-    geos['DoubleChevron'] = makeGeo([fig(0, 0, [line(5, 5), line(0, 10)]), fig(5, 0, [line(10, 5), line(5, 10)])]);
-    geos['HalfTriangle'] = makeGeo([fig(0, 5, [line(10, 5), line(0, 10), close()])]);
-    geos['BackwardHalfTriangle'] = makeGeo([fig(10, 5, [line(0, 5), line(10, 10), close()])]);
-    geos['StretchedDiamond'] = makeGeo([fig(0, 5, [line(5, 0), line(10, 5), line(5, 10), close()])]);
-    geos['ThinTriangle'] = makeGeo([fig(0, 3, [line(10, 5), line(0, 7), close()])]);
-    geos['BackwardThinTriangle'] = makeGeo([fig(10, 3, [line(0, 5), line(10, 7), close()])]);
-    geos['Line'] = makeGeo([fig(0, 5, [line(10, 5)])]);
+    geos['DoubleChevron'] = makeGeo([fig(0, -5, [line(5, 0), line(0, 5)]), fig(0, 5, [line(5, 0), line(0, -5)])]);
+    geos['HalfTriangle'] = makeGeo([fig(0, 0, [line(10, 0), line(10, 5), close()])]);
+    geos['BackwardHalfTriangle'] = makeGeo([fig(0, 0, [line(-10, 0), line(-10, 5), close()])]);
+    geos['StretchedDiamond'] = makeGeo([fig(0, 0, [line(5, -5), line(10, 0), line(5, 5), close()])]);
+    geos['ThinTriangle'] = makeGeo([fig(0, 0, [line(10, 0), line(0, 2), close()])]);
+    geos['BackwardThinTriangle'] = makeGeo([fig(0, 0, [line(-10, 0), line(-10, 2), close()])]);
+    geos['Line'] = makeGeo([fig(0, 0, [line(10, 0)])]);
     geos['None'] = new Geometry();
 
     return geos;

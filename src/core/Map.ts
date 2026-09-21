@@ -50,21 +50,19 @@ export class Map<K, V> implements Iterable<V> {
     return this._keys.length === 0;
   }
 
-  /** 添加键值对 */
-  add(key: K, value: V): V | undefined {
+  /** 添加键值对，返回 this 以便链式调用 */
+  add(key: K, value: V): this {
     const idx = this._indexOf(key);
-    let oldValue: V | undefined = undefined;
     if (idx >= 0) {
-      oldValue = this._values[idx];
       this._values[idx] = value;
     } else {
       this._keys.push(key);
       this._values.push(value);
     }
-    return oldValue;
+    return this;
   }
 
-  set(key: K, value: V): V | undefined {
+  set(key: K, value: V): this {
     return this.add(key, value);
   }
 
@@ -90,16 +88,15 @@ export class Map<K, V> implements Iterable<V> {
     return this.contains(key);
   }
 
-  /** 移除键值对 */
-  remove(key: K): V | undefined {
+  /** 移除键值对，成功移除返回 true */
+  remove(key: K): boolean {
     const idx = this._indexOf(key);
     if (idx >= 0) {
-      const oldValue = this._values[idx];
       this._keys.splice(idx, 1);
       this._values.splice(idx, 1);
-      return oldValue;
+      return true;
     }
-    return undefined;
+    return false;
   }
 
   /** 清空 */

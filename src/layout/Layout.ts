@@ -31,7 +31,7 @@ export class Layout {
   // ============ Properties ============
 
   get arrangementOrigin(): Point { return this._arrangementOrigin; }
-  set arrangementOrigin(val: Point) { this._arrangementOrigin = val.copy(); }
+  set arrangementOrigin(val: Point) { this._arrangementOrigin = val.copy(); this.invalidateLayout(); }
 
   get isInitial(): boolean { return this._isInitial; }
   set isInitial(val: boolean) { this._isInitial = val; }

@@ -7,10 +7,13 @@ import type { Group } from './Group';
 export class Placeholder extends GraphObject {
   private _padding: number = 0;
 
-  constructor() {
+  constructor(init?: Partial<Placeholder>) {
     super();
     this._className = 'Placeholder';
     this._isPlaceholder = true;
+    if (init) {
+      this.set(init);
+    }
   }
 
   get padding(): number {
@@ -31,7 +34,7 @@ export class Placeholder extends GraphObject {
     const group = this._findGroup();
     if (group) {
       let bounds = new Rect();
-      const groupPos = group.position;
+      const groupPos = group.location;
       const it = group.memberParts.iterator;
       while (it.next()) {
         const part = it.value;

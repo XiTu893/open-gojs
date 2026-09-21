@@ -177,9 +177,10 @@ export class TextBlock extends GraphObject {
     if (!this._isMultiline || this._wrap === WrapNone) {
       const metrics = ctx.measureText(this._text);
       const fontSize = TextBlock._getFontSize(this._font);
+      const lineHeight = fontSize * 1.2;
       return {
         width: metrics.width,
-        height: fontSize + this._spacingAbove + this._spacingBelow,
+        height: lineHeight + this._spacingAbove + this._spacingBelow,
         lineCount: 1,
       };
     }
