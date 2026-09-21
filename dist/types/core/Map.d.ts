@@ -15,9 +15,9 @@ export declare class Map<K, V> implements Iterable<V> {
     get values(): Iterator<V>;
     /** 是否为空 */
     get isEmpty(): boolean;
-    /** 添加键值对 */
-    add(key: K, value: V): V | undefined;
-    set(key: K, value: V): V | undefined;
+    /** 添加键值对，返回 this 以便链式调用 */
+    add(key: K, value: V): this;
+    set(key: K, value: V): this;
     /** 获取值 */
     get(key: K): V | undefined;
     /** 获取值，带默认值 */
@@ -26,8 +26,8 @@ export declare class Map<K, V> implements Iterable<V> {
     contains(key: K): boolean;
     /** 是否包含键（同 contains） */
     has(key: K): boolean;
-    /** 移除键值对 */
-    remove(key: K): V | undefined;
+    /** 移除键值对，成功移除返回 true */
+    remove(key: K): boolean;
     /** 清空 */
     clear(): this;
     /** 转换为对象 */

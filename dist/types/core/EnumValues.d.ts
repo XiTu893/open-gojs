@@ -73,6 +73,7 @@ export declare const CircularArrangementConstantAngle: EnumValue;
 export declare const CircularArrangementConstantRadius: EnumValue;
 export declare const CircularArrangementPacked: EnumValue;
 export declare const CircularDirectionClockwise: EnumValue;
+export declare const CircularDirectionCounterclockwise: EnumValue;
 export declare const CircularDirectionBidirectionalLeft: EnumValue;
 export declare const CircularDirectionBidirectionalRight: EnumValue;
 export declare const LayeredDigraphDirectionDown: EnumValue;

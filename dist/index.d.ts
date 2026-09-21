@@ -73,6 +73,7 @@ declare const CircularArrangementConstantAngle: EnumValue;
 declare const CircularArrangementConstantRadius: EnumValue;
 declare const CircularArrangementPacked: EnumValue;
 declare const CircularDirectionClockwise: EnumValue;
+declare const CircularDirectionCounterclockwise: EnumValue;
 declare const CircularDirectionBidirectionalLeft: EnumValue;
 declare const CircularDirectionBidirectionalRight: EnumValue;
 declare const LayeredDigraphDirectionDown: EnumValue;
@@ -304,9 +305,9 @@ declare class Map<K, V> implements Iterable<V> {
     get values(): Iterator<V>;
     /** 是否为空 */
     get isEmpty(): boolean;
-    /** 添加键值对 */
-    add(key: K, value: V): V | undefined;
-    set(key: K, value: V): V | undefined;
+    /** 添加键值对，返回 this 以便链式调用 */
+    add(key: K, value: V): this;
+    set(key: K, value: V): this;
     /** 获取值 */
     get(key: K): V | undefined;
     /** 获取值，带默认值 */
@@ -315,8 +316,8 @@ declare class Map<K, V> implements Iterable<V> {
     contains(key: K): boolean;
     /** 是否包含键（同 contains） */
     has(key: K): boolean;
-    /** 移除键值对 */
-    remove(key: K): V | undefined;
+    /** 移除键值对，成功移除返回 true */
+    remove(key: K): boolean;
     /** 清空 */
     clear(): this;
     /** 转换为对象 */
@@ -1296,7 +1297,8 @@ declare class Panel extends GraphObject {
     private _viewboxStretch;
     _viewboxScaleX: number;
     _viewboxScaleY: number;
-    constructor(type?: EnumValue, init?: Partial<Panel>);
+    constructor(type?: EnumValue | string, init?: Partial<Panel>);
+    private static _resolvePanelTypeStr;
     get type(): EnumValue;
     set type(val: EnumValue);
     get data(): any;
@@ -1362,7 +1364,7 @@ declare class Panel extends GraphObject {
     set viewboxStretch(val: EnumValue);
     get elements(): Iterator<GraphObject>;
     get elementCount(): number;
-    add(element: GraphObject): Panel;
+    add(...elements: GraphObject[]): Panel;
     /** Propagate the _part reference to a child element and its descendants */
     private _propagatePart;
     /** Recursively set _part on an element and its children */
@@ -2119,6 +2121,7 @@ declare class Link extends Part {
     getLinkPointToPort(port: GraphObject, spot: Spot): Point;
     /** Compute the route points for this link */
     computePoints(): boolean;
+    private _applyShortLengths;
     /** Resolve the effective fromSpot for this link */
     private _resolveFromSpot;
     private _resolveToSpot;
@@ -2131,6 +2134,7 @@ declare class Link extends Part {
     private _cornerPoint;
     /** Get the intersection of a line from center to target with the rectangle edge */
     private _getEdgeIntersection;
+    private _computeSelfLinkPoints;
     get midPoint(): Point;
     findClosestSegment(p: Point): number;
     copy(): Link;
@@ -2138,7 +2142,7 @@ declare class Link extends Part {
 
 declare class Placeholder extends GraphObject {
     private _padding;
-    constructor();
+    constructor(init?: Partial<Placeholder>);
     get padding(): number;
     set padding(val: number);
     get _placeholderBounds(): Rect;
@@ -3565,11 +3569,15 @@ declare class GridLayout extends Layout {
     static Location: EnumValue;
     static Center: EnumValue;
     static Forwards: EnumValue;
+    static Forward: EnumValue;
     static Reverse: EnumValue;
     static Ascending: EnumValue;
     static Descending: EnumValue;
     static Position: EnumValue;
+    static LeftToRight: EnumValue;
+    static RightToLeft: EnumValue;
     static smartComparer(a: any, b: any): number;
+    static standardComparer(a: any, b: any): number;
 }
 
 /**
@@ -3591,6 +3599,7 @@ declare class TreeLayout extends Layout {
     private _alternateAlignment;
     private _alternateCompaction;
     private _alternateSorting;
+    constructor();
     get angle(): number;
     set angle(val: number);
     get layerSpacing(): number;
@@ -3621,6 +3630,39 @@ declare class TreeLayout extends Layout {
     set alternateCompaction(val: EnumValue);
     get alternateSorting(): EnumValue;
     set alternateSorting(val: EnumValue);
+    static StyleLayered: EnumValue;
+    static StyleAlternating: EnumValue;
+    static StyleLastParents: EnumValue;
+    static StyleRootOnly: EnumValue;
+    static PathDefault: EnumValue;
+    static PathDestination: EnumValue;
+    static PathSource: EnumValue;
+    static ArrangementVertical: EnumValue;
+    static ArrangementHorizontal: EnumValue;
+    static ArrangementFixedRoots: EnumValue;
+    static LayerIndividual: EnumValue;
+    static LayerSiblings: EnumValue;
+    static LayerUniform: EnumValue;
+    static SortingForwards: EnumValue;
+    static SortingReverse: EnumValue;
+    static SortingAscending: EnumValue;
+    static SortingDescending: EnumValue;
+    static CompactionBlock: EnumValue;
+    static CompactionNone: EnumValue;
+    static AlignmentTopLeftBus: EnumValue;
+    static AlignmentBottomRightBus: EnumValue;
+    static AlignmentBus: EnumValue;
+    static AlignmentBusBranching: EnumValue;
+    static AlignmentCenterChildren: EnumValue;
+    static AlignmentCenterSubtrees: EnumValue;
+    static AlignmentStart: EnumValue;
+    static AlignmentEnd: EnumValue;
+    private _rootDefaults;
+    private _alternateDefaults;
+    get rootDefaults(): any;
+    set rootDefaults(val: any);
+    get alternateDefaults(): any;
+    set alternateDefaults(val: any);
     copy(): TreeLayout;
     doLayout(coll: any): void;
     private _sortChildren;
@@ -3643,6 +3685,17 @@ declare class ForceDirectedLayout extends Layout {
     private _defaultGravity;
     private _infinityDistance;
     private _epsilon;
+    private _arrangementSpacing;
+    private _arrangesToOrigin;
+    private _defaultGravitationalMass;
+    private _theta;
+    private _setsPortSpots;
+    private _springLength;
+    private _springStiffness;
+    private _randomNumberGenerator;
+    private _electricalCharge;
+    private _gravitationalMass;
+    private _currentIteration;
     get maxIterations(): number;
     set maxIterations(val: number);
     get defaultSpringLength(): number;
@@ -3657,6 +3710,27 @@ declare class ForceDirectedLayout extends Layout {
     set infinityDistance(val: number);
     get epsilon(): number;
     set epsilon(val: number);
+    get arrangementSpacing(): Size;
+    set arrangementSpacing(val: Size);
+    get arrangesToOrigin(): boolean;
+    set arrangesToOrigin(val: boolean);
+    get defaultGravitationalMass(): number;
+    set defaultGravitationalMass(val: number);
+    get theta(): number;
+    set theta(val: number);
+    get setsPortSpots(): boolean;
+    set setsPortSpots(val: boolean);
+    get springLength(): number;
+    set springLength(val: number);
+    get springStiffness(): number;
+    set springStiffness(val: number);
+    get randomNumberGenerator(): (() => number) | null;
+    set randomNumberGenerator(val: (() => number) | null);
+    get electricalCharge(): number;
+    set electricalCharge(val: number);
+    get gravitationalMass(): number;
+    set gravitationalMass(val: number);
+    get currentIteration(): number;
     copy(): ForceDirectedLayout;
     doLayout(coll: any): void;
     /**
@@ -3729,6 +3803,9 @@ declare class CircularLayout extends Layout {
     private _spacing;
     private _direction;
     private _aspectRatio;
+    private _actualXRadius;
+    private _actualYRadius;
+    private _sorting;
     get radius(): number;
     set radius(val: number);
     get startAngle(): number;
@@ -3743,6 +3820,10 @@ declare class CircularLayout extends Layout {
     set direction(val: EnumValue);
     get aspectRatio(): number;
     set aspectRatio(val: number);
+    get actualXRadius(): number;
+    get actualYRadius(): number;
+    get sorting(): EnumValue;
+    set sorting(val: EnumValue);
     copy(): CircularLayout;
     doLayout(coll: any): void;
     /**
@@ -3885,6 +3966,52 @@ declare const LayeredDigraphPack: {
 declare const GridArrangement: {
     LeftToRight: EnumValue;
     RightToLeft: EnumValue;
+    TopToBottom: EnumValue;
+    BottomToTop: EnumValue;
+};
+declare const PanelTypes: {
+    Auto: EnumValue;
+    Position: EnumValue;
+    Vertical: EnumValue;
+    Horizontal: EnumValue;
+    Spot: EnumValue;
+    Table: EnumValue;
+    TableColumn: EnumValue;
+    TableRow: EnumValue;
+    Viewbox: EnumValue;
+    Link: EnumValue;
+    Grid: EnumValue;
+    Graduated: EnumValue;
+};
+declare const BindingMode: {
+    OneWay: EnumValue;
+    TwoWay: EnumValue;
+};
+declare const CircularDirection: {
+    Clockwise: EnumValue;
+    Counterclockwise: EnumValue;
+    BidirectionalLeft: EnumValue;
+    BidirectionalRight: EnumValue;
+};
+declare const LayeredDigraphDirection: {
+    Down: EnumValue;
+    Up: EnumValue;
+    Left: EnumValue;
+    Right: EnumValue;
+};
+declare const LayeredDigraphInit: {
+    DepthFirstOut: EnumValue;
+    DepthFirstIn: EnumValue;
+    Naive: EnumValue;
+};
+declare const LayeredDigraphLayering: {
+    OptimalLinkLength: EnumValue;
+    LongestPathSink: EnumValue;
+    LongestPathSource: EnumValue;
+};
+declare const LayeredDigraphCycleRemove: {
+    DepthFirst: EnumValue;
+    Greedy: EnumValue;
 };
 declare const ImageStretch: {
     None: EnumValue;
@@ -3977,5 +4104,5 @@ declare const TextOverflow: {
     Ellipsis: EnumValue;
 };
 
-export { ActionTool, Adornment, Animation, AnimationDefault, AnimationEaseIn, AnimationEaseInOut, AnimationEaseOut, AnimationEaseOutBounce, AnimationLinear, AnimationManager, AnimationState, AnimationStyle, AnimationStyleAnimateLocations, AnimationStyleDefault, AnimationStyleNone, AnimationTrigger, AutoScale, AutoScaleNone, AutoScaleUniform, AutoScaleUniformToFill, Binding, Brush, BrushLinear, BrushRadial, BrushSolid, CanvasRenderer, ChangeType, ChangedEvent, ChangedEventInsert, ChangedEventProperty, ChangedEventRemove, ChangedEventTransaction, CircularArrangement, CircularArrangementConstantAngle, CircularArrangementConstantDistance, CircularArrangementConstantRadius, CircularArrangementPacked, CircularDirectionBidirectionalLeft, CircularDirectionBidirectionalRight, CircularDirectionClockwise, CircularLayout, CircularNodeDiameterFormulaCircular, CircularNodeDiameterFormulaPythagorean, CircularSorting, CircularSortingAscending, CircularSortingDescending, CircularSortingForwards, CircularSortingOptimized, CircularSortingReverse, ClickCreatingTool, ClickSelectingTool, Color, CommandHandler, ContextMenuTool, Curve, CurveBezier, CurveJumpGap, CurveJumpOver, CurveNone, CycleAll, CycleDestinationTree, CycleMode, CycleNotDirected, CycleNotUndirected, CycleSourceTree, Diagram, DiagramEvent, DragSelectingTool, DraggingTool, EnumValue, FlipBoth, FlipHorizontal, FlipNone, FlipVertical, ForceDirectedLayout, Geometry, GeometryStretch, GeometryStretchUniform, GeometryType, GeometryTypeLine, GeometryTypePath, GestureMode, GestureModeCancel, GestureModeNone, GestureModeZoom, GraduatedPanCenter, GraduatedPanLeft, GraduatedPanNone, GraduatedPanRight, GraphLinksModel, GraphObject, GridAlignment, GridAlignmentLocation, GridAlignmentPosition, GridArrangement, GridArrangementBottomToTop, GridArrangementLeftToRight, GridArrangementRightToLeft, GridArrangementTopToBottom, GridLayout, GridLayoutCenter, GridLayoutLocation, GridSorting, GridSortingAscending, GridSortingDescending, GridSortingForwards, GridSortingReverse, GridWrappingFit, GridWrappingNone, Group, HTMLInfo, ImageStretch, ImageStretchFill, ImageStretchNone, ImageStretchUniform, ImageStretchUniformToFill, InputEvent, Layer, LayeredDigraphAggressive, LayeredDigraphAggressiveAll, LayeredDigraphAggressiveHorizontal, LayeredDigraphAggressiveLess, LayeredDigraphAggressiveMore, LayeredDigraphAggressiveNone, LayeredDigraphAggressiveVertical, LayeredDigraphAlign, LayeredDigraphAlignBottom, LayeredDigraphAlignCenter, LayeredDigraphAlignLower, LayeredDigraphAlignNone, LayeredDigraphAlignTop, LayeredDigraphAlignUpper, LayeredDigraphCycleRemoveDepthFirst, LayeredDigraphCycleRemoveGreedy, LayeredDigraphDirectionDown, LayeredDigraphDirectionLeft, LayeredDigraphDirectionRight, LayeredDigraphDirectionUp, LayeredDigraphInitDepthFirstIn, LayeredDigraphInitDepthFirstOut, LayeredDigraphInitNaive, LayeredDigraphLayeringLongestPathSink, LayeredDigraphLayeringLongestPathSource, LayeredDigraphLayeringOptimalLinkLength, LayeredDigraphLayout, LayeredDigraphPack, LayeredDigraphPackAll, LayeredDigraphPackExpand, LayeredDigraphPackMedian, LayeredDigraphPackNone, LayeredDigraphPackStraighten, Layout, LayoutConditions, LayoutConditionsNodeSized, LayoutConditionsStandard, LayoutEdge, LayoutNetwork, LayoutVertex, Link, LinkAdjusting, LinkAdjustingEnd, LinkAdjustingStretch, LinkReshapingTool, LinkingBaseTool, LinkingDirection, LinkingDirectionForwardsOnly, LinkingTool, List, Map, Margin, Model, Node, Orientation, OrientationAlong, OrientationMinus90, OrientationNone, OrientationPlus180, OrientationPlus90, Overflow, OverflowClip, OverflowEllipsis, Overview, Palette, Panel, PanelAuto, PanelGraduated, PanelGrid, PanelHorizontal, PanelLink, PanelPosition, PanelSpot, PanelTable, PanelTableColumn, PanelTableRow, PanelVertical, PanelViewbox, PanningTool, Part, PathFigure, PathSegment, PathSegmentArc, PathSegmentClose, PathSegmentCubicBezier, PathSegmentLine, PathSegmentMoveTo, PathSegmentQuadraticBezier, Picture, Placeholder, Point, Rect, RelinkingTool, ResizingTool, RotatingTool, Routing, RoutingAvoidsNodes, RoutingNormal, RoutingOrthogonal, RowColumnDefinition, ScrollDocument, ScrollInfinite, ScrollMode, SegmentOrientationAlong, SegmentOrientationNone, SegmentOrientationOpposite, SegmentOrientationOrthogonal, SegmentOrientationParallel, SegmentOrientationPerpendicular, SegmentType, Set, Shape, Size, Sizing, SizingAuto, SizingNone, SizingProp, Spot, Stretch, StretchDefault, StretchFill, StretchHorizontal, StretchNone, StretchUniform, StretchUniformToFill, StretchVertical, TextBlock, TextEditingAccept, TextEditingAcceptLostFocus, TextEditingStarting, TextEditingStartingSingleClick, TextEditingTool, TextOverflow, ThemeManager, Tool, ToolManager, Transaction, TreeAlignment, TreeAlignmentBottomRightBus, TreeAlignmentBus, TreeAlignmentBusBranching, TreeAlignmentCenterChildren, TreeAlignmentCenterSubtrees, TreeAlignmentEnd, TreeAlignmentStart, TreeAlignmentTopLeftBus, TreeArrangement, TreeArrangementFixedRoots, TreeArrangementHorizontal, TreeArrangementVertical, TreeCompaction, TreeCompactionBlock, TreeCompactionNone, TreeLayerStyle, TreeLayerStyleIndividual, TreeLayerStyleSiblings, TreeLayerStyleUniform, TreeLayout, TreeModel, TreePath, TreePathDefault, TreePathDestination, TreePathSource, TreeSorting, TreeSortingAscending, TreeSortingDescending, TreeSortingForwards, TreeSortingReverse, TreeStyle, TreeStyleAlternating, TreeStyleCompact, TreeStyleLastParents, TreeStyleLayered, TreeStyleRootOnly, TriggerStart, TriggerStartBundled, UndoManager, ViewboxStretchFill, ViewboxStretchNone, ViewboxStretchUniform, ViewboxStretchUniformToFill, WheelMode, WheelModeZoom, Wrap, WrapDesiredSize, WrapFit, WrapNone, figures, getFigureGeometry };
+export { ActionTool, Adornment, Animation, AnimationDefault, AnimationEaseIn, AnimationEaseInOut, AnimationEaseOut, AnimationEaseOutBounce, AnimationLinear, AnimationManager, AnimationState, AnimationStyle, AnimationStyleAnimateLocations, AnimationStyleDefault, AnimationStyleNone, AnimationTrigger, AutoScale, AutoScaleNone, AutoScaleUniform, AutoScaleUniformToFill, Binding, BindingMode, Brush, BrushLinear, BrushRadial, BrushSolid, CanvasRenderer, ChangeType, ChangedEvent, ChangedEventInsert, ChangedEventProperty, ChangedEventRemove, ChangedEventTransaction, CircularArrangement, CircularArrangementConstantAngle, CircularArrangementConstantDistance, CircularArrangementConstantRadius, CircularArrangementPacked, CircularDirection, CircularDirectionBidirectionalLeft, CircularDirectionBidirectionalRight, CircularDirectionClockwise, CircularDirectionCounterclockwise, CircularLayout, CircularNodeDiameterFormulaCircular, CircularNodeDiameterFormulaPythagorean, CircularSorting, CircularSortingAscending, CircularSortingDescending, CircularSortingForwards, CircularSortingOptimized, CircularSortingReverse, ClickCreatingTool, ClickSelectingTool, Color, CommandHandler, ContextMenuTool, Curve, CurveBezier, CurveJumpGap, CurveJumpOver, CurveNone, CycleAll, CycleDestinationTree, CycleMode, CycleNotDirected, CycleNotUndirected, CycleSourceTree, Diagram, DiagramEvent, DragSelectingTool, DraggingTool, EnumValue, FlipBoth, FlipHorizontal, FlipNone, FlipVertical, ForceDirectedLayout, Geometry, GeometryStretch, GeometryStretchUniform, GeometryType, GeometryTypeLine, GeometryTypePath, GestureMode, GestureModeCancel, GestureModeNone, GestureModeZoom, GraduatedPanCenter, GraduatedPanLeft, GraduatedPanNone, GraduatedPanRight, GraphLinksModel, GraphObject, GridAlignment, GridAlignmentLocation, GridAlignmentPosition, GridArrangement, GridArrangementBottomToTop, GridArrangementLeftToRight, GridArrangementRightToLeft, GridArrangementTopToBottom, GridLayout, GridLayoutCenter, GridLayoutLocation, GridSorting, GridSortingAscending, GridSortingDescending, GridSortingForwards, GridSortingReverse, GridWrappingFit, GridWrappingNone, Group, HTMLInfo, ImageStretch, ImageStretchFill, ImageStretchNone, ImageStretchUniform, ImageStretchUniformToFill, InputEvent, Layer, LayeredDigraphAggressive, LayeredDigraphAggressiveAll, LayeredDigraphAggressiveHorizontal, LayeredDigraphAggressiveLess, LayeredDigraphAggressiveMore, LayeredDigraphAggressiveNone, LayeredDigraphAggressiveVertical, LayeredDigraphAlign, LayeredDigraphAlignBottom, LayeredDigraphAlignCenter, LayeredDigraphAlignLower, LayeredDigraphAlignNone, LayeredDigraphAlignTop, LayeredDigraphAlignUpper, LayeredDigraphCycleRemove, LayeredDigraphCycleRemoveDepthFirst, LayeredDigraphCycleRemoveGreedy, LayeredDigraphDirection, LayeredDigraphDirectionDown, LayeredDigraphDirectionLeft, LayeredDigraphDirectionRight, LayeredDigraphDirectionUp, LayeredDigraphInit, LayeredDigraphInitDepthFirstIn, LayeredDigraphInitDepthFirstOut, LayeredDigraphInitNaive, LayeredDigraphLayering, LayeredDigraphLayeringLongestPathSink, LayeredDigraphLayeringLongestPathSource, LayeredDigraphLayeringOptimalLinkLength, LayeredDigraphLayout, LayeredDigraphPack, LayeredDigraphPackAll, LayeredDigraphPackExpand, LayeredDigraphPackMedian, LayeredDigraphPackNone, LayeredDigraphPackStraighten, Layout, LayoutConditions, LayoutConditionsNodeSized, LayoutConditionsStandard, LayoutEdge, LayoutNetwork, LayoutVertex, Link, LinkAdjusting, LinkAdjustingEnd, LinkAdjustingStretch, LinkReshapingTool, LinkingBaseTool, LinkingDirection, LinkingDirectionForwardsOnly, LinkingTool, List, Map, Margin, Model, Node, Orientation, OrientationAlong, OrientationMinus90, OrientationNone, OrientationPlus180, OrientationPlus90, Overflow, OverflowClip, OverflowEllipsis, Overview, Palette, Panel, PanelAuto, PanelGraduated, PanelGrid, PanelHorizontal, PanelLink, PanelPosition, PanelSpot, PanelTable, PanelTableColumn, PanelTableRow, PanelTypes, PanelVertical, PanelViewbox, PanningTool, Part, PathFigure, PathSegment, PathSegmentArc, PathSegmentClose, PathSegmentCubicBezier, PathSegmentLine, PathSegmentMoveTo, PathSegmentQuadraticBezier, Picture, Placeholder, Point, Rect, RelinkingTool, ResizingTool, RotatingTool, Routing, RoutingAvoidsNodes, RoutingNormal, RoutingOrthogonal, RowColumnDefinition, ScrollDocument, ScrollInfinite, ScrollMode, SegmentOrientationAlong, SegmentOrientationNone, SegmentOrientationOpposite, SegmentOrientationOrthogonal, SegmentOrientationParallel, SegmentOrientationPerpendicular, SegmentType, Set, Shape, Size, Sizing, SizingAuto, SizingNone, SizingProp, Spot, Stretch, StretchDefault, StretchFill, StretchHorizontal, StretchNone, StretchUniform, StretchUniformToFill, StretchVertical, TextBlock, TextEditingAccept, TextEditingAcceptLostFocus, TextEditingStarting, TextEditingStartingSingleClick, TextEditingTool, TextOverflow, ThemeManager, Tool, ToolManager, Transaction, TreeAlignment, TreeAlignmentBottomRightBus, TreeAlignmentBus, TreeAlignmentBusBranching, TreeAlignmentCenterChildren, TreeAlignmentCenterSubtrees, TreeAlignmentEnd, TreeAlignmentStart, TreeAlignmentTopLeftBus, TreeArrangement, TreeArrangementFixedRoots, TreeArrangementHorizontal, TreeArrangementVertical, TreeCompaction, TreeCompactionBlock, TreeCompactionNone, TreeLayerStyle, TreeLayerStyleIndividual, TreeLayerStyleSiblings, TreeLayerStyleUniform, TreeLayout, TreeModel, TreePath, TreePathDefault, TreePathDestination, TreePathSource, TreeSorting, TreeSortingAscending, TreeSortingDescending, TreeSortingForwards, TreeSortingReverse, TreeStyle, TreeStyleAlternating, TreeStyleCompact, TreeStyleLastParents, TreeStyleLayered, TreeStyleRootOnly, TriggerStart, TriggerStartBundled, UndoManager, ViewboxStretchFill, ViewboxStretchNone, ViewboxStretchUniform, ViewboxStretchUniformToFill, WheelMode, WheelModeZoom, Wrap, WrapDesiredSize, WrapFit, WrapNone, figures, getFigureGeometry };
 export type { AnimationConfig, BrushLike, BrushStop, ChangedEventListener, IMapIterator, Iterable, Iterator, MarginLike, ObjectData };

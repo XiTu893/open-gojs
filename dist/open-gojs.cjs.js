@@ -165,6 +165,7 @@ var CircularArrangementConstantRadius = new EnumValue('CircularArrangementConsta
 var CircularArrangementPacked = new EnumValue('CircularArrangementPacked');
 // ============ 环形布局方向 ============
 var CircularDirectionClockwise = new EnumValue('CircularDirectionClockwise');
+var CircularDirectionCounterclockwise = new EnumValue('CircularDirectionCounterclockwise');
 var CircularDirectionBidirectionalLeft = new EnumValue('CircularDirectionBidirectionalLeft');
 var CircularDirectionBidirectionalRight = new EnumValue('CircularDirectionBidirectionalRight');
 // ============ 分层有向图布局方向 ============
@@ -750,19 +751,17 @@ var Map$1 = /** @class */ (function () {
         enumerable: false,
         configurable: true
     });
-    /** 添加键值对 */
+    /** 添加键值对，返回 this 以便链式调用 */
     Map.prototype.add = function (key, value) {
         var idx = this._indexOf(key);
-        var oldValue = undefined;
         if (idx >= 0) {
-            oldValue = this._values[idx];
             this._values[idx] = value;
         }
         else {
             this._keys.push(key);
             this._values.push(value);
         }
-        return oldValue;
+        return this;
     };
     Map.prototype.set = function (key, value) {
         return this.add(key, value);
@@ -785,16 +784,15 @@ var Map$1 = /** @class */ (function () {
     Map.prototype.has = function (key) {
         return this.contains(key);
     };
-    /** 移除键值对 */
+    /** 移除键值对，成功移除返回 true */
     Map.prototype.remove = function (key) {
         var idx = this._indexOf(key);
         if (idx >= 0) {
-            var oldValue = this._values[idx];
             this._keys.splice(idx, 1);
             this._values.splice(idx, 1);
-            return oldValue;
+            return true;
         }
-        return undefined;
+        return false;
     };
     /** 清空 */
     Map.prototype.clear = function () {
@@ -3454,7 +3452,7 @@ var UndoManager = /** @class */ (function () {
     return UndoManager;
 }());
 
-var BindingMode = /** @class */ (function (_super) {
+var BindingMode$1 = /** @class */ (function (_super) {
     __extends(BindingMode, _super);
     function BindingMode(name) {
         return _super.call(this, name) || this;
@@ -3548,8 +3546,8 @@ var Binding = /** @class */ (function () {
         str += ')';
         return str;
     };
-    Binding.OneWay = new BindingMode('OneWay');
-    Binding.TwoWay = new BindingMode('TwoWay');
+    Binding.OneWay = new BindingMode$1('OneWay');
+    Binding.TwoWay = new BindingMode$1('TwoWay');
     return Binding;
 }());
 
@@ -6827,12 +6825,12 @@ var Shape = /** @class */ (function (_super) {
         _this._strokeDashOffset = 0;
         _this._strokeCap = 'butt';
         _this._strokeJoin = 'miter';
-        _this._figure = '';
+        _this._figure = 'None';
         _this._geometry = null;
         _this._geometryString = '';
         _this._parameter1 = NaN;
         _this._parameter2 = NaN;
-        _this._toArrow = '';
+        _this._toArrow = 'None';
         _this._fromArrow = '';
         _this._geometryStretch = GeometryStretchUniform;
         _this._fillRule = 'nonzero';
@@ -7015,10 +7013,10 @@ var Shape = /** @class */ (function (_super) {
         if (this._geometryString) {
             return Geometry.parse(this._geometryString);
         }
-        if (this._toArrow) {
+        if (this._toArrow && this._toArrow !== 'None') {
             return Shape._getArrowheadGeometry(this._toArrow);
         }
-        if (this._fromArrow) {
+        if (this._fromArrow && this._fromArrow !== 'None') {
             return Shape._getArrowheadGeometry(this._fromArrow);
         }
         if (this._figure) {
@@ -7112,6 +7110,30 @@ var Shape = /** @class */ (function (_super) {
     };
     /** 在 canvas 上绘制几何路径 */
     Shape.prototype._drawGeometry = function (ctx, geo) {
+        // Fast path for rounded rectangles: the native roundRect draws a
+        // perfectly convex, seamlessly-joined border (avoids concave arcs and
+        // gaps at the straight/arc junctions when stroking).
+        if (!this._geometry &&
+            !this._geometryString &&
+            (!this._toArrow || this._toArrow === 'None') &&
+            (!this._fromArrow || this._fromArrow === 'None') &&
+            this._figure && this._figure.toLowerCase() === 'roundedrectangle') {
+            var ab = this._actualBounds;
+            var w = ab.width;
+            var h = ab.height;
+            if (w > 0 && h > 0) {
+                var r = isNaN(this._parameter1) ? 5 : this._parameter1;
+                r = Math.min(r, w / 2, h / 2);
+                ctx.beginPath();
+                if (typeof ctx.roundRect === 'function') {
+                    ctx.roundRect(ab.x, ab.y, w, h, r);
+                }
+                else {
+                    ctx.rect(ab.x, ab.y, w, h);
+                }
+                return;
+            }
+        }
         ctx.beginPath();
         var it = geo.figures.iterator;
         while (it.next()) {
@@ -7322,28 +7344,28 @@ var Shape = /** @class */ (function (_super) {
         };
         var line = function (x, y) { return PathSegment.Line(x, y); };
         var close = function () { return PathSegment.Close(); };
-        geos['Standard'] = makeGeo([fig(0, 0, [line(10, 5), line(0, 10), close()])]);
-        geos['Triangle'] = makeGeo([fig(0, 0, [line(10, 5), line(0, 10), close()])]);
-        geos['Backward'] = makeGeo([fig(10, 0, [line(0, 5), line(10, 10), close()])]);
-        geos['OpenTriangle'] = makeGeo([fig(0, 0, [line(10, 5), line(0, 10)])]);
-        geos['BackwardOpenTriangle'] = makeGeo([fig(10, 0, [line(0, 5), line(10, 10)])]);
-        geos['Circle'] = makeGeo([fig(5, 0, [PathSegment.Arc(10, 5, 5, 5)])]);
-        geos['BackwardCircle'] = makeGeo([fig(5, 0, [PathSegment.Arc(10, 5, 5, 5)])]);
-        geos['Diamond'] = makeGeo([fig(0, 5, [line(5, 0), line(10, 5), line(5, 10), close()])]);
-        geos['BackwardDiamond'] = makeGeo([fig(10, 5, [line(5, 0), line(0, 5), line(5, 10), close()])]);
-        geos['Chevron'] = makeGeo([fig(0, 0, [line(10, 5), line(0, 10)])]);
-        geos['BackwardChevron'] = makeGeo([fig(10, 0, [line(0, 5), line(10, 10)])]);
+        geos['Standard'] = makeGeo([fig(0, -5, [line(10, 0), line(0, 5), line(2.5, 0), close()])]);
+        geos['Triangle'] = makeGeo([fig(0, -4, [line(15, 0), line(0, 4), close()])]);
+        geos['Backward'] = makeGeo([fig(0, -5, [line(10, 0), line(0, 5), close()])]);
+        geos['OpenTriangle'] = makeGeo([fig(0, -5, [line(10, 0), line(0, 5)])]);
+        geos['BackwardOpenTriangle'] = makeGeo([fig(0, -5, [line(10, 0), line(0, 5)])]);
+        geos['Circle'] = makeGeo([fig(0, 0, [PathSegment.Arc(0, 0, 5, 5)])]);
+        geos['BackwardCircle'] = makeGeo([fig(0, 0, [PathSegment.Arc(0, 0, 5, 5)])]);
+        geos['Diamond'] = makeGeo([fig(0, 0, [line(5, -5), line(10, 0), line(5, 5), close()])]);
+        geos['BackwardDiamond'] = makeGeo([fig(0, 0, [line(-5, -5), line(-10, 0), line(-5, 5), close()])]);
+        geos['Chevron'] = makeGeo([fig(0, -5, [line(10, 0), line(0, 5)])]);
+        geos['BackwardChevron'] = makeGeo([fig(0, -5, [line(-10, 0), line(0, 5)])]);
         geos['DoubleTriangle'] = makeGeo([
-            fig(0, 0, [line(5, 5), line(0, 10), close()]),
-            fig(5, 0, [line(10, 5), line(5, 10), close()])
+            fig(0, -5, [line(5, 0), line(5, 5), close()]),
+            fig(0, 5, [line(5, 0), line(5, -5), close()])
         ]);
-        geos['DoubleChevron'] = makeGeo([fig(0, 0, [line(5, 5), line(0, 10)]), fig(5, 0, [line(10, 5), line(5, 10)])]);
-        geos['HalfTriangle'] = makeGeo([fig(0, 5, [line(10, 5), line(0, 10), close()])]);
-        geos['BackwardHalfTriangle'] = makeGeo([fig(10, 5, [line(0, 5), line(10, 10), close()])]);
-        geos['StretchedDiamond'] = makeGeo([fig(0, 5, [line(5, 0), line(10, 5), line(5, 10), close()])]);
-        geos['ThinTriangle'] = makeGeo([fig(0, 3, [line(10, 5), line(0, 7), close()])]);
-        geos['BackwardThinTriangle'] = makeGeo([fig(10, 3, [line(0, 5), line(10, 7), close()])]);
-        geos['Line'] = makeGeo([fig(0, 5, [line(10, 5)])]);
+        geos['DoubleChevron'] = makeGeo([fig(0, -5, [line(5, 0), line(0, 5)]), fig(0, 5, [line(5, 0), line(0, -5)])]);
+        geos['HalfTriangle'] = makeGeo([fig(0, 0, [line(10, 0), line(10, 5), close()])]);
+        geos['BackwardHalfTriangle'] = makeGeo([fig(0, 0, [line(-10, 0), line(-10, 5), close()])]);
+        geos['StretchedDiamond'] = makeGeo([fig(0, 0, [line(5, -5), line(10, 0), line(5, 5), close()])]);
+        geos['ThinTriangle'] = makeGeo([fig(0, 0, [line(10, 0), line(0, 2), close()])]);
+        geos['BackwardThinTriangle'] = makeGeo([fig(0, 0, [line(-10, 0), line(-10, 2), close()])]);
+        geos['Line'] = makeGeo([fig(0, 0, [line(10, 0)])]);
         geos['None'] = new Geometry();
         return geos;
     };
@@ -7560,9 +7582,10 @@ var TextBlock = /** @class */ (function (_super) {
         if (!this._isMultiline || this._wrap === WrapNone) {
             var metrics = ctx.measureText(this._text);
             var fontSize_1 = TextBlock._getFontSize(this._font);
+            var lineHeight_1 = fontSize_1 * 1.2;
             return {
                 width: metrics.width,
-                height: fontSize_1 + this._spacingAbove + this._spacingBelow,
+                height: lineHeight_1 + this._spacingAbove + this._spacingBelow,
                 lineCount: 1,
             };
         }
@@ -8004,13 +8027,28 @@ var Panel = /** @class */ (function (_super) {
         _this._viewboxScaleY = 1;
         _this._className = 'Panel';
         if (type !== undefined) {
-            _this._type = type;
+            _this._type = typeof type === 'string' ? Panel._resolvePanelTypeStr(type) : type;
         }
         if (init) {
             _this.set(init);
         }
         return _this;
     }
+    Panel._resolvePanelTypeStr = function (type) {
+        var map = {
+            'Auto': PanelAuto,
+            'Vertical': PanelVertical,
+            'Horizontal': PanelHorizontal,
+            'Spot': PanelSpot,
+            'Table': PanelTable,
+            'Position': PanelPosition,
+            'Grid': PanelGrid,
+            'Viewbox': PanelViewbox,
+            'Graduated': PanelGraduated,
+            'Link': PanelLink,
+        };
+        return map[type] || PanelAuto;
+    };
     Object.defineProperty(Panel.prototype, "type", {
         // ============ Properties ============
         get: function () { return this._type; },
@@ -8394,15 +8432,32 @@ var Panel = /** @class */ (function (_super) {
         configurable: true
     });
     // ============ Public methods ============
-    Panel.prototype.add = function (element) {
-        if (!(element instanceof GraphObject)) {
-            throw new Error('Panel.add: argument must be a GraphObject');
+    Panel.prototype.add = function () {
+        var e_3, _a;
+        var elements = [];
+        for (var _i = 0; _i < arguments.length; _i++) {
+            elements[_i] = arguments[_i];
         }
-        element._panel = this;
-        this._elements.push(element);
-        this._invalidateMeasure();
-        // Propagate _part to child elements
-        this._propagatePart(element);
+        try {
+            for (var elements_1 = __values(elements), elements_1_1 = elements_1.next(); !elements_1_1.done; elements_1_1 = elements_1.next()) {
+                var element = elements_1_1.value;
+                if (!(element instanceof GraphObject)) {
+                    throw new Error('Panel.add: argument must be a GraphObject');
+                }
+                element._panel = this;
+                this._elements.push(element);
+                this._invalidateMeasure();
+                // Propagate _part to child elements
+                this._propagatePart(element);
+            }
+        }
+        catch (e_3_1) { e_3 = { error: e_3_1 }; }
+        finally {
+            try {
+                if (elements_1_1 && !elements_1_1.done && (_a = elements_1.return)) _a.call(elements_1);
+            }
+            finally { if (e_3) throw e_3.error; }
+        }
         return this;
     };
     /** Propagate the _part reference to a child element and its descendants */
@@ -8418,7 +8473,7 @@ var Panel = /** @class */ (function (_super) {
     };
     /** Recursively set _part on an element and its children */
     Panel.prototype._setPartRecursive = function (element, part) {
-        var e_3, _a;
+        var e_4, _a;
         element._part = part;
         if (element instanceof Panel) {
             try {
@@ -8427,12 +8482,12 @@ var Panel = /** @class */ (function (_super) {
                     this._setPartRecursive(child, part);
                 }
             }
-            catch (e_3_1) { e_3 = { error: e_3_1 }; }
+            catch (e_4_1) { e_4 = { error: e_4_1 }; }
             finally {
                 try {
                     if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
                 }
-                finally { if (e_3) throw e_3.error; }
+                finally { if (e_4) throw e_4.error; }
             }
         }
     };
@@ -8466,7 +8521,7 @@ var Panel = /** @class */ (function (_super) {
         return this._elements[index];
     };
     Panel.prototype.findObject = function (name) {
-        var e_4, _a;
+        var e_5, _a;
         if (this.name === name)
             return this;
         try {
@@ -8481,24 +8536,6 @@ var Panel = /** @class */ (function (_super) {
                 }
             }
         }
-        catch (e_4_1) { e_4 = { error: e_4_1 }; }
-        finally {
-            try {
-                if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
-            }
-            finally { if (e_4) throw e_4.error; }
-        }
-        return null;
-    };
-    Panel.prototype.findMainElement = function () {
-        var e_5, _a;
-        try {
-            for (var _b = __values(this._elements), _c = _b.next(); !_c.done; _c = _b.next()) {
-                var elem = _c.value;
-                if (elem.isPanelMain)
-                    return elem;
-            }
-        }
         catch (e_5_1) { e_5 = { error: e_5_1 }; }
         finally {
             try {
@@ -8508,14 +8545,13 @@ var Panel = /** @class */ (function (_super) {
         }
         return null;
     };
-    Panel.prototype.findItemPanelForData = function (data) {
+    Panel.prototype.findMainElement = function () {
         var e_6, _a;
         try {
             for (var _b = __values(this._elements), _c = _b.next(); !_c.done; _c = _b.next()) {
                 var elem = _c.value;
-                if (elem instanceof Panel && elem.data === data) {
+                if (elem.isPanelMain)
                     return elem;
-                }
             }
         }
         catch (e_6_1) { e_6 = { error: e_6_1 }; }
@@ -8524,6 +8560,25 @@ var Panel = /** @class */ (function (_super) {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
             finally { if (e_6) throw e_6.error; }
+        }
+        return null;
+    };
+    Panel.prototype.findItemPanelForData = function (data) {
+        var e_7, _a;
+        try {
+            for (var _b = __values(this._elements), _c = _b.next(); !_c.done; _c = _b.next()) {
+                var elem = _c.value;
+                if (elem instanceof Panel && elem.data === data) {
+                    return elem;
+                }
+            }
+        }
+        catch (e_7_1) { e_7 = { error: e_7_1 }; }
+        finally {
+            try {
+                if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
+            }
+            finally { if (e_7) throw e_7.error; }
         }
         return null;
     };
@@ -8600,7 +8655,7 @@ var Panel = /** @class */ (function (_super) {
         this._invalidateMeasure();
     };
     Panel.prototype.updateTargetBindings = function (propname) {
-        var e_7, _a, e_8, _b;
+        var e_8, _a, e_9, _b;
         try {
             for (var _c = __values(this._elements), _d = _c.next(); !_d.done; _d = _c.next()) {
                 var elem = _d.value;
@@ -8612,7 +8667,7 @@ var Panel = /** @class */ (function (_super) {
                     var data = this._data;
                     if (data) {
                         try {
-                            for (var bindings_1 = (e_8 = void 0, __values(bindings)), bindings_1_1 = bindings_1.next(); !bindings_1_1.done; bindings_1_1 = bindings_1.next()) {
+                            for (var bindings_1 = (e_9 = void 0, __values(bindings)), bindings_1_1 = bindings_1.next(); !bindings_1_1.done; bindings_1_1 = bindings_1.next()) {
                                 var binding = bindings_1_1.value;
                                 if (propname === undefined || propname === binding.sourceProperty) {
                                     var val = binding.getValueFromSource(data, elem, null);
@@ -8620,23 +8675,23 @@ var Panel = /** @class */ (function (_super) {
                                 }
                             }
                         }
-                        catch (e_8_1) { e_8 = { error: e_8_1 }; }
+                        catch (e_9_1) { e_9 = { error: e_9_1 }; }
                         finally {
                             try {
                                 if (bindings_1_1 && !bindings_1_1.done && (_b = bindings_1.return)) _b.call(bindings_1);
                             }
-                            finally { if (e_8) throw e_8.error; }
+                            finally { if (e_9) throw e_9.error; }
                         }
                     }
                 }
             }
         }
-        catch (e_7_1) { e_7 = { error: e_7_1 }; }
+        catch (e_8_1) { e_8 = { error: e_8_1 }; }
         finally {
             try {
                 if (_d && !_d.done && (_a = _c.return)) _a.call(_c);
             }
-            finally { if (e_7) throw e_7.error; }
+            finally { if (e_8) throw e_8.error; }
         }
     };
     Panel.prototype.copy = function () {
@@ -8647,7 +8702,7 @@ var Panel = /** @class */ (function (_super) {
     };
     /** Copy Panel-specific properties to another Panel */
     Panel.prototype._copyPanelPropertiesTo = function (copy) {
-        var e_9, _a, e_10, _b, e_11, _c;
+        var e_10, _a, e_11, _b, e_12, _c;
         copy._data = this._data;
         copy._padding = this._padding.copy();
         copy._defaultAlignment = this._defaultAlignment.copy();
@@ -8691,12 +8746,12 @@ var Panel = /** @class */ (function (_super) {
                 }
             }
         }
-        catch (e_9_1) { e_9 = { error: e_9_1 }; }
+        catch (e_10_1) { e_10 = { error: e_10_1 }; }
         finally {
             try {
                 if (_e && !_e.done && (_a = _d.return)) _a.call(_d);
             }
-            finally { if (e_9) throw e_9.error; }
+            finally { if (e_10) throw e_10.error; }
         }
         try {
             // Copy row/column definitions
@@ -8705,12 +8760,12 @@ var Panel = /** @class */ (function (_super) {
                 copy._rowDefinitions.push(def.copy());
             }
         }
-        catch (e_10_1) { e_10 = { error: e_10_1 }; }
+        catch (e_11_1) { e_11 = { error: e_11_1 }; }
         finally {
             try {
                 if (_g && !_g.done && (_b = _f.return)) _b.call(_f);
             }
-            finally { if (e_10) throw e_10.error; }
+            finally { if (e_11) throw e_11.error; }
         }
         try {
             for (var _h = __values(this._columnDefinitions), _j = _h.next(); !_j.done; _j = _h.next()) {
@@ -8718,17 +8773,17 @@ var Panel = /** @class */ (function (_super) {
                 copy._columnDefinitions.push(def.copy());
             }
         }
-        catch (e_11_1) { e_11 = { error: e_11_1 }; }
+        catch (e_12_1) { e_12 = { error: e_12_1 }; }
         finally {
             try {
                 if (_j && !_j.done && (_c = _h.return)) _c.call(_h);
             }
-            finally { if (e_11) throw e_11.error; }
+            finally { if (e_12) throw e_12.error; }
         }
     };
     // ============ Override _measure and _arrange ============
     Panel.prototype._measure = function (widthConstraint, heightConstraint) {
-        var e_12, _a;
+        var e_13, _a;
         var pad = this._padding;
         var availW = Math.max(0, widthConstraint - pad.left - pad.right);
         var availH = Math.max(0, heightConstraint - pad.top - pad.bottom);
@@ -8787,17 +8842,17 @@ var Panel = /** @class */ (function (_super) {
                 measuredH = Math.max(measuredH, mb.height + m.top + m.bottom);
             }
         }
-        catch (e_12_1) { e_12 = { error: e_12_1 }; }
+        catch (e_13_1) { e_13 = { error: e_13_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_12) throw e_12.error; }
+            finally { if (e_13) throw e_13.error; }
         }
         this._measuredBounds = new Rect(0, 0, Math.min(measuredW + pad.left + pad.right, widthConstraint), Math.min(measuredH + pad.top + pad.bottom, heightConstraint));
     };
     Panel.prototype._arrange = function (bounds) {
-        var e_13, _a;
+        var e_14, _a;
         this._actualBounds = bounds.copy();
         if (this._type === PanelLink) {
             this._arrangeLink(bounds);
@@ -8843,12 +8898,12 @@ var Panel = /** @class */ (function (_super) {
                     elem._arrange(new Rect(innerX, innerY, innerW, innerH));
                 }
             }
-            catch (e_13_1) { e_13 = { error: e_13_1 }; }
+            catch (e_14_1) { e_14 = { error: e_14_1 }; }
             finally {
                 try {
                     if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
                 }
-                finally { if (e_13) throw e_13.error; }
+                finally { if (e_14) throw e_14.error; }
             }
         }
     };
@@ -8859,7 +8914,7 @@ var Panel = /** @class */ (function (_super) {
      * or the first visible element if none has isPanelMain.
      */
     Panel.prototype._findMainAndOthers = function () {
-        var e_14, _a;
+        var e_15, _a;
         var main = null;
         var others = [];
         try {
@@ -8877,17 +8932,17 @@ var Panel = /** @class */ (function (_super) {
                 }
             }
         }
-        catch (e_14_1) { e_14 = { error: e_14_1 }; }
+        catch (e_15_1) { e_15 = { error: e_15_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_14) throw e_14.error; }
+            finally { if (e_15) throw e_15.error; }
         }
         return { main: main, others: others };
     };
     Panel.prototype._measureAuto = function (availW, availH) {
-        var e_15, _a;
+        var e_16, _a;
         var pad = this._padding;
         var _b = this._findMainAndOthers(), main = _b.main, others = _b.others;
         // Step 1: Measure all non-main elements first (they determine the content size)
@@ -8903,23 +8958,24 @@ var Panel = /** @class */ (function (_super) {
                 contentH = Math.max(contentH, mb.height + m.top + m.bottom);
             }
         }
-        catch (e_15_1) { e_15 = { error: e_15_1 }; }
+        catch (e_16_1) { e_16 = { error: e_16_1 }; }
         finally {
             try {
                 if (others_1_1 && !others_1_1.done && (_a = others_1.return)) _a.call(others_1);
             }
-            finally { if (e_15) throw e_15.error; }
+            finally { if (e_16) throw e_16.error; }
         }
         // Step 2: Measure the main element, sized to fit around the content
         if (main !== null) {
             var m = main.margin;
-            var mainAvailW = Math.min(availW, contentW + m.left + m.right);
-            var mainAvailH = Math.min(availH, contentH + m.top + m.bottom);
+            var strokeW = main._strokeWidth ? main._strokeWidth * 2 : 0;
+            var mainAvailW = Math.min(availW, contentW + m.left + m.right + strokeW);
+            var mainAvailH = Math.min(availH, contentH + m.top + m.bottom + strokeW);
             main._measure(mainAvailW, mainAvailH);
             // The main element should be at least as large as the content area
             var mb = main.measuredBounds;
-            var mainW = Math.max(mb.width + m.left + m.right, contentW + m.left + m.right);
-            var mainH = Math.max(mb.height + m.top + m.bottom, contentH + m.top + m.bottom);
+            var mainW = Math.max(mb.width + m.left + m.right, contentW + m.left + m.right + strokeW);
+            var mainH = Math.max(mb.height + m.top + m.bottom, contentH + m.top + m.bottom + strokeW);
             this._measuredBounds = new Rect(0, 0, mainW + pad.left + pad.right, mainH + pad.top + pad.bottom);
         }
         else if (others.length > 0) {
@@ -8930,7 +8986,7 @@ var Panel = /** @class */ (function (_super) {
         }
     };
     Panel.prototype._arrangeAuto = function (innerX, innerY, innerW, innerH) {
-        var e_16, _a;
+        var e_17, _a;
         var _b = this._findMainAndOthers(), main = _b.main, others = _b.others;
         if (main !== null) {
             // Arrange the main element to fill the entire panel area
@@ -8949,17 +9005,17 @@ var Panel = /** @class */ (function (_super) {
                 elem._arrange(new Rect(pos.x - focusPos.x, pos.y - focusPos.y, mb.width, mb.height));
             }
         }
-        catch (e_16_1) { e_16 = { error: e_16_1 }; }
+        catch (e_17_1) { e_17 = { error: e_17_1 }; }
         finally {
             try {
                 if (others_2_1 && !others_2_1.done && (_a = others_2.return)) _a.call(others_2);
             }
-            finally { if (e_16) throw e_16.error; }
+            finally { if (e_17) throw e_17.error; }
         }
     };
     // ============ PanelVertical measure/arrange ============
     Panel.prototype._measureVertical = function (availW, availH) {
-        var e_17, _a;
+        var e_18, _a;
         var pad = this._padding;
         var totalH = 0;
         var maxW = 0;
@@ -8975,17 +9031,17 @@ var Panel = /** @class */ (function (_super) {
                 maxW = Math.max(maxW, mb.width + m.left + m.right);
             }
         }
-        catch (e_17_1) { e_17 = { error: e_17_1 }; }
+        catch (e_18_1) { e_18 = { error: e_18_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_17) throw e_17.error; }
+            finally { if (e_18) throw e_18.error; }
         }
         this._measuredBounds = new Rect(0, 0, maxW + pad.left + pad.right, totalH + pad.top + pad.bottom);
     };
     Panel.prototype._arrangeVertical = function (innerX, innerY, innerW, innerH) {
-        var e_18, _a;
+        var e_19, _a;
         var y = innerY;
         try {
             for (var _b = __values(this._elements), _c = _b.next(); !_c.done; _c = _b.next()) {
@@ -9001,17 +9057,17 @@ var Panel = /** @class */ (function (_super) {
                 y += mb.height + m.top + m.bottom;
             }
         }
-        catch (e_18_1) { e_18 = { error: e_18_1 }; }
+        catch (e_19_1) { e_19 = { error: e_19_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_18) throw e_18.error; }
+            finally { if (e_19) throw e_19.error; }
         }
     };
     // ============ PanelHorizontal measure/arrange ============
     Panel.prototype._measureHorizontal = function (availW, availH) {
-        var e_19, _a;
+        var e_20, _a;
         var pad = this._padding;
         var totalW = 0;
         var maxH = 0;
@@ -9027,17 +9083,17 @@ var Panel = /** @class */ (function (_super) {
                 maxH = Math.max(maxH, mb.height + m.top + m.bottom);
             }
         }
-        catch (e_19_1) { e_19 = { error: e_19_1 }; }
+        catch (e_20_1) { e_20 = { error: e_20_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_19) throw e_19.error; }
+            finally { if (e_20) throw e_20.error; }
         }
         this._measuredBounds = new Rect(0, 0, totalW + pad.left + pad.right, maxH + pad.top + pad.bottom);
     };
     Panel.prototype._arrangeHorizontal = function (innerX, innerY, innerW, innerH) {
-        var e_20, _a;
+        var e_21, _a;
         var x = innerX;
         try {
             for (var _b = __values(this._elements), _c = _b.next(); !_c.done; _c = _b.next()) {
@@ -9052,17 +9108,17 @@ var Panel = /** @class */ (function (_super) {
                 x += mb.width + m.left + m.right;
             }
         }
-        catch (e_20_1) { e_20 = { error: e_20_1 }; }
+        catch (e_21_1) { e_21 = { error: e_21_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_20) throw e_20.error; }
+            finally { if (e_21) throw e_21.error; }
         }
     };
     // ============ PanelSpot measure/arrange ============
     Panel.prototype._measureSpot = function (availW, availH) {
-        var e_21, _a;
+        var e_22, _a;
         var pad = this._padding;
         var _b = this._findMainAndOthers(), main = _b.main, others = _b.others;
         var measuredW = 0;
@@ -9080,17 +9136,17 @@ var Panel = /** @class */ (function (_super) {
                 elem._measure(availW, availH);
             }
         }
-        catch (e_21_1) { e_21 = { error: e_21_1 }; }
+        catch (e_22_1) { e_22 = { error: e_22_1 }; }
         finally {
             try {
                 if (others_3_1 && !others_3_1.done && (_a = others_3.return)) _a.call(others_3);
             }
-            finally { if (e_21) throw e_21.error; }
+            finally { if (e_22) throw e_22.error; }
         }
         this._measuredBounds = new Rect(0, 0, measuredW + pad.left + pad.right, measuredH + pad.top + pad.bottom);
     };
     Panel.prototype._arrangeSpot = function (innerX, innerY, innerW, innerH) {
-        var e_22, _a;
+        var e_23, _a;
         var _b = this._findMainAndOthers(), main = _b.main, others = _b.others;
         if (main !== null) {
             var m = main.margin;
@@ -9107,17 +9163,17 @@ var Panel = /** @class */ (function (_super) {
                 elem._arrange(new Rect(pos.x - focusPos.x, pos.y - focusPos.y, mb.width, mb.height));
             }
         }
-        catch (e_22_1) { e_22 = { error: e_22_1 }; }
+        catch (e_23_1) { e_23 = { error: e_23_1 }; }
         finally {
             try {
                 if (others_4_1 && !others_4_1.done && (_a = others_4.return)) _a.call(others_4);
             }
-            finally { if (e_22) throw e_22.error; }
+            finally { if (e_23) throw e_23.error; }
         }
     };
     // ============ PanelTable measure/arrange (simplified) ============
     Panel.prototype._measureTable = function (availW, availH) {
-        var e_23, _a, e_24, _b, e_25, _c;
+        var e_24, _a, e_25, _b, e_26, _c;
         var pad = this._padding;
         // Determine column widths and row heights
         var colWidths = this._computeColumnWidths(availW);
@@ -9143,12 +9199,12 @@ var Panel = /** @class */ (function (_super) {
                 elem._measure(cellW, cellH);
             }
         }
-        catch (e_23_1) { e_23 = { error: e_23_1 }; }
+        catch (e_24_1) { e_24 = { error: e_24_1 }; }
         finally {
             try {
                 if (_e && !_e.done && (_a = _d.return)) _a.call(_d);
             }
-            finally { if (e_23) throw e_23.error; }
+            finally { if (e_24) throw e_24.error; }
         }
         var totalW = 0;
         try {
@@ -9157,12 +9213,12 @@ var Panel = /** @class */ (function (_super) {
                 totalW += w;
             }
         }
-        catch (e_24_1) { e_24 = { error: e_24_1 }; }
+        catch (e_25_1) { e_25 = { error: e_25_1 }; }
         finally {
             try {
                 if (colWidths_1_1 && !colWidths_1_1.done && (_b = colWidths_1.return)) _b.call(colWidths_1);
             }
-            finally { if (e_24) throw e_24.error; }
+            finally { if (e_25) throw e_25.error; }
         }
         var totalH = 0;
         try {
@@ -9171,17 +9227,17 @@ var Panel = /** @class */ (function (_super) {
                 totalH += h;
             }
         }
-        catch (e_25_1) { e_25 = { error: e_25_1 }; }
+        catch (e_26_1) { e_26 = { error: e_26_1 }; }
         finally {
             try {
                 if (rowHeights_1_1 && !rowHeights_1_1.done && (_c = rowHeights_1.return)) _c.call(rowHeights_1);
             }
-            finally { if (e_25) throw e_25.error; }
+            finally { if (e_26) throw e_26.error; }
         }
         this._measuredBounds = new Rect(0, 0, totalW + pad.left + pad.right, totalH + pad.top + pad.bottom);
     };
     Panel.prototype._arrangeTable = function (innerX, innerY, innerW, innerH) {
-        var e_26, _a, e_27, _b, e_28, _c;
+        var e_27, _a, e_28, _b, e_29, _c;
         var colWidths = this._computeColumnWidths(innerW);
         var rowHeights = this._computeRowHeights(innerH);
         this._lastColWidths = colWidths;
@@ -9196,12 +9252,12 @@ var Panel = /** @class */ (function (_super) {
                 cx += w;
             }
         }
-        catch (e_26_1) { e_26 = { error: e_26_1 }; }
+        catch (e_27_1) { e_27 = { error: e_27_1 }; }
         finally {
             try {
                 if (colWidths_2_1 && !colWidths_2_1.done && (_a = colWidths_2.return)) _a.call(colWidths_2);
             }
-            finally { if (e_26) throw e_26.error; }
+            finally { if (e_27) throw e_27.error; }
         }
         // Compute row y positions
         var rowY = [];
@@ -9213,12 +9269,12 @@ var Panel = /** @class */ (function (_super) {
                 ry += h;
             }
         }
-        catch (e_27_1) { e_27 = { error: e_27_1 }; }
+        catch (e_28_1) { e_28 = { error: e_28_1 }; }
         finally {
             try {
                 if (rowHeights_2_1 && !rowHeights_2_1.done && (_b = rowHeights_2.return)) _b.call(rowHeights_2);
             }
-            finally { if (e_27) throw e_27.error; }
+            finally { if (e_28) throw e_28.error; }
         }
         try {
             for (var _d = __values(this._elements), _e = _d.next(); !_e.done; _e = _d.next()) {
@@ -9252,17 +9308,17 @@ var Panel = /** @class */ (function (_super) {
                 elem._arrange(new Rect(pos.x - focusPos.x, pos.y - focusPos.y, elemW, elemH));
             }
         }
-        catch (e_28_1) { e_28 = { error: e_28_1 }; }
+        catch (e_29_1) { e_29 = { error: e_29_1 }; }
         finally {
             try {
                 if (_e && !_e.done && (_c = _d.return)) _c.call(_d);
             }
-            finally { if (e_28) throw e_28.error; }
+            finally { if (e_29) throw e_29.error; }
         }
     };
     // ============ PanelPosition measure/arrange ============
     Panel.prototype._measurePosition = function (availW, availH) {
-        var e_29, _a;
+        var e_30, _a;
         var pad = this._padding;
         var maxW = 0;
         var maxH = 0;
@@ -9284,17 +9340,17 @@ var Panel = /** @class */ (function (_super) {
                 maxH = Math.max(maxH, elemBottom);
             }
         }
-        catch (e_29_1) { e_29 = { error: e_29_1 }; }
+        catch (e_30_1) { e_30 = { error: e_30_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_29) throw e_29.error; }
+            finally { if (e_30) throw e_30.error; }
         }
         this._measuredBounds = new Rect(0, 0, maxW + pad.left + pad.right, maxH + pad.top + pad.bottom);
     };
     Panel.prototype._arrangePosition = function (innerX, innerY, innerW, innerH) {
-        var e_30, _a;
+        var e_31, _a;
         try {
             for (var _b = __values(this._elements), _c = _b.next(); !_c.done; _c = _b.next()) {
                 var elem = _c.value;
@@ -9307,12 +9363,12 @@ var Panel = /** @class */ (function (_super) {
                 elem._arrange(new Rect(innerX + posX + m.left, innerY + posY + m.top, mb.width, mb.height));
             }
         }
-        catch (e_30_1) { e_30 = { error: e_30_1 }; }
+        catch (e_31_1) { e_31 = { error: e_31_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_30) throw e_30.error; }
+            finally { if (e_31) throw e_31.error; }
         }
     };
     // ============ PanelViewbox measure/arrange ============
@@ -9373,7 +9429,7 @@ var Panel = /** @class */ (function (_super) {
     };
     // ============ PanelGraduated measure/arrange ============
     Panel.prototype._measureGraduated = function (availW, availH) {
-        var e_31, _a;
+        var e_32, _a;
         var pad = this._padding;
         var _b = this._findMainAndOthers(), main = _b.main, others = _b.others;
         var measuredW = 0;
@@ -9391,17 +9447,17 @@ var Panel = /** @class */ (function (_super) {
                 elem._measure(availW, availH);
             }
         }
-        catch (e_31_1) { e_31 = { error: e_31_1 }; }
+        catch (e_32_1) { e_32 = { error: e_32_1 }; }
         finally {
             try {
                 if (others_5_1 && !others_5_1.done && (_a = others_5.return)) _a.call(others_5);
             }
-            finally { if (e_31) throw e_31.error; }
+            finally { if (e_32) throw e_32.error; }
         }
         this._measuredBounds = new Rect(0, 0, measuredW + pad.left + pad.right, measuredH + pad.top + pad.bottom);
     };
     Panel.prototype._arrangeGraduated = function (innerX, innerY, innerW, innerH) {
-        var e_32, _a;
+        var e_33, _a;
         var _b = this._findMainAndOthers(), main = _b.main, others = _b.others;
         if (main !== null) {
             var m = main.margin;
@@ -9418,17 +9474,17 @@ var Panel = /** @class */ (function (_super) {
                 elem._arrange(new Rect(pos.x - focusPos.x, pos.y - focusPos.y, mb.width, mb.height));
             }
         }
-        catch (e_32_1) { e_32 = { error: e_32_1 }; }
+        catch (e_33_1) { e_33 = { error: e_33_1 }; }
         finally {
             try {
                 if (others_6_1 && !others_6_1.done && (_a = others_6.return)) _a.call(others_6);
             }
-            finally { if (e_32) throw e_32.error; }
+            finally { if (e_33) throw e_33.error; }
         }
     };
     // ============ PanelLink measure/arrange ============
     Panel.prototype._measureLink = function (widthConstraint, heightConstraint) {
-        var e_33, _a;
+        var e_34, _a;
         try {
             for (var _b = __values(this._elements), _c = _b.next(); !_c.done; _c = _b.next()) {
                 var elem = _c.value;
@@ -9437,12 +9493,12 @@ var Panel = /** @class */ (function (_super) {
                 elem._measure(Infinity, Infinity);
             }
         }
-        catch (e_33_1) { e_33 = { error: e_33_1 }; }
+        catch (e_34_1) { e_34 = { error: e_34_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_33) throw e_33.error; }
+            finally { if (e_34) throw e_34.error; }
         }
         var link = this;
         var points = link.points;
@@ -9466,7 +9522,7 @@ var Panel = /** @class */ (function (_super) {
         }
     };
     Panel.prototype._arrangeLink = function (bounds) {
-        var e_34, _a, e_35, _b, e_36, _c, e_37, _d, e_38, _e;
+        var e_35, _a, e_36, _b, e_37, _c, e_38, _d, e_39, _e;
         var link = this;
         var points = link.points;
         if (!points || points.count < 2) {
@@ -9479,12 +9535,12 @@ var Panel = /** @class */ (function (_super) {
                     elem._arrange(new Rect(0, 0, mb.width, mb.height));
                 }
             }
-            catch (e_34_1) { e_34 = { error: e_34_1 }; }
+            catch (e_35_1) { e_35 = { error: e_35_1 }; }
             finally {
                 try {
                     if (_g && !_g.done && (_a = _f.return)) _a.call(_f);
                 }
-                finally { if (e_34) throw e_34.error; }
+                finally { if (e_35) throw e_35.error; }
             }
             return;
         }
@@ -9498,12 +9554,12 @@ var Panel = /** @class */ (function (_super) {
                 minY = Math.min(minY, p.y);
             }
         }
-        catch (e_35_1) { e_35 = { error: e_35_1 }; }
+        catch (e_36_1) { e_36 = { error: e_36_1 }; }
         finally {
             try {
                 if (pts_1_1 && !pts_1_1.done && (_b = pts_1.return)) _b.call(pts_1);
             }
-            finally { if (e_35) throw e_35.error; }
+            finally { if (e_36) throw e_36.error; }
         }
         var segLengths = [];
         var totalLength = 0;
@@ -9526,12 +9582,12 @@ var Panel = /** @class */ (function (_super) {
                 }
             }
         }
-        catch (e_36_1) { e_36 = { error: e_36_1 }; }
+        catch (e_37_1) { e_37 = { error: e_37_1 }; }
         finally {
             try {
                 if (_j && !_j.done && (_c = _h.return)) _c.call(_h);
             }
-            finally { if (e_36) throw e_36.error; }
+            finally { if (e_37) throw e_37.error; }
         }
         if (!foundPanelMain) {
             try {
@@ -9545,12 +9601,12 @@ var Panel = /** @class */ (function (_super) {
                     }
                 }
             }
-            catch (e_37_1) { e_37 = { error: e_37_1 }; }
+            catch (e_38_1) { e_38 = { error: e_38_1 }; }
             finally {
                 try {
                     if (_l && !_l.done && (_d = _k.return)) _d.call(_k);
                 }
-                finally { if (e_37) throw e_37.error; }
+                finally { if (e_38) throw e_38.error; }
             }
         }
         try {
@@ -9611,12 +9667,12 @@ var Panel = /** @class */ (function (_super) {
                 }
             }
         }
-        catch (e_38_1) { e_38 = { error: e_38_1 }; }
+        catch (e_39_1) { e_39 = { error: e_39_1 }; }
         finally {
             try {
                 if (_o && !_o.done && (_e = _m.return)) _e.call(_m);
             }
-            finally { if (e_38) throw e_38.error; }
+            finally { if (e_39) throw e_39.error; }
         }
     };
     Panel.prototype._getPointAtDistance = function (pts, segLengths, distance) {
@@ -9712,7 +9768,7 @@ var Panel = /** @class */ (function (_super) {
         }
     };
     Panel.prototype._computeColumnWidths = function (availW) {
-        var e_39, _a;
+        var e_40, _a;
         var colCount = Math.max(this.columnCount, this._columnDefinitions.length);
         if (colCount === 0)
             return [];
@@ -9745,12 +9801,12 @@ var Panel = /** @class */ (function (_super) {
                 }
             }
         }
-        catch (e_39_1) { e_39 = { error: e_39_1 }; }
+        catch (e_40_1) { e_40 = { error: e_40_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_39) throw e_39.error; }
+            finally { if (e_40) throw e_40.error; }
         }
         for (var i = 0; i < colCount; i++) {
             var def = i < this._columnDefinitions.length ? this._columnDefinitions[i] : null;
@@ -9801,7 +9857,7 @@ var Panel = /** @class */ (function (_super) {
         return widths;
     };
     Panel.prototype._computeRowHeights = function (availH) {
-        var e_40, _a;
+        var e_41, _a;
         var rowCount = Math.max(this.rowCount, this._rowDefinitions.length);
         if (rowCount === 0)
             return [];
@@ -9834,12 +9890,12 @@ var Panel = /** @class */ (function (_super) {
                 }
             }
         }
-        catch (e_40_1) { e_40 = { error: e_40_1 }; }
+        catch (e_41_1) { e_41 = { error: e_41_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_40) throw e_40.error; }
+            finally { if (e_41) throw e_41.error; }
         }
         for (var i = 0; i < rowCount; i++) {
             var def = i < this._rowDefinitions.length ? this._rowDefinitions[i] : null;
@@ -10000,6 +10056,18 @@ var Part = /** @class */ (function (_super) {
             if (this._location.equals(p))
                 return;
             this._location = p;
+            this.position = p;
+            this._actualBounds.x = p.x;
+            this._actualBounds.y = p.y;
+            if (this._diagram && this._isLayoutPositioned) {
+                var layout = this._diagram.layout;
+                if (layout && layout.isOngoing) {
+                    layout.invalidateLayout();
+                }
+            }
+            if (this._containingGroup && this._containingGroup.layout && this._containingGroup.layout.isOngoing) {
+                this._containingGroup.layout.invalidateLayout();
+            }
         },
         enumerable: false,
         configurable: true
@@ -10244,17 +10312,14 @@ var Part = /** @class */ (function (_super) {
     };
     /** Get the bounding rectangle in document coordinates */
     Part.prototype.getDocumentBounds = function () {
-        var bounds = this._actualBounds.copy();
-        var loc = this._location;
-        if (!isNaN(loc.x) && !isNaN(loc.y)) {
-            bounds.x = loc.x;
-            bounds.y = loc.y;
-        }
-        return bounds;
+        return this._actualBounds.copy();
     };
     /** Move this Part to a new location */
     Part.prototype.move = function (newLoc) {
         this._location = newLoc.copy();
+        this.position = newLoc.copy();
+        this._actualBounds.x = newLoc.x;
+        this._actualBounds.y = newLoc.y;
     };
     /** Add an adornment for the given category */
     Part.prototype.addAdornment = function (category, ad) {
@@ -10506,6 +10571,9 @@ var Link = /** @class */ (function (_super) {
         var toPort = to.findPortWithName ? to.findPortWithName(this._toPortId) || to : to;
         var fromBounds = fromPort.getDocumentBounds();
         var toBounds = toPort.getDocumentBounds();
+        if (from === to) {
+            return this._computeSelfLinkPoints(fromBounds);
+        }
         var fromCenter = fromBounds.center;
         var toCenter = toBounds.center;
         var fromSpot = this._resolveFromSpot(fromPort);
@@ -10586,7 +10654,51 @@ var Link = /** @class */ (function (_super) {
             }
         }
         this._points.add(toPoint);
+        this._applyShortLengths();
         return true;
+    };
+    Link.prototype._applyShortLengths = function () {
+        var e_1, _a;
+        var fromShort = this._fromShortLength || 0;
+        var toShort = this._toShortLength || 0;
+        if (fromShort <= 0 && toShort <= 0)
+            return;
+        if (this._points.count < 2)
+            return;
+        var pts = this._points.toArray();
+        if (fromShort > 0 && pts.length >= 2) {
+            var dx = pts[1].x - pts[0].x;
+            var dy = pts[1].y - pts[0].y;
+            var len = Math.sqrt(dx * dx + dy * dy);
+            if (len > 0) {
+                var ratio = Math.min(fromShort / len, 1);
+                pts[0] = new Point(pts[0].x + dx * ratio, pts[0].y + dy * ratio);
+            }
+        }
+        if (toShort > 0 && pts.length >= 2) {
+            var last = pts.length - 1;
+            var dx = pts[last - 1].x - pts[last].x;
+            var dy = pts[last - 1].y - pts[last].y;
+            var len = Math.sqrt(dx * dx + dy * dy);
+            if (len > 0) {
+                var ratio = Math.min(toShort / len, 1);
+                pts[last] = new Point(pts[last].x + dx * ratio, pts[last].y + dy * ratio);
+            }
+        }
+        this._points.clear();
+        try {
+            for (var pts_1 = __values(pts), pts_1_1 = pts_1.next(); !pts_1_1.done; pts_1_1 = pts_1.next()) {
+                var pt = pts_1_1.value;
+                this._points.add(pt);
+            }
+        }
+        catch (e_1_1) { e_1 = { error: e_1_1 }; }
+        finally {
+            try {
+                if (pts_1_1 && !pts_1_1.done && (_a = pts_1.return)) _a.call(pts_1);
+            }
+            finally { if (e_1) throw e_1.error; }
+        }
     };
     /** Resolve the effective fromSpot for this link */
     Link.prototype._resolveFromSpot = function (port) {
@@ -10715,6 +10827,22 @@ var Link = /** @class */ (function (_super) {
         if (t === Infinity)
             return center;
         return new Point(center.x + t * dx, center.y + t * dy);
+    };
+    Link.prototype._computeSelfLinkPoints = function (nodeBounds) {
+        var w = nodeBounds.width;
+        var h = nodeBounds.height;
+        var bottom = nodeBounds.bottom;
+        var fromX = nodeBounds.x + w * 0.7;
+        var toX = nodeBounds.x + w * 0.3;
+        var cpY = bottom + h * 1.0;
+        var cpXOffset = Math.max(w * 0.5, 20);
+        this._points.clear();
+        this._points.add(new Point(fromX, bottom));
+        this._points.add(new Point(fromX + cpXOffset, cpY));
+        this._points.add(new Point(toX - cpXOffset, cpY));
+        this._points.add(new Point(toX, bottom));
+        this._curve = CurveBezier;
+        return true;
     };
     Object.defineProperty(Link.prototype, "midPoint", {
         get: function () {
@@ -11320,6 +11448,9 @@ var Group = /** @class */ (function (_super) {
             part.containingGroup = this;
             this._memberParts.add(part);
         }
+        if (this._layout && this._layout.isOngoing) {
+            this._layout.invalidateLayout();
+        }
         return true;
     };
     Group.prototype.removeMembers = function (collection, check) {
@@ -11338,6 +11469,8 @@ var Group = /** @class */ (function (_super) {
         _super.prototype.move.call(this, newLoc);
         var dx = newLoc.x - oldLoc.x;
         var dy = newLoc.y - oldLoc.y;
+        if (isNaN(dx) || isNaN(dy))
+            return;
         if (dx !== 0 || dy !== 0) {
             var it = this._memberParts.iterator;
             while (it.next()) {
@@ -11470,11 +11603,14 @@ GraphObject.defineBuilder('Adornment', Adornment);
 
 var Placeholder = /** @class */ (function (_super) {
     __extends(Placeholder, _super);
-    function Placeholder() {
+    function Placeholder(init) {
         var _this = _super.call(this) || this;
         _this._padding = 0;
         _this._className = 'Placeholder';
         _this._isPlaceholder = true;
+        if (init) {
+            _this.set(init);
+        }
         return _this;
     }
     Object.defineProperty(Placeholder.prototype, "padding", {
@@ -11501,7 +11637,7 @@ var Placeholder = /** @class */ (function (_super) {
         var group = this._findGroup();
         if (group) {
             var bounds = new Rect();
-            var groupPos = group.position;
+            var groupPos = group.location;
             var it = group.memberParts.iterator;
             while (it.next()) {
                 var part = it.value;
@@ -12208,8 +12344,8 @@ var CanvasRenderer = /** @class */ (function () {
             var prev = arr[arr.length - 2];
             tipX = tip.x;
             tipY = tip.y;
-            dirX = prev.x - tip.x;
-            dirY = prev.y - tip.y;
+            dirX = tip.x - prev.x;
+            dirY = tip.y - prev.y;
         }
         else {
             var tip = arr[0];
@@ -12236,7 +12372,45 @@ var CanvasRenderer = /** @class */ (function () {
         var stroke = shape._stroke;
         var fill = shape._fill;
         var strokeWidth = shape._strokeWidth || 1;
-        this._drawGeometryPath(ctx, geo, arrowW, arrowH);
+        var gbounds = geo.bounds;
+        if (gbounds.width > 0 && gbounds.height > 0) {
+            var dir = isToArrow ? 1 : -1;
+            var sx = dir * arrowW / gbounds.width;
+            var sy = arrowH / gbounds.height;
+            ctx.transform(sx, 0, 0, sy, -(gbounds.x + gbounds.width) * sx, -(gbounds.y + gbounds.height / 2) * sy);
+        }
+        ctx.beginPath();
+        var fit = geo.figures.iterator;
+        while (fit.next()) {
+            var fig = fit.value;
+            ctx.moveTo(fig.startX, fig.startY);
+            var segIt = fig.segments.iterator;
+            while (segIt.next()) {
+                var seg = segIt.value;
+                var segName = seg.type._name;
+                if (segName === 'Line') {
+                    ctx.lineTo(seg.endX, seg.endY);
+                }
+                else if (segName === 'MoveTo') {
+                    ctx.moveTo(seg.endX, seg.endY);
+                }
+                else if (segName === 'Close') {
+                    ctx.closePath();
+                }
+                else if (segName === 'QuadraticBezier') {
+                    ctx.quadraticCurveTo(seg.x1, seg.y1, seg.endX, seg.endY);
+                }
+                else if (segName === 'CubicBezier') {
+                    ctx.bezierCurveTo(seg.x1, seg.y1, seg.x2, seg.y2, seg.endX, seg.endY);
+                }
+                else if (segName === 'Arc') {
+                    this._drawArcSegment(ctx, fig.startX, fig.startY, seg);
+                }
+                else {
+                    ctx.lineTo(seg.endX, seg.endY);
+                }
+            }
+        }
         if (fill) {
             ctx.fillStyle = typeof fill === 'string' ? fill : 'black';
             ctx.fill();
@@ -13083,6 +13257,16 @@ var CanvasRenderer = /** @class */ (function () {
         return { x: points[points.length - 1].x, y: points[points.length - 1].y, angle: points[points.length - 1].angle };
     };
     CanvasRenderer.prototype._drawGeometryPath = function (ctx, geo, w, h) {
+        var bounds = geo.bounds;
+        var bw = bounds.width || 1;
+        var bh = bounds.height || 1;
+        var sx = w / bw;
+        var sy = h / bh;
+        var tx = -bounds.x * sx;
+        var ty = -bounds.y * sy;
+        ctx.save();
+        ctx.translate(tx, ty);
+        ctx.scale(sx, sy);
         var it = geo.figures.iterator;
         ctx.beginPath();
         while (it.next()) {
@@ -13112,6 +13296,7 @@ var CanvasRenderer = /** @class */ (function () {
                 }
             }
         }
+        ctx.restore();
     };
     CanvasRenderer.prototype._findGraduatedMain = function (elements) {
         var e_19, _a, e_20, _b;
@@ -18743,9 +18928,7 @@ var Diagram = /** @class */ (function () {
                 finally { if (e_9) throw e_9.error; }
             }
         }
-        if (this._isInitial && this._layout) {
-            this._layoutInvalid = true;
-        }
+        this._layoutInvalid = true;
         this.requestUpdate();
     };
     Diagram.fromDiv = function (id) {
@@ -18878,8 +19061,14 @@ var Diagram = /** @class */ (function () {
         var link = new Link();
         var shape = new Shape();
         shape.stroke = 'black';
+        shape.strokeWidth = 1;
         shape.isPanelMain = true;
         link.add(shape);
+        var arrow = new Shape('Standard');
+        arrow.toArrow = 'Standard';
+        arrow.fill = 'black';
+        arrow.stroke = null;
+        link.add(arrow);
         return link;
     };
     Diagram.prototype._clearAllParts = function () {
@@ -19123,7 +19312,9 @@ var Diagram = /** @class */ (function () {
                 for (var bindings_1 = __values(bindings), bindings_1_1 = bindings_1.next(); !bindings_1_1.done; bindings_1_1 = bindings_1.next()) {
                     var binding = bindings_1_1.value;
                     var val = this._resolveBindingValue(binding, obj, data, part);
-                    obj[binding.targetProperty] = val;
+                    if (val !== undefined) {
+                        obj[binding.targetProperty] = val;
+                    }
                 }
             }
             catch (e_15_1) { e_15 = { error: e_15_1 }; }
@@ -19166,7 +19357,9 @@ var Diagram = /** @class */ (function () {
                     var binding = bindings_2_1.value;
                     if (binding.sourceObject !== null || propname === undefined || propname === binding.sourceProperty) {
                         var val = this._resolveBindingValue(binding, obj, data, part);
-                        obj[binding.targetProperty] = val;
+                        if (val !== undefined) {
+                            obj[binding.targetProperty] = val;
+                        }
                     }
                 }
             }
@@ -19617,14 +19810,14 @@ var Diagram = /** @class */ (function () {
         this.alignDocument(this._contentAlignment, this._contentAlignment);
     };
     Diagram.prototype._updateGeometry = function () {
-        var e_27, _a, e_28, _b, e_29, _c;
+        var e_27, _a, e_28, _b, e_29, _c, e_30, _d, e_31, _e, e_32, _f, e_33, _g, e_34, _h, e_35, _j, e_36, _k;
         var viewSize = this.viewSize;
         var availW = viewSize.width > 0 ? viewSize.width : 800;
-        viewSize.height > 0 ? viewSize.height : 600;
+        var availH = viewSize.height > 0 ? viewSize.height : 600;
         var partsToLayout = [];
         try {
-            for (var _d = __values(this._layers), _e = _d.next(); !_e.done; _e = _d.next()) {
-                var layer = _e.value;
+            for (var _l = __values(this._layers), _m = _l.next(); !_m.done; _m = _l.next()) {
+                var layer = _m.value;
                 if (!layer.visible)
                     continue;
                 var partsIt = layer.parts;
@@ -19640,33 +19833,32 @@ var Diagram = /** @class */ (function () {
         catch (e_27_1) { e_27 = { error: e_27_1 }; }
         finally {
             try {
-                if (_e && !_e.done && (_a = _d.return)) _a.call(_d);
+                if (_m && !_m.done && (_a = _l.return)) _a.call(_l);
             }
             finally { if (e_27) throw e_27.error; }
         }
         if (!this._layout) {
-            var autoX = 50;
-            var autoY = 50;
-            var spacing = 20;
-            var rowMaxHeight = 0;
+            var hSpacing = 20;
+            var vSpacing = 36;
+            var pad = 10;
             var maxWidth = availW - 100;
+            // available width for a group's member grid
+            var groupInnerWidth = Math.max(120, Math.min(400, maxWidth - 80));
+            var isGroupPart = function (p) { return p._className === 'Group'; };
+            var isMember = function (p) { return !!p.containingGroup; };
+            // Collect the top-level layout units: non-member nodes and groups.
+            var topUnits = [];
+            var memberUnits = [];
             try {
                 for (var partsToLayout_1 = __values(partsToLayout), partsToLayout_1_1 = partsToLayout_1.next(); !partsToLayout_1_1.done; partsToLayout_1_1 = partsToLayout_1.next()) {
                     var part = partsToLayout_1_1.value;
                     if (part instanceof Link)
                         continue;
-                    var loc = part.location;
-                    if (isNaN(loc.x) || isNaN(loc.y)) {
-                        var mb = part.measuredBounds;
-                        if (autoX + mb.width > maxWidth && autoX > 50) {
-                            autoX = 50;
-                            autoY += rowMaxHeight + spacing;
-                            rowMaxHeight = 0;
-                        }
-                        part.location = new Point(autoX, autoY);
-                        autoX += mb.width + spacing;
-                        rowMaxHeight = Math.max(rowMaxHeight, mb.height);
+                    if (isMember(part)) {
+                        memberUnits.push(part);
+                        continue;
                     }
+                    topUnits.push(part);
                 }
             }
             catch (e_28_1) { e_28 = { error: e_28_1 }; }
@@ -19676,26 +19868,180 @@ var Diagram = /** @class */ (function () {
                 }
                 finally { if (e_28) throw e_28.error; }
             }
+            // Place top-level nodes and groups in a uniform square-ish grid:
+            // every column has the same width and every row the same height, so the
+            // result reads as a neat grid (matching GoJS's default GridLayout look).
+            var cellW = 0;
+            var cellH = 0;
+            try {
+                for (var topUnits_1 = __values(topUnits), topUnits_1_1 = topUnits_1.next(); !topUnits_1_1.done; topUnits_1_1 = topUnits_1.next()) {
+                    var part = topUnits_1_1.value;
+                    var mb = part.measuredBounds;
+                    cellW = Math.max(cellW, mb.width);
+                    cellH = Math.max(cellH, mb.height);
+                }
+            }
+            catch (e_29_1) { e_29 = { error: e_29_1 }; }
+            finally {
+                try {
+                    if (topUnits_1_1 && !topUnits_1_1.done && (_c = topUnits_1.return)) _c.call(topUnits_1);
+                }
+                finally { if (e_29) throw e_29.error; }
+            }
+            cellW += hSpacing;
+            cellH += vSpacing;
+            var cols = Math.max(1, Math.floor((maxWidth - 50) / cellW));
+            var gridCol = 0;
+            var gridY = 50;
+            try {
+                for (var topUnits_2 = __values(topUnits), topUnits_2_1 = topUnits_2.next(); !topUnits_2_1.done; topUnits_2_1 = topUnits_2.next()) {
+                    var part = topUnits_2_1.value;
+                    var loc = part.location;
+                    if (!isNaN(loc.x) && !isNaN(loc.y))
+                        continue;
+                    var mb = part.measuredBounds;
+                    // If this unit is wider than the remaining columns, start a new row so
+                    // it does not overlap the cells to its right (keeps columns aligned).
+                    if (gridCol > 0 && mb.width > (cols - gridCol) * cellW - hSpacing) {
+                        gridCol = 0;
+                        gridY += cellH;
+                    }
+                    part.location = new Point(50 + gridCol * cellW, gridY);
+                    gridCol++;
+                    if (gridCol >= cols) {
+                        gridCol = 0;
+                        gridY += cellH;
+                    }
+                }
+            }
+            catch (e_30_1) { e_30 = { error: e_30_1 }; }
+            finally {
+                try {
+                    if (topUnits_2_1 && !topUnits_2_1.done && (_d = topUnits_2.return)) _d.call(topUnits_2);
+                }
+                finally { if (e_30) throw e_30.error; }
+            }
+            // Place each group's member nodes inside the group's bounds.
+            var memberGroups = [];
+            try {
+                for (var topUnits_3 = __values(topUnits), topUnits_3_1 = topUnits_3.next(); !topUnits_3_1.done; topUnits_3_1 = topUnits_3.next()) {
+                    var part = topUnits_3_1.value;
+                    if (isGroupPart(part) && part.memberParts && part.memberParts.count > 0) {
+                        memberGroups.push(part);
+                    }
+                }
+            }
+            catch (e_31_1) { e_31 = { error: e_31_1 }; }
+            finally {
+                try {
+                    if (topUnits_3_1 && !topUnits_3_1.done && (_e = topUnits_3.return)) _e.call(topUnits_3);
+                }
+                finally { if (e_31) throw e_31.error; }
+            }
+            try {
+                for (var memberGroups_1 = __values(memberGroups), memberGroups_1_1 = memberGroups_1.next(); !memberGroups_1_1.done; memberGroups_1_1 = memberGroups_1.next()) {
+                    var group = memberGroups_1_1.value;
+                    var gloc = group.location;
+                    var gx = isNaN(gloc.x) ? 0 : gloc.x;
+                    var gy = isNaN(gloc.y) ? 0 : gloc.y;
+                    var mx = gx + pad;
+                    var my = gy + pad;
+                    var rowMax = 0;
+                    var mIt = group.memberParts.iterator;
+                    while (mIt.next()) {
+                        var member = mIt.value;
+                        var mmb = member.measuredBounds;
+                        if (mx + mmb.width > gx + groupInnerWidth && mx > gx + pad) {
+                            mx = gx + pad;
+                            my += rowMax + vSpacing;
+                            rowMax = 0;
+                        }
+                        member.location = new Point(mx, my);
+                        mx += mmb.width + hSpacing;
+                        rowMax = Math.max(rowMax, mmb.height);
+                    }
+                }
+            }
+            catch (e_32_1) { e_32 = { error: e_32_1 }; }
+            finally {
+                try {
+                    if (memberGroups_1_1 && !memberGroups_1_1.done && (_f = memberGroups_1.return)) _f.call(memberGroups_1);
+                }
+                finally { if (e_32) throw e_32.error; }
+            }
         }
         try {
             for (var partsToLayout_2 = __values(partsToLayout), partsToLayout_2_1 = partsToLayout_2.next(); !partsToLayout_2_1.done; partsToLayout_2_1 = partsToLayout_2.next()) {
                 var part = partsToLayout_2_1.value;
+                if (part instanceof Link)
+                    continue;
                 var loc = part.location;
                 var x = isNaN(loc.x) ? 0 : loc.x;
                 var y = isNaN(loc.y) ? 0 : loc.y;
                 var mb = part.measuredBounds;
                 part._arrange(new Rect(x, y, mb.width, mb.height));
-                if (part instanceof Link) {
-                    part.computePoints();
+            }
+        }
+        catch (e_33_1) { e_33 = { error: e_33_1 }; }
+        finally {
+            try {
+                if (partsToLayout_2_1 && !partsToLayout_2_1.done && (_g = partsToLayout_2.return)) _g.call(partsToLayout_2);
+            }
+            finally { if (e_33) throw e_33.error; }
+        }
+        try {
+            for (var partsToLayout_3 = __values(partsToLayout), partsToLayout_3_1 = partsToLayout_3.next(); !partsToLayout_3_1.done; partsToLayout_3_1 = partsToLayout_3.next()) {
+                var part = partsToLayout_3_1.value;
+                if (!(part instanceof Link))
+                    continue;
+                var loc = part.location;
+                var x = isNaN(loc.x) ? 0 : loc.x;
+                var y = isNaN(loc.y) ? 0 : loc.y;
+                var mb = part.measuredBounds;
+                part._arrange(new Rect(x, y, mb.width, mb.height));
+                part.computePoints();
+            }
+        }
+        catch (e_34_1) { e_34 = { error: e_34_1 }; }
+        finally {
+            try {
+                if (partsToLayout_3_1 && !partsToLayout_3_1.done && (_h = partsToLayout_3.return)) _h.call(partsToLayout_3);
+            }
+            finally { if (e_34) throw e_34.error; }
+        }
+        var groupsToRemeasure = [];
+        try {
+            for (var partsToLayout_4 = __values(partsToLayout), partsToLayout_4_1 = partsToLayout_4.next(); !partsToLayout_4_1.done; partsToLayout_4_1 = partsToLayout_4.next()) {
+                var part = partsToLayout_4_1.value;
+                if (part._className === 'Group') {
+                    groupsToRemeasure.push(part);
                 }
             }
         }
-        catch (e_29_1) { e_29 = { error: e_29_1 }; }
+        catch (e_35_1) { e_35 = { error: e_35_1 }; }
         finally {
             try {
-                if (partsToLayout_2_1 && !partsToLayout_2_1.done && (_c = partsToLayout_2.return)) _c.call(partsToLayout_2);
+                if (partsToLayout_4_1 && !partsToLayout_4_1.done && (_j = partsToLayout_4.return)) _j.call(partsToLayout_4);
             }
-            finally { if (e_29) throw e_29.error; }
+            finally { if (e_35) throw e_35.error; }
+        }
+        try {
+            for (var groupsToRemeasure_1 = __values(groupsToRemeasure), groupsToRemeasure_1_1 = groupsToRemeasure_1.next(); !groupsToRemeasure_1_1.done; groupsToRemeasure_1_1 = groupsToRemeasure_1.next()) {
+                var group = groupsToRemeasure_1_1.value;
+                group._measure(availW, availH);
+                var loc = group.location;
+                var x = isNaN(loc.x) ? 0 : loc.x;
+                var y = isNaN(loc.y) ? 0 : loc.y;
+                var mb = group.measuredBounds;
+                group._arrange(new Rect(x, y, mb.width, mb.height));
+            }
+        }
+        catch (e_36_1) { e_36 = { error: e_36_1 }; }
+        finally {
+            try {
+                if (groupsToRemeasure_1_1 && !groupsToRemeasure_1_1.done && (_k = groupsToRemeasure_1.return)) _k.call(groupsToRemeasure_1);
+            }
+            finally { if (e_36) throw e_36.error; }
         }
     };
     Diagram.prototype._setupResizeObserver = function () {
@@ -20830,7 +21176,7 @@ var Layout = /** @class */ (function () {
     Object.defineProperty(Layout.prototype, "arrangementOrigin", {
         // ============ Properties ============
         get: function () { return this._arrangementOrigin; },
-        set: function (val) { this._arrangementOrigin = val.copy(); },
+        set: function (val) { this._arrangementOrigin = val.copy(); this.invalidateLayout(); },
         enumerable: false,
         configurable: true
     });
@@ -21104,46 +21450,46 @@ var GridLayout = /** @class */ (function (_super) {
     function GridLayout() {
         var _this = _super.apply(this, __spreadArray([], __read(arguments), false)) || this;
         _this._wrappingWidth = NaN;
-        _this._cellSize = new Size(10, 10);
+        _this._cellSize = new Size(NaN, NaN);
         _this._spacing = new Size(10, 10);
         _this._alignment = GridLayoutLocation;
         _this._arrangement = GridArrangementLeftToRight;
-        _this._sorting = TreeSortingForwards;
+        _this._sorting = GridSortingAscending;
         return _this;
     }
     Object.defineProperty(GridLayout.prototype, "wrappingWidth", {
         get: function () { return this._wrappingWidth; },
-        set: function (val) { this._wrappingWidth = val; },
+        set: function (val) { this._wrappingWidth = val; this.invalidateLayout(); },
         enumerable: false,
         configurable: true
     });
     Object.defineProperty(GridLayout.prototype, "cellSize", {
         get: function () { return this._cellSize; },
-        set: function (val) { this._cellSize = val.copy(); },
+        set: function (val) { this._cellSize = val.copy(); this.invalidateLayout(); },
         enumerable: false,
         configurable: true
     });
     Object.defineProperty(GridLayout.prototype, "spacing", {
         get: function () { return this._spacing; },
-        set: function (val) { this._spacing = val.copy(); },
+        set: function (val) { this._spacing = val.copy(); this.invalidateLayout(); },
         enumerable: false,
         configurable: true
     });
     Object.defineProperty(GridLayout.prototype, "alignment", {
         get: function () { return this._alignment; },
-        set: function (val) { this._alignment = val; },
+        set: function (val) { this._alignment = val; this.invalidateLayout(); },
         enumerable: false,
         configurable: true
     });
     Object.defineProperty(GridLayout.prototype, "arrangement", {
         get: function () { return this._arrangement; },
-        set: function (val) { this._arrangement = val; },
+        set: function (val) { this._arrangement = val; this.invalidateLayout(); },
         enumerable: false,
         configurable: true
     });
     Object.defineProperty(GridLayout.prototype, "sorting", {
         get: function () { return this._sorting; },
-        set: function (val) { this._sorting = val; },
+        set: function (val) { this._sorting = val; this.invalidateLayout(); },
         enumerable: false,
         configurable: true
     });
@@ -21209,8 +21555,8 @@ var GridLayout = /** @class */ (function (_super) {
                 }
             }
             var bounds = this.getLayoutBounds(nodes[i]);
-            var cellWidth = Math.max(this._cellSize.width, bounds.width);
-            var cellHeight = Math.max(this._cellSize.height, bounds.height);
+            var cellWidth = isNaN(this._cellSize.width) ? bounds.width : Math.max(this._cellSize.width, bounds.width);
+            var cellHeight = isNaN(this._cellSize.height) ? bounds.height : Math.max(this._cellSize.height, bounds.height);
             var x = origin.x + col * (cellWidth + this._spacing.width);
             var y = origin.y + row * (cellHeight + this._spacing.height);
             // Apply alignment
@@ -21224,17 +21570,17 @@ var GridLayout = /** @class */ (function (_super) {
     };
     GridLayout.prototype._sortNodes = function (nodes) {
         switch (this._sorting) {
-            case TreeSortingReverse:
+            case GridSortingReverse:
                 nodes.reverse();
                 break;
-            case TreeSortingAscending:
+            case GridSortingAscending:
                 nodes.sort(function (a, b) {
                     var ak = a.data ? String(a.data.key) : '';
                     var bk = b.data ? String(b.data.key) : '';
                     return ak.localeCompare(bk);
                 });
                 break;
-            case TreeSortingDescending:
+            case GridSortingDescending:
                 nodes.sort(function (a, b) {
                     var ak = a.data ? String(a.data.key) : '';
                     var bk = b.data ? String(b.data.key) : '';
@@ -21248,15 +21594,29 @@ var GridLayout = /** @class */ (function (_super) {
         var nb = (b && b.data && b.data.name) || '';
         return na < nb ? -1 : na > nb ? 1 : 0;
     };
+    GridLayout.standardComparer = function (a, b) {
+        var na = (a && a.data && a.data.name) || '';
+        var nb = (b && b.data && b.data.name) || '';
+        return na < nb ? -1 : na > nb ? 1 : 0;
+    };
     GridLayout.Location = GridLayoutLocation;
     GridLayout.Center = GridLayoutCenter;
     GridLayout.Forwards = GridSortingForwards;
+    GridLayout.Forward = GridSortingForwards;
     GridLayout.Reverse = GridSortingReverse;
     GridLayout.Ascending = GridSortingAscending;
     GridLayout.Descending = GridSortingDescending;
     GridLayout.Position = GridAlignmentPosition;
+    GridLayout.LeftToRight = GridArrangementLeftToRight;
+    GridLayout.RightToLeft = GridArrangementRightToLeft;
     return GridLayout;
 }(Layout));
+
+var TreeVertex = /** @class */ (function () {
+    function TreeVertex() {
+    }
+    return TreeVertex;
+}());
 
 /**
  * TreeLayout - arranges nodes in a tree structure.
@@ -21264,7 +21624,7 @@ var GridLayout = /** @class */ (function (_super) {
 var TreeLayout = /** @class */ (function (_super) {
     __extends(TreeLayout, _super);
     function TreeLayout() {
-        var _this = _super.apply(this, __spreadArray([], __read(arguments), false)) || this;
+        var _this = _super.call(this) || this;
         _this._angle = 0;
         _this._layerSpacing = 50;
         _this._nodeSpacing = 20;
@@ -21280,95 +21640,130 @@ var TreeLayout = /** @class */ (function (_super) {
         _this._alternateAlignment = TreeStyleLayered;
         _this._alternateCompaction = TreeCompactionBlock;
         _this._alternateSorting = TreeSortingForwards;
+        // ============ rootDefaults / alternateDefaults ============
+        _this._rootDefaults = null;
+        _this._alternateDefaults = null;
+        var rd = new TreeVertex();
+        rd.angle = 0;
+        rd.alignment = TreeAlignmentCenterChildren;
+        rd.layerSpacing = 50;
+        rd.nodeSpacing = 20;
+        rd.breadthLimit = NaN;
+        rd.rowSpacing = 0;
+        rd.sorting = TreeSortingForwards;
+        rd.compaction = TreeCompactionBlock;
+        _this._rootDefaults = rd;
+        var ad = new TreeVertex();
+        ad.angle = 90;
+        ad.alignment = TreeAlignmentCenterChildren;
+        ad.layerSpacing = 20;
+        ad.nodeSpacing = 20;
+        ad.breadthLimit = NaN;
+        ad.rowSpacing = 0;
+        ad.sorting = TreeSortingForwards;
+        ad.compaction = TreeCompactionBlock;
+        _this._alternateDefaults = ad;
         return _this;
     }
     Object.defineProperty(TreeLayout.prototype, "angle", {
         get: function () { return this._angle; },
-        set: function (val) { this._angle = val; },
+        set: function (val) { this._angle = val; this.invalidateLayout(); },
         enumerable: false,
         configurable: true
     });
     Object.defineProperty(TreeLayout.prototype, "layerSpacing", {
         get: function () { return this._layerSpacing; },
-        set: function (val) { this._layerSpacing = val; },
+        set: function (val) { this._layerSpacing = val; this.invalidateLayout(); },
         enumerable: false,
         configurable: true
     });
     Object.defineProperty(TreeLayout.prototype, "nodeSpacing", {
         get: function () { return this._nodeSpacing; },
-        set: function (val) { this._nodeSpacing = val; },
+        set: function (val) { this._nodeSpacing = val; this.invalidateLayout(); },
         enumerable: false,
         configurable: true
     });
     Object.defineProperty(TreeLayout.prototype, "treeStyle", {
         get: function () { return this._treeStyle; },
-        set: function (val) { this._treeStyle = val; },
+        set: function (val) { this._treeStyle = val; this.invalidateLayout(); },
         enumerable: false,
         configurable: true
     });
     Object.defineProperty(TreeLayout.prototype, "arrangement", {
         get: function () { return this._arrangement; },
-        set: function (val) { this._arrangement = val; },
+        set: function (val) { this._arrangement = val; this.invalidateLayout(); },
         enumerable: false,
         configurable: true
     });
     Object.defineProperty(TreeLayout.prototype, "layerStyle", {
         get: function () { return this._layerStyle; },
-        set: function (val) { this._layerStyle = val; },
+        set: function (val) { this._layerStyle = val; this.invalidateLayout(); },
         enumerable: false,
         configurable: true
     });
     Object.defineProperty(TreeLayout.prototype, "compaction", {
         get: function () { return this._compaction; },
-        set: function (val) { this._compaction = val; },
+        set: function (val) { this._compaction = val; this.invalidateLayout(); },
         enumerable: false,
         configurable: true
     });
     Object.defineProperty(TreeLayout.prototype, "sorting", {
         get: function () { return this._sorting; },
-        set: function (val) { this._sorting = val; },
+        set: function (val) { this._sorting = val; this.invalidateLayout(); },
         enumerable: false,
         configurable: true
     });
     Object.defineProperty(TreeLayout.prototype, "path", {
         get: function () { return this._path; },
-        set: function (val) { this._path = val; },
+        set: function (val) { this._path = val; this.invalidateLayout(); },
         enumerable: false,
         configurable: true
     });
     Object.defineProperty(TreeLayout.prototype, "alternateAngle", {
         get: function () { return this._alternateAngle; },
-        set: function (val) { this._alternateAngle = val; },
+        set: function (val) { this._alternateAngle = val; this.invalidateLayout(); },
         enumerable: false,
         configurable: true
     });
     Object.defineProperty(TreeLayout.prototype, "alternateLayerSpacing", {
         get: function () { return this._alternateLayerSpacing; },
-        set: function (val) { this._alternateLayerSpacing = val; },
+        set: function (val) { this._alternateLayerSpacing = val; this.invalidateLayout(); },
         enumerable: false,
         configurable: true
     });
     Object.defineProperty(TreeLayout.prototype, "alternateNodeSpacing", {
         get: function () { return this._alternateNodeSpacing; },
-        set: function (val) { this._alternateNodeSpacing = val; },
+        set: function (val) { this._alternateNodeSpacing = val; this.invalidateLayout(); },
         enumerable: false,
         configurable: true
     });
     Object.defineProperty(TreeLayout.prototype, "alternateAlignment", {
         get: function () { return this._alternateAlignment; },
-        set: function (val) { this._alternateAlignment = val; },
+        set: function (val) { this._alternateAlignment = val; this.invalidateLayout(); },
         enumerable: false,
         configurable: true
     });
     Object.defineProperty(TreeLayout.prototype, "alternateCompaction", {
         get: function () { return this._alternateCompaction; },
-        set: function (val) { this._alternateCompaction = val; },
+        set: function (val) { this._alternateCompaction = val; this.invalidateLayout(); },
         enumerable: false,
         configurable: true
     });
     Object.defineProperty(TreeLayout.prototype, "alternateSorting", {
         get: function () { return this._alternateSorting; },
-        set: function (val) { this._alternateSorting = val; },
+        set: function (val) { this._alternateSorting = val; this.invalidateLayout(); },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(TreeLayout.prototype, "rootDefaults", {
+        get: function () { return this._rootDefaults; },
+        set: function (val) { this._rootDefaults = val; },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(TreeLayout.prototype, "alternateDefaults", {
+        get: function () { return this._alternateDefaults; },
+        set: function (val) { this._alternateDefaults = val; },
         enumerable: false,
         configurable: true
     });
@@ -21665,6 +22060,34 @@ var TreeLayout = /** @class */ (function (_super) {
             finally { if (e_9) throw e_9.error; }
         }
     };
+    // ============ Static enum constants ============
+    TreeLayout.StyleLayered = TreeStyleLayered;
+    TreeLayout.StyleAlternating = TreeStyleAlternating;
+    TreeLayout.StyleLastParents = TreeStyleLastParents;
+    TreeLayout.StyleRootOnly = TreeStyleRootOnly;
+    TreeLayout.PathDefault = TreePathDefault;
+    TreeLayout.PathDestination = TreePathDestination;
+    TreeLayout.PathSource = TreePathSource;
+    TreeLayout.ArrangementVertical = TreeArrangementVertical;
+    TreeLayout.ArrangementHorizontal = TreeArrangementHorizontal;
+    TreeLayout.ArrangementFixedRoots = TreeArrangementFixedRoots;
+    TreeLayout.LayerIndividual = TreeLayerStyleIndividual;
+    TreeLayout.LayerSiblings = TreeLayerStyleSiblings;
+    TreeLayout.LayerUniform = TreeLayerStyleUniform;
+    TreeLayout.SortingForwards = TreeSortingForwards;
+    TreeLayout.SortingReverse = TreeSortingReverse;
+    TreeLayout.SortingAscending = TreeSortingAscending;
+    TreeLayout.SortingDescending = TreeSortingDescending;
+    TreeLayout.CompactionBlock = TreeCompactionBlock;
+    TreeLayout.CompactionNone = TreeCompactionNone;
+    TreeLayout.AlignmentTopLeftBus = TreeAlignmentTopLeftBus;
+    TreeLayout.AlignmentBottomRightBus = TreeAlignmentBottomRightBus;
+    TreeLayout.AlignmentBus = TreeAlignmentBus;
+    TreeLayout.AlignmentBusBranching = TreeAlignmentBusBranching;
+    TreeLayout.AlignmentCenterChildren = TreeAlignmentCenterChildren;
+    TreeLayout.AlignmentCenterSubtrees = TreeAlignmentCenterSubtrees;
+    TreeLayout.AlignmentStart = TreeAlignmentStart;
+    TreeLayout.AlignmentEnd = TreeAlignmentEnd;
     return TreeLayout;
 }(Layout));
 
@@ -21684,29 +22107,40 @@ var ForceDirectedLayout = /** @class */ (function (_super) {
         _this._defaultGravity = 0.1;
         _this._infinityDistance = 1000;
         _this._epsilon = 0.01;
+        _this._arrangementSpacing = new Size(4, 4);
+        _this._arrangesToOrigin = true;
+        _this._defaultGravitationalMass = 0;
+        _this._theta = 0.9;
+        _this._setsPortSpots = true;
+        _this._springLength = NaN;
+        _this._springStiffness = NaN;
+        _this._randomNumberGenerator = null;
+        _this._electricalCharge = NaN;
+        _this._gravitationalMass = NaN;
+        _this._currentIteration = 0;
         return _this;
     }
     Object.defineProperty(ForceDirectedLayout.prototype, "maxIterations", {
         get: function () { return this._maxIterations; },
-        set: function (val) { this._maxIterations = val; },
+        set: function (val) { this._maxIterations = val; this.invalidateLayout(); },
         enumerable: false,
         configurable: true
     });
     Object.defineProperty(ForceDirectedLayout.prototype, "defaultSpringLength", {
         get: function () { return this._defaultSpringLength; },
-        set: function (val) { this._defaultSpringLength = val; },
+        set: function (val) { this._defaultSpringLength = val; this.invalidateLayout(); },
         enumerable: false,
         configurable: true
     });
     Object.defineProperty(ForceDirectedLayout.prototype, "defaultSpringStiffness", {
         get: function () { return this._defaultSpringStiffness; },
-        set: function (val) { this._defaultSpringStiffness = val; },
+        set: function (val) { this._defaultSpringStiffness = val; this.invalidateLayout(); },
         enumerable: false,
         configurable: true
     });
     Object.defineProperty(ForceDirectedLayout.prototype, "defaultElectricalCharge", {
         get: function () { return this._defaultElectricalCharge; },
-        set: function (val) { this._defaultElectricalCharge = val; },
+        set: function (val) { this._defaultElectricalCharge = val; this.invalidateLayout(); },
         enumerable: false,
         configurable: true
     });
@@ -21728,6 +22162,71 @@ var ForceDirectedLayout = /** @class */ (function (_super) {
         enumerable: false,
         configurable: true
     });
+    Object.defineProperty(ForceDirectedLayout.prototype, "arrangementSpacing", {
+        get: function () { return this._arrangementSpacing; },
+        set: function (val) { this._arrangementSpacing = val.copy(); this.invalidateLayout(); },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(ForceDirectedLayout.prototype, "arrangesToOrigin", {
+        get: function () { return this._arrangesToOrigin; },
+        set: function (val) { this._arrangesToOrigin = val; },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(ForceDirectedLayout.prototype, "defaultGravitationalMass", {
+        get: function () { return this._defaultGravitationalMass; },
+        set: function (val) { this._defaultGravitationalMass = val; },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(ForceDirectedLayout.prototype, "theta", {
+        get: function () { return this._theta; },
+        set: function (val) { this._theta = val; },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(ForceDirectedLayout.prototype, "setsPortSpots", {
+        get: function () { return this._setsPortSpots; },
+        set: function (val) { this._setsPortSpots = val; },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(ForceDirectedLayout.prototype, "springLength", {
+        get: function () { return this._springLength; },
+        set: function (val) { this._springLength = val; this.invalidateLayout(); },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(ForceDirectedLayout.prototype, "springStiffness", {
+        get: function () { return this._springStiffness; },
+        set: function (val) { this._springStiffness = val; this.invalidateLayout(); },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(ForceDirectedLayout.prototype, "randomNumberGenerator", {
+        get: function () { return this._randomNumberGenerator; },
+        set: function (val) { this._randomNumberGenerator = val; },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(ForceDirectedLayout.prototype, "electricalCharge", {
+        get: function () { return this._electricalCharge; },
+        set: function (val) { this._electricalCharge = val; },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(ForceDirectedLayout.prototype, "gravitationalMass", {
+        get: function () { return this._gravitationalMass; },
+        set: function (val) { this._gravitationalMass = val; },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(ForceDirectedLayout.prototype, "currentIteration", {
+        get: function () { return this._currentIteration; },
+        enumerable: false,
+        configurable: true
+    });
     ForceDirectedLayout.prototype.copy = function () {
         var copy = new ForceDirectedLayout();
         copy._arrangementOrigin = this._arrangementOrigin.copy();
@@ -21738,10 +22237,20 @@ var ForceDirectedLayout = /** @class */ (function (_super) {
         copy._defaultGravity = this._defaultGravity;
         copy._infinityDistance = this._infinityDistance;
         copy._epsilon = this._epsilon;
+        copy._arrangementSpacing = this._arrangementSpacing.copy();
+        copy._arrangesToOrigin = this._arrangesToOrigin;
+        copy._defaultGravitationalMass = this._defaultGravitationalMass;
+        copy._theta = this._theta;
+        copy._setsPortSpots = this._setsPortSpots;
+        copy._springLength = this._springLength;
+        copy._springStiffness = this._springStiffness;
+        copy._randomNumberGenerator = this._randomNumberGenerator;
+        copy._electricalCharge = this._electricalCharge;
+        copy._gravitationalMass = this._gravitationalMass;
         return copy;
     };
     ForceDirectedLayout.prototype.doLayout = function (coll) {
-        var e_1, _a, e_2, _b;
+        var e_1, _a, e_2, _b, e_3, _c;
         var parts = this.collectParts(coll);
         if (parts.count === 0)
             return;
@@ -21757,7 +22266,9 @@ var ForceDirectedLayout = /** @class */ (function (_super) {
         if (vertexes.length === 0)
             return;
         // Initialize positions if they are all at the same location
-        this._initializePositions(vertexes, net);
+        if (this._maxIterations > 0) {
+            this._initializePositions(vertexes, net);
+        }
         // Force-directed iteration
         var origin = this.arrangementOrigin;
         // Velocity storage for each vertex
@@ -21850,39 +22361,59 @@ var ForceDirectedLayout = /** @class */ (function (_super) {
             if (totalMovement < this._epsilon * vertexes.length)
                 break;
         }
-        // Normalize positions to origin
-        var minX = Infinity, minY = Infinity;
-        try {
-            for (var vertexes_1 = __values(vertexes), vertexes_1_1 = vertexes_1.next(); !vertexes_1_1.done; vertexes_1_1 = vertexes_1.next()) {
-                var v = vertexes_1_1.value;
-                minX = Math.min(minX, v.x);
-                minY = Math.min(minY, v.y);
-            }
-        }
-        catch (e_1_1) { e_1 = { error: e_1_1 }; }
-        finally {
+        // Commit positions
+        if (this._maxIterations > 0) {
+            // Normalize positions to origin
+            var minX = Infinity, minY = Infinity;
             try {
-                if (vertexes_1_1 && !vertexes_1_1.done && (_a = vertexes_1.return)) _a.call(vertexes_1);
-            }
-            finally { if (e_1) throw e_1.error; }
-        }
-        try {
-            // Commit positions
-            for (var vertexes_2 = __values(vertexes), vertexes_2_1 = vertexes_2.next(); !vertexes_2_1.done; vertexes_2_1 = vertexes_2.next()) {
-                var v = vertexes_2_1.value;
-                if (v.node && !v._isArtificial) {
-                    var x = origin.x + (v.x - minX);
-                    var y = origin.y + (v.y - minY);
-                    v.node.move(new Point(x, y));
+                for (var vertexes_1 = __values(vertexes), vertexes_1_1 = vertexes_1.next(); !vertexes_1_1.done; vertexes_1_1 = vertexes_1.next()) {
+                    var v = vertexes_1_1.value;
+                    minX = Math.min(minX, v.x);
+                    minY = Math.min(minY, v.y);
                 }
             }
-        }
-        catch (e_2_1) { e_2 = { error: e_2_1 }; }
-        finally {
-            try {
-                if (vertexes_2_1 && !vertexes_2_1.done && (_b = vertexes_2.return)) _b.call(vertexes_2);
+            catch (e_1_1) { e_1 = { error: e_1_1 }; }
+            finally {
+                try {
+                    if (vertexes_1_1 && !vertexes_1_1.done && (_a = vertexes_1.return)) _a.call(vertexes_1);
+                }
+                finally { if (e_1) throw e_1.error; }
             }
-            finally { if (e_2) throw e_2.error; }
+            try {
+                for (var vertexes_2 = __values(vertexes), vertexes_2_1 = vertexes_2.next(); !vertexes_2_1.done; vertexes_2_1 = vertexes_2.next()) {
+                    var v = vertexes_2_1.value;
+                    if (v.node && !v._isArtificial) {
+                        var x = origin.x + (v.x - minX);
+                        var y = origin.y + (v.y - minY);
+                        v.node.move(new Point(x, y));
+                    }
+                }
+            }
+            catch (e_2_1) { e_2 = { error: e_2_1 }; }
+            finally {
+                try {
+                    if (vertexes_2_1 && !vertexes_2_1.done && (_b = vertexes_2.return)) _b.call(vertexes_2);
+                }
+                finally { if (e_2) throw e_2.error; }
+            }
+        }
+        else {
+            try {
+                // maxIterations === 0: preserve initial positions
+                for (var vertexes_3 = __values(vertexes), vertexes_3_1 = vertexes_3.next(); !vertexes_3_1.done; vertexes_3_1 = vertexes_3.next()) {
+                    var v = vertexes_3_1.value;
+                    if (v.node && !v._isArtificial) {
+                        v.node.move(new Point(v.x, v.y));
+                    }
+                }
+            }
+            catch (e_3_1) { e_3 = { error: e_3_1 }; }
+            finally {
+                try {
+                    if (vertexes_3_1 && !vertexes_3_1.done && (_c = vertexes_3.return)) _c.call(vertexes_3);
+                }
+                finally { if (e_3) throw e_3.error; }
+            }
         }
         this.isValidLayout = true;
     };
@@ -21907,6 +22438,9 @@ var ForceDirectedLayout = /** @class */ (function (_super) {
             var angle = (2 * Math.PI * i) / vertexes.length;
             vertexes[i].x = radius * Math.cos(angle);
             vertexes[i].y = radius * Math.sin(angle);
+            if (vertexes[i].node) {
+                vertexes[i].node.move(new Point(vertexes[i].x, vertexes[i].y));
+            }
         }
     };
     return ForceDirectedLayout;
@@ -21940,49 +22474,49 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
     }
     Object.defineProperty(LayeredDigraphLayout.prototype, "direction", {
         get: function () { return this._direction; },
-        set: function (val) { this._direction = val; },
+        set: function (val) { this._direction = val; this.invalidateLayout(); },
         enumerable: false,
         configurable: true
     });
     Object.defineProperty(LayeredDigraphLayout.prototype, "layerSpacing", {
         get: function () { return this._layerSpacing; },
-        set: function (val) { this._layerSpacing = val; },
+        set: function (val) { this._layerSpacing = val; this.invalidateLayout(); },
         enumerable: false,
         configurable: true
     });
     Object.defineProperty(LayeredDigraphLayout.prototype, "columnSpacing", {
         get: function () { return this._columnSpacing; },
-        set: function (val) { this._columnSpacing = val; },
+        set: function (val) { this._columnSpacing = val; this.invalidateLayout(); },
         enumerable: false,
         configurable: true
     });
     Object.defineProperty(LayeredDigraphLayout.prototype, "setsPortSpots", {
         get: function () { return this._setsPortSpots; },
-        set: function (val) { this._setsPortSpots = val; },
+        set: function (val) { this._setsPortSpots = val; this.invalidateLayout(); },
         enumerable: false,
         configurable: true
     });
     Object.defineProperty(LayeredDigraphLayout.prototype, "aggressiveOption", {
         get: function () { return this._aggressiveOption; },
-        set: function (val) { this._aggressiveOption = val; },
+        set: function (val) { this._aggressiveOption = val; this.invalidateLayout(); },
         enumerable: false,
         configurable: true
     });
     Object.defineProperty(LayeredDigraphLayout.prototype, "packOption", {
         get: function () { return this._packOption; },
-        set: function (val) { this._packOption = val; },
+        set: function (val) { this._packOption = val; this.invalidateLayout(); },
         enumerable: false,
         configurable: true
     });
     Object.defineProperty(LayeredDigraphLayout.prototype, "layeringOption", {
         get: function () { return this._layeringOption; },
-        set: function (val) { this._layeringOption = val; },
+        set: function (val) { this._layeringOption = val; this.invalidateLayout(); },
         enumerable: false,
         configurable: true
     });
     Object.defineProperty(LayeredDigraphLayout.prototype, "cycleRemoveOption", {
         get: function () { return this._cycleRemoveOption; },
-        set: function (val) { this._cycleRemoveOption = val; },
+        set: function (val) { this._cycleRemoveOption = val; this.invalidateLayout(); },
         enumerable: false,
         configurable: true
     });
@@ -22335,50 +22869,69 @@ var CircularLayout = /** @class */ (function (_super) {
         _this._startAngle = 0;
         _this._sweepAngle = 360;
         _this._arrangement = CircularArrangementConstantDistance;
-        _this._spacing = 20;
+        _this._spacing = 6;
         _this._direction = CircularDirectionClockwise;
         _this._aspectRatio = 1;
+        _this._actualXRadius = NaN;
+        _this._actualYRadius = NaN;
+        _this._sorting = CircularSortingForwards;
         return _this;
     }
     Object.defineProperty(CircularLayout.prototype, "radius", {
         get: function () { return this._radius; },
-        set: function (val) { this._radius = val; },
+        set: function (val) { this._radius = val; this.invalidateLayout(); },
         enumerable: false,
         configurable: true
     });
     Object.defineProperty(CircularLayout.prototype, "startAngle", {
         get: function () { return this._startAngle; },
-        set: function (val) { this._startAngle = val; },
+        set: function (val) { this._startAngle = val; this.invalidateLayout(); },
         enumerable: false,
         configurable: true
     });
     Object.defineProperty(CircularLayout.prototype, "sweepAngle", {
         get: function () { return this._sweepAngle; },
-        set: function (val) { this._sweepAngle = val; },
+        set: function (val) { this._sweepAngle = val; this.invalidateLayout(); },
         enumerable: false,
         configurable: true
     });
     Object.defineProperty(CircularLayout.prototype, "arrangement", {
         get: function () { return this._arrangement; },
-        set: function (val) { this._arrangement = val; },
+        set: function (val) { this._arrangement = val; this.invalidateLayout(); },
         enumerable: false,
         configurable: true
     });
     Object.defineProperty(CircularLayout.prototype, "spacing", {
         get: function () { return this._spacing; },
-        set: function (val) { this._spacing = val; },
+        set: function (val) { this._spacing = val; this.invalidateLayout(); },
         enumerable: false,
         configurable: true
     });
     Object.defineProperty(CircularLayout.prototype, "direction", {
         get: function () { return this._direction; },
-        set: function (val) { this._direction = val; },
+        set: function (val) { this._direction = val; this.invalidateLayout(); },
         enumerable: false,
         configurable: true
     });
     Object.defineProperty(CircularLayout.prototype, "aspectRatio", {
         get: function () { return this._aspectRatio; },
-        set: function (val) { this._aspectRatio = val; },
+        set: function (val) { this._aspectRatio = val; this.invalidateLayout(); },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(CircularLayout.prototype, "actualXRadius", {
+        get: function () { return this._actualXRadius; },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(CircularLayout.prototype, "actualYRadius", {
+        get: function () { return this._actualYRadius; },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(CircularLayout.prototype, "sorting", {
+        get: function () { return this._sorting; },
+        set: function (val) { this._sorting = val; this.invalidateLayout(); },
         enumerable: false,
         configurable: true
     });
@@ -22392,6 +22945,7 @@ var CircularLayout = /** @class */ (function (_super) {
         copy._spacing = this._spacing;
         copy._direction = this._direction;
         copy._aspectRatio = this._aspectRatio;
+        copy._sorting = this._sorting;
         return copy;
     };
     CircularLayout.prototype.doLayout = function (coll) {
@@ -22464,6 +23018,9 @@ var CircularLayout = /** @class */ (function (_super) {
         if (isNaN(radius)) {
             radius = this._computeRadius(vertexes);
         }
+        // Store the actual radii used (aspectRatio scales the Y axis).
+        this._actualXRadius = radius;
+        this._actualYRadius = radius * this._aspectRatio;
         // Determine direction multiplier
         var clockwise = this._direction === CircularDirectionClockwise;
         var dirMult = clockwise ? 1 : -1;
@@ -22500,8 +23057,8 @@ var CircularLayout = /** @class */ (function (_super) {
                     break;
                 }
             }
-            var x = centerX + radius * Math.cos(angle) * this._aspectRatio;
-            var y = centerY + radius * Math.sin(angle);
+            var x = centerX + radius * Math.cos(angle);
+            var y = centerY + radius * Math.sin(angle) * this._aspectRatio;
             v.x = x - v.width / 2;
             v.y = y - v.height / 2;
             if (v.node) {
@@ -22702,6 +23259,52 @@ var LayeredDigraphPack = {
 var GridArrangement = {
     LeftToRight: GridArrangementLeftToRight,
     RightToLeft: GridArrangementRightToLeft,
+    TopToBottom: GridArrangementTopToBottom,
+    BottomToTop: GridArrangementBottomToTop,
+};
+var PanelTypes = {
+    Auto: PanelAuto,
+    Position: PanelPosition,
+    Vertical: PanelVertical,
+    Horizontal: PanelHorizontal,
+    Spot: PanelSpot,
+    Table: PanelTable,
+    TableColumn: PanelTableColumn,
+    TableRow: PanelTableRow,
+    Viewbox: PanelViewbox,
+    Link: PanelLink,
+    Grid: PanelGrid,
+    Graduated: PanelGraduated,
+};
+var BindingMode = {
+    OneWay: Binding.OneWay,
+    TwoWay: Binding.TwoWay,
+};
+var CircularDirection = {
+    Clockwise: CircularDirectionClockwise,
+    Counterclockwise: CircularDirectionCounterclockwise,
+    BidirectionalLeft: CircularDirectionBidirectionalLeft,
+    BidirectionalRight: CircularDirectionBidirectionalRight,
+};
+var LayeredDigraphDirection = {
+    Down: LayeredDigraphDirectionDown,
+    Up: LayeredDigraphDirectionUp,
+    Left: LayeredDigraphDirectionLeft,
+    Right: LayeredDigraphDirectionRight,
+};
+var LayeredDigraphInit = {
+    DepthFirstOut: LayeredDigraphInitDepthFirstOut,
+    DepthFirstIn: LayeredDigraphInitDepthFirstIn,
+    Naive: LayeredDigraphInitNaive,
+};
+var LayeredDigraphLayering = {
+    OptimalLinkLength: LayeredDigraphLayeringOptimalLinkLength,
+    LongestPathSink: LayeredDigraphLayeringLongestPathSink,
+    LongestPathSource: LayeredDigraphLayeringLongestPathSource,
+};
+var LayeredDigraphCycleRemove = {
+    DepthFirst: LayeredDigraphCycleRemoveDepthFirst,
+    Greedy: LayeredDigraphCycleRemoveGreedy,
 };
 var ImageStretch = {
     None: ImageStretchNone,
@@ -22814,6 +23417,7 @@ exports.AutoScaleNone = AutoScaleNone;
 exports.AutoScaleUniform = AutoScaleUniform;
 exports.AutoScaleUniformToFill = AutoScaleUniformToFill;
 exports.Binding = Binding;
+exports.BindingMode = BindingMode;
 exports.Brush = Brush;
 exports.BrushLinear = BrushLinear;
 exports.BrushRadial = BrushRadial;
@@ -22830,9 +23434,11 @@ exports.CircularArrangementConstantAngle = CircularArrangementConstantAngle;
 exports.CircularArrangementConstantDistance = CircularArrangementConstantDistance;
 exports.CircularArrangementConstantRadius = CircularArrangementConstantRadius;
 exports.CircularArrangementPacked = CircularArrangementPacked;
+exports.CircularDirection = CircularDirection;
 exports.CircularDirectionBidirectionalLeft = CircularDirectionBidirectionalLeft;
 exports.CircularDirectionBidirectionalRight = CircularDirectionBidirectionalRight;
 exports.CircularDirectionClockwise = CircularDirectionClockwise;
+exports.CircularDirectionCounterclockwise = CircularDirectionCounterclockwise;
 exports.CircularLayout = CircularLayout;
 exports.CircularNodeDiameterFormulaCircular = CircularNodeDiameterFormulaCircular;
 exports.CircularNodeDiameterFormulaPythagorean = CircularNodeDiameterFormulaPythagorean;
@@ -22924,15 +23530,19 @@ exports.LayeredDigraphAlignLower = LayeredDigraphAlignLower;
 exports.LayeredDigraphAlignNone = LayeredDigraphAlignNone;
 exports.LayeredDigraphAlignTop = LayeredDigraphAlignTop;
 exports.LayeredDigraphAlignUpper = LayeredDigraphAlignUpper;
+exports.LayeredDigraphCycleRemove = LayeredDigraphCycleRemove;
 exports.LayeredDigraphCycleRemoveDepthFirst = LayeredDigraphCycleRemoveDepthFirst;
 exports.LayeredDigraphCycleRemoveGreedy = LayeredDigraphCycleRemoveGreedy;
+exports.LayeredDigraphDirection = LayeredDigraphDirection;
 exports.LayeredDigraphDirectionDown = LayeredDigraphDirectionDown;
 exports.LayeredDigraphDirectionLeft = LayeredDigraphDirectionLeft;
 exports.LayeredDigraphDirectionRight = LayeredDigraphDirectionRight;
 exports.LayeredDigraphDirectionUp = LayeredDigraphDirectionUp;
+exports.LayeredDigraphInit = LayeredDigraphInit;
 exports.LayeredDigraphInitDepthFirstIn = LayeredDigraphInitDepthFirstIn;
 exports.LayeredDigraphInitDepthFirstOut = LayeredDigraphInitDepthFirstOut;
 exports.LayeredDigraphInitNaive = LayeredDigraphInitNaive;
+exports.LayeredDigraphLayering = LayeredDigraphLayering;
 exports.LayeredDigraphLayeringLongestPathSink = LayeredDigraphLayeringLongestPathSink;
 exports.LayeredDigraphLayeringLongestPathSource = LayeredDigraphLayeringLongestPathSource;
 exports.LayeredDigraphLayeringOptimalLinkLength = LayeredDigraphLayeringOptimalLinkLength;
@@ -22986,6 +23596,7 @@ exports.PanelSpot = PanelSpot;
 exports.PanelTable = PanelTable;
 exports.PanelTableColumn = PanelTableColumn;
 exports.PanelTableRow = PanelTableRow;
+exports.PanelTypes = PanelTypes;
 exports.PanelVertical = PanelVertical;
 exports.PanelViewbox = PanelViewbox;
 exports.PanningTool = PanningTool;

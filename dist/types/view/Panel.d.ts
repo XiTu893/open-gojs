@@ -49,7 +49,8 @@ export declare class Panel extends GraphObject {
     private _viewboxStretch;
     _viewboxScaleX: number;
     _viewboxScaleY: number;
-    constructor(type?: EnumValue, init?: Partial<Panel>);
+    constructor(type?: EnumValue | string, init?: Partial<Panel>);
+    private static _resolvePanelTypeStr;
     get type(): EnumValue;
     set type(val: EnumValue);
     get data(): any;
@@ -115,7 +116,7 @@ export declare class Panel extends GraphObject {
     set viewboxStretch(val: EnumValue);
     get elements(): Iterator<GraphObject>;
     get elementCount(): number;
-    add(element: GraphObject): Panel;
+    add(...elements: GraphObject[]): Panel;
     /** Propagate the _part reference to a child element and its descendants */
     private _propagatePart;
     /** Recursively set _part on an element and its children */

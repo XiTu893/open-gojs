@@ -11,6 +11,9 @@ export declare class CircularLayout extends Layout {
     private _spacing;
     private _direction;
     private _aspectRatio;
+    private _actualXRadius;
+    private _actualYRadius;
+    private _sorting;
     get radius(): number;
     set radius(val: number);
     get startAngle(): number;
@@ -25,6 +28,10 @@ export declare class CircularLayout extends Layout {
     set direction(val: EnumValue);
     get aspectRatio(): number;
     set aspectRatio(val: number);
+    get actualXRadius(): number;
+    get actualYRadius(): number;
+    get sorting(): EnumValue;
+    set sorting(val: EnumValue);
     copy(): CircularLayout;
     doLayout(coll: any): void;
     /**

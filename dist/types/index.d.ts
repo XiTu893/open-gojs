@@ -1,6 +1,6 @@
 import './core/Polyfill';
 export { EnumValue } from './core/EnumValues';
-export { PanelAuto, PanelVertical, PanelHorizontal, PanelSpot, PanelTable, PanelPosition, PanelGrid, PanelViewbox, PanelGraduated, PanelLink, PanelTableColumn, PanelTableRow, StretchDefault, StretchFill, StretchNone, StretchUniform, StretchUniformToFill, StretchHorizontal, StretchVertical, FlipNone, FlipHorizontal, FlipVertical, FlipBoth, RoutingNormal, RoutingOrthogonal, RoutingAvoidsNodes, CurveNone, CurveBezier, CurveJumpOver, CurveJumpGap, WrapFit, WrapDesiredSize, WrapNone, OverflowClip, OverflowEllipsis, ImageStretchNone, ImageStretchFill, ImageStretchUniform, ImageStretchUniformToFill, SizingNone, SizingProp, SizingAuto, TreeStyleLayered, TreeStyleAlternating, TreeStyleLastParents, TreeStyleCompact, TreeStyleRootOnly, TreePathDefault, TreePathDestination, TreePathSource, TreeArrangementVertical, TreeArrangementHorizontal, TreeArrangementFixedRoots, TreeLayerStyleIndividual, TreeLayerStyleUniform, TreeLayerStyleSiblings, TreeSortingForwards, TreeSortingReverse, TreeSortingAscending, TreeSortingDescending, TreeCompactionBlock, TreeCompactionNone, TreeAlignmentTopLeftBus, TreeAlignmentBottomRightBus, TreeAlignmentBus, TreeAlignmentBusBranching, TreeAlignmentCenterChildren, TreeAlignmentCenterSubtrees, TreeAlignmentStart, TreeAlignmentEnd, CircularArrangementConstantDistance, CircularArrangementConstantAngle, CircularArrangementConstantRadius, CircularArrangementPacked, CircularDirectionClockwise, CircularDirectionBidirectionalLeft, CircularDirectionBidirectionalRight, CircularSortingForwards, CircularSortingReverse, CircularSortingAscending, CircularSortingDescending, CircularSortingOptimized, LayeredDigraphDirectionDown, LayeredDigraphDirectionUp, LayeredDigraphDirectionLeft, LayeredDigraphDirectionRight, LayeredDigraphAlignTop, LayeredDigraphAlignBottom, LayeredDigraphAlignCenter, LayeredDigraphAlignUpper, LayeredDigraphAlignLower, LayeredDigraphAlignNone, LayeredDigraphAggressiveNone, LayeredDigraphAggressiveHorizontal, LayeredDigraphAggressiveVertical, LayeredDigraphAggressiveAll, LayeredDigraphAggressiveLess, LayeredDigraphAggressiveMore, LayeredDigraphPackNone, LayeredDigraphPackAll, LayeredDigraphPackExpand, LayeredDigraphPackStraighten, LayeredDigraphPackMedian, LayeredDigraphCycleRemoveDepthFirst, LayeredDigraphCycleRemoveGreedy, LayeredDigraphInitDepthFirstIn, LayeredDigraphInitDepthFirstOut, LayeredDigraphInitNaive, LayeredDigraphLayeringLongestPathSink, LayeredDigraphLayeringLongestPathSource, LayeredDigraphLayeringOptimalLinkLength, GridLayoutLocation, GridLayoutCenter, GridArrangementLeftToRight, GridArrangementRightToLeft, GridArrangementTopToBottom, GridArrangementBottomToTop, GridWrappingNone, GridWrappingFit, GridSortingForwards, GridSortingReverse, GridSortingAscending, GridSortingDescending, GridAlignmentLocation, GridAlignmentPosition, AnimationDefault, AnimationEaseInOut, AnimationEaseIn, AnimationEaseOut, AnimationLinear, AnimationEaseOutBounce, AnimationStyleDefault, AnimationStyleAnimateLocations, AnimationStyleNone, AutoScaleNone, AutoScaleUniform, AutoScaleUniformToFill, ScrollDocument, ScrollInfinite, CycleAll, CycleNotDirected, CycleNotUndirected, CycleDestinationTree, CycleSourceTree, SegmentOrientationNone, SegmentOrientationAlong, SegmentOrientationOpposite, SegmentOrientationParallel, SegmentOrientationPerpendicular, SegmentOrientationOrthogonal, ChangedEventProperty, ChangedEventInsert, ChangedEventRemove, ChangedEventTransaction, PathSegmentLine, PathSegmentQuadraticBezier, PathSegmentCubicBezier, PathSegmentArc, PathSegmentMoveTo, PathSegmentClose, BrushSolid, BrushLinear, BrushRadial, ViewboxStretchNone, ViewboxStretchFill, ViewboxStretchUniform, ViewboxStretchUniformToFill, GraduatedPanNone, GraduatedPanLeft, GraduatedPanCenter, GraduatedPanRight, LinkAdjustingEnd, LinkAdjustingStretch, OrientationNone, OrientationAlong, OrientationMinus90, OrientationPlus90, OrientationPlus180, GestureModeNone, GestureModeCancel, GestureModeZoom, WheelModeZoom, TextEditingAcceptLostFocus, TextEditingStartingSingleClick, LayoutConditionsStandard, LayoutConditionsNodeSized, GeometryStretchUniform, GeometryTypeLine, GeometryTypePath, CircularNodeDiameterFormulaCircular, CircularNodeDiameterFormulaPythagorean, LinkingDirectionForwardsOnly, TriggerStartBundled, } from './core/EnumValues';
+export { PanelAuto, PanelVertical, PanelHorizontal, PanelSpot, PanelTable, PanelPosition, PanelGrid, PanelViewbox, PanelGraduated, PanelLink, PanelTableColumn, PanelTableRow, StretchDefault, StretchFill, StretchNone, StretchUniform, StretchUniformToFill, StretchHorizontal, StretchVertical, FlipNone, FlipHorizontal, FlipVertical, FlipBoth, RoutingNormal, RoutingOrthogonal, RoutingAvoidsNodes, CurveNone, CurveBezier, CurveJumpOver, CurveJumpGap, WrapFit, WrapDesiredSize, WrapNone, OverflowClip, OverflowEllipsis, ImageStretchNone, ImageStretchFill, ImageStretchUniform, ImageStretchUniformToFill, SizingNone, SizingProp, SizingAuto, TreeStyleLayered, TreeStyleAlternating, TreeStyleLastParents, TreeStyleCompact, TreeStyleRootOnly, TreePathDefault, TreePathDestination, TreePathSource, TreeArrangementVertical, TreeArrangementHorizontal, TreeArrangementFixedRoots, TreeLayerStyleIndividual, TreeLayerStyleUniform, TreeLayerStyleSiblings, TreeSortingForwards, TreeSortingReverse, TreeSortingAscending, TreeSortingDescending, TreeCompactionBlock, TreeCompactionNone, TreeAlignmentTopLeftBus, TreeAlignmentBottomRightBus, TreeAlignmentBus, TreeAlignmentBusBranching, TreeAlignmentCenterChildren, TreeAlignmentCenterSubtrees, TreeAlignmentStart, TreeAlignmentEnd, CircularArrangementConstantDistance, CircularArrangementConstantAngle, CircularArrangementConstantRadius, CircularArrangementPacked, CircularDirectionClockwise, CircularDirectionCounterclockwise, CircularDirectionBidirectionalLeft, CircularDirectionBidirectionalRight, CircularSortingForwards, CircularSortingReverse, CircularSortingAscending, CircularSortingDescending, CircularSortingOptimized, LayeredDigraphDirectionDown, LayeredDigraphDirectionUp, LayeredDigraphDirectionLeft, LayeredDigraphDirectionRight, LayeredDigraphAlignTop, LayeredDigraphAlignBottom, LayeredDigraphAlignCenter, LayeredDigraphAlignUpper, LayeredDigraphAlignLower, LayeredDigraphAlignNone, LayeredDigraphAggressiveNone, LayeredDigraphAggressiveHorizontal, LayeredDigraphAggressiveVertical, LayeredDigraphAggressiveAll, LayeredDigraphAggressiveLess, LayeredDigraphAggressiveMore, LayeredDigraphPackNone, LayeredDigraphPackAll, LayeredDigraphPackExpand, LayeredDigraphPackStraighten, LayeredDigraphPackMedian, LayeredDigraphCycleRemoveDepthFirst, LayeredDigraphCycleRemoveGreedy, LayeredDigraphInitDepthFirstIn, LayeredDigraphInitDepthFirstOut, LayeredDigraphInitNaive, LayeredDigraphLayeringLongestPathSink, LayeredDigraphLayeringLongestPathSource, LayeredDigraphLayeringOptimalLinkLength, GridLayoutLocation, GridLayoutCenter, GridArrangementLeftToRight, GridArrangementRightToLeft, GridArrangementTopToBottom, GridArrangementBottomToTop, GridWrappingNone, GridWrappingFit, GridSortingForwards, GridSortingReverse, GridSortingAscending, GridSortingDescending, GridAlignmentLocation, GridAlignmentPosition, AnimationDefault, AnimationEaseInOut, AnimationEaseIn, AnimationEaseOut, AnimationLinear, AnimationEaseOutBounce, AnimationStyleDefault, AnimationStyleAnimateLocations, AnimationStyleNone, AutoScaleNone, AutoScaleUniform, AutoScaleUniformToFill, ScrollDocument, ScrollInfinite, CycleAll, CycleNotDirected, CycleNotUndirected, CycleDestinationTree, CycleSourceTree, SegmentOrientationNone, SegmentOrientationAlong, SegmentOrientationOpposite, SegmentOrientationParallel, SegmentOrientationPerpendicular, SegmentOrientationOrthogonal, ChangedEventProperty, ChangedEventInsert, ChangedEventRemove, ChangedEventTransaction, PathSegmentLine, PathSegmentQuadraticBezier, PathSegmentCubicBezier, PathSegmentArc, PathSegmentMoveTo, PathSegmentClose, BrushSolid, BrushLinear, BrushRadial, ViewboxStretchNone, ViewboxStretchFill, ViewboxStretchUniform, ViewboxStretchUniformToFill, GraduatedPanNone, GraduatedPanLeft, GraduatedPanCenter, GraduatedPanRight, LinkAdjustingEnd, LinkAdjustingStretch, OrientationNone, OrientationAlong, OrientationMinus90, OrientationPlus90, OrientationPlus180, GestureModeNone, GestureModeCancel, GestureModeZoom, WheelModeZoom, TextEditingAcceptLostFocus, TextEditingStartingSingleClick, LayoutConditionsStandard, LayoutConditionsNodeSized, GeometryStretchUniform, GeometryTypeLine, GeometryTypePath, CircularNodeDiameterFormulaCircular, CircularNodeDiameterFormulaPythagorean, LinkingDirectionForwardsOnly, TriggerStartBundled, } from './core/EnumValues';
 export { Iterable, Iterator, IMapIterator } from './core/Iterable';
 export { List } from './core/List';
 export { Map } from './core/Map';
@@ -183,6 +183,52 @@ export declare const LayeredDigraphPack: {
 export declare const GridArrangement: {
     LeftToRight: import("./core/EnumValues").EnumValue;
     RightToLeft: import("./core/EnumValues").EnumValue;
+    TopToBottom: import("./core/EnumValues").EnumValue;
+    BottomToTop: import("./core/EnumValues").EnumValue;
+};
+export declare const PanelTypes: {
+    Auto: import("./core/EnumValues").EnumValue;
+    Position: import("./core/EnumValues").EnumValue;
+    Vertical: import("./core/EnumValues").EnumValue;
+    Horizontal: import("./core/EnumValues").EnumValue;
+    Spot: import("./core/EnumValues").EnumValue;
+    Table: import("./core/EnumValues").EnumValue;
+    TableColumn: import("./core/EnumValues").EnumValue;
+    TableRow: import("./core/EnumValues").EnumValue;
+    Viewbox: import("./core/EnumValues").EnumValue;
+    Link: import("./core/EnumValues").EnumValue;
+    Grid: import("./core/EnumValues").EnumValue;
+    Graduated: import("./core/EnumValues").EnumValue;
+};
+export declare const BindingMode: {
+    OneWay: import("./core/EnumValues").EnumValue;
+    TwoWay: import("./core/EnumValues").EnumValue;
+};
+export declare const CircularDirection: {
+    Clockwise: import("./core/EnumValues").EnumValue;
+    Counterclockwise: import("./core/EnumValues").EnumValue;
+    BidirectionalLeft: import("./core/EnumValues").EnumValue;
+    BidirectionalRight: import("./core/EnumValues").EnumValue;
+};
+export declare const LayeredDigraphDirection: {
+    Down: import("./core/EnumValues").EnumValue;
+    Up: import("./core/EnumValues").EnumValue;
+    Left: import("./core/EnumValues").EnumValue;
+    Right: import("./core/EnumValues").EnumValue;
+};
+export declare const LayeredDigraphInit: {
+    DepthFirstOut: import("./core/EnumValues").EnumValue;
+    DepthFirstIn: import("./core/EnumValues").EnumValue;
+    Naive: import("./core/EnumValues").EnumValue;
+};
+export declare const LayeredDigraphLayering: {
+    OptimalLinkLength: import("./core/EnumValues").EnumValue;
+    LongestPathSink: import("./core/EnumValues").EnumValue;
+    LongestPathSource: import("./core/EnumValues").EnumValue;
+};
+export declare const LayeredDigraphCycleRemove: {
+    DepthFirst: import("./core/EnumValues").EnumValue;
+    Greedy: import("./core/EnumValues").EnumValue;
 };
 export declare const ImageStretch: {
     None: import("./core/EnumValues").EnumValue;

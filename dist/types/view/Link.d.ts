@@ -66,6 +66,7 @@ export declare class Link extends Part {
     getLinkPointToPort(port: GraphObject, spot: Spot): Point;
     /** Compute the route points for this link */
     computePoints(): boolean;
+    private _applyShortLengths;
     /** Resolve the effective fromSpot for this link */
     private _resolveFromSpot;
     private _resolveToSpot;
@@ -78,6 +79,7 @@ export declare class Link extends Part {
     private _cornerPoint;
     /** Get the intersection of a line from center to target with the rectangle edge */
     private _getEdgeIntersection;
+    private _computeSelfLinkPoints;
     get midPoint(): Point;
     findClosestSegment(p: Point): number;
     copy(): Link;

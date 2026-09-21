@@ -29,9 +29,13 @@ export declare class GridLayout extends Layout {
     static Location: EnumValue;
     static Center: EnumValue;
     static Forwards: EnumValue;
+    static Forward: EnumValue;
     static Reverse: EnumValue;
     static Ascending: EnumValue;
     static Descending: EnumValue;
     static Position: EnumValue;
+    static LeftToRight: EnumValue;
+    static RightToLeft: EnumValue;
     static smartComparer(a: any, b: any): number;
+    static standardComparer(a: any, b: any): number;
 }
