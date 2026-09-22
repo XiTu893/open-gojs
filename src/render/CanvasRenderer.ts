@@ -967,7 +967,19 @@ export class CanvasRenderer {
     const shapeH = ab.height;
 
     // Get geometry
-    const geo = shape._getGeometry();
+    let geo = shape._getGeometry();
+    if (geo && (shape as any)._figure && !(shape as any)._geometry && !(shape as any)._geometryString &&
+        !((shape as any)._toArrow && (shape as any)._toArrow !== 'None') && !((shape as any)._fromArrow && (shape as any)._fromArrow !== 'None')) {
+      // Figure geometry is generated at a nominal size (e.g. 100x100). Regenerate it
+      // at the actual size so that we do NOT non-uniformly scale the path. Otherwise
+      // the stroke width gets distorted by the non-uniform scale (e.g. on a wide, short
+      // shape the top/bottom borders would be thinner than the left/right borders).
+      const rg = getFigureGeometry(
+        (shape as any)._figure, shapeW, shapeH,
+        (shape as any)._parameter1, (shape as any)._parameter2, shape
+      );
+      if (rg) geo = rg;
+    }
     if (!geo) {
       // No geometry: just fill/stroke a rectangle if fill or stroke is set
       if (shape.fill) {

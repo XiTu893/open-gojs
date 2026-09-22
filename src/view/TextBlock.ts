@@ -171,13 +171,27 @@ export class TextBlock extends GraphObject {
     this._applySizeConstraints();
   }
 
+  private _getLineHeight(ctx: CanvasRenderingContext2D, fontSize: number): number {
+    // Match the official GoJS algorithm: the line height is derived from the
+    // width of a capital "M" times 1.3. This is robust across browsers because
+    // it does not depend on glyph-specific ascent/descent metrics (e.g. "M" has
+    // no descender, so actualBoundingBoxDescent can be 0, which would clip the
+    // bottom of descenders and the line).
+    const m = ctx.measureText('M');
+    const w = m.width;
+    if (typeof w === 'number' && isFinite(w) && w > 0) {
+      return w * 1.3;
+    }
+    return Math.ceil(fontSize * 1.2);
+  }
+
   _measureText(ctx: CanvasRenderingContext2D, widthConstraint: number): { width: number; height: number; lineCount: number } {
     ctx.font = this._font;
 
     if (!this._isMultiline || this._wrap === WrapNone) {
       const metrics = ctx.measureText(this._text);
       const fontSize = TextBlock._getFontSize(this._font);
-      const lineHeight = fontSize * 1.2;
+      const lineHeight = this._getLineHeight(ctx, fontSize);
       return {
         width: metrics.width,
         height: lineHeight + this._spacingAbove + this._spacingBelow,
@@ -193,9 +207,10 @@ export class TextBlock extends GraphObject {
       } else {
         const metrics = ctx.measureText(this._text);
         const fontSize = TextBlock._getFontSize(this._font);
+        const lineHeight = this._getLineHeight(ctx, fontSize);
         return {
           width: metrics.width,
-          height: fontSize + this._spacingAbove + this._spacingBelow,
+          height: lineHeight + this._spacingAbove + this._spacingBelow,
           lineCount: 1,
         };
       }
@@ -203,7 +218,7 @@ export class TextBlock extends GraphObject {
 
     const lines = this._wrapText(ctx, this._text, wrapWidth);
     const fontSize = TextBlock._getFontSize(this._font);
-    const lineHeight = fontSize * 1.2;
+    const lineHeight = this._getLineHeight(ctx, fontSize);
     const totalHeight = lines.length * lineHeight + this._spacingAbove + this._spacingBelow;
     let maxWidth = 0;
     for (const line of lines) {
@@ -282,7 +297,7 @@ export class TextBlock extends GraphObject {
     }
 
     const fontSize = TextBlock._getFontSize(this._font);
-    const lineHeight = fontSize * 1.2;
+    const lineHeight = this._getLineHeight(ctx, fontSize);
 
     if (this._overflow === OverflowClip) {
       ctx.beginPath();

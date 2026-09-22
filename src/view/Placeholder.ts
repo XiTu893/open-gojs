@@ -33,7 +33,7 @@ export class Placeholder extends GraphObject {
   _measure(availW: number, availH: number): void {
     const group = this._findGroup();
     if (group) {
-      let bounds = new Rect();
+      let bounds: Rect | null = null;
       const groupPos = group.location;
       const it = group.memberParts.iterator;
       while (it.next()) {
@@ -46,10 +46,12 @@ export class Placeholder extends GraphObject {
           partBounds.width,
           partBounds.height
         );
-        bounds = bounds.union(localBounds);
+        bounds = bounds ? bounds.union(localBounds) : localBounds;
       }
       const pad = this._padding;
-      this._measuredBounds = new Rect(0, 0, bounds.width + pad * 2, bounds.height + pad * 2);
+      const w = bounds ? bounds.width : 0;
+      const h = bounds ? bounds.height : 0;
+      this._measuredBounds = new Rect(0, 0, w + pad * 2, h + pad * 2);
       this._naturalBounds = this._measuredBounds.copy();
     } else {
       this._measuredBounds = new Rect(0, 0, 0, 0);

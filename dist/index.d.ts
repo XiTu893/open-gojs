@@ -1974,6 +1974,7 @@ declare class TextBlock extends GraphObject {
     get naturalSize(): Size;
     measure(width: number, height: number): void;
     _measure(widthConstraint: number, heightConstraint: number): void;
+    private _getLineHeight;
     _measureText(ctx: CanvasRenderingContext2D, widthConstraint: number): {
         width: number;
         height: number;
@@ -3446,6 +3447,9 @@ declare class Diagram {
     private _applyInitialViewport;
     private _applyAutoScale;
     private _applyContentAlignment;
+    private _findGroupPlaceholder;
+    private _computeGroupMemberOrigin;
+    private _layoutGroupMembers;
     private _updateGeometry;
     private _setupResizeObserver;
     private _checkResize;

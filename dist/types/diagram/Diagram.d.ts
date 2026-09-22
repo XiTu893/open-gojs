@@ -270,6 +270,9 @@ export declare class Diagram {
     private _applyInitialViewport;
     private _applyAutoScale;
     private _applyContentAlignment;
+    private _findGroupPlaceholder;
+    private _computeGroupMemberOrigin;
+    private _layoutGroupMembers;
     private _updateGeometry;
     private _setupResizeObserver;
     private _checkResize;

@@ -73,7 +73,28 @@ window.collectSummary = function(myDiagram) {
     else if (pit && pit.next) { while (pit.next()) pts.push([Math.round(pit.value.x), Math.round(pit.value.y)]); }
     links.push({ from: l.data && l.data.from, to: l.data && l.data.to, pts: pts });
   }
-  return { nodes: nodes, links: links };
+  var groups = [];
+  var git = myDiagram.nodes;
+  while (git.next()) {
+    var g = git.value;
+    if (!(g instanceof go.Group)) continue;
+    var panel = null;
+    var ph = null;
+    var title = null;
+    var els = g.elements;
+    if (els && els.next) { while (els.next()) { var el = els.value; if (el instanceof go.TextBlock && !title) title = el; if (el instanceof go.Panel) { panel = el; if (el.elements) { var pi = el.elements; while (pi.next()) { var pe = pi.value; if (pe instanceof go.Placeholder) ph = pe; } } } } }
+    var pab = panel ? panel.getDocumentBounds() : null;
+    var phab = ph ? ph.getDocumentBounds() : null;
+    var tab = title ? title.getDocumentBounds() : null;
+    groups.push({
+      key: g.data && g.data.key,
+      groupLoc: [Math.round(g.location.x), Math.round(g.location.y)],
+      panel: pab ? [Math.round(pab.x - g.location.x), Math.round(pab.y - g.location.y), Math.round(pab.width), Math.round(pab.height)] : null,
+      ph: phab ? [Math.round(phab.x - g.location.x), Math.round(phab.y - g.location.y), Math.round(phab.width), Math.round(phab.height)] : null,
+      title: tab ? [Math.round(tab.x - g.location.x), Math.round(tab.y - g.location.y), Math.round(tab.width), Math.round(tab.height)] : null
+    });
+  }
+  return { nodes: nodes, links: links, groups: groups };
 };
 `;
 
@@ -138,4 +159,6 @@ function waitForResult(page, timeout) {
   console.log('WROTE cdp-compare.json');
   console.log('OFFICIAL NODES:', JSON.stringify(out.official.result.nodes, null, 1));
   console.log('LOCAL NODES:', JSON.stringify(out.local.result.nodes, null, 1));
+  console.log('OFFICIAL GROUPS:', JSON.stringify(out.official.result.groups, null, 1));
+  console.log('LOCAL GROUPS:', JSON.stringify(out.local.result.groups, null, 1));
 })().catch(e => { console.error('ERR', e && e.message ? e.message : e); process.exit(1); });

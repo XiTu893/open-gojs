@@ -718,7 +718,6 @@ export class Panel extends GraphObject {
       const mainAvailH = Math.min(availH, contentH + m.top + m.bottom + strokeW);
       main._measure(mainAvailW, mainAvailH);
 
-      // The main element should be at least as large as the content area
       const mb = main.measuredBounds;
       const mainW = Math.max(mb.width + m.left + m.right, contentW + m.left + m.right + strokeW);
       const mainH = Math.max(mb.height + m.top + m.bottom, contentH + m.top + m.bottom + strokeW);
@@ -754,8 +753,14 @@ export class Panel extends GraphObject {
     // Position other elements by alignment within the panel area (default: centered)
     for (const elem of others) {
       const mb = elem.measuredBounds;
+      const m = elem.margin;
       const alignment = this._resolveAlignment(elem);
-      const pos = alignment.positionInRect(new Rect(innerX, innerY, innerW, innerH));
+      const pos = alignment.positionInRect(new Rect(
+        innerX + m.left,
+        innerY + m.top,
+        Math.max(0, innerW - m.left - m.right),
+        Math.max(0, innerH - m.top - m.bottom)
+      ));
       const focus = this._resolveAlignmentFocus(elem);
       const focusPos = focus.positionInRect(new Rect(0, 0, mb.width, mb.height));
       elem._arrange(new Rect(
@@ -1348,6 +1353,11 @@ export class Panel extends GraphObject {
     if (!a.isDefault) return a;
     // Auto and Spot panels default to centering non-main elements
     if (this._type === PanelAuto || this._type === PanelSpot) {
+      return new Spot(0.5, 0.5);
+    }
+    // Vertical and Horizontal panels default to Spot.Center (matching GoJS):
+    // an element narrower than the panel is centered along the panel's cross axis.
+    if (this._type === PanelVertical || this._type === PanelHorizontal) {
       return new Spot(0.5, 0.5);
     }
     return this._defaultAlignment;

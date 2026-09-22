@@ -7576,13 +7576,26 @@ var TextBlock = /** @class */ (function (_super) {
         this._measuredBounds = new Rect(0, 0, measuredWidth, measuredHeight);
         this._applySizeConstraints();
     };
+    TextBlock.prototype._getLineHeight = function (ctx, fontSize) {
+        // Match the official GoJS algorithm: the line height is derived from the
+        // width of a capital "M" times 1.3. This is robust across browsers because
+        // it does not depend on glyph-specific ascent/descent metrics (e.g. "M" has
+        // no descender, so actualBoundingBoxDescent can be 0, which would clip the
+        // bottom of descenders and the line).
+        var m = ctx.measureText('M');
+        var w = m.width;
+        if (typeof w === 'number' && isFinite(w) && w > 0) {
+            return w * 1.3;
+        }
+        return Math.ceil(fontSize * 1.2);
+    };
     TextBlock.prototype._measureText = function (ctx, widthConstraint) {
         var e_1, _a;
         ctx.font = this._font;
         if (!this._isMultiline || this._wrap === WrapNone) {
             var metrics = ctx.measureText(this._text);
             var fontSize_1 = TextBlock._getFontSize(this._font);
-            var lineHeight_1 = fontSize_1 * 1.2;
+            var lineHeight_1 = this._getLineHeight(ctx, fontSize_1);
             return {
                 width: metrics.width,
                 height: lineHeight_1 + this._spacingAbove + this._spacingBelow,
@@ -7598,16 +7611,17 @@ var TextBlock = /** @class */ (function (_super) {
             else {
                 var metrics = ctx.measureText(this._text);
                 var fontSize_2 = TextBlock._getFontSize(this._font);
+                var lineHeight_2 = this._getLineHeight(ctx, fontSize_2);
                 return {
                     width: metrics.width,
-                    height: fontSize_2 + this._spacingAbove + this._spacingBelow,
+                    height: lineHeight_2 + this._spacingAbove + this._spacingBelow,
                     lineCount: 1,
                 };
             }
         }
         var lines = this._wrapText(ctx, this._text, wrapWidth);
         var fontSize = TextBlock._getFontSize(this._font);
-        var lineHeight = fontSize * 1.2;
+        var lineHeight = this._getLineHeight(ctx, fontSize);
         var totalHeight = lines.length * lineHeight + this._spacingAbove + this._spacingBelow;
         var maxWidth = 0;
         try {
@@ -7705,7 +7719,7 @@ var TextBlock = /** @class */ (function (_super) {
             }
         }
         var fontSize = TextBlock._getFontSize(this._font);
-        var lineHeight = fontSize * 1.2;
+        var lineHeight = this._getLineHeight(ctx, fontSize);
         if (this._overflow === OverflowClip) {
             ctx.beginPath();
             ctx.rect(this._actualBounds.x, this._actualBounds.y, this._actualBounds.width, this._actualBounds.height);
@@ -8972,7 +8986,6 @@ var Panel = /** @class */ (function (_super) {
             var mainAvailW = Math.min(availW, contentW + m.left + m.right + strokeW);
             var mainAvailH = Math.min(availH, contentH + m.top + m.bottom + strokeW);
             main._measure(mainAvailW, mainAvailH);
-            // The main element should be at least as large as the content area
             var mb = main.measuredBounds;
             var mainW = Math.max(mb.width + m.left + m.right, contentW + m.left + m.right + strokeW);
             var mainH = Math.max(mb.height + m.top + m.bottom, contentH + m.top + m.bottom + strokeW);
@@ -8998,8 +9011,9 @@ var Panel = /** @class */ (function (_super) {
             for (var others_2 = __values(others), others_2_1 = others_2.next(); !others_2_1.done; others_2_1 = others_2.next()) {
                 var elem = others_2_1.value;
                 var mb = elem.measuredBounds;
+                var m = elem.margin;
                 var alignment = this._resolveAlignment(elem);
-                var pos = alignment.positionInRect(new Rect(innerX, innerY, innerW, innerH));
+                var pos = alignment.positionInRect(new Rect(innerX + m.left, innerY + m.top, Math.max(0, innerW - m.left - m.right), Math.max(0, innerH - m.top - m.bottom)));
                 var focus_1 = this._resolveAlignmentFocus(elem);
                 var focusPos = focus_1.positionInRect(new Rect(0, 0, mb.width, mb.height));
                 elem._arrange(new Rect(pos.x - focusPos.x, pos.y - focusPos.y, mb.width, mb.height));
@@ -9707,6 +9721,11 @@ var Panel = /** @class */ (function (_super) {
             return a;
         // Auto and Spot panels default to centering non-main elements
         if (this._type === PanelAuto || this._type === PanelSpot) {
+            return new Spot(0.5, 0.5);
+        }
+        // Vertical and Horizontal panels default to Spot.Center (matching GoJS):
+        // an element narrower than the panel is centered along the panel's cross axis.
+        if (this._type === PanelVertical || this._type === PanelHorizontal) {
             return new Spot(0.5, 0.5);
         }
         return this._defaultAlignment;
@@ -11636,7 +11655,7 @@ var Placeholder = /** @class */ (function (_super) {
     Placeholder.prototype._measure = function (availW, availH) {
         var group = this._findGroup();
         if (group) {
-            var bounds = new Rect();
+            var bounds = null;
             var groupPos = group.location;
             var it = group.memberParts.iterator;
             while (it.next()) {
@@ -11645,10 +11664,12 @@ var Placeholder = /** @class */ (function (_super) {
                     continue;
                 var partBounds = part.getDocumentBounds();
                 var localBounds = new Rect(partBounds.x - groupPos.x, partBounds.y - groupPos.y, partBounds.width, partBounds.height);
-                bounds = bounds.union(localBounds);
+                bounds = bounds ? bounds.union(localBounds) : localBounds;
             }
             var pad = this._padding;
-            this._measuredBounds = new Rect(0, 0, bounds.width + pad * 2, bounds.height + pad * 2);
+            var w = bounds ? bounds.width : 0;
+            var h = bounds ? bounds.height : 0;
+            this._measuredBounds = new Rect(0, 0, w + pad * 2, h + pad * 2);
             this._naturalBounds = this._measuredBounds.copy();
         }
         else {
@@ -12775,6 +12796,16 @@ var CanvasRenderer = /** @class */ (function () {
         var shapeH = ab.height;
         // Get geometry
         var geo = shape._getGeometry();
+        if (geo && shape._figure && !shape._geometry && !shape._geometryString &&
+            !(shape._toArrow && shape._toArrow !== 'None') && !(shape._fromArrow && shape._fromArrow !== 'None')) {
+            // Figure geometry is generated at a nominal size (e.g. 100x100). Regenerate it
+            // at the actual size so that we do NOT non-uniformly scale the path. Otherwise
+            // the stroke width gets distorted by the non-uniform scale (e.g. on a wide, short
+            // shape the top/bottom borders would be thinner than the left/right borders).
+            var rg = getFigureGeometry(shape._figure, shapeW, shapeH, shape._parameter1, shape._parameter2, shape);
+            if (rg)
+                geo = rg;
+        }
         if (!geo) {
             // No geometry: just fill/stroke a rectangle if fill or stroke is set
             if (shape.fill) {
@@ -19809,8 +19840,131 @@ var Diagram = /** @class */ (function () {
             return;
         this.alignDocument(this._contentAlignment, this._contentAlignment);
     };
+    Diagram.prototype._findGroupPlaceholder = function (group) {
+        // Walk the group's panel tree to locate the first Placeholder, tracking the
+        // accumulated actualBounds offset of each nested panel from the group's origin.
+        var walk = function (obj, px, py) {
+            var e_27, _a;
+            if (!obj)
+                return null;
+            if (obj._isPlaceholder) {
+                return { panelX: px, panelY: py, phX: obj.actualBounds ? obj.actualBounds.x : 0, phY: obj.actualBounds ? obj.actualBounds.y : 0 };
+            }
+            if (obj instanceof Panel || (obj._elements && obj._elements.length !== undefined)) {
+                var elements = obj._elements;
+                try {
+                    for (var elements_3 = __values(elements), elements_3_1 = elements_3.next(); !elements_3_1.done; elements_3_1 = elements_3.next()) {
+                        var child = elements_3_1.value;
+                        var ab = obj.actualBounds;
+                        var dx = (obj === group) ? 0 : (ab ? ab.x : 0);
+                        var dy = (obj === group) ? 0 : (ab ? ab.y : 0);
+                        var r = walk(child, px + dx, py + dy);
+                        if (r)
+                            return r;
+                    }
+                }
+                catch (e_27_1) { e_27 = { error: e_27_1 }; }
+                finally {
+                    try {
+                        if (elements_3_1 && !elements_3_1.done && (_a = elements_3.return)) _a.call(elements_3);
+                    }
+                    finally { if (e_27) throw e_27.error; }
+                }
+            }
+            return null;
+        };
+        return walk(group, 0, 0);
+    };
+    // Compute the (x, y) offset within the group's document coordinate system at
+    // which the member area (the placeholder) begins. This depends only on the
+    // group's header height and the placeholder's margin plus the surrounding
+    // shape's stroke -- NOT on the members' positions -- so it is stable across
+    // layout passes and avoids the placeholder<->member measurement cycle.
+    Diagram.prototype._computeGroupMemberOrigin = function (group) {
+        var headerEl = group._elements && group._elements[0];
+        var headerH = headerEl && headerEl.measuredBounds ? headerEl.measuredBounds.height : 0;
+        var insetX = 10;
+        var insetY = 10;
+        var walk = function (obj) {
+            var e_28, _a, e_29, _b;
+            if (!obj)
+                return false;
+            if (obj._elements && obj._elements.length !== undefined) {
+                try {
+                    for (var _c = __values(obj._elements), _d = _c.next(); !_d.done; _d = _c.next()) {
+                        var child = _d.value;
+                        if (child._isPlaceholder) {
+                            var m = child.margin;
+                            var stroke = 0;
+                            if (obj._elements) {
+                                try {
+                                    for (var _e = (e_29 = void 0, __values(obj._elements)), _f = _e.next(); !_f.done; _f = _e.next()) {
+                                        var sib = _f.value;
+                                        if (sib._strokeWidth)
+                                            stroke = sib._strokeWidth;
+                                    }
+                                }
+                                catch (e_29_1) { e_29 = { error: e_29_1 }; }
+                                finally {
+                                    try {
+                                        if (_f && !_f.done && (_b = _e.return)) _b.call(_e);
+                                    }
+                                    finally { if (e_29) throw e_29.error; }
+                                }
+                            }
+                            if (m) {
+                                insetX = m.left + stroke;
+                                insetY = m.top + stroke;
+                            }
+                            return true;
+                        }
+                        if (walk(child))
+                            return true;
+                    }
+                }
+                catch (e_28_1) { e_28 = { error: e_28_1 }; }
+                finally {
+                    try {
+                        if (_d && !_d.done && (_a = _c.return)) _a.call(_c);
+                    }
+                    finally { if (e_28) throw e_28.error; }
+                }
+            }
+            return false;
+        };
+        walk(group);
+        return { x: insetX, y: headerH + insetY };
+    };
+    // Lay out a group's member parts inside the group, starting at the top-left
+    // of the member area (below the header). The members are positioned relative
+    // to the group's header (title) so this does not depend on the placeholder's
+    // measured bounds (which in turn depend on the members' positions).
+    Diagram.prototype._layoutGroupMembers = function (group, groupInnerWidth, hSpacing, vSpacing) {
+        var gloc = group.location;
+        var gx = isNaN(gloc.x) ? 0 : gloc.x;
+        var gy = isNaN(gloc.y) ? 0 : gloc.y;
+        var origin = this._computeGroupMemberOrigin(group);
+        var baseX = gx + origin.x;
+        var baseY = gy + origin.y;
+        var mx = baseX;
+        var my = baseY;
+        var rowMax = 0;
+        var mIt = group.memberParts.iterator;
+        while (mIt.next()) {
+            var member = mIt.value;
+            var mmb = member.measuredBounds;
+            if (mx + mmb.width > gx + groupInnerWidth && mx > baseX) {
+                mx = baseX;
+                my += rowMax + vSpacing;
+                rowMax = 0;
+            }
+            member.location = new Point(mx, my);
+            mx += mmb.width + hSpacing;
+            rowMax = Math.max(rowMax, mmb.height);
+        }
+    };
     Diagram.prototype._updateGeometry = function () {
-        var e_27, _a, e_28, _b, e_29, _c, e_30, _d, e_31, _e, e_32, _f, e_33, _g, e_34, _h, e_35, _j, e_36, _k;
+        var e_30, _a, e_31, _b, e_32, _c, e_33, _d, e_34, _e, e_35, _f, e_36, _g, e_37, _h, e_38, _j, e_39, _k;
         var viewSize = this.viewSize;
         var availW = viewSize.width > 0 ? viewSize.width : 800;
         var availH = viewSize.height > 0 ? viewSize.height : 600;
@@ -19830,17 +19984,16 @@ var Diagram = /** @class */ (function () {
                 }
             }
         }
-        catch (e_27_1) { e_27 = { error: e_27_1 }; }
+        catch (e_30_1) { e_30 = { error: e_30_1 }; }
         finally {
             try {
                 if (_m && !_m.done && (_a = _l.return)) _a.call(_l);
             }
-            finally { if (e_27) throw e_27.error; }
+            finally { if (e_30) throw e_30.error; }
         }
         if (!this._layout) {
             var hSpacing = 20;
             var vSpacing = 36;
-            var pad = 10;
             var maxWidth = availW - 100;
             // available width for a group's member grid
             var groupInnerWidth = Math.max(120, Math.min(400, maxWidth - 80));
@@ -19861,12 +20014,12 @@ var Diagram = /** @class */ (function () {
                     topUnits.push(part);
                 }
             }
-            catch (e_28_1) { e_28 = { error: e_28_1 }; }
+            catch (e_31_1) { e_31 = { error: e_31_1 }; }
             finally {
                 try {
                     if (partsToLayout_1_1 && !partsToLayout_1_1.done && (_b = partsToLayout_1.return)) _b.call(partsToLayout_1);
                 }
-                finally { if (e_28) throw e_28.error; }
+                finally { if (e_31) throw e_31.error; }
             }
             // Place top-level nodes and groups in a uniform square-ish grid:
             // every column has the same width and every row the same height, so the
@@ -19881,12 +20034,12 @@ var Diagram = /** @class */ (function () {
                     cellH = Math.max(cellH, mb.height);
                 }
             }
-            catch (e_29_1) { e_29 = { error: e_29_1 }; }
+            catch (e_32_1) { e_32 = { error: e_32_1 }; }
             finally {
                 try {
                     if (topUnits_1_1 && !topUnits_1_1.done && (_c = topUnits_1.return)) _c.call(topUnits_1);
                 }
-                finally { if (e_29) throw e_29.error; }
+                finally { if (e_32) throw e_32.error; }
             }
             cellW += hSpacing;
             cellH += vSpacing;
@@ -19914,12 +20067,12 @@ var Diagram = /** @class */ (function () {
                     }
                 }
             }
-            catch (e_30_1) { e_30 = { error: e_30_1 }; }
+            catch (e_33_1) { e_33 = { error: e_33_1 }; }
             finally {
                 try {
                     if (topUnits_2_1 && !topUnits_2_1.done && (_d = topUnits_2.return)) _d.call(topUnits_2);
                 }
-                finally { if (e_30) throw e_30.error; }
+                finally { if (e_33) throw e_33.error; }
             }
             // Place each group's member nodes inside the group's bounds.
             var memberGroups = [];
@@ -19931,43 +20084,25 @@ var Diagram = /** @class */ (function () {
                     }
                 }
             }
-            catch (e_31_1) { e_31 = { error: e_31_1 }; }
+            catch (e_34_1) { e_34 = { error: e_34_1 }; }
             finally {
                 try {
                     if (topUnits_3_1 && !topUnits_3_1.done && (_e = topUnits_3.return)) _e.call(topUnits_3);
                 }
-                finally { if (e_31) throw e_31.error; }
+                finally { if (e_34) throw e_34.error; }
             }
             try {
                 for (var memberGroups_1 = __values(memberGroups), memberGroups_1_1 = memberGroups_1.next(); !memberGroups_1_1.done; memberGroups_1_1 = memberGroups_1.next()) {
                     var group = memberGroups_1_1.value;
-                    var gloc = group.location;
-                    var gx = isNaN(gloc.x) ? 0 : gloc.x;
-                    var gy = isNaN(gloc.y) ? 0 : gloc.y;
-                    var mx = gx + pad;
-                    var my = gy + pad;
-                    var rowMax = 0;
-                    var mIt = group.memberParts.iterator;
-                    while (mIt.next()) {
-                        var member = mIt.value;
-                        var mmb = member.measuredBounds;
-                        if (mx + mmb.width > gx + groupInnerWidth && mx > gx + pad) {
-                            mx = gx + pad;
-                            my += rowMax + vSpacing;
-                            rowMax = 0;
-                        }
-                        member.location = new Point(mx, my);
-                        mx += mmb.width + hSpacing;
-                        rowMax = Math.max(rowMax, mmb.height);
-                    }
+                    this._layoutGroupMembers(group, groupInnerWidth, hSpacing, vSpacing);
                 }
             }
-            catch (e_32_1) { e_32 = { error: e_32_1 }; }
+            catch (e_35_1) { e_35 = { error: e_35_1 }; }
             finally {
                 try {
                     if (memberGroups_1_1 && !memberGroups_1_1.done && (_f = memberGroups_1.return)) _f.call(memberGroups_1);
                 }
-                finally { if (e_32) throw e_32.error; }
+                finally { if (e_35) throw e_35.error; }
             }
         }
         try {
@@ -19982,12 +20117,12 @@ var Diagram = /** @class */ (function () {
                 part._arrange(new Rect(x, y, mb.width, mb.height));
             }
         }
-        catch (e_33_1) { e_33 = { error: e_33_1 }; }
+        catch (e_36_1) { e_36 = { error: e_36_1 }; }
         finally {
             try {
                 if (partsToLayout_2_1 && !partsToLayout_2_1.done && (_g = partsToLayout_2.return)) _g.call(partsToLayout_2);
             }
-            finally { if (e_33) throw e_33.error; }
+            finally { if (e_36) throw e_36.error; }
         }
         try {
             for (var partsToLayout_3 = __values(partsToLayout), partsToLayout_3_1 = partsToLayout_3.next(); !partsToLayout_3_1.done; partsToLayout_3_1 = partsToLayout_3.next()) {
@@ -20002,12 +20137,12 @@ var Diagram = /** @class */ (function () {
                 part.computePoints();
             }
         }
-        catch (e_34_1) { e_34 = { error: e_34_1 }; }
+        catch (e_37_1) { e_37 = { error: e_37_1 }; }
         finally {
             try {
                 if (partsToLayout_3_1 && !partsToLayout_3_1.done && (_h = partsToLayout_3.return)) _h.call(partsToLayout_3);
             }
-            finally { if (e_34) throw e_34.error; }
+            finally { if (e_37) throw e_37.error; }
         }
         var groupsToRemeasure = [];
         try {
@@ -20018,12 +20153,12 @@ var Diagram = /** @class */ (function () {
                 }
             }
         }
-        catch (e_35_1) { e_35 = { error: e_35_1 }; }
+        catch (e_38_1) { e_38 = { error: e_38_1 }; }
         finally {
             try {
                 if (partsToLayout_4_1 && !partsToLayout_4_1.done && (_j = partsToLayout_4.return)) _j.call(partsToLayout_4);
             }
-            finally { if (e_35) throw e_35.error; }
+            finally { if (e_38) throw e_38.error; }
         }
         try {
             for (var groupsToRemeasure_1 = __values(groupsToRemeasure), groupsToRemeasure_1_1 = groupsToRemeasure_1.next(); !groupsToRemeasure_1_1.done; groupsToRemeasure_1_1 = groupsToRemeasure_1.next()) {
@@ -20036,12 +20171,12 @@ var Diagram = /** @class */ (function () {
                 group._arrange(new Rect(x, y, mb.width, mb.height));
             }
         }
-        catch (e_36_1) { e_36 = { error: e_36_1 }; }
+        catch (e_39_1) { e_39 = { error: e_39_1 }; }
         finally {
             try {
                 if (groupsToRemeasure_1_1 && !groupsToRemeasure_1_1.done && (_k = groupsToRemeasure_1.return)) _k.call(groupsToRemeasure_1);
             }
-            finally { if (e_36) throw e_36.error; }
+            finally { if (e_39) throw e_39.error; }
         }
     };
     Diagram.prototype._setupResizeObserver = function () {

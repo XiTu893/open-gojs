@@ -1708,6 +1708,96 @@ export class Diagram {
     this.alignDocument(this._contentAlignment, this._contentAlignment);
   }
 
+  private _findGroupPlaceholder(group: any): { panelX: number; panelY: number; phX: number; phY: number } | null {
+    // Walk the group's panel tree to locate the first Placeholder, tracking the
+    // accumulated actualBounds offset of each nested panel from the group's origin.
+    const walk = (obj: any, px: number, py: number): any => {
+      if (!obj) return null;
+      if (obj._isPlaceholder) {
+        return { panelX: px, panelY: py, phX: obj.actualBounds ? obj.actualBounds.x : 0, phY: obj.actualBounds ? obj.actualBounds.y : 0 };
+      }
+      if (obj instanceof Panel || (obj._elements && obj._elements.length !== undefined)) {
+        const elements = obj._elements;
+        for (const child of elements) {
+          const ab = obj.actualBounds;
+          const dx = (obj === group) ? 0 : (ab ? ab.x : 0);
+          const dy = (obj === group) ? 0 : (ab ? ab.y : 0);
+          const r = walk(child, px + dx, py + dy);
+          if (r) return r;
+        }
+      }
+      return null;
+    };
+    return walk(group, 0, 0);
+  }
+
+  // Compute the (x, y) offset within the group's document coordinate system at
+  // which the member area (the placeholder) begins. This depends only on the
+  // group's header height and the placeholder's margin plus the surrounding
+  // shape's stroke -- NOT on the members' positions -- so it is stable across
+  // layout passes and avoids the placeholder<->member measurement cycle.
+  private _computeGroupMemberOrigin(group: any): { x: number; y: number } {
+    const headerEl = group._elements && group._elements[0];
+    const headerH = headerEl && headerEl.measuredBounds ? headerEl.measuredBounds.height : 0;
+    let insetX = 10;
+    let insetY = 10;
+    const walk = (obj: any): boolean => {
+      if (!obj) return false;
+      if (obj._elements && obj._elements.length !== undefined) {
+        for (const child of obj._elements) {
+          if (child._isPlaceholder) {
+            const m = child.margin;
+            let stroke = 0;
+            if (obj._elements) {
+              for (const sib of obj._elements) {
+                if (sib._strokeWidth) stroke = sib._strokeWidth;
+              }
+            }
+            if (m) {
+              insetX = m.left + stroke;
+              insetY = m.top + stroke;
+            }
+            return true;
+          }
+          if (walk(child)) return true;
+        }
+      }
+      return false;
+    };
+    walk(group);
+    return { x: insetX, y: headerH + insetY };
+  }
+
+  // Lay out a group's member parts inside the group, starting at the top-left
+  // of the member area (below the header). The members are positioned relative
+  // to the group's header (title) so this does not depend on the placeholder's
+  // measured bounds (which in turn depend on the members' positions).
+  private _layoutGroupMembers(group: any, groupInnerWidth: number, hSpacing: number, vSpacing: number): void {
+    const gloc = group.location;
+    const gx = isNaN(gloc.x) ? 0 : gloc.x;
+    const gy = isNaN(gloc.y) ? 0 : gloc.y;
+
+    const origin = this._computeGroupMemberOrigin(group);
+    const baseX = gx + origin.x;
+    const baseY = gy + origin.y;
+    let mx = baseX;
+    let my = baseY;
+    let rowMax = 0;
+    const mIt = group.memberParts.iterator;
+    while (mIt.next()) {
+      const member = mIt.value;
+      const mmb = member.measuredBounds;
+      if (mx + mmb.width > gx + groupInnerWidth && mx > baseX) {
+        mx = baseX;
+        my += rowMax + vSpacing;
+        rowMax = 0;
+      }
+      member.location = new Point(mx, my);
+      mx += mmb.width + hSpacing;
+      rowMax = Math.max(rowMax, mmb.height);
+    }
+  }
+
   private _updateGeometry(): void {
     const viewSize = this.viewSize;
     const availW = viewSize.width > 0 ? viewSize.width : 800;
@@ -1791,25 +1881,7 @@ export class Diagram {
         }
       }
       for (const group of memberGroups) {
-        const gloc = group.location;
-        const gx = isNaN(gloc.x) ? 0 : gloc.x;
-        const gy = isNaN(gloc.y) ? 0 : gloc.y;
-        let mx = gx + pad;
-        let my = gy + pad;
-        let rowMax = 0;
-        const mIt = group.memberParts.iterator;
-        while (mIt.next()) {
-          const member = mIt.value;
-          const mmb = member.measuredBounds;
-          if (mx + mmb.width > gx + groupInnerWidth && mx > gx + pad) {
-            mx = gx + pad;
-            my += rowMax + vSpacing;
-            rowMax = 0;
-          }
-          member.location = new Point(mx, my);
-          mx += mmb.width + hSpacing;
-          rowMax = Math.max(rowMax, mmb.height);
-        }
+        this._layoutGroupMembers(group, groupInnerWidth, hSpacing, vSpacing);
       }
     }
 
