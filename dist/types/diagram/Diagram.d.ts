@@ -71,6 +71,7 @@ export declare class Diagram {
     _layers: Layer[];
     _parts: Map<any, Part>;
     _nodeKeyMap: Map<any, Node>;
+    _treeLinkDataByChildKey: Map<any, ObjectData>;
     _changedListeners: Function[];
     _diagramListeners: Map<string, Function[]>;
     _needsRender: boolean;
@@ -266,13 +267,20 @@ export declare class Diagram {
     raiseDiagramEvent(name: string, ...args: any[]): void;
     private _findObjectInPanel;
     private _renderLoop;
+    /**
+     * 官方 measure+arrange 全体部件（Ht 语义）：
+     * pass1 非 Group 非 Link → pass2 Group → pass3 Link；
+     * 每个部件：ensureBounds（measure + bF 位置同步，仅 measure=true 时；渲染阶段只 arrange，
+     * 对齐官方 render 不重新 measure）→ _arrange(原始 position, measuredBounds)
+     * → syncPositionFromLocation（arrange 后 locationSpot 偏移变化时重推 position）。
+     * position 为 NaN 时按原样传入（ab.x/y 保持 NaN，对齐官方）。
+     */
+    private _measureArrangeAll;
+    private _collectGroups;
     private _performLayout;
     private _applyInitialViewport;
     private _applyAutoScale;
     private _applyContentAlignment;
-    private _findGroupPlaceholder;
-    private _computeGroupMemberOrigin;
-    private _layoutGroupMembers;
     private _updateGeometry;
     private _setupResizeObserver;
     private _checkResize;

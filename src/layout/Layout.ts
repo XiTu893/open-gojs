@@ -71,13 +71,121 @@ export class Layout {
 
   /**
    * Perform the layout on the given collection of parts.
-   * @param coll - A Diagram, Iterable<Part>, or array of Parts
+   * 官方 base Layout.doLayout：收集未定位的顶层部件（doMinimalNoNetworkLayout 的 Ga 谓词），
+   * 按 ceil(sqrt(n)) 列的极简网格摆放（仅对 location/position 均为 NaN 的部件）。
+   * @param coll - A Diagram, Group, Iterable<Part>, or array of Parts
    */
   doLayout(coll: any): void {
-    // Base implementation - subclasses override
-    const parts = this.collectParts(coll);
-    if (parts.count === 0) return;
+    const parts = this.collectMinimalParts(coll);
+    if (parts.length > 0) {
+      this.doMinimalNoNetworkLayout(parts);
+    }
     this.isValidLayout = true;
+  }
+
+  /**
+   * 官方 Layout.Zh（base 版收集，谓词 = Ga(t)）：
+   * - Diagram：nodes(topLevelOnly) + parts(topLevelOnly) 两趟
+   * - Group：memberParts(topLevelOnly=false)
+   * - 其他可迭代集合：addAll，不带谓词
+   * 谓词 Ga(t) = (!location实值 && !position实值) || (Group && t.Ga)
+   * Node 分支：Group.layout===null 时递归 memberParts；其余 ensureBounds 后加入。
+   */
+  collectMinimalParts(coll: any): Part[] {
+    const out: Part[] = [];
+    const seen = new Set<Part>();
+    if (!coll) return out;
+
+    const ga = (h: any): boolean => {
+      const loc = h.location;
+      const pos = h.position;
+      const locReal = loc && !isNaN(loc.x) && !isNaN(loc.y);
+      const posReal = pos && !isNaN(pos.x) && !isNaN(pos.y);
+      return (!locReal && !posReal) || (h._className === 'Group' && h.Ga === true);
+    };
+
+    const add = (h: any): void => {
+      if (seen.has(h)) return;
+      seen.add(h);
+      out.push(h);
+    };
+
+    const zh = (it: any, topLevelOnly: boolean): void => {
+      if (!it) return;
+      while (it.next && it.next()) {
+        const h: any = it.value;
+        if (topLevelOnly && !h.isTopLevel) continue;
+        if (!ga(h)) continue;
+        if (typeof h.canLayout === 'function' ? !h.canLayout() : (h.isLayoutPositioned === false || h.visible === false)) continue;
+        if (h instanceof Node) {
+          if ((h as any).isLinkLabel) continue;
+          if ((h as any)._className === 'Group' && (h as any).layout === null) {
+            zh((h as any).memberParts.iterator, false);
+          } else {
+            h.ensureBounds();
+            add(h);
+          }
+        } else if (!(h instanceof Link)) {
+          h.ensureBounds();
+          add(h);
+        }
+      }
+    };
+
+    if (coll._layers !== undefined || (typeof coll.nodes !== 'undefined' && typeof coll.links !== 'undefined')) {
+      // Diagram：nodes + parts 两趟（均为 topLevelOnly）
+      zh(coll.nodes, true);
+      if (coll.parts) zh(coll.parts, true);
+    } else if (coll.memberParts !== undefined) {
+      // Group
+      zh(coll.memberParts.iterator, false);
+    } else if (Array.isArray(coll)) {
+      for (const p of coll) add(p);
+    } else if (coll.iterator) {
+      const it2 = coll.iterator;
+      while (it2.next()) add(it2.value);
+    } else if (typeof coll.next === 'function') {
+      zh(coll, false);
+    }
+    return out;
+  }
+
+  /**
+   * 官方 Layout.doMinimalNoNetworkLayout：
+   * arrangementOrigin = initialOrigin(arrangementOrigin)（原地变更），
+   * cols = ceil(sqrt(n))，步长 max(w,50)+20，行高 max(max(h,50))，moveTo 后 Group.Ga=false。
+   */
+  doMinimalNoNetworkLayout(parts: Part[]): void {
+    const count = parts.length;
+    if (count === 0) return;
+    const cols = Math.max(1, Math.ceil(Math.sqrt(count)));
+    this._arrangementOrigin = this.initialOrigin(this._arrangementOrigin);
+    const sx = this._arrangementOrigin.x;
+    const sy = this._arrangementOrigin.y;
+    let x = sx;
+    let y = sy;
+    let col = 0;
+    let rowH = 0;
+    for (const c of parts) {
+      c.ensureBounds();
+      const f = c.measuredBounds;
+      const w = f ? f.width : 0;
+      const h = f ? f.height : 0;
+      c.moveTo(x, y);
+      if ((c as any)._className === 'Group') {
+        (c as any).Ga = false;
+      }
+      x += Math.max(w, 50) + 20;
+      rowH = Math.max(rowH, Math.max(h, 50));
+      if (col >= cols - 1) {
+        col = 0;
+        x = sx;
+        y += rowH + 20;
+        rowH = 0;
+      } else {
+        col++;
+      }
+    }
   }
 
   /**
@@ -195,15 +303,82 @@ export class Layout {
 
   /**
    * Return the initial origin point for the layout.
+   * 官方 Layout.initialOrigin：
+   * - group 有 placeholder → placeholder 文档 TopLeft（NaN → 回退 origin）+ padding
+   * - group 无 placeholder → group.position（NaN → 回退 origin）
+   * - 无 group → origin
    */
-  initialOrigin(): Point {
-    return this._arrangementOrigin.copy();
+  initialOrigin(t?: Point): Point {
+    const origin = t ? t : this._arrangementOrigin;
+    const g = this._group;
+    if (g) {
+      const ph = this._findPlaceholder(g);
+      if (ph) {
+        // 文档坐标 = group.position（NaN 不计入，视作 0）+ placeholder 局部链偏移
+        const local = this._panelLocalPoint(g, ph);
+        const pos = g.position;
+        let sx = local ? local.x : NaN;
+        let sy = local ? local.y : NaN;
+        if (pos && !isNaN(pos.x) && !isNaN(pos.y)) {
+          sx += pos.x;
+          sy += pos.y;
+        }
+        if (isNaN(sx) || isNaN(sy)) {
+          sx = origin.x;
+          sy = origin.y;
+        }
+        const pad = typeof ph._padding === 'number' ? ph._padding : 0;
+        return new Point(sx + pad, sy + pad);
+      }
+      const pos = g.position;
+      if (pos && !isNaN(pos.x) && !isNaN(pos.y)) return pos.copy();
+      return origin.copy();
+    }
+    return origin.copy();
+  }
+
+  private _findPlaceholder(group: any): any | null {
+    const search = (obj: any): any | null => {
+      if (!obj) return null;
+      if (obj._isPlaceholder) return obj;
+      const els = obj._elements;
+      if (els) {
+        for (const ch of els) {
+          const r = search(ch);
+          if (r) return r;
+        }
+      }
+      return null;
+    };
+    return search(group);
+  }
+
+  /** target 在 group 面板内的局部偏移（沿 actualBounds 局部链累加）；找不到 → null */
+  private _panelLocalPoint(group: any, target: any): Point | null {
+    const contains = (o: any): boolean =>
+      o === target || (o._elements ? o._elements.some((c: any) => contains(c)) : false);
+    const acc = (obj: any, px: number, py: number): Point | null => {
+      const els = obj._elements;
+      if (!els) return null;
+      for (const ch of els) {
+        const ab = ch.actualBounds;
+        const nx = px + (ab ? ab.x : NaN);
+        const ny = py + (ab ? ab.y : NaN);
+        if (ch === target) return new Point(nx, ny);
+        if (ch._elements && contains(ch)) {
+          const r = acc(ch, nx, ny);
+          if (r) return r;
+        }
+      }
+      return null;
+    };
+    return acc(group, 0, 0);
   }
 
   /**
    * Invalidate this layout, causing it to be re-performed.
    */
-  invalidateLayout(): void {
+invalidateLayout(): void {
     this._isValidLayout = false;
     if (this._diagram) {
       this._diagram._layoutInvalid = true;
@@ -231,7 +406,14 @@ export class Layout {
       const part = it.value;
       if (part instanceof Node) {
         const vertex = net.addNode(part);
-        const bounds = this.getLayoutBounds(part);
+        if (part._measure) {
+          part._measure(Infinity, Infinity);
+        }
+        let bounds = this.getLayoutBounds(part);
+        const mb = part.measuredBounds;
+        if (mb && mb.width > 0 && mb.height > 0) {
+          bounds = new Rect(bounds.x, bounds.y, mb.width, mb.height);
+        }
         vertex.bounds = bounds.copy();
         vertex.x = bounds.x;
         vertex.y = bounds.y;

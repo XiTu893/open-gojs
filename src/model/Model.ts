@@ -85,8 +85,13 @@ export class Model {
     return this._nodeDataArray;
   }
   set nodeDataArray(val: ObjectData[]) {
+    const old = this._nodeDataArray;
+    if (old === val) return;
     this._nodeDataArray = val || [];
     this._rebuildKeyMap();
+    // 官方 Model.nodeDataArray setter：发出 Set 变更（modelChange="nodeDataArray"），
+    // Diagram 据此移除旧数组数据的 Parts 并为新数组数据创建 Parts
+    this.raiseChangedEvent(ChangedEventProperty, this, 'nodeDataArray', old, this._nodeDataArray);
   }
 
   /** 添加节点数据 */
@@ -133,8 +138,8 @@ export class Model {
   }
 
   /** 根据 key 查找节点数据 */
-  findNodeDataForKey(key: any): ObjectData | undefined {
-    return this._keyMap.get(key);
+  findNodeDataForKey(key: any): ObjectData | null {
+    return this._keyMap.get(key) ?? null;
   }
 
   /** 获取节点的 key */

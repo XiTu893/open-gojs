@@ -8,6 +8,8 @@ export declare class Spot {
     offsetX: number;
     offsetY: number;
     constructor(x?: number, y?: number, offsetX?: number, offsetY?: number);
+    /** 标记为官方 Spot.Default（NaN 语义）；普通 new Spot(0,0) 是有效 TopLeft */
+    private _defaultMark;
     private _isReadOnly;
     get isReadOnly(): boolean;
     freeze(): this;
@@ -15,7 +17,7 @@ export declare class Spot {
     copy(): Spot;
     equals(s: Spot): boolean;
     approximatelyEquals(s: Spot, epsilon?: number): boolean;
-    /** 是否为默认值 */
+    /** 是否为官方 Spot.Default（未解析的默认值，不是有效定位点） */
     get isDefault(): boolean;
     /** 是否为无特殊位置 */
     get isNone(): boolean;
@@ -46,6 +48,7 @@ export declare class Spot {
     static readonly BottomCenter: Spot;
     static readonly BottomRight: Spot;
     static readonly Default: Spot;
+    private static makeDefault;
     static readonly None: Spot;
     static readonly TopSide: Spot;
     static readonly BottomSide: Spot;

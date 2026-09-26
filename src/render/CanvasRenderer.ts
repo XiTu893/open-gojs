@@ -20,6 +20,7 @@ import { getFigureGeometry } from '../figures/Figures';
 import {
   PanelAuto, PanelVertical, PanelHorizontal, PanelSpot, PanelTable,
   PanelPosition, PanelGrid, PanelLink, PanelViewbox, PanelGraduated,
+  PanelTableRow, PanelTableColumn,
   StretchFill, StretchNone, StretchUniform,
   CurveBezier, CurveNone, CurveJumpOver, CurveJumpGap,
   BrushSolid, BrushLinear, BrushRadial,
@@ -871,6 +872,12 @@ export class CanvasRenderer {
       this.renderGrid(panel);
     }
 
+    // Row/col panels do not offset their children (official Bn() == false):
+    // grandchildren coords are in TABLE space, so inherit this panel's offset
+    const isRowCol = panelType === PanelTableRow || panelType === PanelTableColumn;
+    const childOX = isRowCol ? offsetX : panelX;
+    const childOY = isRowCol ? offsetY : panelY;
+
     // Render children based on panel type
     if (panelType === PanelAuto) {
       // Auto: render main element first (fills panel), then others on top
@@ -890,13 +897,13 @@ export class CanvasRenderer {
         this.renderGraphObject(main, panelX, panelY);
       }
       for (const elem of others) {
-        this.renderGraphObject(elem, panelX, panelY);
+        this.renderGraphObject(elem, childOX, childOY);
       }
     } else if (panelType === PanelVertical || panelType === PanelHorizontal) {
       // Vertical/Horizontal: render children in order
       const elements = (panel as any)._elements as GraphObject[];
       for (const elem of elements) {
-        this.renderGraphObject(elem, panelX, panelY);
+        this.renderGraphObject(elem, childOX, childOY);
       }
     } else if (panelType === PanelSpot) {
       // Spot: render children with their alignment positions
@@ -916,18 +923,18 @@ export class CanvasRenderer {
         this.renderGraphObject(main, panelX, panelY);
       }
       for (const elem of others) {
-        this.renderGraphObject(elem, panelX, panelY);
+        this.renderGraphObject(elem, childOX, childOY);
       }
     } else if (panelType === PanelTable) {
       const elements = (panel as any)._elements as GraphObject[];
       for (const elem of elements) {
-        this.renderGraphObject(elem, panelX, panelY);
+        this.renderGraphObject(elem, childOX, childOY);
       }
       this._renderTableSeparators(panel, panelX, panelY);
     } else if (panelType === PanelPosition) {
       const elements = (panel as any)._elements as GraphObject[];
       for (const elem of elements) {
-        this.renderGraphObject(elem, panelX, panelY);
+        this.renderGraphObject(elem, childOX, childOY);
       }
     } else if (panelType === PanelViewbox) {
       this._renderViewbox(panel, panelX, panelY, panelW, panelH);
@@ -937,13 +944,13 @@ export class CanvasRenderer {
       // Link: render children (the link shape and label)
       const elements = (panel as any)._elements as GraphObject[];
       for (const elem of elements) {
-        this.renderGraphObject(elem, panelX, panelY);
+        this.renderGraphObject(elem, childOX, childOY);
       }
     } else {
       // Default: render all children
       const elements = (panel as any)._elements as GraphObject[];
       for (const elem of elements) {
-        this.renderGraphObject(elem, panelX, panelY);
+        this.renderGraphObject(elem, childOX, childOY);
       }
     }
 
@@ -1390,7 +1397,7 @@ export class CanvasRenderer {
     if (!ctx) return;
 
     const text = String(Math.round(val + tickBase));
-    const font = (textBlock as any)._font || '10px sans-serif';
+    const font = (textBlock as any)._font || '13px sans-serif';
     const stroke = (textBlock as any)._stroke || 'black';
 
     ctx.save();

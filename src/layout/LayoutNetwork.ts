@@ -26,6 +26,16 @@ export class LayoutNetwork {
   /** Map from Node to LayoutVertex */
   nodeToLayoutVertex: Map<Node, LayoutVertex> = new Map<Node, LayoutVertex>();
 
+  /** Create a new vertex (subclasses override to return specialized vertexes) */
+  createVertex(): LayoutVertex {
+    return new LayoutVertex();
+  }
+
+  /** Create a new edge (subclasses override to return specialized edges) */
+  createEdge(): LayoutEdge {
+    return new LayoutEdge();
+  }
+
   /** Add a vertex to this network */
   addVertex(vertex: LayoutVertex): LayoutVertex {
     vertex.network = this;
@@ -33,15 +43,15 @@ export class LayoutNetwork {
     return vertex;
   }
 
-  /** Add an edge to this network */
+  /** Add an edge to this network (官方：toVertex.addSourceEdge, fromVertex.addDestinationEdge) */
   addEdge(edge: LayoutEdge): LayoutEdge {
     edge.network = this;
     this.edges.add(edge);
-    if (edge.fromVertex) {
-      edge.fromVertex.addSourceEdge(edge);
-    }
     if (edge.toVertex) {
-      edge.toVertex.addDestinationEdge(edge);
+      edge.toVertex.addSourceEdge(edge);
+    }
+    if (edge.fromVertex) {
+      edge.fromVertex.addDestinationEdge(edge);
     }
     return edge;
   }
@@ -72,7 +82,7 @@ export class LayoutNetwork {
     let vertex = this.findVertex(node);
     if (vertex) return vertex;
 
-    vertex = new LayoutVertex();
+    vertex = this.createVertex();
     vertex.network = this;
     vertex.node = node;
     vertex.part = node;
@@ -143,23 +153,23 @@ export class LayoutNetwork {
 
   /** Create an edge connecting two vertexes */
   linkVertexes(fromVertex: LayoutVertex, toVertex: LayoutEdge | LayoutVertex): LayoutEdge {
-    const edge = new LayoutEdge();
+    const edge = this.createEdge();
     edge.network = this;
     edge.fromVertex = fromVertex;
     edge.toVertex = toVertex as LayoutVertex;
-    fromVertex.addSourceEdge(edge);
-    (toVertex as LayoutVertex).addDestinationEdge(edge);
+    (toVertex as LayoutVertex).addSourceEdge(edge);
+    fromVertex.addDestinationEdge(edge);
     this.edges.add(edge);
     return edge;
   }
 
   /** Delete an edge from the network */
   deleteEdge(edge: LayoutEdge): void {
-    if (edge.fromVertex) {
-      edge.fromVertex.sourceEdges.remove(edge);
-    }
     if (edge.toVertex) {
-      edge.toVertex.destinationEdges.remove(edge);
+      edge.toVertex.sourceEdges.remove(edge);
+    }
+    if (edge.fromVertex) {
+      edge.fromVertex.destinationEdges.remove(edge);
     }
     this.edges.remove(edge);
     if (edge.link) {

@@ -89,10 +89,14 @@ export class Picture extends GraphObject {
     img.src = this._source;
     img.onload = () => {
       this._loadedImage = img;
-      this._invalidateMeasure();
-      const d = this.diagram;
-      if (d && typeof d.requestUpdate === 'function') {
-        d.requestUpdate();
+      // 官方：desiredSize 已设定（isReal）时图片加载不触发失效（不重排、不重新 measure）
+      const ds = this._desiredSize;
+      if (isNaN(ds.width) || isNaN(ds.height)) {
+        this._invalidateMeasure();
+        const d = this.diagram;
+        if (d && typeof d.requestUpdate === 'function') {
+          d.requestUpdate();
+        }
       }
     };
     img.onerror = (e: Event | string) => {

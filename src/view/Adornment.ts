@@ -1,6 +1,6 @@
 import { Part } from './Part';
 import { GraphObject } from './GraphObject';
-import type { Panel } from './Panel';
+import { Panel } from './Panel';
 import type { Placeholder } from './Placeholder';
 
 /**
@@ -17,13 +17,11 @@ export class Adornment extends Part {
   constructor(type: any);
   constructor(type: any, init?: any);
   constructor(type?: any, init?: any) {
-    super();
+    const [t, i] = Panel._resolveArgs(type, init);
+    super(t, undefined);
     this._className = 'Adornment';
-    if (type !== undefined) {
-      this._type = type;
-    }
-    if (init) {
-      this.set(init);
+    if (i) {
+      this.set(i);
     }
   }
 

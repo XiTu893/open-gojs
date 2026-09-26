@@ -70,7 +70,7 @@ export declare class Model {
     /** 是否包含节点数据 */
     containsNodeData(data: ObjectData): boolean;
     /** 根据 key 查找节点数据 */
-    findNodeDataForKey(key: any): ObjectData | undefined;
+    findNodeDataForKey(key: any): ObjectData | null;
     /** 获取节点的 key */
     getKeyForNodeData(data: ObjectData): any;
     /** 设置节点的 key */

@@ -11,10 +11,16 @@ export declare class Geometry {
     private _defaultFigure;
     /** 边界矩形 */
     private _bounds;
-    /** 是否包含奇偶填充 */
+    /** 是否包含偶奇填充 */
     fillRule: string;
     /** 图形名称（用于 figure 属性） */
     name: string;
+    /** Auto 面板内容定位用的左上锚点（官方 geometry.spot1） */
+    spot1: any;
+    /** Auto 面板内容定位用的右下锚点（官方 geometry.spot2） */
+    spot2: any;
+    /** 官方 geometry.defaultStretch（0=None 2=Fill 4=Vertical 5=Horizontal 6=Uniform），默认 Fill */
+    defaultStretch: number;
     constructor(figures?: PathFigure | PathFigure[]);
     /** 获取默认图形 */
     get defaultFigure(): PathFigure;

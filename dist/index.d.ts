@@ -46,6 +46,7 @@ declare const ImageStretchNone: EnumValue;
 declare const ImageStretchFill: EnumValue;
 declare const ImageStretchUniform: EnumValue;
 declare const ImageStretchUniformToFill: EnumValue;
+declare const SizingDefault: EnumValue;
 declare const SizingNone: EnumValue;
 declare const SizingProp: EnumValue;
 declare const SizingAuto: EnumValue;
@@ -164,6 +165,7 @@ declare const TreeAlignmentCenterChildren: EnumValue;
 declare const TreeAlignmentCenterSubtrees: EnumValue;
 declare const TreeAlignmentStart: EnumValue;
 declare const TreeAlignmentEnd: EnumValue;
+declare const TreeAlignmentCustom: EnumValue;
 declare const LayeredDigraphAggressiveLess: EnumValue;
 declare const LayeredDigraphAggressiveMore: EnumValue;
 declare const LayeredDigraphAlignNone: EnumValue;
@@ -185,6 +187,7 @@ declare const AnimationStyleAnimateLocations: EnumValue;
 declare const AnimationStyleNone: EnumValue;
 declare const LayoutConditionsStandard: EnumValue;
 declare const LayoutConditionsNodeSized: EnumValue;
+declare const GeometryStretchDefault: EnumValue;
 declare const GeometryStretchUniform: EnumValue;
 declare const GeometryTypeLine: EnumValue;
 declare const GeometryTypePath: EnumValue;
@@ -550,6 +553,8 @@ declare class Spot {
     offsetX: number;
     offsetY: number;
     constructor(x?: number, y?: number, offsetX?: number, offsetY?: number);
+    /** 标记为官方 Spot.Default（NaN 语义）；普通 new Spot(0,0) 是有效 TopLeft */
+    private _defaultMark;
     private _isReadOnly;
     get isReadOnly(): boolean;
     freeze(): this;
@@ -557,7 +562,7 @@ declare class Spot {
     copy(): Spot;
     equals(s: Spot): boolean;
     approximatelyEquals(s: Spot, epsilon?: number): boolean;
-    /** 是否为默认值 */
+    /** 是否为官方 Spot.Default（未解析的默认值，不是有效定位点） */
     get isDefault(): boolean;
     /** 是否为无特殊位置 */
     get isNone(): boolean;
@@ -588,6 +593,7 @@ declare class Spot {
     static readonly BottomCenter: Spot;
     static readonly BottomRight: Spot;
     static readonly Default: Spot;
+    private static makeDefault;
     static readonly None: Spot;
     static readonly TopSide: Spot;
     static readonly BottomSide: Spot;
@@ -724,10 +730,16 @@ declare class Geometry {
     private _defaultFigure;
     /** 边界矩形 */
     private _bounds;
-    /** 是否包含奇偶填充 */
+    /** 是否包含偶奇填充 */
     fillRule: string;
     /** 图形名称（用于 figure 属性） */
     name: string;
+    /** Auto 面板内容定位用的左上锚点（官方 geometry.spot1） */
+    spot1: any;
+    /** Auto 面板内容定位用的右下锚点（官方 geometry.spot2） */
+    spot2: any;
+    /** 官方 geometry.defaultStretch（0=None 2=Fill 4=Vertical 5=Horizontal 6=Uniform），默认 Fill */
+    defaultStretch: number;
     constructor(figures?: PathFigure | PathFigure[]);
     /** 获取默认图形 */
     get defaultFigure(): PathFigure;
@@ -1060,7 +1072,7 @@ declare class Model {
     /** 是否包含节点数据 */
     containsNodeData(data: ObjectData): boolean;
     /** 根据 key 查找节点数据 */
-    findNodeDataForKey(key: any): ObjectData | undefined;
+    findNodeDataForKey(key: any): ObjectData | null;
     /** 获取节点的 key */
     getKeyForNodeData(data: ObjectData): any;
     /** 设置节点的 key */
@@ -1213,51 +1225,6 @@ declare class TreeModel extends Model {
 }
 
 /**
- * RowColumnDefinition - defines the sizing and appearance of a row or column in a Table panel.
- */
-declare class RowColumnDefinition {
-    private _row;
-    private _column;
-    private _height;
-    private _width;
-    private _minimum;
-    private _maximum;
-    private _sizing;
-    private _separatorStroke;
-    private _separatorStrokeWidth;
-    private _separatorDashArray;
-    private _background;
-    private _coversSeparators;
-    constructor();
-    set(props: Record<string, any>): this;
-    get row(): number;
-    set row(val: number);
-    get column(): number;
-    set column(val: number);
-    get height(): number;
-    set height(val: number);
-    get width(): number;
-    set width(val: number);
-    get minimum(): number;
-    set minimum(val: number);
-    get maximum(): number;
-    set maximum(val: number);
-    get sizing(): EnumValue;
-    set sizing(val: EnumValue);
-    get separatorStroke(): any;
-    set separatorStroke(val: any);
-    get separatorStrokeWidth(): number;
-    set separatorStrokeWidth(val: number);
-    get separatorDashArray(): number[] | null;
-    set separatorDashArray(val: number[] | null);
-    get background(): any;
-    set background(val: any);
-    get coversSeparators(): boolean;
-    set coversSeparators(val: boolean);
-    copy(): RowColumnDefinition;
-}
-
-/**
  * Panel - container that arranges child GraphObjects according to its type.
  */
 declare class Panel extends GraphObject {
@@ -1269,6 +1236,9 @@ declare class Panel extends GraphObject {
     private _padding;
     private _defaultAlignment;
     private _defaultStretch;
+    private _originX;
+    private _originY;
+    private _unionRect;
     private _defaultColumnSeparatorStroke;
     private _defaultColumnSeparatorStrokeWidth;
     private _defaultRowSeparatorStroke;
@@ -1297,7 +1267,9 @@ declare class Panel extends GraphObject {
     private _viewboxStretch;
     _viewboxScaleX: number;
     _viewboxScaleY: number;
-    constructor(type?: EnumValue | string, init?: Partial<Panel>);
+    constructor(type?: EnumValue | string | object | null, init?: Partial<Panel>);
+    /** 官方各子类构造参数解析：string/EnumValue → type；其它对象 → init */
+    protected static _resolveArgs(type: any, init: any): [any, any];
     private static _resolvePanelTypeStr;
     get type(): EnumValue;
     set type(val: EnumValue);
@@ -1374,6 +1346,7 @@ declare class Panel extends GraphObject {
     insertAt(index: number, element: GraphObject): Panel;
     elt(index: number): GraphObject;
     findObject(name: string): GraphObject | null;
+    /** 官方 findMainElement：第一个 isPanelMain，否则 elements[0]，空则 null */
     findMainElement(): GraphObject | null;
     findItemPanelForData(data: any): Panel | null;
     getColumnDefinition(index: number): RowColumnDefinition;
@@ -1387,7 +1360,9 @@ declare class Panel extends GraphObject {
     copy(): Panel;
     /** Copy Panel-specific properties to another Panel */
     protected _copyPanelPropertiesTo(copy: Panel): void;
-    _measure(widthConstraint: number, heightConstraint: number): void;
+    _measure(widthConstraint: number, heightConstraint: number, minW?: number, minH?: number): void;
+    /** 就地并入 union */
+    private _unionInto;
     _arrange(bounds: Rect): void;
     /**
      * Find the main element and separate others.
@@ -1395,17 +1370,28 @@ declare class Panel extends GraphObject {
      * or the first visible element if none has isPanelMain.
      */
     private _findMainAndOthers;
+    /** 官方 kN：主 Shape 的 spot1（Shape.spot1 → geometry.spot1 → TopLeft） */
+    private _panelSpot1;
+    /** 官方 PN：主 Shape 的 spot2 → BottomRight 兜底 */
+    private _panelSpot2;
+    /** 官方 PanelLayoutAuto.measure */
     private _measureAuto;
+    /** 官方 PanelLayoutAuto.arrange */
     private _arrangeAuto;
     private _measureVertical;
     private _arrangeVertical;
     private _measureHorizontal;
     private _arrangeHorizontal;
+    /** 官方 PanelLayoutSpot.measure（两遍） */
     private _measureSpot;
+    /** 官方 PanelLayoutSpot.arrange */
     private _arrangeSpot;
+    private _isRowColPanel;
     private _measureTable;
     private _arrangeTable;
+    /** 官方 PanelLayoutPosition.measure：union 隐含 (0,0)（初始 union 为空点） */
     private _measurePosition;
+    /** 官方 PanelLayoutPosition.arrange：pos - (union - pad) + margin */
     private _arrangePosition;
     private _measureViewbox;
     private _arrangeViewbox;
@@ -1415,7 +1401,9 @@ declare class Panel extends GraphObject {
     private _arrangeLink;
     private _getPointAtDistance;
     private _getAngleAtDistance;
+    /** 官方：alignment → defaultAlignment，仍默认则 Center */
     private _resolveAlignment;
+    /** 官方：alignmentFocus 默认 → 回退为该元素的 alignment（focus 落在 alignment 同一边） */
     private _resolveAlignmentFocus;
     private _resolveStretchWidth;
     private _resolveStretchHeight;
@@ -1423,8 +1411,6 @@ declare class Panel extends GraphObject {
     private _resolveUniformScale;
     private _ensureColumnDefinition;
     private _ensureRowDefinition;
-    private _computeColumnWidths;
-    private _computeRowHeights;
     private _findItemTemplate;
     _handleObjectPropertyChanged(obj: GraphObject, propname: string, value?: any): void;
     static Auto: EnumValue;
@@ -1439,6 +1425,103 @@ declare class Panel extends GraphObject {
     static Link: EnumValue;
     static TableColumn: EnumValue;
     static TableRow: EnumValue;
+}
+
+/**
+ * RowColumnDefinition - defines the sizing and appearance of a row or column in a Table panel.
+ *
+ * 官方 RowColumnDefinition 语义移植：
+ * - actual(Z): 实际计算尺寸（setter 按 minimum/maximum/width(height) 夹取）
+ * - measured(Mi): 内容需求累计（measure 阶段填充）
+ * - position(wt): arrange 前由 measure 写入的列/行起始位置
+ * - sizing: Default → 取面板 rowSizing/columnSizing；None → 固定；ProportionalExtra → 按比例分配富余
+ * - computeEffectiveSpacing/Top: 分隔线 + separatorPadding 的间距贡献
+ */
+declare class RowColumnDefinition {
+    private _row;
+    private _column;
+    private _height;
+    private _width;
+    private _minimum;
+    private _maximum;
+    private _sizing;
+    private _stretch;
+    private _alignment;
+    private _separatorStroke;
+    private _separatorStrokeWidth;
+    private _separatorDashArray;
+    private _separatorPadding;
+    private _background;
+    private _coversSeparators;
+    private _spanAllocation;
+    /** 官方 Z：实际尺寸 */
+    private _actual;
+    /** 官方 Mi：内容需求累计 */
+    private _measured;
+    /** 官方 wt：位置偏移 */
+    private _position;
+    /** 官方 rn：所属面板 */
+    private _panel;
+    constructor();
+    set(props: Record<string, any>): this;
+    /** 官方 _a：设置所属面板 */
+    _setPanel(panel: Panel | null): void;
+    get panel(): Panel | null;
+    get isRow(): boolean;
+    get index(): number;
+    get row(): number;
+    set row(val: number);
+    get column(): number;
+    set column(val: number);
+    get height(): number;
+    set height(val: number);
+    get width(): number;
+    set width(val: number);
+    get minimum(): number;
+    set minimum(val: number);
+    get maximum(): number;
+    set maximum(val: number);
+    get sizing(): EnumValue;
+    set sizing(val: EnumValue);
+    get stretch(): EnumValue;
+    set stretch(val: EnumValue);
+    get alignment(): Spot;
+    set alignment(val: Spot);
+    get separatorStroke(): any;
+    set separatorStroke(val: any);
+    get separatorStrokeWidth(): number;
+    set separatorStrokeWidth(val: number);
+    get separatorDashArray(): number[] | null;
+    set separatorDashArray(val: number[] | null);
+    get separatorPadding(): Margin | null;
+    set separatorPadding(val: MarginLike | null);
+    get background(): any;
+    set background(val: any);
+    get coversSeparators(): boolean;
+    set coversSeparators(val: boolean);
+    get spanAllocation(): ((elt: any, def: RowColumnDefinition, extra: number) => number) | null;
+    set spanAllocation(val: ((elt: any, def: RowColumnDefinition, extra: number) => number) | null);
+    /** 官方 actual(Z) */
+    get actual(): number;
+    set actual(val: number);
+    /** 官方 measured(Mi) */
+    get measured(): number;
+    set measured(val: number);
+    /** 官方 wt */
+    get position(): number;
+    set position(val: number);
+    /** 官方 total = Z + spacing */
+    get total(): number;
+    /** 官方 mS：sizing Default → 面板 rowSizing/columnSizing */
+    effectiveSizing(): EnumValue;
+    /** 官方 computeEffectiveSpacingTop(t)：首个非零定义之前的分隔间距（上方/左方） */
+    computeEffectiveSpacingTop(firstIdx: number): number;
+    /** 官方 computeEffectiveSpacing() */
+    computeEffectiveSpacing(): number;
+    copy(): RowColumnDefinition;
+    static Default: EnumValue;
+    static None: EnumValue;
+    static ProportionalExtra: EnumValue;
 }
 
 /**
@@ -1472,11 +1555,27 @@ declare class Part extends Panel {
     private _category;
     protected _itemIndex: number;
     protected _containingGroup: any;
-    constructor(type?: EnumValue);
+    constructor(type?: any, init?: any);
+    /** 官方 Part.g()：部件级失效向 Diagram 冒泡（图片加载/文本变更 → 重排） */
+    _invalidateMeasure(): void;
     get visible(): boolean;
     set visible(val: boolean);
+    private _syncGuard;
+    /** 官方 WD：location 点相对 bounds TL 的偏移（locationObject = part 本身，naturalBounds + locationSpot） */
+    private _locationOffset;
     get location(): Point;
     set location(val: Point);
+    /** 官方 Part.position（GraphObject.position 的 Part 覆盖：与 location 按 locationSpot 同步） */
+    get position(): Point;
+    set position(val: Point);
+    /**
+     * 官方 bF（location 驱动）：arrange 后 locationSpot 偏移变化时，用 location 重新推导 position。
+     */
+    syncPositionFromLocation(): void;
+    /**
+     * 从 this 到后代 target 的面板局部偏移累加（基于 actualBounds 局部坐标链）。
+     */
+    localOffsetTo(target: GraphObject): Point | null;
     get locationSpot(): Spot;
     set locationSpot(val: Spot);
     get locationObjectName(): string;
@@ -1524,20 +1623,22 @@ declare class Part extends Panel {
     get itemIndex(): number;
     set itemIndex(val: number);
     get isTopLevel(): boolean;
+    /** 官方 Part.canLayout */
+    canLayout(): boolean;
     get isVirtual(): boolean;
     get containingGroup(): any;
     set containingGroup(val: any);
     get adornmentStream(): Iterator<any>;
     /** Find a named GraphObject within this Part */
     findObject(name: string): GraphObject | null;
-    /** Find the main element of this Part */
-    findMainElement(): GraphObject | null;
-    /** Ensure the bounds of this Part are computed */
+    /** Ensure the bounds of this Part are computed (official: measure + updateBounds + sync position/location) */
     ensureBounds(): void;
     /** Get the bounding rectangle in document coordinates */
     getDocumentBounds(): Rect;
-    /** Move this Part to a new location */
-    move(newLoc: Point): void;
+    /** 官方 Part.move(newLoc, isLocation?)：isLocation=true 移动 location，否则移动 position */
+    move(newLoc: Point, isLocation?: boolean): void;
+    /** 官方 Part.moveTo(x, y, isLocation?) */
+    moveTo(x: number, y: number, isLocation?: boolean): void;
     /** Add an adornment for the given category */
     addAdornment(category: string, ad: any): void;
     /** Remove the adornment for the given category */
@@ -1570,10 +1671,10 @@ declare class GraphObject {
     protected _isInDocument: boolean;
     protected _isPlaceholder: boolean;
     protected _className: string;
-    private _desiredSize;
-    private _minSize;
-    private _maxSize;
-    private _margin;
+    protected _desiredSize: Size;
+    protected _minSize: Size;
+    protected _maxSize: Size;
+    protected _margin: Margin;
     private _alignment;
     private _alignmentFocus;
     private _angle;
@@ -1615,7 +1716,7 @@ declare class GraphObject {
     private _segmentFraction;
     private _segmentOffset;
     private _segmentOrientation;
-    private _position;
+    protected _position: Point;
     private _click;
     private _doubleClick;
     private _contextClick;
@@ -1785,8 +1886,8 @@ declare class GraphObject {
     /** Virtual copy - creates a shallow copy of this GraphObject */
     copy(): GraphObject;
     /** Apply a function to this object and return it */
-    apply(func: (obj: GraphObject) => void): GraphObject;
-    /** Find the nearest panel that has data bound to it */
+    apply(func: (obj: GraphObject, data?: any) => void, data?: any): GraphObject;
+    /** 官方 findBindingPanel：从自身（若为 Panel）起向上找带绑定的面板 */
     findBindingPanel(): Panel | null;
     attach(props: Record<string, any>): this;
     /** Get the total angle of this object in document coordinates */
@@ -1811,10 +1912,26 @@ declare class GraphObject {
     _invalidateMeasure(): void;
     /** Invalidate the arrangement of this object and its ancestors */
     _invalidateArrange(): void;
-    /** Measure this object within the given constraints */
-    _measure(widthConstraint: number, heightConstraint: number): void;
+    /** Measure this object within the given constraints (官方 yt：可选 minW/minH) */
+    _measure(widthConstraint: number, heightConstraint: number, minW?: number, minH?: number): void;
     /** Apply minSize/maxSize/desiredSize constraints to measured bounds */
     protected _applySizeConstraints(): void;
+    /**
+     * 官方 GraphObject.po：scale（及 angle）作用于 measuredBounds。
+     * scale 矩阵 + 绕中心旋转，取轴对齐包围盒；naturalBounds 不受影响。
+     */
+    protected _applyMeasureTransform(): void;
+    /** 官方 GraphObject.ln(forArranging) — 解析有效 stretch */
+    _getStretch(forArranging: boolean): EnumValue;
+    /**
+     * 官方 GraphObject.gp(rowDef, colDef, forArranging)：
+     * 元素 stretch 为 Default 时，由所在行/列定义的 stretch + 面板 defaultStretch 推导有效 stretch。
+     */
+    private _resolveTableChildStretch;
+    /** 官方 GraphObject.gp(rowDef, colDef, forArranging)（stretch 已知为 Default） */
+    _gpWithDefs(panel: Panel, rowDef: RowColumnDefinition, colDef: RowColumnDefinition, forArranging: boolean): EnumValue;
+    /** 官方 GraphObject.ir(stretch, forArranging) — 按 desiredSize 精简 stretch */
+    private _refineStretch;
     /** Arrange this object within the given bounds */
     _arrange(bounds: Rect): void;
     /** Copy all properties to another GraphObject (used by copy()) */
@@ -1901,8 +2018,13 @@ declare class Shape extends GraphObject {
     /** 获取几何路径（从图形名称或自定义几何） */
     _getGeometry(): Geometry | null;
     private _getFigureGeometry;
-    /** 测量对象尺寸 */
+    /** 官方 Shape.Yd 的自然尺寸来源：显式 geometry → 其 bounds；figure → 官方 Shape.VN(figure)(null,100,100)；
+     *  与上次测量结果无关（否则 Auto 面板反复测量会让 geometry.spot1/spot2 随几何尺寸收缩，形成级联误差） */
+    private _naturalSize;
+    /** 测量对象尺寸 — 官方 GraphObject.yt + Shape.Yd（holes=0），measuredBounds 含 strokeWidth */
     _measure(widthConstraint: number, heightConstraint: number): void;
+    /** 官方 Shape.yM：geometryStretch 显式值否则 geometry/figure 的 defaultStretch */
+    private _resolvedGeometryStretch;
     /** 绘制图形 */
     _draw(ctx: CanvasRenderingContext2D): void;
     /** 在 canvas 上绘制几何路径 */
@@ -2030,8 +2152,7 @@ declare class Node extends Part {
     protected _wasTreeExpanded: boolean;
     protected _isSubGraphExpanded: boolean;
     protected _treeExpandedDirection: EnumValue;
-    constructor(type?: EnumValue | string, init?: Partial<Node>);
-    private static _resolvePanelType;
+    constructor(type?: any, init?: any);
     get isTreeExpanded(): boolean;
     set isTreeExpanded(val: boolean);
     get wasTreeExpanded(): boolean;
@@ -2081,7 +2202,7 @@ declare class Link extends Part {
     private _reshapable;
     private _jumpOver;
     private _jumpGap;
-    constructor(type?: EnumValue, init?: Partial<Link>);
+    constructor(type?: any, init?: any);
     get fromNode(): Node | null;
     set fromNode(val: Node | null);
     get toNode(): Node | null;
@@ -2143,10 +2264,18 @@ declare class Link extends Part {
 
 declare class Placeholder extends GraphObject {
     private _padding;
-    constructor(init?: Partial<Placeholder>);
+    constructor(init?: Placeholder);
     get padding(): number;
     set padding(val: number);
     get _placeholderBounds(): Rect;
+    /**
+     * 官方 Placeholder.measure（computeBorder）：
+     * 1) union 可见成员的 actualBounds（文档坐标，成员 ab 实值才计入；跳过 Link）；
+     * 2) 无成员 union → border = group.location 实值点 (0×0)，否则 (0,0)；
+     * 3) padding（number = 四边均匀）外扩；
+     * 4) measuredBounds = (0,0,max(borderW,minW),max(borderH,minH))；
+     * 5) 有成员 union 且 border x/y 实值 → group.location = border 按 group.locationSpot 锚点。
+     */
     _measure(availW: number, availH: number): void;
     _arrange(bounds: Rect): void;
     private _findGroup;
@@ -2218,6 +2347,14 @@ declare class LayoutVertex {
         x: number;
         y: number;
     };
+    /** 像素 focus：TreeVertex.focus(Point) 优先，其次 focusX/Y 分数 × 尺寸 */
+    private _focusPx;
+    /** 官方 LayoutVertex.centerX = bounds.x + focus.x */
+    get centerX(): number;
+    set centerX(val: number);
+    /** 官方 LayoutVertex.centerY = bounds.y + focus.y */
+    get centerY(): number;
+    set centerY(val: number);
     static smartComparer(a: LayoutVertex, b: LayoutVertex): number;
 }
 
@@ -2236,9 +2373,13 @@ declare class LayoutNetwork {
     linkToLayoutEdge: Map<Link, LayoutEdge>;
     /** Map from Node to LayoutVertex */
     nodeToLayoutVertex: Map<Node, LayoutVertex>;
+    /** Create a new vertex (subclasses override to return specialized vertexes) */
+    createVertex(): LayoutVertex;
+    /** Create a new edge (subclasses override to return specialized edges) */
+    createEdge(): LayoutEdge;
     /** Add a vertex to this network */
     addVertex(vertex: LayoutVertex): LayoutVertex;
-    /** Add an edge to this network */
+    /** Add an edge to this network (官方：toVertex.addSourceEdge, fromVertex.addDestinationEdge) */
     addEdge(edge: LayoutEdge): LayoutEdge;
     /** Add a link to the network, creating an edge between the from/to vertexes */
     addLink(link: Link): LayoutEdge | null;
@@ -2300,9 +2441,26 @@ declare class Layout {
     set group(val: any);
     /**
      * Perform the layout on the given collection of parts.
-     * @param coll - A Diagram, Iterable<Part>, or array of Parts
+     * 官方 base Layout.doLayout：收集未定位的顶层部件（doMinimalNoNetworkLayout 的 Ga 谓词），
+     * 按 ceil(sqrt(n)) 列的极简网格摆放（仅对 location/position 均为 NaN 的部件）。
+     * @param coll - A Diagram, Group, Iterable<Part>, or array of Parts
      */
     doLayout(coll: any): void;
+    /**
+     * 官方 Layout.Zh（base 版收集，谓词 = Ga(t)）：
+     * - Diagram：nodes(topLevelOnly) + parts(topLevelOnly) 两趟
+     * - Group：memberParts(topLevelOnly=false)
+     * - 其他可迭代集合：addAll，不带谓词
+     * 谓词 Ga(t) = (!location实值 && !position实值) || (Group && t.Ga)
+     * Node 分支：Group.layout===null 时递归 memberParts；其余 ensureBounds 后加入。
+     */
+    collectMinimalParts(coll: any): Part[];
+    /**
+     * 官方 Layout.doMinimalNoNetworkLayout：
+     * arrangementOrigin = initialOrigin(arrangementOrigin)（原地变更），
+     * cols = ceil(sqrt(n))，步长 max(w,50)+20，行高 max(max(h,50))，moveTo 后 Group.Ga=false。
+     */
+    doMinimalNoNetworkLayout(parts: Part[]): void;
     /**
      * Collect all Parts that should be laid out from the given collection.
      * @param coll - A Diagram, Iterable<Part>, or array of Parts
@@ -2328,8 +2486,15 @@ declare class Layout {
     getLayoutBounds(part: Part): Rect;
     /**
      * Return the initial origin point for the layout.
+     * 官方 Layout.initialOrigin：
+     * - group 有 placeholder → placeholder 文档 TopLeft（NaN → 回退 origin）+ padding
+     * - group 无 placeholder → group.position（NaN → 回退 origin）
+     * - 无 group → origin
      */
-    initialOrigin(): Point;
+    initialOrigin(t?: Point): Point;
+    private _findPlaceholder;
+    /** target 在 group 面板内的局部偏移（沿 actualBounds 局部链累加）；找不到 → null */
+    private _panelLocalPoint;
     /**
      * Invalidate this layout, causing it to be re-performed.
      */
@@ -2350,7 +2515,8 @@ declare class Group extends Node {
     private _memberParts;
     protected _ungroupable: boolean;
     private _layout;
-    constructor(type?: any, init?: Partial<Group>);
+    private _ga;
+    constructor(type?: any, init?: any);
     get handlesDragDrop(): boolean;
     set handlesDragDrop(val: boolean);
     get placeholder(): Placeholder | null;
@@ -2359,9 +2525,12 @@ declare class Group extends Node {
     set ungroupable(val: boolean);
     get layout(): Layout | null;
     set layout(val: Layout | null);
+    /** 官方 Group 的 Ga 标志：diagram 布局前递归组布局将其置位，diagram 布局收集后清除。 */
+    get Ga(): boolean;
+    set Ga(val: boolean);
     addMembers(collection: any, check?: boolean): boolean;
     removeMembers(collection: any, check?: boolean): boolean;
-    move(newLoc: Point): void;
+    move(newLoc: Point, isLocation?: boolean): void;
     copy(): Group;
 }
 
@@ -3248,6 +3417,7 @@ declare class Diagram {
     _layers: Layer[];
     _parts: Map<any, Part>;
     _nodeKeyMap: Map<any, Node>;
+    _treeLinkDataByChildKey: Map<any, ObjectData>;
     _changedListeners: Function[];
     _diagramListeners: Map<string, Function[]>;
     _needsRender: boolean;
@@ -3443,13 +3613,20 @@ declare class Diagram {
     raiseDiagramEvent(name: string, ...args: any[]): void;
     private _findObjectInPanel;
     private _renderLoop;
+    /**
+     * 官方 measure+arrange 全体部件（Ht 语义）：
+     * pass1 非 Group 非 Link → pass2 Group → pass3 Link；
+     * 每个部件：ensureBounds（measure + bF 位置同步，仅 measure=true 时；渲染阶段只 arrange，
+     * 对齐官方 render 不重新 measure）→ _arrange(原始 position, measuredBounds)
+     * → syncPositionFromLocation（arrange 后 locationSpot 偏移变化时重推 position）。
+     * position 为 NaN 时按原样传入（ab.x/y 保持 NaN，对齐官方）。
+     */
+    private _measureArrangeAll;
+    private _collectGroups;
     private _performLayout;
     private _applyInitialViewport;
     private _applyAutoScale;
     private _applyContentAlignment;
-    private _findGroupPlaceholder;
-    private _computeGroupMemberOrigin;
-    private _layoutGroupMembers;
     private _updateGeometry;
     private _setupResizeObserver;
     private _checkResize;
@@ -3585,95 +3762,310 @@ declare class GridLayout extends Layout {
 }
 
 /**
- * TreeLayout - arranges nodes in a tree structure.
+ * TreeVertex - TreeLayout 专用顶点（官方 TreeVertex 的移植）。
+ *
+ * 与基础 LayoutVertex 的差异：
+ * - focus 是绝对偏移量 Point（官方 LayoutVertex.focus），不是 0-1 分数
+ * - 携带树结构（parent/children/level）与几何中间量 K/kt/gt/mm/pm
+ * - 携带可继承的布局属性（sorting/angle/alignment/nodeSpacing/layerSpacing/...）
+ */
+declare class TreeVertex extends LayoutVertex {
+    initialized: boolean;
+    parent: TreeVertex | null;
+    children: TreeVertex[];
+    level: number;
+    descendantCount: number;
+    maxChildrenCount: number;
+    maxGenerationCount: number;
+    comments: any[] | null;
+    /** 官方 K — 本顶点相对父顶点的偏移 */
+    relativePosition: Point;
+    /** 官方 kt — 子树包围尺寸 */
+    subtreeSize: Size;
+    /** 官方 gt — 子树对齐偏移（用于父顶点的居中/总线计算） */
+    subtreeOffset: Point;
+    /** 官方 mm — 起始边线（链接脊线/压缩用） */
+    mm: Point[] | null;
+    /** 官方 pm — 结束边线 */
+    pm: Point[] | null;
+    /** 官方 LayoutVertex.focus — 从 bounds 原点到节点中心的绝对偏移 */
+    focus: Point;
+    sorting: EnumValue;
+    comparer: (a: TreeVertex, b: TreeVertex) => number;
+    angle: number;
+    alignment: EnumValue;
+    nodeIndent: number;
+    nodeIndentPastParent: number;
+    nodeSpacing: number;
+    layerSpacing: number;
+    layerSpacingParentOverlap: number;
+    compaction: EnumValue;
+    breadthLimit: number;
+    rowSpacing: number;
+    rowIndent: number;
+    commentSpacing: number;
+    commentMargin: number;
+    setsPortSpot: boolean;
+    portSpot: Spot;
+    setsChildPortSpot: boolean;
+    childPortSpot: Spot;
+    get childrenCount(): number;
+    /** 官方 TreeVertex.copyInheritedPropertiesFrom */
+    copyInheritedPropertiesFrom(t: TreeVertex | null): void;
+    static standardComparer(a: TreeVertex, b: TreeVertex): number;
+}
+
+/**
+ * TreeLayout — 官方 GoJS TreeLayout 的忠实移植。
+ *
+ * doLayout 流程（官方 doLayout）：
+ *   initTrees(YB) → initializeCounts(KB) → assignTreeValues(UB) → sortTrees(GB)
+ *   → addComments(vA) → layoutTreeReal(qB) → arrangeTrees → updateParts(commit)
+ *
+ * 关键移植说明：
+ * - 与官方一致：vertex.sourceEdges = 入边（该顶点为 to）、destinationEdges = 出边（该顶点为 from）。
+ * - 官方 focus 是绝对偏移 Point（LayoutVertex.focus），TreeVertex.focus 同义。
+ * - 官方 K/kt/gt/mm/pm → relativePosition/subtreeSize/subtreeOffset/mm/pm。
  */
 declare class TreeLayout extends Layout {
-    private _angle;
-    private _layerSpacing;
-    private _nodeSpacing;
-    private _treeStyle;
-    private _arrangement;
-    private _layerStyle;
-    private _compaction;
-    private _sorting;
+    private _roots;
     private _path;
-    private _alternateAngle;
-    private _alternateLayerSpacing;
-    private _alternateNodeSpacing;
-    private _alternateAlignment;
-    private _alternateCompaction;
-    private _alternateSorting;
-    constructor();
-    get angle(): number;
-    set angle(val: number);
-    get layerSpacing(): number;
-    set layerSpacing(val: number);
-    get nodeSpacing(): number;
-    set nodeSpacing(val: number);
-    get treeStyle(): EnumValue;
-    set treeStyle(val: EnumValue);
-    get arrangement(): EnumValue;
-    set arrangement(val: EnumValue);
-    get layerStyle(): EnumValue;
-    set layerStyle(val: EnumValue);
-    get compaction(): EnumValue;
-    set compaction(val: EnumValue);
-    get sorting(): EnumValue;
-    set sorting(val: EnumValue);
+    private _treeStyle;
+    private _layerStyle;
+    private _comments;
+    private _arrangement;
+    private _arrangementSpacing;
+    private _rootDefaults;
+    private _alternateDefaults;
+    private _Ms;
+    private _layerSizes;
+    private _pool;
+    constructor(init?: any);
+    get roots(): Set<TreeVertex>;
+    set roots(val: Set<TreeVertex>);
     get path(): EnumValue;
     set path(val: EnumValue);
+    get treeStyle(): EnumValue;
+    set treeStyle(val: EnumValue);
+    get layerStyle(): EnumValue;
+    set layerStyle(val: EnumValue);
+    get comments(): boolean;
+    set comments(val: boolean);
+    get arrangement(): EnumValue;
+    set arrangement(val: EnumValue);
+    get arrangementSpacing(): Size;
+    set arrangementSpacing(val: Size);
+    get rootDefaults(): TreeVertex;
+    set rootDefaults(val: TreeVertex);
+    get alternateDefaults(): TreeVertex;
+    set alternateDefaults(val: TreeVertex);
+    get angle(): number;
+    set angle(val: number);
+    get alignment(): EnumValue;
+    set alignment(val: EnumValue);
+    get sorting(): EnumValue;
+    set sorting(val: EnumValue);
+    get comparer(): (a: TreeVertex, b: TreeVertex) => number;
+    set comparer(val: (a: TreeVertex, b: TreeVertex) => number);
+    get nodeIndent(): number;
+    set nodeIndent(val: number);
+    get nodeIndentPastParent(): number;
+    set nodeIndentPastParent(val: number);
+    get nodeSpacing(): number;
+    set nodeSpacing(val: number);
+    get layerSpacing(): number;
+    set layerSpacing(val: number);
+    get layerSpacingParentOverlap(): number;
+    set layerSpacingParentOverlap(val: number);
+    get compaction(): EnumValue;
+    set compaction(val: EnumValue);
+    get breadthLimit(): number;
+    set breadthLimit(val: number);
+    get rowSpacing(): number;
+    set rowSpacing(val: number);
+    get rowIndent(): number;
+    set rowIndent(val: number);
+    get commentSpacing(): number;
+    set commentSpacing(val: number);
+    get commentMargin(): number;
+    set commentMargin(val: number);
+    get setsPortSpot(): boolean;
+    set setsPortSpot(val: boolean);
+    get portSpot(): Spot;
+    set portSpot(val: Spot);
+    get setsChildPortSpot(): boolean;
+    set setsChildPortSpot(val: boolean);
+    get childPortSpot(): Spot;
+    set childPortSpot(val: Spot);
     get alternateAngle(): number;
     set alternateAngle(val: number);
-    get alternateLayerSpacing(): number;
-    set alternateLayerSpacing(val: number);
-    get alternateNodeSpacing(): number;
-    set alternateNodeSpacing(val: number);
     get alternateAlignment(): EnumValue;
     set alternateAlignment(val: EnumValue);
-    get alternateCompaction(): EnumValue;
-    set alternateCompaction(val: EnumValue);
     get alternateSorting(): EnumValue;
     set alternateSorting(val: EnumValue);
-    static StyleLayered: EnumValue;
-    static StyleAlternating: EnumValue;
-    static StyleLastParents: EnumValue;
-    static StyleRootOnly: EnumValue;
+    get alternateNodeIndent(): number;
+    set alternateNodeIndent(val: number);
+    get alternateNodeIndentPastParent(): number;
+    set alternateNodeIndentPastParent(val: number);
+    get alternateNodeSpacing(): number;
+    set alternateNodeSpacing(val: number);
+    get alternateLayerSpacing(): number;
+    set alternateLayerSpacing(val: number);
+    get alternateLayerSpacingParentOverlap(): number;
+    set alternateLayerSpacingParentOverlap(val: number);
+    get alternateCompaction(): EnumValue;
+    set alternateCompaction(val: EnumValue);
+    get alternateBreadthLimit(): number;
+    set alternateBreadthLimit(val: number);
+    get alternateRowSpacing(): number;
+    set alternateRowSpacing(val: number);
+    get alternateRowIndent(): number;
+    set alternateRowIndent(val: number);
     static PathDefault: EnumValue;
     static PathDestination: EnumValue;
     static PathSource: EnumValue;
+    static SortingForwards: EnumValue;
+    static SortingReverse: EnumValue;
+    static SortingAscending: EnumValue;
+    static SortingDescending: EnumValue;
+    static AlignmentCenterSubtrees: EnumValue;
+    static AlignmentCenterChildren: EnumValue;
+    static AlignmentStart: EnumValue;
+    static AlignmentEnd: EnumValue;
+    static AlignmentBus: EnumValue;
+    static AlignmentBusBranching: EnumValue;
+    static AlignmentTopLeftBus: EnumValue;
+    static AlignmentBottomRightBus: EnumValue;
+    static CompactionNone: EnumValue;
+    static CompactionBlock: EnumValue;
+    static StyleLayered: EnumValue;
+    static StyleLastParents: EnumValue;
+    static StyleAlternating: EnumValue;
+    static StyleRootOnly: EnumValue;
     static ArrangementVertical: EnumValue;
     static ArrangementHorizontal: EnumValue;
     static ArrangementFixedRoots: EnumValue;
     static LayerIndividual: EnumValue;
     static LayerSiblings: EnumValue;
     static LayerUniform: EnumValue;
-    static SortingForwards: EnumValue;
-    static SortingReverse: EnumValue;
-    static SortingAscending: EnumValue;
-    static SortingDescending: EnumValue;
-    static CompactionBlock: EnumValue;
-    static CompactionNone: EnumValue;
-    static AlignmentTopLeftBus: EnumValue;
-    static AlignmentBottomRightBus: EnumValue;
-    static AlignmentBus: EnumValue;
-    static AlignmentBusBranching: EnumValue;
-    static AlignmentCenterChildren: EnumValue;
-    static AlignmentCenterSubtrees: EnumValue;
-    static AlignmentStart: EnumValue;
-    static AlignmentEnd: EnumValue;
-    private _rootDefaults;
-    private _alternateDefaults;
-    get rootDefaults(): any;
-    set rootDefaults(val: any);
-    get alternateDefaults(): any;
-    set alternateDefaults(val: any);
     copy(): TreeLayout;
+    createNetwork(): LayoutNetwork;
+    /** 官方 TreeLayout.makeNetwork — 排除 Comment/linkLabel，过滤非法链接 */
+    makeNetwork(coll: any): LayoutNetwork;
     doLayout(coll: any): void;
-    private _sortChildren;
-    private _assignLayers;
+    private _allVertexes;
+    private _uninitialized;
+    private _initTrees;
+    /** 官方 findRoots */
+    private _findRoots;
+    /** 官方 dI — 选连接最少的顶点作根 */
+    private _pickRoot;
+    /** 官方 walkTree (tT) */
+    private _walkTree;
+    /** 官方 walkOK (gI) */
+    private _walkOK;
+    /** 官方 isAncestor (vB) — a 是否为 b 的祖先 */
+    private _isAncestor;
+    /** 官方 removeChild (WB) */
+    private _removeChild;
+    private _initializeCounts;
+    private _initializeTree;
+    /** 官方 mom (jB) — 按 treeStyle 选择继承来源顶点 */
+    private _mom;
+    private _initializeTreeVertexValues;
+    private _assignTreeValues;
+    private _assignTree;
+    private _sortTrees;
+    private _sortTree;
+    private _sortTreeChildren;
+    private _addCommentsAll;
+    /** 官方 isBusAlignment */
+    isBusAlignment(a: EnumValue): boolean;
+    /** 官方 vw — 是否 Bus/BusBranching */
+    private _isBusBranching;
+    /** 官方 iT — isLeftSideBus */
+    private _isLeftSideBus;
+    private _addComments;
+    private _layoutTreeReal;
     private _layoutTree;
-    private _computeSubtreeWidth;
-    private _positionTree;
+    /** 官方 orthoAngle */
+    orthoAngle(v: TreeVertex): number;
+    /** 官方 computeLayerSpacing */
+    computeLayerSpacing(v: TreeVertex): number;
+    /** 官方 computeNodeIndent */
+    computeNodeIndent(v: TreeVertex): number;
+    /** 官方 computeBusNodeSpacing */
+    private _computeBusNodeSpacing;
+    /** 官方 computeBusLastRowSpacing */
+    private _computeBusLastRowSpacing;
+    /** 官方 ke — 分配点数组 */
+    private _ke;
+    /** 官方 bn — 回收点数组 */
+    private _bn;
+    /** 官方 recordMidPoints (Ik) */
+    private _recordMidPoints;
+    /** 官方 shiftRelPos (Iu) */
+    private _shiftRelPos;
+    /** 官方 nT — 按 alignment 拆分偏移 */
+    private _alignOffset;
+    /** 官方 Bc — shiftRelPosAlign */
+    private _shiftRelPosAlign;
+    /** 官方 Ek — 平移点数组 */
+    private _shiftPoints;
+    /** 官方 calculateSubwidth (eT) */
+    private _calculateSubwidth;
+    /** 官方 calculateSubheight (sT) */
+    private _calculateSubheight;
+    /** 官方 customAlignment — 子类可覆盖 */
+    protected customAlignment(_v: TreeVertex, dx: number, dy: number, w: number, h: number): number[];
+    /** 官方 tV — merge fringes（垂直方向推进） */
+    private _mergeFringesX;
+    /** 官方 ZB */
+    private _mergeFringesY;
+    /** 官方 iV */
+    private _mergeFringesX2;
+    /** 官方 QB */
+    private _mergeFringesY2;
+    /** 官方 _B — minimum separation (x-fringes) */
+    private _minSepX;
+    /** 官方 $B — minimum separation (y-fringes) */
+    private _minSepY;
+    /** 官方 mergeFringes (SI) — 合并父/子边线并返回子顶点的新块位置 */
+    private _mergeFringes;
+    /** 官方 layoutBusChildrenPosDir (xI) */
+    private _layoutBusChildrenPosDir;
+    /** 官方 layoutBusChildrenNegDir (bI) */
+    private _layoutBusChildrenNegDir;
+    /** 官方 fixRelativePostions (Ok) */
+    private _fixRelativePositions;
+    private _layoutTreeNone;
+    private _layoutTreeBlock;
+    arrangeTrees(): void;
+    /** 官方 oT — 递归赋绝对坐标（官方 vertex.x/y 即 bounds.x/y） */
+    private _assignAbsolutePositions;
+    commitLayout(): void;
+    private _commitNodes;
+    private _commitLinks;
+    /** 官方 QA — Uniform 层矩形 */
+    private _commitLayerRects;
+    /** 官方 commitLayers — 子类可覆盖 */
+    protected commitLayers(_rects: Rect[], _offset: Point): void;
+    /** 官方 Vw — 遍历所有根设置端口 Spot */
+    private _setPortSpotsAll;
+    /** 官方 kI — 递归设置端口 Spot */
+    private _setPortSpotsTree;
+    /** 官方 setPortSpots */
+    setPortSpots(v: TreeVertex): void;
+    /** 官方 setPortSpots 中 portSpot 的默认取值 */
+    private _defaultPortSpot;
+    /** 官方 setPortSpots 中 childPortSpot 的默认取值 */
+    private _defaultChildPortSpot;
+    /** 官方 eV — setPortSpotsBus */
+    private _setPortSpotsBus;
+    /** 官方 layoutComments — 摆放 Comment 节点 */
+    layoutComments(v: TreeVertex): void;
+    /** 官方 layoutComments 内联的 Comment 链接 Spot 设置 */
+    private _setCommentLinkSpots;
 }
 
 /**
@@ -3914,6 +4306,7 @@ declare const TreeAlignment: {
     CenterSubtrees: EnumValue;
     Start: EnumValue;
     End: EnumValue;
+    Custom: EnumValue;
 };
 declare const TreeCompaction: {
     Block: EnumValue;
@@ -4024,6 +4417,7 @@ declare const ImageStretch: {
     UniformToFill: EnumValue;
 };
 declare const Sizing: {
+    Default: EnumValue;
     None: EnumValue;
     Prop: EnumValue;
     Auto: EnumValue;
@@ -4087,6 +4481,7 @@ declare const LayoutConditions: {
     NodeSized: EnumValue;
 };
 declare const GeometryStretch: {
+    Default: EnumValue;
     Uniform: EnumValue;
 };
 declare const GeometryType: {
@@ -4108,5 +4503,5 @@ declare const TextOverflow: {
     Ellipsis: EnumValue;
 };
 
-export { ActionTool, Adornment, Animation, AnimationDefault, AnimationEaseIn, AnimationEaseInOut, AnimationEaseOut, AnimationEaseOutBounce, AnimationLinear, AnimationManager, AnimationState, AnimationStyle, AnimationStyleAnimateLocations, AnimationStyleDefault, AnimationStyleNone, AnimationTrigger, AutoScale, AutoScaleNone, AutoScaleUniform, AutoScaleUniformToFill, Binding, BindingMode, Brush, BrushLinear, BrushRadial, BrushSolid, CanvasRenderer, ChangeType, ChangedEvent, ChangedEventInsert, ChangedEventProperty, ChangedEventRemove, ChangedEventTransaction, CircularArrangement, CircularArrangementConstantAngle, CircularArrangementConstantDistance, CircularArrangementConstantRadius, CircularArrangementPacked, CircularDirection, CircularDirectionBidirectionalLeft, CircularDirectionBidirectionalRight, CircularDirectionClockwise, CircularDirectionCounterclockwise, CircularLayout, CircularNodeDiameterFormulaCircular, CircularNodeDiameterFormulaPythagorean, CircularSorting, CircularSortingAscending, CircularSortingDescending, CircularSortingForwards, CircularSortingOptimized, CircularSortingReverse, ClickCreatingTool, ClickSelectingTool, Color, CommandHandler, ContextMenuTool, Curve, CurveBezier, CurveJumpGap, CurveJumpOver, CurveNone, CycleAll, CycleDestinationTree, CycleMode, CycleNotDirected, CycleNotUndirected, CycleSourceTree, Diagram, DiagramEvent, DragSelectingTool, DraggingTool, EnumValue, FlipBoth, FlipHorizontal, FlipNone, FlipVertical, ForceDirectedLayout, Geometry, GeometryStretch, GeometryStretchUniform, GeometryType, GeometryTypeLine, GeometryTypePath, GestureMode, GestureModeCancel, GestureModeNone, GestureModeZoom, GraduatedPanCenter, GraduatedPanLeft, GraduatedPanNone, GraduatedPanRight, GraphLinksModel, GraphObject, GridAlignment, GridAlignmentLocation, GridAlignmentPosition, GridArrangement, GridArrangementBottomToTop, GridArrangementLeftToRight, GridArrangementRightToLeft, GridArrangementTopToBottom, GridLayout, GridLayoutCenter, GridLayoutLocation, GridSorting, GridSortingAscending, GridSortingDescending, GridSortingForwards, GridSortingReverse, GridWrappingFit, GridWrappingNone, Group, HTMLInfo, ImageStretch, ImageStretchFill, ImageStretchNone, ImageStretchUniform, ImageStretchUniformToFill, InputEvent, Layer, LayeredDigraphAggressive, LayeredDigraphAggressiveAll, LayeredDigraphAggressiveHorizontal, LayeredDigraphAggressiveLess, LayeredDigraphAggressiveMore, LayeredDigraphAggressiveNone, LayeredDigraphAggressiveVertical, LayeredDigraphAlign, LayeredDigraphAlignBottom, LayeredDigraphAlignCenter, LayeredDigraphAlignLower, LayeredDigraphAlignNone, LayeredDigraphAlignTop, LayeredDigraphAlignUpper, LayeredDigraphCycleRemove, LayeredDigraphCycleRemoveDepthFirst, LayeredDigraphCycleRemoveGreedy, LayeredDigraphDirection, LayeredDigraphDirectionDown, LayeredDigraphDirectionLeft, LayeredDigraphDirectionRight, LayeredDigraphDirectionUp, LayeredDigraphInit, LayeredDigraphInitDepthFirstIn, LayeredDigraphInitDepthFirstOut, LayeredDigraphInitNaive, LayeredDigraphLayering, LayeredDigraphLayeringLongestPathSink, LayeredDigraphLayeringLongestPathSource, LayeredDigraphLayeringOptimalLinkLength, LayeredDigraphLayout, LayeredDigraphPack, LayeredDigraphPackAll, LayeredDigraphPackExpand, LayeredDigraphPackMedian, LayeredDigraphPackNone, LayeredDigraphPackStraighten, Layout, LayoutConditions, LayoutConditionsNodeSized, LayoutConditionsStandard, LayoutEdge, LayoutNetwork, LayoutVertex, Link, LinkAdjusting, LinkAdjustingEnd, LinkAdjustingStretch, LinkReshapingTool, LinkingBaseTool, LinkingDirection, LinkingDirectionForwardsOnly, LinkingTool, List, Map, Margin, Model, Node, Orientation, OrientationAlong, OrientationMinus90, OrientationNone, OrientationPlus180, OrientationPlus90, Overflow, OverflowClip, OverflowEllipsis, Overview, Palette, Panel, PanelAuto, PanelGraduated, PanelGrid, PanelHorizontal, PanelLink, PanelPosition, PanelSpot, PanelTable, PanelTableColumn, PanelTableRow, PanelTypes, PanelVertical, PanelViewbox, PanningTool, Part, PathFigure, PathSegment, PathSegmentArc, PathSegmentClose, PathSegmentCubicBezier, PathSegmentLine, PathSegmentMoveTo, PathSegmentQuadraticBezier, Picture, Placeholder, Point, Rect, RelinkingTool, ResizingTool, RotatingTool, Routing, RoutingAvoidsNodes, RoutingNormal, RoutingOrthogonal, RowColumnDefinition, ScrollDocument, ScrollInfinite, ScrollMode, SegmentOrientationAlong, SegmentOrientationNone, SegmentOrientationOpposite, SegmentOrientationOrthogonal, SegmentOrientationParallel, SegmentOrientationPerpendicular, SegmentType, Set, Shape, Size, Sizing, SizingAuto, SizingNone, SizingProp, Spot, Stretch, StretchDefault, StretchFill, StretchHorizontal, StretchNone, StretchUniform, StretchUniformToFill, StretchVertical, TextBlock, TextEditingAccept, TextEditingAcceptLostFocus, TextEditingStarting, TextEditingStartingSingleClick, TextEditingTool, TextOverflow, ThemeManager, Tool, ToolManager, Transaction, TreeAlignment, TreeAlignmentBottomRightBus, TreeAlignmentBus, TreeAlignmentBusBranching, TreeAlignmentCenterChildren, TreeAlignmentCenterSubtrees, TreeAlignmentEnd, TreeAlignmentStart, TreeAlignmentTopLeftBus, TreeArrangement, TreeArrangementFixedRoots, TreeArrangementHorizontal, TreeArrangementVertical, TreeCompaction, TreeCompactionBlock, TreeCompactionNone, TreeLayerStyle, TreeLayerStyleIndividual, TreeLayerStyleSiblings, TreeLayerStyleUniform, TreeLayout, TreeModel, TreePath, TreePathDefault, TreePathDestination, TreePathSource, TreeSorting, TreeSortingAscending, TreeSortingDescending, TreeSortingForwards, TreeSortingReverse, TreeStyle, TreeStyleAlternating, TreeStyleCompact, TreeStyleLastParents, TreeStyleLayered, TreeStyleRootOnly, TriggerStart, TriggerStartBundled, UndoManager, ViewboxStretchFill, ViewboxStretchNone, ViewboxStretchUniform, ViewboxStretchUniformToFill, WheelMode, WheelModeZoom, Wrap, WrapDesiredSize, WrapFit, WrapNone, figures, getFigureGeometry };
+export { ActionTool, Adornment, Animation, AnimationDefault, AnimationEaseIn, AnimationEaseInOut, AnimationEaseOut, AnimationEaseOutBounce, AnimationLinear, AnimationManager, AnimationState, AnimationStyle, AnimationStyleAnimateLocations, AnimationStyleDefault, AnimationStyleNone, AnimationTrigger, AutoScale, AutoScaleNone, AutoScaleUniform, AutoScaleUniformToFill, Binding, BindingMode, Brush, BrushLinear, BrushRadial, BrushSolid, CanvasRenderer, ChangeType, ChangedEvent, ChangedEventInsert, ChangedEventProperty, ChangedEventRemove, ChangedEventTransaction, CircularArrangement, CircularArrangementConstantAngle, CircularArrangementConstantDistance, CircularArrangementConstantRadius, CircularArrangementPacked, CircularDirection, CircularDirectionBidirectionalLeft, CircularDirectionBidirectionalRight, CircularDirectionClockwise, CircularDirectionCounterclockwise, CircularLayout, CircularNodeDiameterFormulaCircular, CircularNodeDiameterFormulaPythagorean, CircularSorting, CircularSortingAscending, CircularSortingDescending, CircularSortingForwards, CircularSortingOptimized, CircularSortingReverse, ClickCreatingTool, ClickSelectingTool, Color, CommandHandler, ContextMenuTool, Curve, CurveBezier, CurveJumpGap, CurveJumpOver, CurveNone, CycleAll, CycleDestinationTree, CycleMode, CycleNotDirected, CycleNotUndirected, CycleSourceTree, Diagram, DiagramEvent, DragSelectingTool, DraggingTool, EnumValue, FlipBoth, FlipHorizontal, FlipNone, FlipVertical, ForceDirectedLayout, Geometry, GeometryStretch, GeometryStretchDefault, GeometryStretchUniform, GeometryType, GeometryTypeLine, GeometryTypePath, GestureMode, GestureModeCancel, GestureModeNone, GestureModeZoom, GraduatedPanCenter, GraduatedPanLeft, GraduatedPanNone, GraduatedPanRight, GraphLinksModel, GraphObject, GridAlignment, GridAlignmentLocation, GridAlignmentPosition, GridArrangement, GridArrangementBottomToTop, GridArrangementLeftToRight, GridArrangementRightToLeft, GridArrangementTopToBottom, GridLayout, GridLayoutCenter, GridLayoutLocation, GridSorting, GridSortingAscending, GridSortingDescending, GridSortingForwards, GridSortingReverse, GridWrappingFit, GridWrappingNone, Group, HTMLInfo, ImageStretch, ImageStretchFill, ImageStretchNone, ImageStretchUniform, ImageStretchUniformToFill, InputEvent, Layer, LayeredDigraphAggressive, LayeredDigraphAggressiveAll, LayeredDigraphAggressiveHorizontal, LayeredDigraphAggressiveLess, LayeredDigraphAggressiveMore, LayeredDigraphAggressiveNone, LayeredDigraphAggressiveVertical, LayeredDigraphAlign, LayeredDigraphAlignBottom, LayeredDigraphAlignCenter, LayeredDigraphAlignLower, LayeredDigraphAlignNone, LayeredDigraphAlignTop, LayeredDigraphAlignUpper, LayeredDigraphCycleRemove, LayeredDigraphCycleRemoveDepthFirst, LayeredDigraphCycleRemoveGreedy, LayeredDigraphDirection, LayeredDigraphDirectionDown, LayeredDigraphDirectionLeft, LayeredDigraphDirectionRight, LayeredDigraphDirectionUp, LayeredDigraphInit, LayeredDigraphInitDepthFirstIn, LayeredDigraphInitDepthFirstOut, LayeredDigraphInitNaive, LayeredDigraphLayering, LayeredDigraphLayeringLongestPathSink, LayeredDigraphLayeringLongestPathSource, LayeredDigraphLayeringOptimalLinkLength, LayeredDigraphLayout, LayeredDigraphPack, LayeredDigraphPackAll, LayeredDigraphPackExpand, LayeredDigraphPackMedian, LayeredDigraphPackNone, LayeredDigraphPackStraighten, Layout, LayoutConditions, LayoutConditionsNodeSized, LayoutConditionsStandard, LayoutEdge, LayoutNetwork, LayoutVertex, Link, LinkAdjusting, LinkAdjustingEnd, LinkAdjustingStretch, LinkReshapingTool, LinkingBaseTool, LinkingDirection, LinkingDirectionForwardsOnly, LinkingTool, List, Map, Margin, Model, Node, Orientation, OrientationAlong, OrientationMinus90, OrientationNone, OrientationPlus180, OrientationPlus90, Overflow, OverflowClip, OverflowEllipsis, Overview, Palette, Panel, PanelAuto, PanelGraduated, PanelGrid, PanelHorizontal, PanelLink, PanelPosition, PanelSpot, PanelTable, PanelTableColumn, PanelTableRow, PanelTypes, PanelVertical, PanelViewbox, PanningTool, Part, PathFigure, PathSegment, PathSegmentArc, PathSegmentClose, PathSegmentCubicBezier, PathSegmentLine, PathSegmentMoveTo, PathSegmentQuadraticBezier, Picture, Placeholder, Point, Rect, RelinkingTool, ResizingTool, RotatingTool, Routing, RoutingAvoidsNodes, RoutingNormal, RoutingOrthogonal, RowColumnDefinition, ScrollDocument, ScrollInfinite, ScrollMode, SegmentOrientationAlong, SegmentOrientationNone, SegmentOrientationOpposite, SegmentOrientationOrthogonal, SegmentOrientationParallel, SegmentOrientationPerpendicular, SegmentType, Set, Shape, Size, Sizing, SizingAuto, SizingDefault, SizingNone, SizingProp, Spot, Stretch, StretchDefault, StretchFill, StretchHorizontal, StretchNone, StretchUniform, StretchUniformToFill, StretchVertical, TextBlock, TextEditingAccept, TextEditingAcceptLostFocus, TextEditingStarting, TextEditingStartingSingleClick, TextEditingTool, TextOverflow, ThemeManager, Tool, ToolManager, Transaction, TreeAlignment, TreeAlignmentBottomRightBus, TreeAlignmentBus, TreeAlignmentBusBranching, TreeAlignmentCenterChildren, TreeAlignmentCenterSubtrees, TreeAlignmentCustom, TreeAlignmentEnd, TreeAlignmentStart, TreeAlignmentTopLeftBus, TreeArrangement, TreeArrangementFixedRoots, TreeArrangementHorizontal, TreeArrangementVertical, TreeCompaction, TreeCompactionBlock, TreeCompactionNone, TreeLayerStyle, TreeLayerStyleIndividual, TreeLayerStyleSiblings, TreeLayerStyleUniform, TreeLayout, TreeModel, TreePath, TreePathDefault, TreePathDestination, TreePathSource, TreeSorting, TreeSortingAscending, TreeSortingDescending, TreeSortingForwards, TreeSortingReverse, TreeStyle, TreeStyleAlternating, TreeStyleCompact, TreeStyleLastParents, TreeStyleLayered, TreeStyleRootOnly, TriggerStart, TriggerStartBundled, UndoManager, ViewboxStretchFill, ViewboxStretchNone, ViewboxStretchUniform, ViewboxStretchUniformToFill, WheelMode, WheelModeZoom, Wrap, WrapDesiredSize, WrapFit, WrapNone, figures, getFigureGeometry };
 export type { AnimationConfig, BrushLike, BrushStop, ChangedEventListener, IMapIterator, Iterable, Iterator, MarginLike, ObjectData };

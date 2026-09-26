@@ -70,6 +70,7 @@ export const ImageStretchUniform = new EnumValue('ImageStretchUniform');
 export const ImageStretchUniformToFill = new EnumValue('ImageStretchUniformToFill');
 
 // ============ 表格行/列尺寸策略 ============
+export const SizingDefault = new EnumValue('SizingDefault');
 export const SizingNone = new EnumValue('SizingNone');
 export const SizingProp = new EnumValue('SizingProp');
 export const SizingAuto = new EnumValue('SizingAuto');
@@ -291,6 +292,7 @@ export const TreeAlignmentCenterChildren = new EnumValue('CenterChildren');
 export const TreeAlignmentCenterSubtrees = new EnumValue('CenterSubtrees');
 export const TreeAlignmentStart = new EnumValue('Start');
 export const TreeAlignmentEnd = new EnumValue('End');
+export const TreeAlignmentCustom = new EnumValue('Custom');
 
 // ============ LayeredDigraphAggressive ============
 export const LayeredDigraphAggressiveLess = new EnumValue('Less');
@@ -334,6 +336,7 @@ export const LayoutConditionsStandard = new EnumValue('Standard');
 export const LayoutConditionsNodeSized = new EnumValue('NodeSized');
 
 // ============ GeometryStretch ============
+export const GeometryStretchDefault = new EnumValue('Default');
 export const GeometryStretchUniform = new EnumValue('Uniform');
 export const GeometryStretchNone = new EnumValue('GeometryStretchNone');
 export const GeometryStretchFill = new EnumValue('GeometryStretchFill');

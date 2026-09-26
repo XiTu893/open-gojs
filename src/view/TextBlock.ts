@@ -16,7 +16,7 @@ export class TextBlock extends GraphObject {
   static VerticalBottom: EnumValue = VerticalBottom;
 
   private _text: string = '';
-  private _font: string = '10px sans-serif';
+  private _font: string = '13px sans-serif';
   private _stroke: BrushLike = 'black';
   private _textAlign: string = 'start';
   private _isMultiline: boolean = true;
@@ -45,8 +45,10 @@ export class TextBlock extends GraphObject {
 
   get text(): string { return this._text; }
   set text(val: string) {
-    if (this._text !== val) {
-      this._text = val;
+    // 官方语义：非 null 转字符串，null → ''
+    const s = (val !== null && val !== undefined) ? String(val) : '';
+    if (this._text !== s) {
+      this._text = s;
       this._invalidateMeasure();
     }
   }
@@ -158,15 +160,23 @@ export class TextBlock extends GraphObject {
       return;
     }
 
+    // 官方 GraphObject.yt：measure 约束先按 maxSize 收紧（maxSize 是 wrap 约束的一部分），
+    // TextBlock 随后按收紧后的约束换行 —— 例如 maxSize(160, NaN) 且约束为 Infinity 时按 160 换行。
+    let wc = widthConstraint;
+    let hc = heightConstraint;
+    const ms = this.maxSize;
+    if (wc > ms.width) wc = ms.width;
+    if (hc > ms.height) hc = ms.height;
+
     const canvas = TextBlock._tempCanvas;
     const ctx = canvas.getContext('2d')!;
-    const measured = this._measureText(ctx, widthConstraint);
+    const measured = this._measureText(ctx, wc);
 
     this._lineCount = measured.lineCount;
     this._naturalBounds = new Rect(0, 0, measured.width, measured.height);
 
-    const measuredWidth = Math.min(measured.width, widthConstraint);
-    const measuredHeight = Math.min(measured.height, heightConstraint);
+    const measuredWidth = Math.min(measured.width, wc);
+    const measuredHeight = Math.min(measured.height, hc);
     this._measuredBounds = new Rect(0, 0, measuredWidth, measuredHeight);
     this._applySizeConstraints();
   }

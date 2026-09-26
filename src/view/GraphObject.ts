@@ -35,7 +35,7 @@ export class GraphObject {
   // ============ Protected fields ============
   protected _panel: Panel | null = null;
   protected _part: Part | null = null;
-  protected _actualBounds: Rect = new Rect();
+  protected _actualBounds: Rect = new Rect(NaN, NaN, NaN, NaN);
   protected _measuredBounds: Rect = new Rect();
   protected _naturalBounds: Rect = new Rect();
   protected _bindings: Binding[] = [];
@@ -44,10 +44,10 @@ export class GraphObject {
   protected _className: string = 'GraphObject';
 
   // ============ Private property storage ============
-  private _desiredSize: Size = Size.NaN.copy();
-  private _minSize: Size = new Size(0, 0);
-  private _maxSize: Size = new Size(Infinity, Infinity);
-  private _margin: Margin = Margin.Zero.copy();
+  protected _desiredSize: Size = Size.NaN.copy();
+  protected _minSize: Size = new Size(0, 0);
+  protected _maxSize: Size = new Size(Infinity, Infinity);
+  protected _margin: Margin = Margin.Zero.copy();
   private _alignment: Spot = Spot.Default.copy();
   private _alignmentFocus: Spot = Spot.Default.copy();
   private _angle: number = 0;
@@ -89,7 +89,7 @@ export class GraphObject {
   private _segmentFraction: number = 0;
   private _segmentOffset: Point = new Point(NaN, NaN);
   private _segmentOrientation: EnumValue = SegmentOrientationNone;
-  private _position: Point = new Point(NaN, NaN);
+  protected _position: Point = new Point(NaN, NaN);
 
   // ============ Event handlers ============
   private _click: ((e: any, obj: GraphObject) => void) | null = null;
@@ -142,6 +142,8 @@ export class GraphObject {
   get minSize(): Size { return this._minSize; }
   set minSize(val: Size) {
     const s = val && typeof val.copy === 'function' ? val.copy() : (val ? new Size(val.width || 0, val.height || 0) : Size.Zero.copy());
+    if (isNaN(s.width)) s.width = 0;
+    if (isNaN(s.height)) s.height = 0;
     if (this._minSize.equals(s)) return;
     this._minSize = s;
     this._invalidateMeasure();
@@ -150,6 +152,8 @@ export class GraphObject {
   get maxSize(): Size { return this._maxSize; }
   set maxSize(val: Size) {
     const s = val && typeof val.copy === 'function' ? val.copy() : (val ? new Size(val.width || 0, val.height || 0) : Size.NaN.copy());
+    if (isNaN(s.width)) s.width = Infinity;
+    if (isNaN(s.height)) s.height = Infinity;
     if (this._maxSize.equals(s)) return;
     this._maxSize = s;
     this._invalidateMeasure();
@@ -579,16 +583,18 @@ export class GraphObject {
   }
 
   /** Apply a function to this object and return it */
-  apply(func: (obj: GraphObject) => void): GraphObject {
-    func(this);
+  apply(func: (obj: GraphObject, data?: any) => void, data?: any): GraphObject {
+    func(this, data);
     return this;
   }
 
-  /** Find the nearest panel that has data bound to it */
+  /** 官方 findBindingPanel：从自身（若为 Panel）起向上找带绑定的面板 */
   findBindingPanel(): Panel | null {
-    let panel: Panel | null = this._panel;
+    // avoid value-import of Panel (circular); duck-type via _elements
+    const selfIsPanel = (this as any)._elements !== undefined;
+    let panel: Panel | null = selfIsPanel ? this as unknown as Panel : this._panel;
     while (panel !== null) {
-      if ((panel as any).data !== null && (panel as any).data !== undefined) {
+      if (panel._bindings && panel._bindings.length > 0) {
         return panel;
       }
       panel = (panel as any)._panel;
@@ -729,10 +735,12 @@ export class GraphObject {
     }
   }
 
-  /** Measure this object within the given constraints */
-  _measure(widthConstraint: number, heightConstraint: number): void {
+  /** Measure this object within the given constraints (官方 yt：可选 minW/minH) */
+  _measure(widthConstraint: number, heightConstraint: number, minW?: number, minH?: number): void {
     // Base implementation - subclasses override
-    this._measuredBounds = new Rect(0, 0, widthConstraint, heightConstraint);
+    let w = Math.max(widthConstraint, minW || 0);
+    let h = Math.max(heightConstraint, minH || 0);
+    this._measuredBounds = new Rect(0, 0, w, h);
     this._applySizeConstraints();
   }
 
@@ -742,13 +750,9 @@ export class GraphObject {
     let w = mb.width;
     let h = mb.height;
 
-    // Apply desiredSize if set (overrides natural size)
-    if (!this._desiredSize.isReal) {
-      // desiredSize not set, use natural size
-    } else {
-      if (!isNaN(this._desiredSize.width)) w = this._desiredSize.width;
-      if (!isNaN(this._desiredSize.height)) h = this._desiredSize.height;
-    }
+    // Apply desiredSize per-dimension (NaN means "not set" for that axis, matching GoJS isFinite checks)
+    if (!isNaN(this._desiredSize.width)) w = this._desiredSize.width;
+    if (!isNaN(this._desiredSize.height)) h = this._desiredSize.height;
 
     // Apply minSize
     if (!isNaN(this._minSize.width) && w < this._minSize.width) w = this._minSize.width;
@@ -759,6 +763,139 @@ export class GraphObject {
     if (!isNaN(this._maxSize.height) && h > this._maxSize.height) h = this._maxSize.height;
 
     this._measuredBounds = new Rect(0, 0, w, h);
+    this._applyMeasureTransform();
+  }
+
+  /**
+   * 官方 GraphObject.po：scale（及 angle）作用于 measuredBounds。
+   * scale 矩阵 + 绕中心旋转，取轴对齐包围盒；naturalBounds 不受影响。
+   */
+  protected _applyMeasureTransform(): void {
+    const sc = this._scale;
+    const ang = this._angle;
+    if (sc === 1 && (isNaN(ang) || ang === 0)) return;
+    const mb = this._measuredBounds;
+    let w = mb.width * sc;
+    let h = mb.height * sc;
+    let x = 0;
+    let y = 0;
+    if (!isNaN(ang) && ang !== 0) {
+      const rad = (ang * Math.PI) / 180;
+      const cos = Math.abs(Math.cos(rad));
+      const sin = Math.abs(Math.sin(rad));
+      const nw = w * cos + h * sin;
+      const nh = w * sin + h * cos;
+      x = w / 2 - nw / 2;
+      y = h / 2 - nh / 2;
+      w = nw;
+      h = nh;
+    }
+    this._measuredBounds = new Rect(x, y, w, h);
+  }
+
+  /** 官方 GraphObject.ln(forArranging) — 解析有效 stretch */
+  _getStretch(forArranging: boolean): EnumValue {
+    const s = this._stretch;
+    const panel = this._panel;
+    if (panel === null) {
+      return this._refineStretch(s === StretchDefault ? StretchNone : s, forArranging);
+    }
+    const ptype = panel.type;
+    // 官方 ln：Table 面板子元素 → gp(rowDef, colDef, forArranging)
+    if (ptype === PanelTable) {
+      return this._resolveTableChildStretch(panel, forArranging);
+    }
+    const mainOf = (ptype === PanelAuto || ptype === PanelSpot)
+      ? (panel as any).findMainElement?.() === this
+      : false;
+    if (mainOf && ptype === PanelAuto) return this._refineStretch(StretchFill, forArranging);
+    if (s === StretchDefault) {
+      if (mainOf && ptype === PanelSpot) return this._refineStretch(StretchFill, forArranging);
+      const ds = panel.defaultStretch;
+      return this._refineStretch(ds === StretchDefault ? StretchNone : ds, forArranging);
+    }
+    return this._refineStretch(s, forArranging);
+  }
+
+  /**
+   * 官方 GraphObject.gp(rowDef, colDef, forArranging)：
+   * 元素 stretch 为 Default 时，由所在行/列定义的 stretch + 面板 defaultStretch 推导有效 stretch。
+   */
+  private _resolveTableChildStretch(panel: Panel, forArranging: boolean): EnumValue {
+    const s = this._stretch;
+    if (s !== StretchDefault) return this._refineStretch(s, forArranging);
+    const rowDef = panel.getRowDefinition(this.row);
+    const colDef = panel.getColumnDefinition(this.column);
+    return this._gpWithDefs(panel, rowDef, colDef, forArranging);
+  }
+
+  /** 官方 GraphObject.gp(rowDef, colDef, forArranging)（stretch 已知为 Default） */
+  _gpWithDefs(panel: Panel, rowDef: RowColumnDefinition, colDef: RowColumnDefinition, forArranging: boolean): EnumValue {
+    const s = this._stretch;
+    if (s !== StretchDefault) return this._refineStretch(s, forArranging);
+    let horiz: boolean | null = null;
+    let vert: boolean | null = null;
+    switch (rowDef.stretch) {
+      case StretchDefault:
+      case StretchHorizontal:
+        break;
+      case StretchVertical:
+        vert = true;
+        break;
+      case StretchFill:
+        vert = true;
+        break;
+    }
+    switch (colDef.stretch) {
+      case StretchDefault:
+      case StretchVertical:
+        break;
+      case StretchHorizontal:
+        horiz = true;
+        break;
+      case StretchFill:
+        horiz = true;
+        break;
+    }
+    const ds = panel.defaultStretch;
+    if (horiz === null) horiz = ds === StretchHorizontal || ds === StretchFill;
+    if (vert === null) vert = ds === StretchVertical || ds === StretchFill;
+    let result: EnumValue;
+    if (horiz === true && vert === true) result = StretchFill;
+    else if (horiz === true) result = StretchHorizontal;
+    else if (vert === true) result = StretchVertical;
+    else result = StretchNone;
+    return this._refineStretch(result, forArranging);
+  }
+
+  /** 官方 GraphObject.ir(stretch, forArranging) — 按 desiredSize 精简 stretch */
+  private _refineStretch(t: EnumValue, forArranging: boolean): EnumValue {
+    if (forArranging) return t;
+    if (t === StretchNone) return StretchNone;
+    const d = this._desiredSize;
+    if (isFinite(d.width) && isFinite(d.height)) return StretchNone;
+    const wFixed = !isNaN(d.width);
+    const hFixed = !isNaN(d.height);
+    const rot = this._angle === 90 || this._angle === 270;
+    if (wFixed) {
+      if (!rot) {
+        if (t === StretchHorizontal) return StretchNone;
+        if (t === StretchFill) return StretchVertical;
+      } else {
+        if (t === StretchVertical) return StretchNone;
+        if (t === StretchFill) return StretchHorizontal;
+      }
+    }
+    if (hFixed) {
+      if (!rot) {
+        if (t === StretchVertical) return StretchNone;
+        if (t === StretchFill) return StretchHorizontal;
+      } else {
+        if (t === StretchHorizontal) return StretchNone;
+        if (t === StretchFill) return StretchVertical;
+      }
+    }
+    return t;
   }
 
   /** Arrange this object within the given bounds */
@@ -859,6 +996,14 @@ export class GraphObject {
   }
 
   static takeBuilderArgument(obj: any, arg: any, def?: any): any {
+    if (Array.isArray(obj)) {
+      const s = obj[1];
+      if (typeof s === 'string') {
+        obj.splice(1, 1);
+        return s;
+      }
+      return arg;
+    }
     return arg !== undefined ? arg : def;
   }
 

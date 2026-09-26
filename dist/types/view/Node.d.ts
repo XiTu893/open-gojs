@@ -11,8 +11,7 @@ export declare class Node extends Part {
     protected _wasTreeExpanded: boolean;
     protected _isSubGraphExpanded: boolean;
     protected _treeExpandedDirection: EnumValue;
-    constructor(type?: EnumValue | string, init?: Partial<Node>);
-    private static _resolvePanelType;
+    constructor(type?: any, init?: any);
     get isTreeExpanded(): boolean;
     set isTreeExpanded(val: boolean);
     get wasTreeExpanded(): boolean;

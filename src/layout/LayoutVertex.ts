@@ -85,6 +85,33 @@ export class LayoutVertex {
     };
   }
 
+  /** 像素 focus：TreeVertex.focus(Point) 优先，其次 focusX/Y 分数 × 尺寸 */
+  private _focusPx(): { x: number; y: number } {
+    const f: any = (this as any).focus;
+    if (f && typeof f.x === 'number' && typeof f.y === 'number') return { x: f.x, y: f.y };
+    return { x: this.focusX * this.bounds.width, y: this.focusY * this.bounds.height };
+  }
+
+  /** 官方 LayoutVertex.centerX = bounds.x + focus.x */
+  get centerX(): number {
+    return this.bounds.x + this._focusPx().x;
+  }
+  set centerX(val: number) {
+    const dx = val - this.centerX;
+    this.bounds.x += dx;
+    this.x += dx;
+  }
+
+  /** 官方 LayoutVertex.centerY = bounds.y + focus.y */
+  get centerY(): number {
+    return this.bounds.y + this._focusPx().y;
+  }
+  set centerY(val: number) {
+    const dy = val - this.centerY;
+    this.bounds.y += dy;
+    this.y += dy;
+  }
+
   static smartComparer(a: LayoutVertex, b: LayoutVertex): number {
     const na = (a as any).data ? String((a as any).data.key) : '';
     const nb = (b as any).data ? String((b as any).data.key) : '';

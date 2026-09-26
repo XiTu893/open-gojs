@@ -39,11 +39,12 @@ export class Link extends Part {
   private _jumpOver: number = 8;
   private _jumpGap: number = 8;
 
-  constructor(type?: EnumValue, init?: Partial<Link>) {
-    super(type || PanelLink);
+  constructor(type?: any, init?: any) {
+    const [t, i] = Panel._resolveArgs(type, init);
+    super(t !== undefined && t !== null ? t : PanelLink, undefined);
     this._className = 'Link';
-    if (init) {
-      this.set(init);
+    if (i) {
+      this.set(i);
     }
   }
 

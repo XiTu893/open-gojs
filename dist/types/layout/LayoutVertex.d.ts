@@ -49,5 +49,13 @@ export declare class LayoutVertex {
         x: number;
         y: number;
     };
+    /** 像素 focus：TreeVertex.focus(Point) 优先，其次 focusX/Y 分数 × 尺寸 */
+    private _focusPx;
+    /** 官方 LayoutVertex.centerX = bounds.x + focus.x */
+    get centerX(): number;
+    set centerX(val: number);
+    /** 官方 LayoutVertex.centerY = bounds.y + focus.y */
+    get centerY(): number;
+    set centerY(val: number);
     static smartComparer(a: LayoutVertex, b: LayoutVertex): number;
 }

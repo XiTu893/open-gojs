@@ -130,6 +130,7 @@ var ImageStretchFill = new EnumValue('ImageStretchFill');
 var ImageStretchUniform = new EnumValue('ImageStretchUniform');
 var ImageStretchUniformToFill = new EnumValue('ImageStretchUniformToFill');
 // ============ 表格行/列尺寸策略 ============
+var SizingDefault = new EnumValue('SizingDefault');
 var SizingNone = new EnumValue('SizingNone');
 var SizingProp = new EnumValue('SizingProp');
 var SizingAuto = new EnumValue('SizingAuto');
@@ -277,6 +278,7 @@ var TreeAlignmentCenterChildren = new EnumValue('CenterChildren');
 var TreeAlignmentCenterSubtrees = new EnumValue('CenterSubtrees');
 var TreeAlignmentStart = new EnumValue('Start');
 var TreeAlignmentEnd = new EnumValue('End');
+var TreeAlignmentCustom = new EnumValue('Custom');
 // ============ LayeredDigraphAggressive ============
 var LayeredDigraphAggressiveLess = new EnumValue('Less');
 var LayeredDigraphAggressiveMore = new EnumValue('More');
@@ -309,6 +311,7 @@ var AnimationStyleNone = new EnumValue('AnimationStyleNone');
 var LayoutConditionsStandard = new EnumValue('Standard');
 var LayoutConditionsNodeSized = new EnumValue('NodeSized');
 // ============ GeometryStretch ============
+var GeometryStretchDefault = new EnumValue('Default');
 var GeometryStretchUniform = new EnumValue('Uniform');
 var GeometryStretchNone = new EnumValue('GeometryStretchNone');
 var GeometryStretchFill = new EnumValue('GeometryStretchFill');
@@ -980,7 +983,7 @@ var MapValueIterator = /** @class */ (function () {
 /**
  * Set - 无序集合
  */
-var Set = /** @class */ (function () {
+var Set$1 = /** @class */ (function () {
     function Set(iterable) {
         var e_1, _a;
         this._data = [];
@@ -1273,9 +1276,27 @@ var Point = /** @class */ (function () {
     };
     /** 旋转（弧度） */
     Point.prototype.rotate = function (angle) {
-        var cos = Math.cos(angle);
-        var sin = Math.sin(angle);
-        return new Point(this.x * cos - this.y * sin, this.x * sin + this.y * cos);
+        // 官方 Point.rotate：角度为度数
+        var s = 0, n = 0;
+        var a = ((angle % 360) + 360) % 360;
+        if (a === 90) {
+            s = 0;
+            n = 1;
+        }
+        else if (a === 180) {
+            s = -1;
+            n = 0;
+        }
+        else if (a === 270) {
+            s = 0;
+            n = -1;
+        }
+        else {
+            var rad = a * Math.PI / 180;
+            s = Math.cos(rad);
+            n = Math.sin(rad);
+        }
+        return new Point(s * this.x - n * this.y, n * this.x + s * this.y);
     };
     /** 点积 */
     Point.prototype.dot = function (p) {
@@ -1423,10 +1444,10 @@ var Rect = /** @class */ (function () {
             }
         }
         else {
-            this.x = xOrPoint || 0;
-            this.y = (typeof yOrSize === 'number' ? yOrSize : 0);
-            this.width = width || 0;
-            this.height = height || 0;
+            this.x = typeof xOrPoint === 'number' ? xOrPoint : 0;
+            this.y = typeof yOrSize === 'number' ? yOrSize : 0;
+            this.width = typeof width === 'number' ? width : 0;
+            this.height = typeof height === 'number' ? height : 0;
         }
     }
     Object.defineProperty(Rect.prototype, "isReadOnly", {
@@ -1621,6 +1642,8 @@ var Spot = /** @class */ (function () {
         if (y === void 0) { y = 0; }
         if (offsetX === void 0) { offsetX = 0; }
         if (offsetY === void 0) { offsetY = 0; }
+        /** 标记为官方 Spot.Default（NaN 语义）；普通 new Spot(0,0) 是有效 TopLeft */
+        this._defaultMark = false;
         this._isReadOnly = false;
         this.x = x;
         this.y = y;
@@ -1647,13 +1670,16 @@ var Spot = /** @class */ (function () {
         this.y = y;
         this.offsetX = offsetX;
         this.offsetY = offsetY;
+        this._defaultMark = false;
         return this;
     };
     Spot.prototype.copy = function () {
-        return new Spot(this.x, this.y, this.offsetX, this.offsetY);
+        var s = new Spot(this.x, this.y, this.offsetX, this.offsetY);
+        s._defaultMark = this._defaultMark;
+        return s;
     };
     Spot.prototype.equals = function (s) {
-        return s instanceof Spot &&
+        return s instanceof Spot && this._defaultMark === s._defaultMark &&
             this.x === s.x && this.y === s.y &&
             this.offsetX === s.offsetX && this.offsetY === s.offsetY;
     };
@@ -1665,9 +1691,9 @@ var Spot = /** @class */ (function () {
             Math.abs(this.offsetY - s.offsetY) < epsilon;
     };
     Object.defineProperty(Spot.prototype, "isDefault", {
-        /** 是否为默认值 */
+        /** 是否为官方 Spot.Default（未解析的默认值，不是有效定位点） */
         get: function () {
-            return this.x === 0 && this.y === 0 && this.offsetX === 0 && this.offsetY === 0;
+            return this._defaultMark;
         },
         enumerable: false,
         configurable: true
@@ -1701,7 +1727,14 @@ var Spot = /** @class */ (function () {
         }
         return "".concat(this.x, " ").concat(this.y, " ").concat(this.offsetX, " ").concat(this.offsetY);
     };
+    Spot.makeDefault = function () {
+        var s = new Spot(0, 0);
+        s._defaultMark = true;
+        return Object.freeze(s);
+    };
     Spot.parse = function (str) {
+        if (str === 'Default')
+            return Spot.Default;
         var parts = str.split(/\s+/);
         var x = parseFloat(parts[0]);
         var y = parseFloat(parts[1]);
@@ -1729,7 +1762,7 @@ var Spot = /** @class */ (function () {
     Spot.Bottom = Object.freeze(new Spot(0.5, 1));
     Spot.BottomCenter = Object.freeze(new Spot(0.5, 1));
     Spot.BottomRight = Object.freeze(new Spot(1, 1));
-    Spot.Default = Object.freeze(new Spot(0, 0));
+    Spot.Default = Spot.makeDefault();
     Spot.None = Object.freeze(new Spot(NaN, NaN));
     Spot.TopSide = Object.freeze(new Spot(0.5, 0, 0, -1));
     Spot.BottomSide = Object.freeze(new Spot(0.5, 1, 0, 1));
@@ -2015,10 +2048,16 @@ var Geometry = /** @class */ (function () {
         var e_1, _a;
         /** 边界矩形 */
         this._bounds = null;
-        /** 是否包含奇偶填充 */
+        /** 是否包含偶奇填充 */
         this.fillRule = 'evenodd';
         /** 图形名称（用于 figure 属性） */
         this.name = '';
+        /** Auto 面板内容定位用的左上锚点（官方 geometry.spot1） */
+        this.spot1 = null;
+        /** Auto 面板内容定位用的右下锚点（官方 geometry.spot2） */
+        this.spot2 = null;
+        /** 官方 geometry.defaultStretch（0=None 2=Fill 4=Vertical 5=Horizontal 6=Uniform），默认 Fill */
+        this.defaultStretch = 2;
         this._figures = new List();
         this._defaultFigure = new PathFigure();
         if (figures) {
@@ -2180,6 +2219,21 @@ var Geometry = /** @class */ (function () {
         if (!commands)
             return geo;
         var curX = 0, curY = 0;
+        var hasMove = false;
+        var current = fig;
+        var startFigure = function (x, y) {
+            if (hasMove || current.segments.count > 0) {
+                current = new PathFigure(x, y);
+                geo.add(current);
+            }
+            else {
+                current.startX = x;
+                current.startY = y;
+            }
+            hasMove = true;
+            curX = x;
+            curY = y;
+        };
         try {
             for (var commands_1 = __values(commands), commands_1_1 = commands_1.next(); !commands_1_1.done; commands_1_1 = commands_1.next()) {
                 var cmd = commands_1_1.value;
@@ -2187,39 +2241,33 @@ var Geometry = /** @class */ (function () {
                 var args = cmd.slice(1).trim().split(/[\s,]+/).map(Number).filter(function (n) { return !isNaN(n); });
                 switch (type) {
                     case 'M':
-                        curX = args[0];
-                        curY = args[1];
-                        fig.startX = curX;
-                        fig.startY = curY;
-                        for (var i = 2; i < args.length; i += 2) {
+                        startFigure(args[0], args[1]);
+                        for (var i = 2; i + 1 < args.length; i += 2) {
                             curX = args[i];
                             curY = args[i + 1];
-                            fig.add(PathSegment.Line(curX, curY));
+                            current.add(PathSegment.Line(curX, curY));
                         }
                         break;
                     case 'm':
-                        curX += args[0];
-                        curY += args[1];
-                        fig.startX = curX;
-                        fig.startY = curY;
-                        for (var i = 2; i < args.length; i += 2) {
+                        startFigure(curX + args[0], curY + args[1]);
+                        for (var i = 2; i + 1 < args.length; i += 2) {
                             curX += args[i];
                             curY += args[i + 1];
-                            fig.add(PathSegment.Line(curX, curY));
+                            current.add(PathSegment.Line(curX, curY));
                         }
                         break;
                     case 'L':
-                        for (var i = 0; i < args.length; i += 2) {
+                        for (var i = 0; i + 1 < args.length; i += 2) {
                             curX = args[i];
                             curY = args[i + 1];
-                            fig.add(PathSegment.Line(curX, curY));
+                            current.add(PathSegment.Line(curX, curY));
                         }
                         break;
                     case 'l':
-                        for (var i = 0; i < args.length; i += 2) {
+                        for (var i = 0; i + 1 < args.length; i += 2) {
                             curX += args[i];
                             curY += args[i + 1];
-                            fig.add(PathSegment.Line(curX, curY));
+                            current.add(PathSegment.Line(curX, curY));
                         }
                         break;
                     case 'H':
@@ -2227,7 +2275,7 @@ var Geometry = /** @class */ (function () {
                             for (var args_1 = (e_3 = void 0, __values(args)), args_1_1 = args_1.next(); !args_1_1.done; args_1_1 = args_1.next()) {
                                 var x = args_1_1.value;
                                 curX = x;
-                                fig.add(PathSegment.Line(curX, curY));
+                                current.add(PathSegment.Line(curX, curY));
                             }
                         }
                         catch (e_3_1) { e_3 = { error: e_3_1 }; }
@@ -2243,7 +2291,7 @@ var Geometry = /** @class */ (function () {
                             for (var args_2 = (e_4 = void 0, __values(args)), args_2_1 = args_2.next(); !args_2_1.done; args_2_1 = args_2.next()) {
                                 var dx = args_2_1.value;
                                 curX += dx;
-                                fig.add(PathSegment.Line(curX, curY));
+                                current.add(PathSegment.Line(curX, curY));
                             }
                         }
                         catch (e_4_1) { e_4 = { error: e_4_1 }; }
@@ -2259,7 +2307,7 @@ var Geometry = /** @class */ (function () {
                             for (var args_3 = (e_5 = void 0, __values(args)), args_3_1 = args_3.next(); !args_3_1.done; args_3_1 = args_3.next()) {
                                 var y = args_3_1.value;
                                 curY = y;
-                                fig.add(PathSegment.Line(curX, curY));
+                                current.add(PathSegment.Line(curX, curY));
                             }
                         }
                         catch (e_5_1) { e_5 = { error: e_5_1 }; }
@@ -2275,7 +2323,7 @@ var Geometry = /** @class */ (function () {
                             for (var args_4 = (e_6 = void 0, __values(args)), args_4_1 = args_4.next(); !args_4_1.done; args_4_1 = args_4.next()) {
                                 var dy = args_4_1.value;
                                 curY += dy;
-                                fig.add(PathSegment.Line(curX, curY));
+                                current.add(PathSegment.Line(curX, curY));
                             }
                         }
                         catch (e_6_1) { e_6 = { error: e_6_1 }; }
@@ -2287,43 +2335,43 @@ var Geometry = /** @class */ (function () {
                         }
                         break;
                     case 'C':
-                        for (var i = 0; i < args.length; i += 6) {
-                            fig.add(PathSegment.CubicBezier(args[i + 4], args[i + 5], args[i], args[i + 1], args[i + 2], args[i + 3]));
+                        for (var i = 0; i + 5 < args.length; i += 6) {
+                            current.add(PathSegment.CubicBezier(args[i + 4], args[i + 5], args[i], args[i + 1], args[i + 2], args[i + 3]));
                             curX = args[i + 4];
                             curY = args[i + 5];
                         }
                         break;
                     case 'c':
-                        for (var i = 0; i < args.length; i += 6) {
-                            fig.add(PathSegment.CubicBezier(curX + args[i + 4], curY + args[i + 5], curX + args[i], curY + args[i + 1], curX + args[i + 2], curY + args[i + 3]));
+                        for (var i = 0; i + 5 < args.length; i += 6) {
+                            current.add(PathSegment.CubicBezier(curX + args[i + 4], curY + args[i + 5], curX + args[i], curY + args[i + 1], curX + args[i + 2], curY + args[i + 3]));
                             curX += args[i + 4];
                             curY += args[i + 5];
                         }
                         break;
                     case 'Q':
-                        for (var i = 0; i < args.length; i += 4) {
-                            fig.add(PathSegment.QuadraticBezier(args[i + 2], args[i + 3], args[i], args[i + 1]));
+                        for (var i = 0; i + 3 < args.length; i += 4) {
+                            current.add(PathSegment.QuadraticBezier(args[i + 2], args[i + 3], args[i], args[i + 1]));
                             curX = args[i + 2];
                             curY = args[i + 3];
                         }
                         break;
                     case 'q':
-                        for (var i = 0; i < args.length; i += 4) {
-                            fig.add(PathSegment.QuadraticBezier(curX + args[i + 2], curY + args[i + 3], curX + args[i], curY + args[i + 1]));
+                        for (var i = 0; i + 3 < args.length; i += 4) {
+                            current.add(PathSegment.QuadraticBezier(curX + args[i + 2], curY + args[i + 3], curX + args[i], curY + args[i + 1]));
                             curX += args[i + 2];
                             curY += args[i + 3];
                         }
                         break;
                     case 'A':
-                        for (var i = 0; i < args.length; i += 7) {
-                            fig.add(PathSegment.Arc(args[i + 5], args[i + 6], args[i], args[i + 1], args[i + 2], args[i + 3] !== 0, args[i + 4] !== 0));
+                        for (var i = 0; i + 6 < args.length; i += 7) {
+                            current.add(PathSegment.Arc(args[i + 5], args[i + 6], args[i], args[i + 1], args[i + 2], args[i + 3] !== 0, args[i + 4] !== 0));
                             curX = args[i + 5];
                             curY = args[i + 6];
                         }
                         break;
                     case 'Z':
                     case 'z':
-                        fig.add(PathSegment.Close());
+                        current.add(PathSegment.Close());
                         break;
                 }
             }
@@ -3463,7 +3511,7 @@ var Binding = /** @class */ (function () {
     function Binding(targetProperty, sourceProperty, conversion) {
         this.name = '';
         this.targetProperty = targetProperty;
-        this.sourceProperty = sourceProperty || targetProperty;
+        this.sourceProperty = sourceProperty !== undefined ? sourceProperty : targetProperty;
         this.conversion = conversion || null;
         this.backConversion = null;
         this.mode = Binding.OneWay;
@@ -3520,9 +3568,10 @@ var Binding = /** @class */ (function () {
             value = undefined;
         }
         else {
-            value = data ? data[this.sourceProperty] : undefined;
+            value = data ? (this.sourceProperty === '' ? data : data[this.sourceProperty]) : undefined;
         }
-        if (this.conversion) {
+        // 官方 Binding.updateTarget：源值为 undefined 时整体跳过（不执行 converter、不赋值）
+        if (value !== undefined && this.conversion) {
             value = this.conversion(value, targetObject, model);
         }
         return value;
@@ -3610,8 +3659,14 @@ var Model = /** @class */ (function () {
             return this._nodeDataArray;
         },
         set: function (val) {
+            var old = this._nodeDataArray;
+            if (old === val)
+                return;
             this._nodeDataArray = val || [];
             this._rebuildKeyMap();
+            // 官方 Model.nodeDataArray setter：发出 Set 变更（modelChange="nodeDataArray"），
+            // Diagram 据此移除旧数组数据的 Parts 并为新数组数据创建 Parts
+            this.raiseChangedEvent(ChangedEventProperty, this, 'nodeDataArray', old, this._nodeDataArray);
         },
         enumerable: false,
         configurable: true
@@ -3683,7 +3738,8 @@ var Model = /** @class */ (function () {
     };
     /** 根据 key 查找节点数据 */
     Model.prototype.findNodeDataForKey = function (key) {
-        return this._keyMap.get(key);
+        var _a;
+        return (_a = this._keyMap.get(key)) !== null && _a !== void 0 ? _a : null;
     };
     /** 获取节点的 key */
     Model.prototype.getKeyForNodeData = function (data) {
@@ -4148,8 +4204,12 @@ var GraphLinksModel = /** @class */ (function (_super) {
             return this._linkDataArray;
         },
         set: function (val) {
+            var old = this._linkDataArray;
+            if (old === val)
+                return;
             this._linkDataArray = val || [];
             this._rebuildLinkKeyMap();
+            this.raiseChangedEvent(ChangedEventProperty, this, 'linkDataArray', old, this._linkDataArray);
         },
         enumerable: false,
         configurable: true
@@ -4428,6 +4488,13 @@ var TreeModel = /** @class */ (function (_super) {
 
 /**
  * RowColumnDefinition - defines the sizing and appearance of a row or column in a Table panel.
+ *
+ * 官方 RowColumnDefinition 语义移植：
+ * - actual(Z): 实际计算尺寸（setter 按 minimum/maximum/width(height) 夹取）
+ * - measured(Mi): 内容需求累计（measure 阶段填充）
+ * - position(wt): arrange 前由 measure 写入的列/行起始位置
+ * - sizing: Default → 取面板 rowSizing/columnSizing；None → 固定；ProportionalExtra → 按比例分配富余
+ * - computeEffectiveSpacing/Top: 分隔线 + separatorPadding 的间距贡献
  */
 var RowColumnDefinition = /** @class */ (function () {
     function RowColumnDefinition() {
@@ -4437,12 +4504,24 @@ var RowColumnDefinition = /** @class */ (function () {
         this._width = NaN;
         this._minimum = 0;
         this._maximum = Infinity;
-        this._sizing = SizingNone;
+        this._sizing = SizingDefault;
+        this._stretch = StretchDefault;
+        this._alignment = Spot.Default;
         this._separatorStroke = null;
-        this._separatorStrokeWidth = 1;
+        this._separatorStrokeWidth = NaN;
         this._separatorDashArray = null;
+        this._separatorPadding = null;
         this._background = null;
         this._coversSeparators = false;
+        this._spanAllocation = null;
+        /** 官方 Z：实际尺寸 */
+        this._actual = 0;
+        /** 官方 Mi：内容需求累计 */
+        this._measured = 0;
+        /** 官方 wt：位置偏移 */
+        this._position = 0;
+        /** 官方 rn：所属面板 */
+        this._panel = null;
     }
     RowColumnDefinition.prototype.set = function (props) {
         if (!props)
@@ -4456,12 +4535,33 @@ var RowColumnDefinition = /** @class */ (function () {
         }
         return this;
     };
+    /** 官方 _a：设置所属面板 */
+    RowColumnDefinition.prototype._setPanel = function (panel) {
+        this._panel = panel;
+    };
+    Object.defineProperty(RowColumnDefinition.prototype, "panel", {
+        get: function () { return this._panel; },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(RowColumnDefinition.prototype, "isRow", {
+        get: function () { return !isNaN(this._row); },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(RowColumnDefinition.prototype, "index", {
+        get: function () { return this.isRow ? this._row : this._column; },
+        enumerable: false,
+        configurable: true
+    });
     Object.defineProperty(RowColumnDefinition.prototype, "row", {
         get: function () { return this._row; },
         set: function (val) {
             if (this._row === val)
                 return;
             this._row = val;
+            if (!isNaN(val))
+                this._column = NaN;
         },
         enumerable: false,
         configurable: true
@@ -4472,6 +4572,8 @@ var RowColumnDefinition = /** @class */ (function () {
             if (this._column === val)
                 return;
             this._column = val;
+            if (!isNaN(val))
+                this._row = NaN;
         },
         enumerable: false,
         configurable: true
@@ -4526,6 +4628,26 @@ var RowColumnDefinition = /** @class */ (function () {
         enumerable: false,
         configurable: true
     });
+    Object.defineProperty(RowColumnDefinition.prototype, "stretch", {
+        get: function () { return this._stretch; },
+        set: function (val) {
+            if (this._stretch === val)
+                return;
+            this._stretch = val;
+        },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(RowColumnDefinition.prototype, "alignment", {
+        get: function () { return this._alignment; },
+        set: function (val) {
+            if (this._alignment === val)
+                return;
+            this._alignment = val;
+        },
+        enumerable: false,
+        configurable: true
+    });
     Object.defineProperty(RowColumnDefinition.prototype, "separatorStroke", {
         get: function () { return this._separatorStroke; },
         set: function (val) {
@@ -4552,6 +4674,14 @@ var RowColumnDefinition = /** @class */ (function () {
         enumerable: false,
         configurable: true
     });
+    Object.defineProperty(RowColumnDefinition.prototype, "separatorPadding", {
+        get: function () { return this._separatorPadding; },
+        set: function (val) {
+            this._separatorPadding = val === null ? null : Margin.isMargin(val) ? val : new Margin(val);
+        },
+        enumerable: false,
+        configurable: true
+    });
     Object.defineProperty(RowColumnDefinition.prototype, "background", {
         get: function () { return this._background; },
         set: function (val) {
@@ -4563,13 +4693,124 @@ var RowColumnDefinition = /** @class */ (function () {
     Object.defineProperty(RowColumnDefinition.prototype, "coversSeparators", {
         get: function () { return this._coversSeparators; },
         set: function (val) {
-            if (this._coversSeparators === val)
-                return;
             this._coversSeparators = val;
         },
         enumerable: false,
         configurable: true
     });
+    Object.defineProperty(RowColumnDefinition.prototype, "spanAllocation", {
+        get: function () {
+            return this._spanAllocation;
+        },
+        set: function (val) {
+            this._spanAllocation = val;
+        },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(RowColumnDefinition.prototype, "actual", {
+        /** 官方 actual(Z) */
+        get: function () { return this._actual; },
+        set: function (val) {
+            if (!isNaN(this._width) && !this.isRow || !isNaN(this._height) && this.isRow) {
+                var fixed = this.isRow ? this._height : this._width;
+                this._actual = Math.max(Math.min(this._maximum, fixed), this._minimum);
+            }
+            else {
+                this._actual = Math.max(Math.min(this._maximum, val), this._minimum);
+            }
+        },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(RowColumnDefinition.prototype, "measured", {
+        /** 官方 measured(Mi) */
+        get: function () { return this._measured; },
+        set: function (val) { this._measured = val; },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(RowColumnDefinition.prototype, "position", {
+        /** 官方 wt */
+        get: function () { return this._position; },
+        set: function (val) { this._position = val; },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(RowColumnDefinition.prototype, "total", {
+        /** 官方 total = Z + spacing */
+        get: function () { return this._actual + this.computeEffectiveSpacing(); },
+        enumerable: false,
+        configurable: true
+    });
+    /** 官方 mS：sizing Default → 面板 rowSizing/columnSizing */
+    RowColumnDefinition.prototype.effectiveSizing = function () {
+        if (this._sizing === SizingDefault) {
+            var p = this._panel;
+            if (p === null)
+                return SizingNone;
+            return this.isRow ? p.rowSizing : p.columnSizing;
+        }
+        return this._sizing;
+    };
+    /** 官方 computeEffectiveSpacingTop(t)：首个非零定义之前的分隔间距（上方/左方） */
+    RowColumnDefinition.prototype.computeEffectiveSpacingTop = function (firstIdx) {
+        var stroke = 0;
+        var panel = this._panel;
+        if (this.index !== firstIdx) {
+            var s = this._separatorStroke;
+            if (s === null && panel !== null)
+                s = this.isRow ? panel.defaultRowSeparatorStroke : panel.defaultColumnSeparatorStroke;
+            if (s !== null && s !== undefined && s !== '') {
+                stroke = this._separatorStrokeWidth;
+                if (isNaN(stroke))
+                    stroke = panel !== null ? (this.isRow ? panel.defaultRowSeparatorStrokeWidth : panel.defaultColumnSeparatorStrokeWidth) : 0;
+            }
+        }
+        var pad = this._separatorPadding;
+        if (pad === null) {
+            if (panel !== null)
+                pad = panel.defaultSeparatorPadding;
+            else
+                return stroke;
+        }
+        return stroke + (this.isRow ? pad.top : pad.left);
+    };
+    /** 官方 computeEffectiveSpacing() */
+    RowColumnDefinition.prototype.computeEffectiveSpacing = function () {
+        var stroke = 0;
+        var panel = this._panel;
+        var firstIdx = 0;
+        var isRow = this.isRow;
+        if (panel !== null && panel.type === PanelTable) {
+            var defs = isRow ? panel._rowDefinitions : panel._columnDefinitions;
+            for (var i = 0; i < defs.length; i++) {
+                var d = defs[i];
+                if (d !== undefined && d !== null && d._actual !== 0) {
+                    firstIdx = d.index;
+                    break;
+                }
+            }
+        }
+        if (this.index !== firstIdx) {
+            var s = this._separatorStroke;
+            if (s === null && panel !== null)
+                s = isRow ? panel.defaultRowSeparatorStroke : panel.defaultColumnSeparatorStroke;
+            if (s !== null && s !== undefined && s !== '') {
+                stroke = this._separatorStrokeWidth;
+                if (isNaN(stroke))
+                    stroke = panel !== null ? (isRow ? panel.defaultRowSeparatorStrokeWidth : panel.defaultColumnSeparatorStrokeWidth) : 0;
+            }
+        }
+        var pad = this._separatorPadding;
+        if (pad === null) {
+            if (panel !== null)
+                pad = panel.defaultSeparatorPadding;
+            else
+                return stroke;
+        }
+        return stroke + (isRow ? pad.top + pad.bottom : pad.left + pad.right);
+    };
     RowColumnDefinition.prototype.copy = function () {
         var def = new RowColumnDefinition();
         def._row = this._row;
@@ -4579,13 +4820,19 @@ var RowColumnDefinition = /** @class */ (function () {
         def._minimum = this._minimum;
         def._maximum = this._maximum;
         def._sizing = this._sizing;
+        def._stretch = this._stretch;
+        def._alignment = this._alignment;
         def._separatorStroke = this._separatorStroke;
         def._separatorStrokeWidth = this._separatorStrokeWidth;
         def._separatorDashArray = this._separatorDashArray ? __spreadArray([], __read(this._separatorDashArray), false) : null;
+        def._separatorPadding = this._separatorPadding;
         def._background = this._background;
         def._coversSeparators = this._coversSeparators;
         return def;
     };
+    RowColumnDefinition.Default = SizingDefault;
+    RowColumnDefinition.None = SizingNone;
+    RowColumnDefinition.ProportionalExtra = SizingProp;
     return RowColumnDefinition;
 }());
 
@@ -4598,7 +4845,7 @@ var GraphObject = /** @class */ (function () {
         // ============ Protected fields ============
         this._panel = null;
         this._part = null;
-        this._actualBounds = new Rect();
+        this._actualBounds = new Rect(NaN, NaN, NaN, NaN);
         this._measuredBounds = new Rect();
         this._naturalBounds = new Rect();
         this._bindings = [];
@@ -4712,6 +4959,10 @@ var GraphObject = /** @class */ (function () {
         get: function () { return this._minSize; },
         set: function (val) {
             var s = val && typeof val.copy === 'function' ? val.copy() : (val ? new Size(val.width || 0, val.height || 0) : Size.Zero.copy());
+            if (isNaN(s.width))
+                s.width = 0;
+            if (isNaN(s.height))
+                s.height = 0;
             if (this._minSize.equals(s))
                 return;
             this._minSize = s;
@@ -4724,6 +4975,10 @@ var GraphObject = /** @class */ (function () {
         get: function () { return this._maxSize; },
         set: function (val) {
             var s = val && typeof val.copy === 'function' ? val.copy() : (val ? new Size(val.width || 0, val.height || 0) : Size.NaN.copy());
+            if (isNaN(s.width))
+                s.width = Infinity;
+            if (isNaN(s.height))
+                s.height = Infinity;
             if (this._maxSize.equals(s))
                 return;
             this._maxSize = s;
@@ -5366,15 +5621,17 @@ var GraphObject = /** @class */ (function () {
         return copy;
     };
     /** Apply a function to this object and return it */
-    GraphObject.prototype.apply = function (func) {
-        func(this);
+    GraphObject.prototype.apply = function (func, data) {
+        func(this, data);
         return this;
     };
-    /** Find the nearest panel that has data bound to it */
+    /** 官方 findBindingPanel：从自身（若为 Panel）起向上找带绑定的面板 */
     GraphObject.prototype.findBindingPanel = function () {
-        var panel = this._panel;
+        // avoid value-import of Panel (circular); duck-type via _elements
+        var selfIsPanel = this._elements !== undefined;
+        var panel = selfIsPanel ? this : this._panel;
         while (panel !== null) {
-            if (panel.data !== null && panel.data !== undefined) {
+            if (panel._bindings && panel._bindings.length > 0) {
                 return panel;
             }
             panel = panel._panel;
@@ -5508,10 +5765,12 @@ var GraphObject = /** @class */ (function () {
             panel._invalidateArrange();
         }
     };
-    /** Measure this object within the given constraints */
-    GraphObject.prototype._measure = function (widthConstraint, heightConstraint) {
+    /** Measure this object within the given constraints (官方 yt：可选 minW/minH) */
+    GraphObject.prototype._measure = function (widthConstraint, heightConstraint, minW, minH) {
         // Base implementation - subclasses override
-        this._measuredBounds = new Rect(0, 0, widthConstraint, heightConstraint);
+        var w = Math.max(widthConstraint, minW || 0);
+        var h = Math.max(heightConstraint, minH || 0);
+        this._measuredBounds = new Rect(0, 0, w, h);
         this._applySizeConstraints();
     };
     /** Apply minSize/maxSize/desiredSize constraints to measured bounds */
@@ -5519,14 +5778,11 @@ var GraphObject = /** @class */ (function () {
         var mb = this._measuredBounds;
         var w = mb.width;
         var h = mb.height;
-        // Apply desiredSize if set (overrides natural size)
-        if (!this._desiredSize.isReal) ;
-        else {
-            if (!isNaN(this._desiredSize.width))
-                w = this._desiredSize.width;
-            if (!isNaN(this._desiredSize.height))
-                h = this._desiredSize.height;
-        }
+        // Apply desiredSize per-dimension (NaN means "not set" for that axis, matching GoJS isFinite checks)
+        if (!isNaN(this._desiredSize.width))
+            w = this._desiredSize.width;
+        if (!isNaN(this._desiredSize.height))
+            h = this._desiredSize.height;
         // Apply minSize
         if (!isNaN(this._minSize.width) && w < this._minSize.width)
             w = this._minSize.width;
@@ -5538,6 +5794,159 @@ var GraphObject = /** @class */ (function () {
         if (!isNaN(this._maxSize.height) && h > this._maxSize.height)
             h = this._maxSize.height;
         this._measuredBounds = new Rect(0, 0, w, h);
+        this._applyMeasureTransform();
+    };
+    /**
+     * 官方 GraphObject.po：scale（及 angle）作用于 measuredBounds。
+     * scale 矩阵 + 绕中心旋转，取轴对齐包围盒；naturalBounds 不受影响。
+     */
+    GraphObject.prototype._applyMeasureTransform = function () {
+        var sc = this._scale;
+        var ang = this._angle;
+        if (sc === 1 && (isNaN(ang) || ang === 0))
+            return;
+        var mb = this._measuredBounds;
+        var w = mb.width * sc;
+        var h = mb.height * sc;
+        var x = 0;
+        var y = 0;
+        if (!isNaN(ang) && ang !== 0) {
+            var rad = (ang * Math.PI) / 180;
+            var cos = Math.abs(Math.cos(rad));
+            var sin = Math.abs(Math.sin(rad));
+            var nw = w * cos + h * sin;
+            var nh = w * sin + h * cos;
+            x = w / 2 - nw / 2;
+            y = h / 2 - nh / 2;
+            w = nw;
+            h = nh;
+        }
+        this._measuredBounds = new Rect(x, y, w, h);
+    };
+    /** 官方 GraphObject.ln(forArranging) — 解析有效 stretch */
+    GraphObject.prototype._getStretch = function (forArranging) {
+        var _a, _b;
+        var s = this._stretch;
+        var panel = this._panel;
+        if (panel === null) {
+            return this._refineStretch(s === StretchDefault ? StretchNone : s, forArranging);
+        }
+        var ptype = panel.type;
+        // 官方 ln：Table 面板子元素 → gp(rowDef, colDef, forArranging)
+        if (ptype === PanelTable) {
+            return this._resolveTableChildStretch(panel, forArranging);
+        }
+        var mainOf = (ptype === PanelAuto || ptype === PanelSpot)
+            ? ((_b = (_a = panel).findMainElement) === null || _b === void 0 ? void 0 : _b.call(_a)) === this
+            : false;
+        if (mainOf && ptype === PanelAuto)
+            return this._refineStretch(StretchFill, forArranging);
+        if (s === StretchDefault) {
+            if (mainOf && ptype === PanelSpot)
+                return this._refineStretch(StretchFill, forArranging);
+            var ds = panel.defaultStretch;
+            return this._refineStretch(ds === StretchDefault ? StretchNone : ds, forArranging);
+        }
+        return this._refineStretch(s, forArranging);
+    };
+    /**
+     * 官方 GraphObject.gp(rowDef, colDef, forArranging)：
+     * 元素 stretch 为 Default 时，由所在行/列定义的 stretch + 面板 defaultStretch 推导有效 stretch。
+     */
+    GraphObject.prototype._resolveTableChildStretch = function (panel, forArranging) {
+        var s = this._stretch;
+        if (s !== StretchDefault)
+            return this._refineStretch(s, forArranging);
+        var rowDef = panel.getRowDefinition(this.row);
+        var colDef = panel.getColumnDefinition(this.column);
+        return this._gpWithDefs(panel, rowDef, colDef, forArranging);
+    };
+    /** 官方 GraphObject.gp(rowDef, colDef, forArranging)（stretch 已知为 Default） */
+    GraphObject.prototype._gpWithDefs = function (panel, rowDef, colDef, forArranging) {
+        var s = this._stretch;
+        if (s !== StretchDefault)
+            return this._refineStretch(s, forArranging);
+        var horiz = null;
+        var vert = null;
+        switch (rowDef.stretch) {
+            case StretchDefault:
+            case StretchHorizontal:
+                break;
+            case StretchVertical:
+                vert = true;
+                break;
+            case StretchFill:
+                vert = true;
+                break;
+        }
+        switch (colDef.stretch) {
+            case StretchDefault:
+            case StretchVertical:
+                break;
+            case StretchHorizontal:
+                horiz = true;
+                break;
+            case StretchFill:
+                horiz = true;
+                break;
+        }
+        var ds = panel.defaultStretch;
+        if (horiz === null)
+            horiz = ds === StretchHorizontal || ds === StretchFill;
+        if (vert === null)
+            vert = ds === StretchVertical || ds === StretchFill;
+        var result;
+        if (horiz === true && vert === true)
+            result = StretchFill;
+        else if (horiz === true)
+            result = StretchHorizontal;
+        else if (vert === true)
+            result = StretchVertical;
+        else
+            result = StretchNone;
+        return this._refineStretch(result, forArranging);
+    };
+    /** 官方 GraphObject.ir(stretch, forArranging) — 按 desiredSize 精简 stretch */
+    GraphObject.prototype._refineStretch = function (t, forArranging) {
+        if (forArranging)
+            return t;
+        if (t === StretchNone)
+            return StretchNone;
+        var d = this._desiredSize;
+        if (isFinite(d.width) && isFinite(d.height))
+            return StretchNone;
+        var wFixed = !isNaN(d.width);
+        var hFixed = !isNaN(d.height);
+        var rot = this._angle === 90 || this._angle === 270;
+        if (wFixed) {
+            if (!rot) {
+                if (t === StretchHorizontal)
+                    return StretchNone;
+                if (t === StretchFill)
+                    return StretchVertical;
+            }
+            else {
+                if (t === StretchVertical)
+                    return StretchNone;
+                if (t === StretchFill)
+                    return StretchHorizontal;
+            }
+        }
+        if (hFixed) {
+            if (!rot) {
+                if (t === StretchVertical)
+                    return StretchNone;
+                if (t === StretchFill)
+                    return StretchHorizontal;
+            }
+            else {
+                if (t === StretchHorizontal)
+                    return StretchNone;
+                if (t === StretchFill)
+                    return StretchVertical;
+            }
+        }
+        return t;
     };
     /** Arrange this object within the given bounds */
     GraphObject.prototype._arrange = function (bounds) {
@@ -5616,6 +6025,14 @@ var GraphObject = /** @class */ (function () {
         GraphObject._classRegistry[name] = func;
     };
     GraphObject.takeBuilderArgument = function (obj, arg, def) {
+        if (Array.isArray(obj)) {
+            var s = obj[1];
+            if (typeof s === 'string') {
+                obj.splice(1, 1);
+                return s;
+            }
+            return arg;
+        }
         return arg !== undefined ? arg : def;
     };
     GraphObject.make = function (type) {
@@ -5869,9 +6286,29 @@ var GraphObject = /** @class */ (function () {
     return GraphObject;
 }());
 
+/** 官方 GoJS 圆角贝塞尔控制点比例：4*((√2-1)/3) */
+var EO = 4 * ((Math.sqrt(2) - 1) / 3);
 var figures = new Map$1();
+/** 官方 go.js 内置图形名（Shape.getFigureGenerators 返回的 30 个），顺序与官方一致 */
+var CORE_FIGURE_NAMES = [
+    'Rectangle', 'Square', 'RoundedRectangle', 'Border',
+    'RoundedTopRectangle', 'RoundedBottomRectangle', 'RoundedLeftRectangle', 'RoundedRightRectangle',
+    'Ellipse', 'Circle',
+    'TriangleRight', 'TriangleDown', 'TriangleLeft', 'TriangleUp', 'Triangle', 'Diamond',
+    'LineH', 'LineV', 'None', 'BarH', 'BarV',
+    'MinusLine', 'PlusLine', 'XLine',
+    'LineRight', 'LineDown', 'LineLeft', 'LineUp',
+    'Capsule', 'Borders'
+];
+/** 来自 extensions/Figures.js 的扩展图形名（官方未加载时不出现在 getFigureGenerators 中） */
+var extensionFigureNames = new Set();
 function defineFigure(name, func) {
     figures.add(name, func);
+    if (CORE_FIGURE_NAMES.indexOf(name) < 0)
+        extensionFigureNames.add(name);
+}
+function isExtensionFigure(name) {
+    return extensionFigureNames.has(name);
 }
 function getFigureGeometry(name, w, h, p1, p2, shape) {
     var func = figures.get(name);
@@ -5942,6 +6379,43 @@ defineFigure('RoundedRectangle', function (shape, w, h) {
     }
     fig.add(PathSegment.Close());
     geo.add(fig);
+    // 官方 spot1/spot2：随圆角收缩，供 Auto 面板定位内容
+    var d = new Spot(0, 0);
+    var m = new Spot(1, 1);
+    if (tr) {
+        var g = r;
+        g = Math.min(g, tl ? w / 3 : w);
+        g = Math.min(g, br ? h / 3 : h);
+        var p = g * EO;
+        d.offsetY = p;
+        m.offsetX = -p;
+    }
+    if (br) {
+        var g = r;
+        g = Math.min(g, bl ? w / 3 : w);
+        g = Math.min(g, tr ? h / 3 : h);
+        var p = g * EO;
+        m.offsetX = -p;
+        m.offsetY = -p;
+    }
+    if (bl) {
+        var g = r;
+        g = Math.min(g, br ? w / 3 : w);
+        g = Math.min(g, tl ? h / 3 : h);
+        var p = g * EO;
+        d.offsetX = p;
+        m.offsetY = -p;
+    }
+    if (tl) {
+        var f = r;
+        f = Math.min(f, tr ? w / 3 : w);
+        f = Math.min(f, bl ? h / 3 : h);
+        var g = f * EO;
+        d.offsetX = g;
+        d.offsetY = g;
+    }
+    geo.spot1 = d;
+    geo.spot2 = m;
     return geo;
 });
 defineFigure('Ellipse', function (shape, w, h) {
@@ -5953,6 +6427,9 @@ defineFigure('Ellipse', function (shape, w, h) {
     fig.add(PathSegment.Arc(w, ry, rx, ry, 0, false, true));
     fig.add(PathSegment.Close());
     geo.add(fig);
+    // 官方 Spot.Zk / Spot.Qk
+    geo.spot1 = new Spot(0.156, 0.156);
+    geo.spot2 = new Spot(0.844, 0.844);
     return geo;
 });
 defineFigure('Circle', function (shape, w, h) {
@@ -5965,6 +6442,9 @@ defineFigure('Circle', function (shape, w, h) {
     fig.add(PathSegment.Arc(cx + r, cy, r, r, 0, false, true));
     fig.add(PathSegment.Close());
     geo.add(fig);
+    geo.spot1 = new Spot(0.156, 0.156);
+    geo.spot2 = new Spot(0.844, 0.844);
+    geo.defaultStretch = 6;
     return geo;
 });
 defineFigure('Triangle', function (shape, w, h) {
@@ -6832,7 +7312,7 @@ var Shape = /** @class */ (function (_super) {
         _this._parameter2 = NaN;
         _this._toArrow = 'None';
         _this._fromArrow = '';
-        _this._geometryStretch = GeometryStretchUniform;
+        _this._geometryStretch = GeometryStretchDefault;
         _this._fillRule = 'nonzero';
         _this._spot1 = null;
         _this._spot2 = null;
@@ -7025,8 +7505,15 @@ var Shape = /** @class */ (function (_super) {
         return null;
     };
     Shape.prototype._getFigureGeometry = function (figureName) {
-        var w = isNaN(this.width) ? 100 : this.width;
-        var h = isNaN(this.height) ? 100 : this.height;
+        // 优先使用 measure 记录的内容尺寸（不含描边、已解析 desiredSize/constraint）
+        var gw = this._geoW;
+        var gh = this._geoH;
+        var w = typeof gw === 'number' && isFinite(gw) && gw > 0
+            ? gw
+            : (isNaN(this.width) ? 100 : this.width);
+        var h = typeof gh === 'number' && isFinite(gh) && gh > 0
+            ? gh
+            : (isNaN(this.height) ? 100 : this.height);
         var geo = getFigureGeometry(figureName, w, h, this._parameter1, this._parameter2, this);
         if (geo)
             return geo;
@@ -7049,24 +7536,133 @@ var Shape = /** @class */ (function (_super) {
                 return Geometry.rectangle(w, h);
         }
     };
-    /** 测量对象尺寸 */
+    /** 官方 Shape.Yd 的自然尺寸来源：显式 geometry → 其 bounds；figure → 官方 Shape.VN(figure)(null,100,100)；
+     *  与上次测量结果无关（否则 Auto 面板反复测量会让 geometry.spot1/spot2 随几何尺寸收缩，形成级联误差） */
+    Shape.prototype._naturalSize = function () {
+        if (this._geometry !== null) {
+            var b = this._geometry.bounds;
+            return { w: b.width, h: b.height };
+        }
+        if (this._figure && this._figure !== 'None') {
+            var g = getFigureGeometry(this._figure, 100, 100, NaN, NaN, null);
+            if (g) {
+                var b = g.bounds;
+                return { w: b.width, h: b.height };
+            }
+        }
+        if (this._geometryString) {
+            try {
+                var g = Geometry.parse(this._geometryString);
+                var b = g.bounds;
+                return { w: b.width, h: b.height };
+            }
+            catch ( /* fall through */_a) { /* fall through */ }
+        }
+        if (this._toArrow && this._toArrow !== 'None') {
+            var g = Shape._getArrowheadGeometry(this._toArrow);
+            if (g) {
+                var b = g.bounds;
+                return { w: b.width, h: b.height };
+            }
+        }
+        if (this._fromArrow && this._fromArrow !== 'None') {
+            var g = Shape._getArrowheadGeometry(this._fromArrow);
+            if (g) {
+                var b = g.bounds;
+                return { w: b.width, h: b.height };
+            }
+        }
+        return { w: 0, h: 0 };
+    };
+    /** 测量对象尺寸 — 官方 GraphObject.yt + Shape.Yd（holes=0），measuredBounds 含 strokeWidth */
     Shape.prototype._measure = function (widthConstraint, heightConstraint) {
-        var geo = this._getGeometry();
-        if (geo) {
-            var bounds = geo.bounds;
-            var w = isNaN(this.width) ? bounds.width : this.width;
-            var h = isNaN(this.height) ? bounds.height : this.height;
-            this._naturalBounds = new Rect(0, 0, w, h);
+        var strokeW = this._strokeWidth;
+        var m = this._margin;
+        var mH = m.left + m.right;
+        var mV = m.top + m.bottom;
+        var ds = this._desiredSize;
+        // 官方 yt：约束减去 margin，desiredSize 覆盖（+stroke 作为“含描边”约束）
+        var t = Math.max(widthConstraint - mH, 0);
+        var i = Math.max(heightConstraint - mV, 0);
+        if (isFinite(ds.width))
+            t = ds.width + strokeW;
+        if (isFinite(ds.height))
+            i = ds.height + strokeW;
+        // 官方 ln(!0)：raw stretch 解析（Auto 主元素 → Fill 等）
+        var st = this._getStretch(true);
+        var nat = this._naturalSize();
+        var e = 0; // holes（本调用链恒为 0）
+        var s = 0;
+        var aW = nat.w;
+        var aH = nat.h;
+        if (st === StretchNone) {
+            e = 0;
+            s = 0;
+        }
+        else if (st === StretchVertical) {
+            aW = Math.max(t - strokeW, 0);
+            s = 0;
+        }
+        else if (st === StretchHorizontal) {
+            e = 0;
+            aH = Math.max(i - strokeW, 0);
         }
         else {
-            var w = isNaN(this.width) ? 0 : this.width;
-            var h = isNaN(this.height) ? 0 : this.height;
-            this._naturalBounds = new Rect(0, 0, w, h);
+            // Fill（及非官方 Uniform 等按 Fill 处理）：内容可超过自然尺寸
+            aW = Math.max(t - strokeW, 0);
+            aH = Math.max(i - strokeW, 0);
         }
-        var measuredWidth = Math.min(this._naturalBounds.width, widthConstraint);
-        var measuredHeight = Math.min(this._naturalBounds.height, heightConstraint);
-        this._measuredBounds = new Rect(0, 0, measuredWidth, measuredHeight);
-        this._applySizeConstraints();
+        if (isFinite(ds.width))
+            aW = ds.width;
+        if (isFinite(ds.height))
+            aH = ds.height;
+        var maxS = this._maxSize;
+        var minS = this._minSize;
+        e = Math.max(e - strokeW, minS.width);
+        s = Math.max(s - strokeW, minS.height);
+        aW = Math.min(maxS.width, aW);
+        aH = Math.min(maxS.height, aH);
+        aW = isFinite(aW) ? Math.max(e, aW) : Math.max(nat.w, e);
+        aH = isFinite(aH) ? Math.max(s, aH) : Math.max(nat.h, s);
+        // 官方 Yd 的 yM：geometryStretch 决定生成几何的宽高
+        var yM = this._resolvedGeometryStretch();
+        var gW = aW;
+        var gH = aH;
+        if (yM === 0) {
+            gW = nat.w;
+            gH = nat.h;
+        }
+        else if (yM === 6) {
+            var k = nat.w > 0 && nat.h > 0 ? Math.min(aW / nat.w, aH / nat.h) : 1;
+            gW = nat.w * k;
+            gH = nat.h * k;
+        }
+        // 2（Fill）及以上默认：gW/gH = 内容尺寸
+        this._geoW = gW;
+        this._geoH = gH;
+        this._naturalBounds = new Rect(0, 0, aW, aH);
+        this._measuredBounds = new Rect(0, 0, aW + strokeW, aH + strokeW);
+        this._applyMeasureTransform();
+    };
+    /** 官方 Shape.yM：geometryStretch 显式值否则 geometry/figure 的 defaultStretch */
+    Shape.prototype._resolvedGeometryStretch = function () {
+        var gs = this._geometryStretch;
+        if (gs !== GeometryStretchDefault) {
+            if (gs === GeometryStretchNone)
+                return 0;
+            if (gs === GeometryStretchUniform)
+                return 6;
+            return 2; // Fill / UniformToFill（非官方按 Fill）
+        }
+        // Default：显式 geometry → 官方 t===1 ? 2 : t；figure → figure geometry 的 defaultStretch
+        if (this._geometry !== null)
+            return this._geometry.defaultStretch !== undefined ? (this._geometry.defaultStretch === 1 ? 2 : this._geometry.defaultStretch) : 2;
+        if (this._figure && this._figure !== 'None') {
+            var g = getFigureGeometry(this._figure, 100, 100, NaN, NaN, null);
+            if (g)
+                return g.defaultStretch !== undefined ? (g.defaultStretch === 1 ? 2 : g.defaultStretch) : 2;
+        }
+        return 2;
     };
     /** 绘制图形 */
     Shape.prototype._draw = function (ctx) {
@@ -7280,13 +7876,40 @@ var Shape = /** @class */ (function (_super) {
         shape._fromArrow = this._fromArrow;
         shape._geometryStretch = this._geometryStretch;
         shape._fillRule = this._fillRule;
+        shape._spot1 = this._spot1 ? this._spot1.copy() : null;
+        shape._spot2 = this._spot2 ? this._spot2.copy() : null;
         return shape;
     };
     Shape.defineFigureGenerator = function (name, func) {
         figures.add(name, func);
     };
     Shape.getFigureGenerators = function () {
-        return figures;
+        var e_1, _a;
+        // 官方返回 G.Mn 中所有非小写名（内置 30 个 + 运行时 defineFigureGenerator 定义的），
+        // 不含 extensions/Figures.js 的扩展图形（官方样例未加载该文件）
+        var result = new Map$1();
+        try {
+            for (var CORE_FIGURE_NAMES_1 = __values(CORE_FIGURE_NAMES), CORE_FIGURE_NAMES_1_1 = CORE_FIGURE_NAMES_1.next(); !CORE_FIGURE_NAMES_1_1.done; CORE_FIGURE_NAMES_1_1 = CORE_FIGURE_NAMES_1.next()) {
+                var name_1 = CORE_FIGURE_NAMES_1_1.value;
+                var f = figures.get(name_1);
+                if (f !== undefined)
+                    result.add(name_1, f);
+            }
+        }
+        catch (e_1_1) { e_1 = { error: e_1_1 }; }
+        finally {
+            try {
+                if (CORE_FIGURE_NAMES_1_1 && !CORE_FIGURE_NAMES_1_1.done && (_a = CORE_FIGURE_NAMES_1.return)) _a.call(CORE_FIGURE_NAMES_1);
+            }
+            finally { if (e_1) throw e_1.error; }
+        }
+        var it = figures.iterator;
+        while (it.next()) {
+            var name_2 = it.key;
+            if (CORE_FIGURE_NAMES.indexOf(name_2) < 0 && !isExtensionFigure(name_2))
+                result.add(name_2, it.value);
+        }
+        return result;
     };
     Shape.getArrowheadGeometries = function () {
         if (!Shape._arrowheadGeometries) {
@@ -7307,7 +7930,7 @@ var Shape = /** @class */ (function (_super) {
     Shape._createArrowheadGeometries = function () {
         var geos = {};
         var makeGeo = function (figs) {
-            var e_1, _a;
+            var e_2, _a;
             var geo = new Geometry();
             try {
                 for (var figs_1 = __values(figs), figs_1_1 = figs_1.next(); !figs_1_1.done; figs_1_1 = figs_1.next()) {
@@ -7315,17 +7938,17 @@ var Shape = /** @class */ (function (_super) {
                     geo.add(fig_1);
                 }
             }
-            catch (e_1_1) { e_1 = { error: e_1_1 }; }
+            catch (e_2_1) { e_2 = { error: e_2_1 }; }
             finally {
                 try {
                     if (figs_1_1 && !figs_1_1.done && (_a = figs_1.return)) _a.call(figs_1);
                 }
-                finally { if (e_1) throw e_1.error; }
+                finally { if (e_2) throw e_2.error; }
             }
             return geo;
         };
         var fig = function (sx, sy, segs) {
-            var e_2, _a;
+            var e_3, _a;
             var f = new PathFigure(sx, sy, true);
             try {
                 for (var segs_1 = __values(segs), segs_1_1 = segs_1.next(); !segs_1_1.done; segs_1_1 = segs_1.next()) {
@@ -7333,12 +7956,12 @@ var Shape = /** @class */ (function (_super) {
                     f.add(s);
                 }
             }
-            catch (e_2_1) { e_2 = { error: e_2_1 }; }
+            catch (e_3_1) { e_3 = { error: e_3_1 }; }
             finally {
                 try {
                     if (segs_1_1 && !segs_1_1.done && (_a = segs_1.return)) _a.call(segs_1);
                 }
-                finally { if (e_2) throw e_2.error; }
+                finally { if (e_3) throw e_3.error; }
             }
             return f;
         };
@@ -7383,7 +8006,7 @@ var TextBlock = /** @class */ (function (_super) {
     function TextBlock(text, init) {
         var _this = _super.call(this) || this;
         _this._text = '';
-        _this._font = '10px sans-serif';
+        _this._font = '13px sans-serif';
         _this._stroke = 'black';
         _this._textAlign = 'start';
         _this._isMultiline = true;
@@ -7411,8 +8034,10 @@ var TextBlock = /** @class */ (function (_super) {
     Object.defineProperty(TextBlock.prototype, "text", {
         get: function () { return this._text; },
         set: function (val) {
-            if (this._text !== val) {
-                this._text = val;
+            // 官方语义：非 null 转字符串，null → ''
+            var s = (val !== null && val !== undefined) ? String(val) : '';
+            if (this._text !== s) {
+                this._text = s;
                 this._invalidateMeasure();
             }
         },
@@ -7566,13 +8191,22 @@ var TextBlock = /** @class */ (function (_super) {
             this._lineCount = 0;
             return;
         }
+        // 官方 GraphObject.yt：measure 约束先按 maxSize 收紧（maxSize 是 wrap 约束的一部分），
+        // TextBlock 随后按收紧后的约束换行 —— 例如 maxSize(160, NaN) 且约束为 Infinity 时按 160 换行。
+        var wc = widthConstraint;
+        var hc = heightConstraint;
+        var ms = this.maxSize;
+        if (wc > ms.width)
+            wc = ms.width;
+        if (hc > ms.height)
+            hc = ms.height;
         var canvas = TextBlock._tempCanvas;
         var ctx = canvas.getContext('2d');
-        var measured = this._measureText(ctx, widthConstraint);
+        var measured = this._measureText(ctx, wc);
         this._lineCount = measured.lineCount;
         this._naturalBounds = new Rect(0, 0, measured.width, measured.height);
-        var measuredWidth = Math.min(measured.width, widthConstraint);
-        var measuredHeight = Math.min(measured.height, heightConstraint);
+        var measuredWidth = Math.min(measured.width, wc);
+        var measuredHeight = Math.min(measured.height, hc);
         this._measuredBounds = new Rect(0, 0, measuredWidth, measuredHeight);
         this._applySizeConstraints();
     };
@@ -7941,10 +8575,14 @@ var Picture = /** @class */ (function (_super) {
         img.src = this._source;
         img.onload = function () {
             _this._loadedImage = img;
-            _this._invalidateMeasure();
-            var d = _this.diagram;
-            if (d && typeof d.requestUpdate === 'function') {
-                d.requestUpdate();
+            // 官方：desiredSize 已设定（isReal）时图片加载不触发失效（不重排、不重新 measure）
+            var ds = _this._desiredSize;
+            if (isNaN(ds.width) || isNaN(ds.height)) {
+                _this._invalidateMeasure();
+                var d = _this.diagram;
+                if (d && typeof d.requestUpdate === 'function') {
+                    d.requestUpdate();
+                }
             }
         };
         img.onerror = function (e) {
@@ -8006,18 +8644,22 @@ var Panel = /** @class */ (function (_super) {
         _this._rowDefinitions = [];
         _this._columnDefinitions = [];
         // ============ Private property storage ============
-        _this._type = PanelAuto;
+        // 官方 Panel 构造：type === undefined → Panel.Position
+        _this._type = PanelPosition;
         _this._data = null;
         _this._padding = Margin.Zero.copy();
         _this._defaultAlignment = Spot.Default.copy();
         _this._defaultStretch = StretchDefault;
-        _this._defaultColumnSeparatorStroke = '';
+        _this._originX = 0;
+        _this._originY = 0;
+        _this._unionRect = new Rect();
+        _this._defaultColumnSeparatorStroke = null;
         _this._defaultColumnSeparatorStrokeWidth = 1;
-        _this._defaultRowSeparatorStroke = '';
+        _this._defaultRowSeparatorStroke = null;
         _this._defaultRowSeparatorStrokeWidth = 1;
         _this._defaultSeparatorPadding = Margin.Zero.copy();
-        _this._columnSizing = SizingNone;
-        _this._rowSizing = SizingNone;
+        _this._columnSizing = SizingProp;
+        _this._rowSizing = SizingProp;
         _this._isClipping = false;
         _this._isEnabled = true;
         _this._alignmentFocusName = '';
@@ -8040,14 +8682,30 @@ var Panel = /** @class */ (function (_super) {
         _this._viewboxScaleX = 1;
         _this._viewboxScaleY = 1;
         _this._className = 'Panel';
-        if (type !== undefined) {
-            _this._type = typeof type === 'string' ? Panel._resolvePanelTypeStr(type) : type;
+        // 官方 Panel 构造：undefined → Position；string → 按名解析；EnumValue → 直接用；其它对象 → 作为 init
+        var t = type;
+        var i = init;
+        if (t !== undefined && t !== null) {
+            if (typeof t === 'string')
+                _this._type = Panel._resolvePanelTypeStr(t);
+            else if (t instanceof EnumValue)
+                _this._type = t;
+            else
+                i = t;
         }
-        if (init) {
-            _this.set(init);
+        if (i) {
+            _this.set(i);
         }
         return _this;
     }
+    /** 官方各子类构造参数解析：string/EnumValue → type；其它对象 → init */
+    Panel._resolveArgs = function (type, init) {
+        if (typeof type === 'string' || type instanceof EnumValue)
+            return [type, init];
+        if (type)
+            return [undefined, type];
+        return [undefined, init];
+    };
     Panel._resolvePanelTypeStr = function (type) {
         var map = {
             'Auto': PanelAuto,
@@ -8060,6 +8718,8 @@ var Panel = /** @class */ (function (_super) {
             'Viewbox': PanelViewbox,
             'Graduated': PanelGraduated,
             'Link': PanelLink,
+            'TableRow': PanelTableRow,
+            'TableColumn': PanelTableColumn,
         };
         return map[type] || PanelAuto;
     };
@@ -8559,26 +9219,20 @@ var Panel = /** @class */ (function (_super) {
         }
         return null;
     };
+    /** 官方 findMainElement：第一个 isPanelMain，否则 elements[0]，空则 null */
     Panel.prototype.findMainElement = function () {
-        var e_6, _a;
-        try {
-            for (var _b = __values(this._elements), _c = _b.next(); !_c.done; _c = _b.next()) {
-                var elem = _c.value;
-                if (elem.isPanelMain)
-                    return elem;
-            }
+        var els = this._elements;
+        var len = els.length;
+        if (len === 0)
+            return null;
+        for (var i = 0; i < len; i++) {
+            if (els[i].isPanelMain === true)
+                return els[i];
         }
-        catch (e_6_1) { e_6 = { error: e_6_1 }; }
-        finally {
-            try {
-                if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
-            }
-            finally { if (e_6) throw e_6.error; }
-        }
-        return null;
+        return els[0];
     };
     Panel.prototype.findItemPanelForData = function (data) {
-        var e_7, _a;
+        var e_6, _a;
         try {
             for (var _b = __values(this._elements), _c = _b.next(); !_c.done; _c = _b.next()) {
                 var elem = _c.value;
@@ -8587,12 +9241,12 @@ var Panel = /** @class */ (function (_super) {
                 }
             }
         }
-        catch (e_7_1) { e_7 = { error: e_7_1 }; }
+        catch (e_6_1) { e_6 = { error: e_6_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_7) throw e_7.error; }
+            finally { if (e_6) throw e_6.error; }
         }
         return null;
     };
@@ -8642,7 +9296,6 @@ var Panel = /** @class */ (function (_super) {
     };
     Panel.prototype.rebuildItemElements = function () {
         // Remove existing item-generated elements
-        // Elements that were generated from itemArray have _itemIndex >= 0
         for (var i = this._elements.length - 1; i >= 0; i--) {
             var elem = this._elements[i];
             if (elem instanceof Panel && elem._itemIndex >= 0) {
@@ -8650,38 +9303,59 @@ var Panel = /** @class */ (function (_super) {
                 this._elements.splice(i, 1);
             }
         }
-        // Rebuild from itemArray
         var arr = this._itemArray;
-        if (!arr)
+        if (!arr || arr.length === 0) {
+            this._invalidateMeasure();
             return;
+        }
+        // official Qp(): leading non-item count (Auto/Spot -> min(len,1), Table -> 0)
+        var start = 0;
+        if (this._type === PanelAuto || this._type === PanelSpot) {
+            start = Math.min(this._elements.length, 1);
+        }
         for (var i = 0; i < arr.length; i++) {
             var itemData = arr[i];
             var template = this._findItemTemplate(itemData);
             if (template) {
                 var copy = template.copy();
-                copy._data = itemData;
                 copy._itemIndex = i;
-                copy.updateTargetBindings();
                 copy._panel = this;
-                this._elements.push(copy);
+                this._elements.splice(start + i, 0, copy);
+                copy._data = itemData;
+                copy.updateTargetBindings();
             }
+        }
+        // official EN(start, 0): TableRow -> row = element index, TableColumn -> column = element index
+        var s = start, n = 0;
+        while (s < this._elements.length) {
+            var o = this._elements[s];
+            if (o instanceof Panel) {
+                if (o._type === PanelTableRow) {
+                    o.row = s;
+                }
+                else if (o._type === PanelTableColumn) {
+                    o.column = s;
+                }
+                o._itemIndex = n;
+            }
+            s++;
+            n++;
         }
         this._invalidateMeasure();
     };
     Panel.prototype.updateTargetBindings = function (propname) {
-        var e_8, _a, e_9, _b;
+        var e_7, _a, e_8, _b;
         try {
             for (var _c = __values(this._elements), _d = _c.next(); !_d.done; _d = _c.next()) {
                 var elem = _d.value;
-                if (elem instanceof Panel) {
-                    elem.updateTargetBindings(propname);
-                }
+                // 官方 RN：每个对象用自己的 data（子对象 _data 覆盖继承）
+                var data = elem._data !== null && elem._data !== undefined
+                    ? elem._data : this._data;
                 var bindings = elem._bindings;
                 if (bindings && bindings.length > 0) {
-                    var data = this._data;
                     if (data) {
                         try {
-                            for (var bindings_1 = (e_9 = void 0, __values(bindings)), bindings_1_1 = bindings_1.next(); !bindings_1_1.done; bindings_1_1 = bindings_1.next()) {
+                            for (var bindings_1 = (e_8 = void 0, __values(bindings)), bindings_1_1 = bindings_1.next(); !bindings_1_1.done; bindings_1_1 = bindings_1.next()) {
                                 var binding = bindings_1_1.value;
                                 if (propname === undefined || propname === binding.sourceProperty) {
                                     var val = binding.getValueFromSource(data, elem, null);
@@ -8689,23 +9363,40 @@ var Panel = /** @class */ (function (_super) {
                                 }
                             }
                         }
-                        catch (e_9_1) { e_9 = { error: e_9_1 }; }
+                        catch (e_8_1) { e_8 = { error: e_8_1 }; }
                         finally {
                             try {
                                 if (bindings_1_1 && !bindings_1_1.done && (_b = bindings_1.return)) _b.call(bindings_1);
                             }
-                            finally { if (e_9) throw e_9.error; }
+                            finally { if (e_8) throw e_8.error; }
                         }
+                    }
+                }
+                if (elem instanceof Panel) {
+                    // 递归时向子面板传递 data（子面板 _data 未设则继承）
+                    if (elem._data === null || elem._data === undefined) {
+                        if (data !== this._data) {
+                            var saved = this._data;
+                            this._data = data;
+                            elem.updateTargetBindings(propname);
+                            this._data = saved;
+                        }
+                        else {
+                            elem.updateTargetBindings(propname);
+                        }
+                    }
+                    else {
+                        elem.updateTargetBindings(propname);
                     }
                 }
             }
         }
-        catch (e_8_1) { e_8 = { error: e_8_1 }; }
+        catch (e_7_1) { e_7 = { error: e_7_1 }; }
         finally {
             try {
                 if (_d && !_d.done && (_a = _c.return)) _a.call(_c);
             }
-            finally { if (e_8) throw e_8.error; }
+            finally { if (e_7) throw e_7.error; }
         }
     };
     Panel.prototype.copy = function () {
@@ -8716,7 +9407,7 @@ var Panel = /** @class */ (function (_super) {
     };
     /** Copy Panel-specific properties to another Panel */
     Panel.prototype._copyPanelPropertiesTo = function (copy) {
-        var e_10, _a, e_11, _b, e_12, _c;
+        var e_9, _a, e_10, _b, e_11, _c;
         copy._data = this._data;
         copy._padding = this._padding.copy();
         copy._defaultAlignment = this._defaultAlignment.copy();
@@ -8760,12 +9451,12 @@ var Panel = /** @class */ (function (_super) {
                 }
             }
         }
-        catch (e_10_1) { e_10 = { error: e_10_1 }; }
+        catch (e_9_1) { e_9 = { error: e_9_1 }; }
         finally {
             try {
                 if (_e && !_e.done && (_a = _d.return)) _a.call(_d);
             }
-            finally { if (e_10) throw e_10.error; }
+            finally { if (e_9) throw e_9.error; }
         }
         try {
             // Copy row/column definitions
@@ -8774,12 +9465,12 @@ var Panel = /** @class */ (function (_super) {
                 copy._rowDefinitions.push(def.copy());
             }
         }
-        catch (e_11_1) { e_11 = { error: e_11_1 }; }
+        catch (e_10_1) { e_10 = { error: e_10_1 }; }
         finally {
             try {
                 if (_g && !_g.done && (_b = _f.return)) _b.call(_f);
             }
-            finally { if (e_11) throw e_11.error; }
+            finally { if (e_10) throw e_10.error; }
         }
         try {
             for (var _h = __values(this._columnDefinitions), _j = _h.next(); !_j.done; _j = _h.next()) {
@@ -8787,86 +9478,164 @@ var Panel = /** @class */ (function (_super) {
                 copy._columnDefinitions.push(def.copy());
             }
         }
-        catch (e_12_1) { e_12 = { error: e_12_1 }; }
+        catch (e_11_1) { e_11 = { error: e_11_1 }; }
         finally {
             try {
                 if (_j && !_j.done && (_c = _h.return)) _c.call(_h);
             }
-            finally { if (e_12) throw e_12.error; }
+            finally { if (e_11) throw e_11.error; }
         }
     };
     // ============ Override _measure and _arrange ============
-    Panel.prototype._measure = function (widthConstraint, heightConstraint) {
-        var e_13, _a;
+    Panel.prototype._measure = function (widthConstraint, heightConstraint, minW, minH) {
+        var e_12, _a;
         var pad = this._padding;
-        var availW = Math.max(0, widthConstraint - pad.left - pad.right);
-        var availH = Math.max(0, heightConstraint - pad.top - pad.bottom);
-        var measuredW = 0;
-        var measuredH = 0;
+        var mar = this._margin;
+        var minS = this._minSize;
+        var maxS = this._maxSize;
+        var ds = this._desiredSize;
+        // 官方 GraphObject.yt：约束/最小值先减去本对象 margin
+        var t = Math.max(widthConstraint - mar.left - mar.right, 0);
+        var i = Math.max(heightConstraint - mar.top - mar.bottom, 0);
+        var e = Math.max((minW || 0) - mar.left - mar.right, 0);
+        var s = Math.max((minH || 0) - mar.top - mar.bottom, 0);
+        // 官方 yt：desiredSize 覆盖（Panel lp() = 0）
+        if (isFinite(ds.width))
+            t = ds.width;
+        if (isFinite(ds.height))
+            i = ds.height;
+        // 官方 yt：按本面板有效 stretch 预处理；Panel 特有——None/Vertical/Horizontal 把约束置为 Infinity
+        var S = this._getStretch(true);
+        var f = e;
+        var u = s;
+        if (S === StretchNone) {
+            f = 0;
+            u = 0;
+            t = Infinity;
+            i = Infinity;
+        }
+        else if (S === StretchFill) {
+            if (isFinite(t) && t > e)
+                f = t;
+            if (isFinite(i) && i > s)
+                u = i;
+        }
+        else if (S === StretchHorizontal) {
+            if (isFinite(t) && t > e)
+                f = t;
+            u = 0;
+            i = Infinity;
+        }
+        else if (S === StretchVertical) {
+            f = 0;
+            if (isFinite(i) && i > s)
+                u = i;
+            t = Infinity;
+        }
+        // 官方 yt：min/max 夹取
+        if (f > maxS.width && minS.width < maxS.width)
+            f = maxS.width;
+        if (u > maxS.height && minS.height < maxS.height)
+            u = maxS.height;
+        e = Math.max(f, minS.width);
+        s = Math.max(u, minS.height);
+        if (maxS.width < e)
+            e = Math.min(minS.width, e);
+        if (maxS.height < s)
+            s = Math.min(minS.height, s);
+        t = Math.min(maxS.width, t);
+        i = Math.min(maxS.height, i);
+        t = Math.max(e, t);
+        i = Math.max(s, i);
+        // 官方 Panel.Yd：可用尺寸扣除 padding
+        var availW = Math.max(t - pad.left - pad.right, 0);
+        var availH = Math.max(i - pad.top - pad.bottom, 0);
+        var union = this._unionRect;
+        union.set(0, 0, 0, 0);
         if (this._type === PanelAuto) {
             this._measureAuto(availW, availH);
-            return;
         }
         else if (this._type === PanelVertical) {
             this._measureVertical(availW, availH);
-            return;
         }
         else if (this._type === PanelHorizontal) {
             this._measureHorizontal(availW, availH);
-            return;
         }
         else if (this._type === PanelSpot) {
             this._measureSpot(availW, availH);
-            return;
         }
         else if (this._type === PanelTable) {
-            this._measureTable(availW, availH);
-            return;
+            this._measureTable(availW, availH, e, s);
         }
         else if (this._type === PanelPosition) {
             this._measurePosition(availW, availH);
-            return;
         }
         else if (this._type === PanelLink) {
-            this._measureLink(widthConstraint, heightConstraint);
-            return;
+            this._measureLink(availW, availH);
         }
         else if (this._type === PanelViewbox) {
             this._measureViewbox(availW, availH);
-            return;
         }
         else if (this._type === PanelGraduated) {
             this._measureGraduated(availW, availH);
-            return;
         }
-        else if (this._type === PanelGrid) {
-            this._measuredBounds = new Rect(0, 0, 0, 0);
-            return;
-        }
-        try {
-            // Default fallback: measure all elements
-            for (var _b = __values(this._elements), _c = _b.next(); !_c.done; _c = _b.next()) {
-                var elem = _c.value;
-                if (!elem.visible)
-                    continue;
-                elem._measure(availW, availH);
-                var mb = elem.measuredBounds;
-                var m = elem.margin;
-                measuredW = Math.max(measuredW, mb.width + m.left + m.right);
-                measuredH = Math.max(measuredH, mb.height + m.top + m.bottom);
-            }
-        }
-        catch (e_13_1) { e_13 = { error: e_13_1 }; }
-        finally {
+        else if (this._type === PanelGrid) ;
+        else {
+            // 默认：所有可见元素包围盒
+            var maxW = 0;
+            var maxH = 0;
             try {
-                if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
+                for (var _b = __values(this._elements), _c = _b.next(); !_c.done; _c = _b.next()) {
+                    var elem = _c.value;
+                    if (!elem.visible)
+                        continue;
+                    elem._measure(availW, availH);
+                    var mb = elem.measuredBounds;
+                    var m = elem.margin;
+                    maxW = Math.max(maxW, mb.width + m.left + m.right);
+                    maxH = Math.max(maxH, mb.height + m.top + m.bottom);
+                }
             }
-            finally { if (e_13) throw e_13.error; }
+            catch (e_12_1) { e_12 = { error: e_12_1 }; }
+            finally {
+                try {
+                    if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
+                }
+                finally { if (e_12) throw e_12.error; }
+            }
+            union.set(0, 0, maxW, maxH);
         }
-        this._measuredBounds = new Rect(0, 0, Math.min(measuredW + pad.left + pad.right, widthConstraint), Math.min(measuredH + pad.top + pad.bottom, heightConstraint));
+        // 官方 Panel.Yd：union 内容 + padding；desired/max/min 夹取；不被 constraint 夹
+        var c = union.width + pad.left + pad.right;
+        var fh = union.height + pad.top + pad.bottom;
+        if (isFinite(ds.width))
+            c = ds.width;
+        if (isFinite(ds.height))
+            fh = ds.height;
+        c = Math.min(maxS.width, c);
+        fh = Math.min(maxS.height, fh);
+        c = Math.max(minS.width, c);
+        fh = Math.max(minS.height, fh);
+        c = Math.max(e, c);
+        fh = Math.max(s, fh);
+        this._originX = union.x;
+        this._originY = union.y;
+        union.set(union.x, union.y, c, fh);
+        this._naturalBounds = new Rect(0, 0, c, fh);
+        this._measuredBounds = new Rect(0, 0, c, fh);
+        this._applyMeasureTransform();
+    };
+    /** 就地并入 union */
+    Panel.prototype._unionInto = function (x, y, w, h) {
+        var u = this._unionRect;
+        var nx = Math.min(u.x, x);
+        var ny = Math.min(u.y, y);
+        var nr = Math.max(u.right, x + w);
+        var nb = Math.max(u.bottom, y + h);
+        u.set(nx, ny, nr - nx, nb - ny);
     };
     Panel.prototype._arrange = function (bounds) {
-        var e_14, _a;
+        var e_13, _a;
         this._actualBounds = bounds.copy();
         if (this._type === PanelLink) {
             this._arrangeLink(bounds);
@@ -8912,12 +9681,12 @@ var Panel = /** @class */ (function (_super) {
                     elem._arrange(new Rect(innerX, innerY, innerW, innerH));
                 }
             }
-            catch (e_14_1) { e_14 = { error: e_14_1 }; }
+            catch (e_13_1) { e_13 = { error: e_13_1 }; }
             finally {
                 try {
                     if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
                 }
-                finally { if (e_14) throw e_14.error; }
+                finally { if (e_13) throw e_13.error; }
             }
         }
     };
@@ -8928,117 +9697,224 @@ var Panel = /** @class */ (function (_super) {
      * or the first visible element if none has isPanelMain.
      */
     Panel.prototype._findMainAndOthers = function () {
-        var e_15, _a;
-        var main = null;
+        var e_14, _a;
+        var main = this.findMainElement();
         var others = [];
         try {
             for (var _b = __values(this._elements), _c = _b.next(); !_c.done; _c = _b.next()) {
                 var elem = _c.value;
-                if (!elem.visible)
-                    continue;
-                if (main === null || elem.isPanelMain) {
-                    if (main !== null && !main.isPanelMain)
-                        others.push(main);
-                    main = elem;
-                }
-                else {
+                if (elem !== main)
                     others.push(elem);
-                }
+            }
+        }
+        catch (e_14_1) { e_14 = { error: e_14_1 }; }
+        finally {
+            try {
+                if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
+            }
+            finally { if (e_14) throw e_14.error; }
+        }
+        return { main: main, others: others };
+    };
+    /** 官方 kN：主 Shape 的 spot1（Shape.spot1 → geometry.spot1 → TopLeft） */
+    Panel.prototype._panelSpot1 = function (g) {
+        if (g instanceof Shape) {
+            var s = g.spot1;
+            if (s !== Spot.Default)
+                return s;
+            var geo = g._getGeometry();
+            if (geo !== null && geo.spot1)
+                return geo.spot1;
+        }
+        return Spot.TopLeft;
+    };
+    /** 官方 PN：主 Shape 的 spot2 → BottomRight 兜底 */
+    Panel.prototype._panelSpot2 = function (g) {
+        if (g instanceof Shape) {
+            var s = g.spot2;
+            if (s !== Spot.Default)
+                return s;
+            var geo = g._getGeometry();
+            if (geo !== null && geo.spot2)
+                return geo.spot2;
+        }
+        return Spot.BottomRight;
+    };
+    /** 官方 PanelLayoutAuto.measure */
+    Panel.prototype._measureAuto = function (availW, availH) {
+        var e_15, _a;
+        var els = this._elements;
+        if (els.length === 0)
+            return;
+        var main = this.findMainElement();
+        var ma = main.margin;
+        var u = ma.right + ma.left;
+        var d = ma.top + ma.bottom;
+        main._measure(availW, availH);
+        var mb = main.measuredBounds;
+        var stroke = 0;
+        if (main instanceof Shape)
+            stroke = main.strokeWidth * main.scale;
+        var y = Math.max(mb.width + u, 0);
+        var x = Math.max(mb.height + d, 0);
+        var s1 = this._panelSpot1(main);
+        var s2 = this._panelSpot2(main);
+        var holeW = availW;
+        var holeH = availH;
+        if (isFinite(availW))
+            holeW = Math.max(Math.abs(s1.x * y + s1.offsetX - (s2.x * y + s2.offsetX)) - stroke, 0);
+        if (isFinite(availH))
+            holeH = Math.max(Math.abs(s1.y * x + s1.offsetY - (s2.y * x + s2.offsetY)) - stroke, 0);
+        var maxT = 0;
+        var maxTh = 0;
+        try {
+            for (var els_1 = __values(els), els_1_1 = els_1.next(); !els_1_1.done; els_1_1 = els_1.next()) {
+                var el = els_1_1.value;
+                if (el === main || !el.visible)
+                    continue;
+                var em = el.margin;
+                el._measure(holeW, holeH);
+                mb = el.measuredBounds;
+                y = Math.max(mb.width + em.left + em.right, 0);
+                x = Math.max(mb.height + em.top + em.bottom, 0);
+                maxT = Math.max(maxT, y);
+                maxTh = Math.max(maxTh, x);
             }
         }
         catch (e_15_1) { e_15 = { error: e_15_1 }; }
         finally {
             try {
-                if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
+                if (els_1_1 && !els_1_1.done && (_a = els_1.return)) _a.call(els_1);
             }
             finally { if (e_15) throw e_15.error; }
         }
-        return { main: main, others: others };
+        var union = this._unionRect;
+        if (els.length === 1) {
+            mb = main.measuredBounds;
+            union.set(0, 0, Math.max(mb.width + u, 0), Math.max(mb.height + d, 0));
+            return;
+        }
+        var D = 0;
+        var F = 0;
+        if (s2.x !== s1.x && s2.y !== s1.y) {
+            D = maxT / Math.abs(s2.x - s1.x);
+            F = maxTh / Math.abs(s2.y - s1.y);
+        }
+        D += Math.abs(s1.offsetX) + Math.abs(s2.offsetX) + stroke;
+        F += Math.abs(s1.offsetY) + Math.abs(s2.offsetY) + stroke;
+        var R = main.stretch;
+        if (R === StretchDefault)
+            R = main._getStretch(false);
+        if (R === StretchFill) {
+            if (isFinite(availW))
+                D = availW;
+            if (isFinite(availH))
+                F = availH;
+        }
+        else if (R === StretchHorizontal) {
+            if (isFinite(availW))
+                D = availW;
+        }
+        else if (R === StretchVertical) {
+            if (isFinite(availH))
+                F = availH;
+        }
+        main._measure(D, F);
+        mb = main.measuredBounds;
+        union.set(0, 0, Math.max(mb.width + u, 0), Math.max(mb.height + d, 0));
     };
-    Panel.prototype._measureAuto = function (availW, availH) {
+    /** 官方 PanelLayoutAuto.arrange */
+    Panel.prototype._arrangeAuto = function (innerX, innerY, innerW, innerH) {
         var e_16, _a;
+        var els = this._elements;
+        if (els.length === 0)
+            return;
+        var main = this.findMainElement();
+        var ma = main.margin;
         var pad = this._padding;
-        var _b = this._findMainAndOthers(), main = _b.main, others = _b.others;
-        // Step 1: Measure all non-main elements first (they determine the content size)
-        var contentW = 0;
-        var contentH = 0;
+        var mb = main.measuredBounds;
+        main._arrange(new Rect(pad.left + ma.left, pad.top + ma.top, mb.width, mb.height));
+        var s1 = this._panelSpot1(main);
+        var s2 = this._panelSpot2(main);
+        var hx1 = s1.x * mb.width + s1.offsetX;
+        var hy1 = s1.y * mb.height + s1.offsetY;
+        var hx2 = s2.x * mb.width + s2.offsetX;
+        var hy2 = s2.y * mb.height + s2.offsetY;
+        var holeX = Math.min(hx1, hx2) + ma.left + pad.left;
+        var holeY = Math.min(hy1, hy2) + ma.top + pad.top;
+        var holeW = Math.abs(hx2 - hx1);
+        var holeH = Math.abs(hy2 - hy1);
         try {
-            for (var others_1 = __values(others), others_1_1 = others_1.next(); !others_1_1.done; others_1_1 = others_1.next()) {
-                var elem = others_1_1.value;
-                elem._measure(availW, availH);
-                var mb = elem.measuredBounds;
-                var m = elem.margin;
-                contentW = Math.max(contentW, mb.width + m.left + m.right);
-                contentH = Math.max(contentH, mb.height + m.top + m.bottom);
+            for (var els_2 = __values(els), els_2_1 = els_2.next(); !els_2_1.done; els_2_1 = els_2.next()) {
+                var el = els_2_1.value;
+                if (el === main || !el.visible)
+                    continue;
+                var eMb = el.measuredBounds;
+                var em = el.margin;
+                var boxW = Math.max(eMb.width + em.left + em.right, 0);
+                var boxH = Math.max(eMb.height + em.top + em.bottom, 0);
+                var A = this._resolveAlignment(el);
+                var x = holeW * A.x + A.offsetX - boxW * A.x + em.left + holeX;
+                var yy = holeH * A.y + A.offsetY - boxH * A.y + em.top + holeY;
+                el._arrange(new Rect(x, yy, eMb.width, eMb.height));
             }
         }
         catch (e_16_1) { e_16 = { error: e_16_1 }; }
         finally {
             try {
-                if (others_1_1 && !others_1_1.done && (_a = others_1.return)) _a.call(others_1);
+                if (els_2_1 && !els_2_1.done && (_a = els_2.return)) _a.call(els_2);
             }
             finally { if (e_16) throw e_16.error; }
         }
-        // Step 2: Measure the main element, sized to fit around the content
-        if (main !== null) {
-            var m = main.margin;
-            var strokeW = main._strokeWidth ? main._strokeWidth * 2 : 0;
-            var mainAvailW = Math.min(availW, contentW + m.left + m.right + strokeW);
-            var mainAvailH = Math.min(availH, contentH + m.top + m.bottom + strokeW);
-            main._measure(mainAvailW, mainAvailH);
-            var mb = main.measuredBounds;
-            var mainW = Math.max(mb.width + m.left + m.right, contentW + m.left + m.right + strokeW);
-            var mainH = Math.max(mb.height + m.top + m.bottom, contentH + m.top + m.bottom + strokeW);
-            this._measuredBounds = new Rect(0, 0, mainW + pad.left + pad.right, mainH + pad.top + pad.bottom);
-        }
-        else if (others.length > 0) {
-            this._measuredBounds = new Rect(0, 0, contentW + pad.left + pad.right, contentH + pad.top + pad.bottom);
-        }
-        else {
-            this._measuredBounds = new Rect(0, 0, pad.left + pad.right, pad.top + pad.bottom);
-        }
     };
-    Panel.prototype._arrangeAuto = function (innerX, innerY, innerW, innerH) {
-        var e_17, _a;
-        var _b = this._findMainAndOthers(), main = _b.main, others = _b.others;
-        if (main !== null) {
-            // Arrange the main element to fill the entire panel area
-            var m = main.margin;
-            main._arrange(new Rect(innerX + m.left, innerY + m.top, innerW - m.left - m.right, innerH - m.top - m.bottom));
-        }
+    // ============ PanelVertical measure/arrange ============
+    Panel.prototype._measureVertical = function (availW, availH) {
+        var e_17, _a, e_18, _b;
+        this._padding;
+        var totalH = 0;
+        var maxW = 0;
+        // 官方 PanelLayoutVertical.measure 两阶段：先 measure {None, Vertical} stretch 子元素
+        // 得到内容宽 maxW；然后 Fill/Horizontal stretch 子元素按内容宽 measure（不扩展面板）。
+        var fillElems = [];
         try {
-            // Position other elements by alignment within the panel area (default: centered)
-            for (var others_2 = __values(others), others_2_1 = others_2.next(); !others_2_1.done; others_2_1 = others_2.next()) {
-                var elem = others_2_1.value;
+            for (var _c = __values(this._elements), _d = _c.next(); !_d.done; _d = _c.next()) {
+                var elem = _d.value;
+                if (!elem.visible)
+                    continue;
+                var st = elem._getStretch(false);
+                if (st === StretchFill || st === StretchHorizontal) {
+                    fillElems.push(elem);
+                    continue;
+                }
+                elem._measure(availW, Infinity);
                 var mb = elem.measuredBounds;
                 var m = elem.margin;
-                var alignment = this._resolveAlignment(elem);
-                var pos = alignment.positionInRect(new Rect(innerX + m.left, innerY + m.top, Math.max(0, innerW - m.left - m.right), Math.max(0, innerH - m.top - m.bottom)));
-                var focus_1 = this._resolveAlignmentFocus(elem);
-                var focusPos = focus_1.positionInRect(new Rect(0, 0, mb.width, mb.height));
-                elem._arrange(new Rect(pos.x - focusPos.x, pos.y - focusPos.y, mb.width, mb.height));
+                totalH += mb.height + m.top + m.bottom;
+                maxW = Math.max(maxW, mb.width + m.left + m.right);
             }
         }
         catch (e_17_1) { e_17 = { error: e_17_1 }; }
         finally {
             try {
-                if (others_2_1 && !others_2_1.done && (_a = others_2.return)) _a.call(others_2);
+                if (_d && !_d.done && (_a = _c.return)) _a.call(_c);
             }
             finally { if (e_17) throw e_17.error; }
         }
-    };
-    // ============ PanelVertical measure/arrange ============
-    Panel.prototype._measureVertical = function (availW, availH) {
-        var e_18, _a;
-        var pad = this._padding;
-        var totalH = 0;
-        var maxW = 0;
+        // 官方：i = desiredSize.width ? min(ds, maxSize) : (内容宽非0 ? min(内容宽, maxSize) : 原 availW)
+        var contentW = availW;
+        if (!isNaN(this._desiredSize.width)) {
+            contentW = Math.min(this._desiredSize.width, this._maxSize.width);
+        }
+        else if (maxW !== 0) {
+            contentW = Math.min(maxW, this._maxSize.width);
+        }
         try {
-            for (var _b = __values(this._elements), _c = _b.next(); !_c.done; _c = _b.next()) {
-                var elem = _c.value;
+            for (var fillElems_1 = __values(fillElems), fillElems_1_1 = fillElems_1.next(); !fillElems_1_1.done; fillElems_1_1 = fillElems_1.next()) {
+                var elem = fillElems_1_1.value;
                 if (!elem.visible)
                     continue;
-                elem._measure(availW, availH - totalH);
+                // 官方：u.yt(i, ...) —— 子元素自身 margin 在其 _measure（GraphObject.yt）内扣除
+                elem._measure(contentW, Infinity);
                 var mb = elem.measuredBounds;
                 var m = elem.margin;
                 totalH += mb.height + m.top + m.bottom;
@@ -9048,11 +9924,11 @@ var Panel = /** @class */ (function (_super) {
         catch (e_18_1) { e_18 = { error: e_18_1 }; }
         finally {
             try {
-                if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
+                if (fillElems_1_1 && !fillElems_1_1.done && (_b = fillElems_1.return)) _b.call(fillElems_1);
             }
             finally { if (e_18) throw e_18.error; }
         }
-        this._measuredBounds = new Rect(0, 0, maxW + pad.left + pad.right, totalH + pad.top + pad.bottom);
+        this._unionRect.set(0, 0, maxW, totalH);
     };
     Panel.prototype._arrangeVertical = function (innerX, innerY, innerW, innerH) {
         var e_19, _a;
@@ -9082,7 +9958,7 @@ var Panel = /** @class */ (function (_super) {
     // ============ PanelHorizontal measure/arrange ============
     Panel.prototype._measureHorizontal = function (availW, availH) {
         var e_20, _a;
-        var pad = this._padding;
+        this._padding;
         var totalW = 0;
         var maxH = 0;
         try {
@@ -9104,7 +9980,7 @@ var Panel = /** @class */ (function (_super) {
             }
             finally { if (e_20) throw e_20.error; }
         }
-        this._measuredBounds = new Rect(0, 0, totalW + pad.left + pad.right, maxH + pad.top + pad.bottom);
+        this._unionRect.set(0, 0, totalW, maxH);
     };
     Panel.prototype._arrangeHorizontal = function (innerX, innerY, innerW, innerH) {
         var e_21, _a;
@@ -9131,211 +10007,1044 @@ var Panel = /** @class */ (function (_super) {
         }
     };
     // ============ PanelSpot measure/arrange ============
+    /** 官方 PanelLayoutSpot.measure（两遍） */
     Panel.prototype._measureSpot = function (availW, availH) {
-        var e_22, _a;
-        var pad = this._padding;
-        var _b = this._findMainAndOthers(), main = _b.main, others = _b.others;
-        var measuredW = 0;
-        var measuredH = 0;
-        if (main !== null) {
-            main._measure(availW, availH);
-            var mb = main.measuredBounds;
-            var m = main.margin;
-            measuredW = mb.width + m.left + m.right;
-            measuredH = mb.height + m.top + m.bottom;
-        }
+        var e_22, _a, e_23, _b;
+        var els = this._elements;
+        if (els.length === 0)
+            return;
+        var main = this.findMainElement();
+        var ma = main.margin;
+        var u = ma.right + ma.left;
+        var d = ma.top + ma.bottom;
+        main._measure(availW, availH);
+        var union = this._unionRect;
+        // 第一遍：对齐参照盒 k = (0,0,mainW,mainH)；S = main margin 盒
+        var mB = main.measuredBounds;
+        var kw = mB.width;
+        var kh = mB.height;
+        var sBoxX = -ma.left;
+        var sBoxY = -ma.top;
+        var sBoxW = Math.max(mB.width + u, 0);
+        var sBoxH = Math.max(mB.height + d, 0);
+        var hasOther = false;
         try {
-            for (var others_3 = __values(others), others_3_1 = others_3.next(); !others_3_1.done; others_3_1 = others_3.next()) {
-                var elem = others_3_1.value;
-                elem._measure(availW, availH);
+            for (var els_3 = __values(els), els_3_1 = els_3.next(); !els_3_1.done; els_3_1 = els_3.next()) {
+                var el = els_3_1.value;
+                if (el === main || !el.visible)
+                    continue;
+                var em = el.margin;
+                var D = em.left;
+                var F = em.top;
+                var cw = em.right + em.left;
+                var ch = em.top + em.bottom;
+                var T = availW;
+                var L = availH;
+                var R_1 = el._getStretch(false);
+                if (R_1 === StretchFill) {
+                    T = kw;
+                    L = kh;
+                    cw = 0;
+                    ch = 0;
+                    D = 0;
+                    F = 0;
+                }
+                else if (R_1 === StretchHorizontal) {
+                    T = kw;
+                    cw = 0;
+                    D = 0;
+                }
+                else if (R_1 === StretchVertical) {
+                    L = kh;
+                    ch = 0;
+                    F = 0;
+                }
+                el._measure(T, L);
+                var mb = el.measuredBounds;
+                var y = Math.max(mb.width + cw, 0);
+                var x = Math.max(mb.height + ch, 0);
+                var A = el.alignment;
+                if (A.isDefault)
+                    A = this._defaultAlignment;
+                if (A.isDefault || isNaN(A.x) || isNaN(A.y))
+                    A = Spot.Center;
+                var I = el.alignmentFocus;
+                if (I.isDefault)
+                    I = Spot.Center;
+                var X = -D + A.x * kw + A.offsetX - (I.x * mb.width + I.offsetX);
+                var Y = -F + A.y * kh + A.offsetY - (I.y * mb.height + I.offsetY);
+                if (!hasOther) {
+                    hasOther = true;
+                    union.set(X, Y, y, x);
+                }
+                else {
+                    this._unionInto(X, Y, y, x);
+                }
             }
         }
         catch (e_22_1) { e_22 = { error: e_22_1 }; }
         finally {
             try {
-                if (others_3_1 && !others_3_1.done && (_a = others_3.return)) _a.call(others_3);
+                if (els_3_1 && !els_3_1.done && (_a = els_3.return)) _a.call(els_3);
             }
             finally { if (e_22) throw e_22.error; }
         }
-        this._measuredBounds = new Rect(0, 0, measuredW + pad.left + pad.right, measuredH + pad.top + pad.bottom);
-    };
-    Panel.prototype._arrangeSpot = function (innerX, innerY, innerW, innerH) {
-        var e_23, _a;
-        var _b = this._findMainAndOthers(), main = _b.main, others = _b.others;
-        if (main !== null) {
-            var m = main.margin;
-            main._arrange(new Rect(innerX + m.left, innerY + m.top, innerW - m.left - m.right, innerH - m.top - m.bottom));
-        }
+        if (!hasOther)
+            union.set(sBoxX, sBoxY, sBoxW, sBoxH);
+        else
+            this._unionInto(sBoxX, sBoxY, sBoxW, sBoxH);
+        // 主元素 stretch 早退（官方 switch）
+        var R = main.stretch;
+        if (R === StretchDefault)
+            R = main._getStretch(false);
+        if (R === StretchNone)
+            return;
+        if (R === StretchFill && !isFinite(availW) && !isFinite(availH))
+            return;
+        if (R === StretchHorizontal && !isFinite(availW))
+            return;
+        if (R === StretchVertical && !isFinite(availH))
+            return;
+        // 第二遍：参照盒为 main margin 盒（不含 k.x 偏移）
+        var mB2 = main.measuredBounds;
+        kw = Math.max(mB2.width + u, 0);
+        kh = Math.max(mB2.height + d, 0);
+        if (!hasOther)
+            return;
         try {
-            for (var others_4 = __values(others), others_4_1 = others_4.next(); !others_4_1.done; others_4_1 = others_4.next()) {
-                var elem = others_4_1.value;
-                var mb = elem.measuredBounds;
-                var alignment = this._resolveAlignment(elem);
-                var pos = alignment.positionInRect(new Rect(innerX, innerY, innerW, innerH));
-                var focus_2 = this._resolveAlignmentFocus(elem);
-                var focusPos = focus_2.positionInRect(new Rect(0, 0, mb.width, mb.height));
-                elem._arrange(new Rect(pos.x - focusPos.x, pos.y - focusPos.y, mb.width, mb.height));
+            for (var els_4 = __values(els), els_4_1 = els_4.next(); !els_4_1.done; els_4_1 = els_4.next()) {
+                var el = els_4_1.value;
+                if (el === main || !el.visible)
+                    continue;
+                var em = el.margin;
+                var mb = el.measuredBounds;
+                var y = Math.max(mb.width + em.right + em.left, 0);
+                var x = Math.max(mb.height + em.top + em.bottom, 0);
+                var A = el.alignment;
+                if (A.isDefault)
+                    A = this._defaultAlignment;
+                if (A.isDefault || isNaN(A.x) || isNaN(A.y))
+                    A = Spot.Center;
+                var I = el.alignmentFocus;
+                if (I.isDefault)
+                    I = Spot.Center;
+                var X = A.x * kw + A.offsetX - (I.x * mb.width + I.offsetX) - em.left;
+                var Y = A.y * kh + A.offsetY - (I.y * mb.height + I.offsetY) - em.top;
+                this._unionInto(X, Y, y, x);
             }
         }
         catch (e_23_1) { e_23 = { error: e_23_1 }; }
         finally {
             try {
-                if (others_4_1 && !others_4_1.done && (_a = others_4.return)) _a.call(others_4);
+                if (els_4_1 && !els_4_1.done && (_b = els_4.return)) _b.call(els_4);
             }
             finally { if (e_23) throw e_23.error; }
         }
+        this._unionInto(sBoxX, sBoxY, sBoxW, sBoxH);
     };
-    // ============ PanelTable measure/arrange (simplified) ============
-    Panel.prototype._measureTable = function (availW, availH) {
-        var e_24, _a, e_25, _b, e_26, _c;
+    /** 官方 PanelLayoutSpot.arrange */
+    Panel.prototype._arrangeSpot = function (innerX, innerY, innerW, innerH) {
+        var e_24, _a;
+        var els = this._elements;
+        if (els.length === 0)
+            return;
+        var main = this.findMainElement();
         var pad = this._padding;
-        // Determine column widths and row heights
-        var colWidths = this._computeColumnWidths(availW);
-        var rowHeights = this._computeRowHeights(availH);
+        var mb = main.measuredBounds;
+        var fx = pad.left - this._originX;
+        var fy = pad.top - this._originY;
+        main._arrange(new Rect(fx, fy, mb.width, mb.height));
+        var dw = mb.width;
+        var dh = mb.height;
         try {
-            // Measure each element with its cell constraints
-            for (var _d = __values(this._elements), _e = _d.next(); !_e.done; _e = _d.next()) {
-                var elem = _e.value;
-                if (!elem.visible)
+            for (var els_5 = __values(els), els_5_1 = els_5.next(); !els_5_1.done; els_5_1 = els_5.next()) {
+                var el = els_5_1.value;
+                if (el === main || !el.visible)
                     continue;
-                var col = elem.column;
-                var row = elem.row;
-                var colSpan = elem.columnSpan;
-                var rowSpan = elem.rowSpan;
-                var cellW = 0;
-                for (var c = col; c < col + colSpan && c < colWidths.length; c++) {
-                    cellW += colWidths[c];
-                }
-                var cellH = 0;
-                for (var r = row; r < row + rowSpan && r < rowHeights.length; r++) {
-                    cellH += rowHeights[r];
-                }
-                elem._measure(cellW, cellH);
+                var eMb = el.measuredBounds;
+                var A = el.alignment;
+                if (A.isDefault)
+                    A = this._defaultAlignment;
+                if (A.isDefault || isNaN(A.x) || isNaN(A.y))
+                    A = Spot.Center;
+                var I = el.alignmentFocus;
+                if (I.isDefault)
+                    I = Spot.Center;
+                var f = A.x * dw + A.offsetX - (I.x * eMb.width + I.offsetX);
+                var uu = A.y * dh + A.offsetY - (I.y * eMb.height + I.offsetY);
+                f += -this._originX;
+                uu += -this._originY;
+                el._arrange(new Rect(pad.left + f, pad.top + uu, eMb.width, eMb.height));
             }
         }
         catch (e_24_1) { e_24 = { error: e_24_1 }; }
         finally {
             try {
-                if (_e && !_e.done && (_a = _d.return)) _a.call(_d);
+                if (els_5_1 && !els_5_1.done && (_a = els_5.return)) _a.call(els_5);
             }
             finally { if (e_24) throw e_24.error; }
         }
-        var totalW = 0;
+    };
+    // ============ PanelTable measure/arrange (官方 PanelLayoutTable 移植) ============
+    Panel.prototype._isRowColPanel = function (obj) {
+        return obj instanceof Panel && (obj.type === PanelTableRow || obj.type === PanelTableColumn);
+    };
+    Panel.prototype._measureTable = function (availW, availH, minW, minH) {
+        var e_25, _a, e_26, _b, e_27, _c, e_28, _d, e_29, _e, e_30, _f, e_31, _g, e_32, _h, e_33, _j, e_34, _k;
+        var elements = this._elements;
+        // 官方 measure：hoist TableRow/TableColumn 子元素到扁平单元格列表
+        var flat = [];
+        var hoisted = [];
         try {
-            for (var colWidths_1 = __values(colWidths), colWidths_1_1 = colWidths_1.next(); !colWidths_1_1.done; colWidths_1_1 = colWidths_1.next()) {
-                var w = colWidths_1_1.value;
-                totalW += w;
+            for (var elements_2 = __values(elements), elements_2_1 = elements_2.next(); !elements_2_1.done; elements_2_1 = elements_2.next()) {
+                var E = elements_2_1.value;
+                if (this._isRowColPanel(E) && E.visible) {
+                    hoisted.push(E);
+                    try {
+                        for (var _l = (e_26 = void 0, __values(E._elements)), _m = _l.next(); !_m.done; _m = _l.next()) {
+                            var et = _m.value;
+                            if (E.type === PanelTableRow)
+                                et.row = E.row;
+                            else
+                                et.column = E.column;
+                            flat.push(et);
+                        }
+                    }
+                    catch (e_26_1) { e_26 = { error: e_26_1 }; }
+                    finally {
+                        try {
+                            if (_m && !_m.done && (_b = _l.return)) _b.call(_l);
+                        }
+                        finally { if (e_26) throw e_26.error; }
+                    }
+                }
+                else {
+                    flat.push(E);
+                }
             }
         }
         catch (e_25_1) { e_25 = { error: e_25_1 }; }
         finally {
             try {
-                if (colWidths_1_1 && !colWidths_1_1.done && (_b = colWidths_1.return)) _b.call(colWidths_1);
+                if (elements_2_1 && !elements_2_1.done && (_a = elements_2.return)) _a.call(elements_2);
             }
             finally { if (e_25) throw e_25.error; }
         }
-        var totalH = 0;
-        try {
-            for (var rowHeights_1 = __values(rowHeights), rowHeights_1_1 = rowHeights_1.next(); !rowHeights_1_1.done; rowHeights_1_1 = rowHeights_1.next()) {
-                var h = rowHeights_1_1.value;
-                totalH += h;
-            }
+        if (flat.length === 0) {
+            this.getRowDefinition(0);
+            this.getColumnDefinition(0);
         }
-        catch (e_26_1) { e_26 = { error: e_26_1 }; }
-        finally {
-            try {
-                if (rowHeights_1_1 && !rowHeights_1_1.done && (_c = rowHeights_1.return)) _c.call(rowHeights_1);
-            }
-            finally { if (e_26) throw e_26.error; }
-        }
-        this._measuredBounds = new Rect(0, 0, totalW + pad.left + pad.right, totalH + pad.top + pad.bottom);
-    };
-    Panel.prototype._arrangeTable = function (innerX, innerY, innerW, innerH) {
-        var e_27, _a, e_28, _b, e_29, _c;
-        var colWidths = this._computeColumnWidths(innerW);
-        var rowHeights = this._computeRowHeights(innerH);
-        this._lastColWidths = colWidths;
-        this._lastRowHeights = rowHeights;
-        // Compute column x positions
-        var colX = [];
-        var cx = innerX;
+        // 单元格映射 c[row][col] = [elements]
+        var cells = [];
         try {
-            for (var colWidths_2 = __values(colWidths), colWidths_2_1 = colWidths_2.next(); !colWidths_2_1.done; colWidths_2_1 = colWidths_2.next()) {
-                var w = colWidths_2_1.value;
-                colX.push(cx);
-                cx += w;
+            for (var flat_1 = __values(flat), flat_1_1 = flat_1.next(); !flat_1_1.done; flat_1_1 = flat_1.next()) {
+                var E = flat_1_1.value;
+                if (!E.visible)
+                    continue;
+                var r = E.row;
+                var c = E.column;
+                if (!cells[r])
+                    cells[r] = [];
+                if (!cells[r][c])
+                    cells[r][c] = [];
+                cells[r][c].push(E);
             }
         }
         catch (e_27_1) { e_27 = { error: e_27_1 }; }
         finally {
             try {
-                if (colWidths_2_1 && !colWidths_2_1.done && (_a = colWidths_2.return)) _a.call(colWidths_2);
+                if (flat_1_1 && !flat_1_1.done && (_c = flat_1.return)) _c.call(flat_1);
             }
             finally { if (e_27) throw e_27.error; }
         }
-        // Compute row y positions
-        var rowY = [];
-        var ry = innerY;
+        var spanElems = []; // 官方 u
+        var singleElems = []; // 官方 d
+        var colFillMark = []; // 官方 m
+        var rowFillMark = []; // 官方 g
+        var colDefTouched = []; // 官方 f
+        var p = availW; // 剩余宽度预算
+        var y = availH; // 剩余高度预算
         try {
-            for (var rowHeights_2 = __values(rowHeights), rowHeights_2_1 = rowHeights_2.next(); !rowHeights_2_1.done; rowHeights_2_1 = rowHeights_2.next()) {
-                var h = rowHeights_2_1.value;
-                rowY.push(ry);
-                ry += h;
+            // 重置已存在的定义
+            for (var _o = __values(this._rowDefinitions), _p = _o.next(); !_p.done; _p = _o.next()) {
+                var def = _p.value;
+                def.actual = 0;
+                def.measured = 0;
             }
         }
         catch (e_28_1) { e_28 = { error: e_28_1 }; }
         finally {
             try {
-                if (rowHeights_2_1 && !rowHeights_2_1.done && (_b = rowHeights_2.return)) _b.call(rowHeights_2);
+                if (_p && !_p.done && (_d = _o.return)) _d.call(_o);
             }
             finally { if (e_28) throw e_28.error; }
         }
         try {
-            for (var _d = __values(this._elements), _e = _d.next(); !_e.done; _e = _d.next()) {
-                var elem = _e.value;
-                if (!elem.visible)
-                    continue;
-                var col = elem.column;
-                var row = elem.row;
-                var colSpan = elem.columnSpan;
-                var rowSpan = elem.rowSpan;
-                var cellX = col < colX.length ? colX[col] : innerX;
-                var cellY = row < rowY.length ? rowY[row] : innerY;
-                var cellW = 0;
-                for (var c = col; c < col + colSpan && c < colWidths.length; c++) {
-                    cellW += colWidths[c];
-                }
-                var cellH = 0;
-                for (var r = row; r < row + rowSpan && r < rowHeights.length; r++) {
-                    cellH += rowHeights[r];
-                }
-                var m = elem.margin;
-                var mb = elem.measuredBounds;
-                var alignment = this._resolveAlignment(elem);
-                var focus_3 = this._resolveAlignmentFocus(elem);
-                var availW = cellW - m.left - m.right;
-                var availH = cellH - m.top - m.bottom;
-                var elemW = this._resolveStretchWidth(elem, availW, mb.width);
-                var elemH = this._resolveStretchHeight(elem, availH, mb.height);
-                var pos = alignment.positionInRect(new Rect(cellX + m.left, cellY + m.top, availW, availH));
-                var focusPos = focus_3.positionInRect(new Rect(0, 0, elemW, elemH));
-                elem._arrange(new Rect(pos.x - focusPos.x, pos.y - focusPos.y, elemW, elemH));
+            for (var _q = __values(this._columnDefinitions), _r = _q.next(); !_r.done; _r = _q.next()) {
+                var def = _r.value;
+                def.actual = 0;
+                def.measured = 0;
             }
         }
         catch (e_29_1) { e_29 = { error: e_29_1 }; }
         finally {
             try {
-                if (_e && !_e.done && (_c = _d.return)) _c.call(_d);
+                if (_r && !_r.done && (_e = _q.return)) _e.call(_q);
             }
             finally { if (e_29) throw e_29.error; }
         }
+        var topIndex = Math.min(this.topIndex, cells.length - 1);
+        var leftIndex = Math.min(this.leftIndex, cells.reduce(function (mx, row) { return Math.max(mx, row ? row.length : 0); }, 0) - 1);
+        // ============ PASS 1：内容自然测量（yt(∞,∞,0,0)）并增长行/列定义 ============
+        var rowCount = cells.length;
+        for (var V = 0; V < rowCount; V++) {
+            if (!cells[V])
+                continue;
+            var P = cells[V].length;
+            var rowDef = this.getRowDefinition(V);
+            rowDef.actual = 0;
+            rowDef.measured = 0;
+            for (var W = 0; W < P; W++) {
+                var list = cells[V][W];
+                if (!list)
+                    continue;
+                var colDef = this.getColumnDefinition(W);
+                if (colDefTouched[W] === undefined) {
+                    colDef.actual = 0;
+                    colDef.measured = 0;
+                    colDefTouched[W] = true;
+                }
+                try {
+                    for (var list_1 = (e_30 = void 0, __values(list)), list_1_1 = list_1.next(); !list_1_1.done; list_1_1 = list_1.next()) {
+                        var nt = list_1_1.value;
+                        if (!nt.visible)
+                            continue;
+                        var rowSpan1 = nt.rowSpan <= 1;
+                        var colSpan1 = nt.columnSpan <= 1;
+                        if ((!rowSpan1 || !colSpan1) && !(V < topIndex) && !(W < leftIndex))
+                            spanElems.push(nt);
+                        var mg = nt.margin;
+                        var mh = mg.right + mg.left;
+                        var mv = mg.top + mg.bottom;
+                        var C_1 = nt._gpWithDefs(this, rowDef, colDef, false);
+                        var dsz = nt.desiredSize;
+                        var wSet = !isNaN(dsz.width);
+                        var hSet = !isNaN(dsz.height);
+                        if (C_1 !== StretchNone && !(wSet && hSet) && !(V < topIndex) && !(W < leftIndex)) {
+                            if (colSpan1 && colFillMark[W] === undefined &&
+                                (C_1 === StretchFill || C_1 === StretchHorizontal)) {
+                                colFillMark[W] = -1;
+                            }
+                            if (rowSpan1 && rowFillMark[V] === undefined &&
+                                (C_1 === StretchFill || C_1 === StretchVertical)) {
+                                rowFillMark[V] = -1;
+                            }
+                            if (rowSpan1 && colSpan1)
+                                singleElems.push(nt);
+                        }
+                        nt._measure(Infinity, Infinity, 0, 0);
+                        if (V < topIndex || W < leftIndex)
+                            continue;
+                        var mb = nt.measuredBounds;
+                        var gw = Math.max(mb.width + mh, 0);
+                        var gh = Math.max(mb.height + mv, 0);
+                        if (rowSpan1 && (C_1 === StretchNone || C_1 === StretchHorizontal)) {
+                            var spacing = rowDef.computeEffectiveSpacing();
+                            var wasZero = rowDef.actual === 0;
+                            var grow = Math.max(gh - rowDef.actual, 0);
+                            if (grow + (wasZero ? spacing : 0) > y)
+                                grow = Math.max(y - spacing, 0);
+                            rowDef.measured = rowDef.measured + grow;
+                            rowDef.actual = rowDef.actual + grow;
+                            y = Math.max(y - (grow + (wasZero ? spacing : 0)), 0);
+                        }
+                        if (colSpan1 && (C_1 === StretchNone || C_1 === StretchVertical)) {
+                            var spacing = colDef.computeEffectiveSpacing();
+                            var wasZero = colDef.actual === 0;
+                            var grow = Math.max(gw - colDef.actual, 0);
+                            if (grow + (wasZero ? spacing : 0) > p)
+                                grow = Math.max(p - spacing, 0);
+                            colDef.measured = colDef.measured + grow;
+                            colDef.actual = colDef.actual + grow;
+                            p = Math.max(p - (grow + (wasZero ? spacing : 0)), 0);
+                        }
+                    }
+                }
+                catch (e_30_1) { e_30 = { error: e_30_1 }; }
+                finally {
+                    try {
+                        if (list_1_1 && !list_1_1.done && (_f = list_1.return)) _f.call(list_1);
+                    }
+                    finally { if (e_30) throw e_30.error; }
+                }
+            }
+        }
+        // ============ 固定尺寸合计 L/D，重算剩余预算 ============
+        var L = 0; // 列内容合计
+        var D = 0; // 行内容合计
+        var colCount = this._columnDefinitions.length;
+        for (var V = 0; V < colCount; V++) {
+            var def = this._columnDefinitions[V];
+            if (def === undefined)
+                continue;
+            L += isNaN(def.width) ? def.measured : def.width;
+            if (def.measured !== 0)
+                L += def.computeEffectiveSpacing();
+        }
+        var rowsDefCount = this._rowDefinitions.length;
+        for (var V = 0; V < rowsDefCount; V++) {
+            var def = this._rowDefinitions[V];
+            if (def === undefined)
+                continue;
+            D += isNaN(def.height) ? def.measured : def.height;
+            if (def.measured !== 0)
+                D += def.computeEffectiveSpacing();
+        }
+        p = Math.max(availW - L, 0);
+        y = Math.max(availH - D, 0);
+        var F = y; // 行剩余预算（供单格元素分配）
+        var R = p; // 列剩余预算
+        try {
+            // ============ d 通道：单格元素的内容最大值 m/g ============
+            for (var singleElems_1 = __values(singleElems), singleElems_1_1 = singleElems_1.next(); !singleElems_1_1.done; singleElems_1_1 = singleElems_1.next()) {
+                var E = singleElems_1_1.value;
+                var rowDef = this.getRowDefinition(E.row);
+                var colDef = this.getColumnDefinition(E.column);
+                var mb = E.measuredBounds;
+                var mg = E.margin;
+                var mh = mg.right + mg.left;
+                var mv = mg.top + mg.bottom;
+                if (colDef.measured === 0 && colFillMark[E.column] !== undefined) {
+                    colFillMark[E.column] = Math.max(mb.width + mh, colFillMark[E.column]);
+                }
+                else {
+                    colFillMark[E.column] = null;
+                }
+                if (rowDef.measured === 0 && rowFillMark[E.row] !== undefined) {
+                    rowFillMark[E.row] = Math.max(mb.height + mv, rowFillMark[E.row]);
+                }
+                else {
+                    rowFillMark[E.row] = null;
+                }
+            }
+        }
+        catch (e_31_1) { e_31 = { error: e_31_1 }; }
+        finally {
+            try {
+                if (singleElems_1_1 && !singleElems_1_1.done && (_g = singleElems_1.return)) _g.call(singleElems_1);
+            }
+            finally { if (e_31) throw e_31.error; }
+        }
+        var O = 0;
+        for (var i = 0; i < colFillMark.length; i++) {
+            if (colFillMark[i] !== undefined)
+                O += colFillMark[i];
+        }
+        var I = 0;
+        for (var i = 0; i < rowFillMark.length; i++) {
+            if (rowFillMark[i] !== undefined)
+                I += rowFillMark[i];
+        }
+        // ============ 单元格通道：按单元格约束二次测量 ============
+        var cw = 0; // 当前单元格宽
+        var ch = 0; // 当前单元格高
+        try {
+            for (var singleElems_2 = __values(singleElems), singleElems_2_1 = singleElems_2.next(); !singleElems_2_1.done; singleElems_2_1 = singleElems_2.next()) {
+                var E = singleElems_2_1.value;
+                var rowDef = this.getRowDefinition(E.row);
+                var colDef = this.getColumnDefinition(E.column);
+                var cellW = void 0;
+                if (isFinite(colDef.width))
+                    cellW = colDef.width;
+                else if (isFinite(p) && colFillMark[E.column] !== null) {
+                    cellW = O === 0 ? colDef.actual + p : colFillMark[E.column] / O * R;
+                }
+                else if (colFillMark[E.column] !== null)
+                    cellW = p;
+                else
+                    cellW = colDef.actual || p;
+                cellW = Math.max(0, cellW - colDef.computeEffectiveSpacing());
+                var cellH = void 0;
+                if (isFinite(rowDef.height))
+                    cellH = rowDef.height;
+                else if (isFinite(y) && rowFillMark[E.row] !== null) {
+                    cellH = I === 0 ? rowDef.actual + y : rowFillMark[E.row] / I * F;
+                }
+                else if (rowFillMark[E.row] !== null)
+                    cellH = y;
+                else
+                    cellH = rowDef.actual || y;
+                cellH = Math.max(0, cellH - rowDef.computeEffectiveSpacing());
+                cw = Math.max(colDef.minimum, Math.min(cellW, colDef.maximum));
+                ch = Math.max(rowDef.minimum, Math.min(cellH, rowDef.maximum));
+                var C_2 = E._gpWithDefs(this, rowDef, colDef, false);
+                if (C_2 === StretchHorizontal)
+                    ch = Math.max(ch, rowDef.actual + y);
+                else if (C_2 === StretchVertical)
+                    cw = Math.max(cw, colDef.actual + p);
+                var mg = E.margin;
+                var mh = mg.right + mg.left;
+                var mv = mg.top + mg.bottom;
+                var at = colDef.minimum;
+                var ct = rowDef.minimum;
+                var mb = E.measuredBounds;
+                if (mb.width === 0 && colFillMark[E.column] !== null)
+                    at = Math.max(at, colFillMark[E.column]);
+                if (mb.height === 0 && rowFillMark[E.row] !== null)
+                    ct = Math.max(at, rowFillMark[E.row]);
+                E._measure(cw, ch, at, ct);
+                var mb2 = E.measuredBounds;
+                var fw = Math.max(mb2.width + mh, 0);
+                var fh = Math.max(mb2.height + mv, 0);
+                if (isFinite(p))
+                    fw = Math.min(fw, cw);
+                if (isFinite(y))
+                    fh = Math.min(fh, ch);
+                var prevH = rowDef.actual;
+                rowDef.actual = Math.max(rowDef.actual, fh);
+                rowDef.measured = Math.max(rowDef.measured, fh);
+                var growH = rowDef.actual - prevH;
+                y = Math.max(y - growH, 0);
+                if (rowFillMark[E.row] === null)
+                    F = Math.max(F - growH, 0);
+                var prevW = colDef.actual;
+                colDef.actual = Math.max(colDef.actual, fw);
+                colDef.measured = Math.max(colDef.measured, fw);
+                var growW = colDef.actual - prevW;
+                p = Math.max(p - growW, 0);
+                if (colFillMark[E.column] === null)
+                    R = Math.max(R - growW, 0);
+            }
+        }
+        catch (e_32_1) { e_32 = { error: e_32_1 }; }
+        finally {
+            try {
+                if (singleElems_2_1 && !singleElems_2_1.done && (_h = singleElems_2.return)) _h.call(singleElems_2);
+            }
+            finally { if (e_32) throw e_32.error; }
+        }
+        // ============ 跨行/列元素通道 ============
+        if (spanElems.length > 0) {
+            var K = []; // 行 actual 快照
+            var z = []; // 列 actual 快照
+            for (var V = 0; V < rowCount; V++) {
+                if (!cells[V])
+                    continue;
+                K[V] = this.getRowDefinition(V).actual;
+                for (var W = 0; W < cells[V].length; W++) {
+                    if (!cells[V][W])
+                        continue;
+                    z[W] = this.getColumnDefinition(W).actual;
+                }
+            }
+            var Yw = { w: 0 };
+            var Yh = { h: 0 };
+            var spanExtra = { w: 0, h: 0 };
+            try {
+                for (var spanElems_1 = __values(spanElems), spanElems_1_1 = spanElems_1.next(); !spanElems_1_1.done; spanElems_1_1 = spanElems_1.next()) {
+                    var E = spanElems_1_1.value;
+                    if (!E.visible)
+                        continue;
+                    var rowDef = this.getRowDefinition(E.row);
+                    var colDef = this.getColumnDefinition(E.column);
+                    Yw.w = Math.max(colDef.minimum, Math.min(availW, colDef.maximum));
+                    Yh.h = Math.max(rowDef.minimum, Math.min(availH, rowDef.maximum));
+                    var C_3 = E._gpWithDefs(this, rowDef, colDef, false);
+                    if (C_3 === StretchFill) {
+                        if (z[E.column] !== 0 && z[E.column] !== undefined)
+                            Yw.w = Math.min(Yw.w, z[E.column]);
+                        if (K[E.row] !== 0 && K[E.row] !== undefined)
+                            Yh.h = Math.min(Yh.h, K[E.row]);
+                    }
+                    else if (C_3 === StretchHorizontal) {
+                        if (z[E.column] !== 0 && z[E.column] !== undefined)
+                            Yw.w = Math.min(Yw.w, z[E.column]);
+                    }
+                    else if (C_3 === StretchVertical) {
+                        if (K[E.row] !== 0 && K[E.row] !== undefined)
+                            Yh.h = Math.min(Yh.h, K[E.row]);
+                    }
+                    if (C_3 === StretchFill || C_3 === StretchVertical) {
+                        var extra = 0;
+                        for (var st = 0; st < this._rowDefinitions.length; st++) {
+                            if (st >= E.row && st < E.row + E.rowSpan)
+                                continue;
+                            var rd = this._rowDefinitions[st];
+                            if (rd !== undefined) {
+                                extra += K[st] || 0;
+                                if (rd.measured !== 0)
+                                    extra += rd.computeEffectiveSpacing();
+                            }
+                        }
+                        Yh.h = Math.max(Yh.h - extra, 0);
+                    }
+                    if (C_3 === StretchFill || C_3 === StretchHorizontal) {
+                        var extra = 0;
+                        for (var st = 0; st < this._columnDefinitions.length; st++) {
+                            if (st >= E.column && st < E.column + E.columnSpan)
+                                continue;
+                            var cd = this._columnDefinitions[st];
+                            if (cd !== undefined) {
+                                extra += z[st] || 0;
+                                if (cd.measured !== 0)
+                                    extra += cd.computeEffectiveSpacing();
+                            }
+                        }
+                        Yw.w = Math.max(Yw.w - extra, 0);
+                    }
+                    if (isFinite(colDef.width))
+                        Yw.w = colDef.width;
+                    if (isFinite(rowDef.height))
+                        Yh.h = rowDef.height;
+                    spanExtra.w = 0;
+                    spanExtra.h = 0;
+                    var at = colDef.minimum;
+                    var ct = rowDef.minimum;
+                    var lastRowDef = rowDef;
+                    for (var st = 1; st < E.rowSpan && !(E.row + st >= this._rowDefinitions.length); st++) {
+                        var rd = this.getRowDefinition(E.row + st);
+                        lastRowDef = rd;
+                        if (C_3 === StretchFill || C_3 === StretchVertical) {
+                            if (rd.actual === 0)
+                                continue;
+                            spanExtra.h += Math.max(rd.minimum, Math.min(rd.actual, rd.maximum));
+                        }
+                        else {
+                            spanExtra.h += Math.max(rd.minimum, isNaN(rd.height) ? rd.maximum : Math.min(rd.height, rd.maximum));
+                        }
+                        ct += rd.minimum;
+                    }
+                    var lastColDef = colDef;
+                    for (var st = 1; st < E.columnSpan && !(E.column + st >= this._columnDefinitions.length); st++) {
+                        var cd = this.getColumnDefinition(E.column + st);
+                        lastColDef = cd;
+                        if (C_3 === StretchFill || C_3 === StretchHorizontal) {
+                            if (cd.actual === 0)
+                                continue;
+                            spanExtra.w += Math.max(cd.minimum, Math.min(cd.actual, cd.maximum));
+                        }
+                        else {
+                            spanExtra.w += Math.max(cd.minimum, isNaN(cd.width) ? cd.maximum : Math.min(cd.width, cd.maximum));
+                        }
+                        at += cd.minimum;
+                    }
+                    Yw.w += spanExtra.w;
+                    Yh.h += spanExtra.h;
+                    var mg = E.margin;
+                    var mh = mg.right + mg.left;
+                    var mv = mg.top + mg.bottom;
+                    E._measure(Yw.w, Yh.h, at, ct);
+                    var mb = E.measuredBounds;
+                    var fw = Math.max(mb.width + mh, 0);
+                    var fh = Math.max(mb.height + mv, 0);
+                    // 行跨度增长
+                    var spanTotal = 0;
+                    var growDef = lastRowDef;
+                    for (var st = 0; st < E.rowSpan && !(E.row + st >= this._rowDefinitions.length); st++) {
+                        var rd = this.getRowDefinition(E.row + st);
+                        growDef = rd;
+                        spanTotal += rd.total || 0;
+                    }
+                    if (spanTotal < fh) {
+                        var remain = fh - spanTotal;
+                        if (rowDef.spanAllocation !== null) {
+                            var alloc = rowDef.spanAllocation;
+                            for (var ut = 0; ut < E.rowSpan && !(remain <= 0 || E.row + ut >= this._rowDefinitions.length); ut++) {
+                                var rd = this.getRowDefinition(E.row + ut);
+                                var base = rd.actual;
+                                var add = alloc(E, rd, fh - spanTotal);
+                                rd.actual = Math.min(rd.maximum, base + add);
+                                if (rd.actual !== base)
+                                    remain -= rd.actual - base;
+                            }
+                        }
+                        var g = growDef;
+                        while (remain > 0 && g !== undefined) {
+                            var base = g.actual;
+                            if (isNaN(g.height) && g.maximum > base) {
+                                g.actual = Math.min(g.maximum, base + remain);
+                                if (g.actual !== base)
+                                    remain -= g.actual - base;
+                            }
+                            if (g.index === 0)
+                                break;
+                            g = this.getRowDefinition(g.index - 1);
+                        }
+                    }
+                    // 列跨度增长
+                    var spanTotalC = 0;
+                    var growDefC = lastColDef;
+                    for (var st = 0; st < E.columnSpan && !(E.column + st >= this._columnDefinitions.length); st++) {
+                        var cd = this.getColumnDefinition(E.column + st);
+                        growDefC = cd;
+                        spanTotalC += cd.total || 0;
+                    }
+                    if (spanTotalC < fw) {
+                        var remain = fw - spanTotalC;
+                        if (colDef.spanAllocation !== null) {
+                            var alloc = colDef.spanAllocation;
+                            for (var ut = 0; ut < E.columnSpan && !(remain <= 0 || E.column + ut >= this._columnDefinitions.length); ut++) {
+                                var cd = this.getColumnDefinition(E.column + ut);
+                                var base = cd.actual;
+                                var add = alloc(E, cd, fw - spanTotalC);
+                                cd.actual = Math.min(cd.maximum, base + add);
+                                if (cd.actual !== base)
+                                    remain -= cd.actual - base;
+                            }
+                        }
+                        var g = growDefC;
+                        while (remain > 0 && g !== undefined) {
+                            var base = g.actual;
+                            if (isNaN(g.width) && g.maximum > base) {
+                                g.actual = Math.min(g.maximum, base + remain);
+                                if (g.actual !== base)
+                                    remain -= g.actual - base;
+                            }
+                            if (g.index === 0)
+                                break;
+                            g = this.getColumnDefinition(g.index - 1);
+                        }
+                    }
+                }
+            }
+            catch (e_33_1) { e_33 = { error: e_33_1 }; }
+            finally {
+                try {
+                    if (spanElems_1_1 && !spanElems_1_1.done && (_j = spanElems_1.return)) _j.call(spanElems_1);
+                }
+                finally { if (e_33) throw e_33.error; }
+            }
+        }
+        // ============ 最终列/行缩放与位置 ============
+        var ds = this._desiredSize;
+        var maxS = this._maxSize;
+        var C = this._getStretch(true);
+        var L2 = 0;
+        var D2 = 0;
+        var q = 0; // 固定列宽合计
+        var Q = 0; // 固定行高合计
+        for (var V = 0; V < colCount; V++) {
+            var def = this._columnDefinitions[V];
+            if (def === undefined)
+                continue;
+            if (isFinite(def.width)) {
+                q += def.width;
+                q += def.computeEffectiveSpacing();
+                continue;
+            }
+            if (def.effectiveSizing() === SizingNone) {
+                q += def.actual;
+                q += def.computeEffectiveSpacing();
+                continue;
+            }
+            if (def.actual !== 0) {
+                L2 += def.actual;
+                L2 += def.computeEffectiveSpacing();
+            }
+        }
+        var H = 0;
+        if (isFinite(ds.width))
+            H = Math.min(ds.width, maxS.width);
+        else if (C !== StretchNone && isFinite(availW))
+            H = availW;
+        else
+            H = L2;
+        H = Math.max(H, isFinite(availW) ? Math.min(minW, availW) : minW);
+        H = Math.max(H - q, 0);
+        var J = L2 === 0 ? 1 : Math.max(H / L2, 1);
+        var offX = 0;
+        for (var V = 0; V < colCount; V++) {
+            var def = this._columnDefinitions[V];
+            if (def === undefined)
+                continue;
+            if (!isFinite(def.width) && def.effectiveSizing() !== SizingNone)
+                def.actual = def.actual * J;
+            def.position = offX;
+            if (def.actual !== 0) {
+                offX += def.actual;
+                offX += def.computeEffectiveSpacing();
+            }
+        }
+        var v = 0;
+        for (var V = 0; V < rowsDefCount; V++) {
+            var def = this._rowDefinitions[V];
+            if (def === undefined)
+                continue;
+            if (isFinite(def.height)) {
+                Q += def.height;
+                Q += def.computeEffectiveSpacing();
+                continue;
+            }
+            if (def.effectiveSizing() === SizingNone) {
+                Q += def.actual;
+                Q += def.computeEffectiveSpacing();
+                continue;
+            }
+            if (def.actual !== 0) {
+                D2 += def.actual;
+                D2 += def.computeEffectiveSpacing();
+            }
+        }
+        if (isFinite(ds.height))
+            v = Math.min(ds.height, maxS.height);
+        else if (C !== StretchNone && isFinite(availH))
+            v = availH;
+        else
+            v = D2;
+        v = Math.max(v, isFinite(availH) ? Math.min(minH, availH) : minH);
+        v = Math.max(v - Q, 0);
+        var TT = D2 === 0 ? 1 : Math.max(v / D2, 1);
+        var offY = 0;
+        for (var V = 0; V < rowsDefCount; V++) {
+            var def = this._rowDefinitions[V];
+            if (def === undefined)
+                continue;
+            if (!isFinite(def.height) && def.effectiveSizing() !== SizingNone)
+                def.actual = def.actual * TT;
+            def.position = offY;
+            if (def.actual !== 0) {
+                offY += def.actual;
+                offY += def.computeEffectiveSpacing();
+            }
+        }
+        try {
+            // hoisted TableRow/TableColumn 面板自身的 measuredBounds
+            for (var hoisted_1 = __values(hoisted), hoisted_1_1 = hoisted_1.next(); !hoisted_1_1.done; hoisted_1_1 = hoisted_1.next()) {
+                var E = hoisted_1_1.value;
+                var w = 0;
+                var h = 0;
+                if (E.type === PanelTableRow) {
+                    w = offX;
+                    h = this.getRowDefinition(E.row).actual;
+                }
+                else {
+                    w = this.getColumnDefinition(E.column).actual;
+                    h = offY;
+                }
+                E._measuredBounds = new Rect(0, 0, w, h);
+                E._naturalBounds = new Rect(0, 0, w, h);
+            }
+        }
+        catch (e_34_1) { e_34 = { error: e_34_1 }; }
+        finally {
+            try {
+                if (hoisted_1_1 && !hoisted_1_1.done && (_k = hoisted_1.return)) _k.call(hoisted_1);
+            }
+            finally { if (e_34) throw e_34.error; }
+        }
+        // 官方：单元格缓存 t.Gh 供 arrange 使用；n 内容尺寸 → union
+        this._lastCells = cells;
+        this._unionRect.set(0, 0, offX, offY);
+    };
+    Panel.prototype._arrangeTable = function (innerX, innerY, innerW, innerH) {
+        var e_35, _a, e_36, _b;
+        var cells = this._lastCells;
+        if (!cells)
+            return;
+        var pad = this._padding;
+        var padL = pad.left;
+        var padT = pad.top;
+        var fullW = innerW + padL + pad.right;
+        var fullH = innerH + padT + pad.bottom;
+        var rowDefs = this._rowDefinitions;
+        var colDefs = this._columnDefinitions;
+        var c = cells.length;
+        var f = 0;
+        for (var N = 0; N < c; N++) {
+            if (cells[N])
+                f = Math.max(f, cells[N].length);
+        }
+        // 首个非零 actual 的行/列偏移（topIndex/leftIndex 滚动）
+        var pIdx = Math.min(this.topIndex, c - 1);
+        var rowOffset = 0;
+        if (rowDefs.length > 0) {
+            while (pIdx !== c && (rowDefs[pIdx] === undefined || rowDefs[pIdx].actual === 0))
+                pIdx++;
+            pIdx = Math.max(Math.min(pIdx, c - 1), 0);
+            rowOffset = -(rowDefs[pIdx] ? rowDefs[pIdx].position : 0);
+        }
+        var yIdx = Math.min(this.leftIndex, f - 1);
+        var colOffset = 0;
+        if (colDefs.length > 0) {
+            while (yIdx !== f && (colDefs[yIdx] === undefined || colDefs[yIdx].actual === 0))
+                yIdx++;
+            yIdx = Math.max(Math.min(yIdx, f - 1), 0);
+            colOffset = -(colDefs[yIdx] ? colDefs[yIdx].position : 0);
+        }
+        var firstRowIdx = 0;
+        while (firstRowIdx !== c && rowDefs[firstRowIdx] === undefined)
+            firstRowIdx++;
+        var firstColIdx = 0;
+        while (firstColIdx !== f && colDefs[firstColIdx] === undefined)
+            firstColIdx++;
+        try {
+            // ============ 第一遍：hoisted TableRow/TableColumn 面板自身矩形 ============
+            for (var _c = __values(this._elements), _d = _c.next(); !_d.done; _d = _c.next()) {
+                var M = _d.value;
+                if (!this._isRowColPanel(M) || !M.visible)
+                    continue;
+                var k = void 0;
+                var Pc = void 0;
+                var cellY = void 0;
+                var cellX = void 0;
+                if (M.type === PanelTableRow) {
+                    k = this.getRowDefinition(M.row);
+                    Pc = this.getColumnDefinition(firstColIdx);
+                    cellY = k.position + rowOffset + padT;
+                    if (k.actual !== 0)
+                        cellY += k.computeEffectiveSpacingTop(Math.max(firstRowIdx, pIdx));
+                    cellX = Pc.position + colOffset + padL;
+                    if (Pc.actual !== 0)
+                        cellX += Pc.computeEffectiveSpacingTop(Math.max(firstColIdx, yIdx));
+                }
+                else {
+                    k = this.getRowDefinition(firstRowIdx);
+                    Pc = this.getColumnDefinition(M.column);
+                    cellY = k.position + rowOffset + padT;
+                    if (k.actual !== 0)
+                        cellY += k.computeEffectiveSpacingTop(Math.max(firstRowIdx, pIdx));
+                    cellX = Pc.position + colOffset + padL;
+                    if (Pc.actual !== 0)
+                        cellX += Pc.computeEffectiveSpacingTop(Math.max(firstColIdx, yIdx));
+                }
+                var mb = M.measuredBounds;
+                var x = M.type === PanelTableRow ? padL : cellX;
+                var yy = M.type === PanelTableColumn ? padT : cellY;
+                M._actualBounds = new Rect(x, yy, mb.width, mb.height);
+                M._naturalBounds = new Rect(0, 0, mb.width, mb.height);
+            }
+        }
+        catch (e_35_1) { e_35 = { error: e_35_1 }; }
+        finally {
+            try {
+                if (_d && !_d.done && (_a = _c.return)) _a.call(_c);
+            }
+            finally { if (e_35) throw e_35.error; }
+        }
+        // ============ 第二遍：单元格内元素对齐排布 ============
+        for (var N = 0; N < c; N++) {
+            var row = cells[N];
+            if (!row)
+                continue;
+            var M = this.getRowDefinition(N);
+            var a = M.position + rowOffset + padT;
+            if (M.actual !== 0)
+                a += M.computeEffectiveSpacingTop(Math.max(firstRowIdx, pIdx));
+            for (var Cc = 0; Cc < row.length; Cc++) {
+                var list = row[Cc];
+                if (!list)
+                    continue;
+                var T = this.getColumnDefinition(Cc);
+                var h = T.position + colOffset + padL;
+                if (T.actual !== 0)
+                    h += T.computeEffectiveSpacingTop(Math.max(firstColIdx, yIdx));
+                try {
+                    for (var list_2 = (e_36 = void 0, __values(list)), list_2_1 = list_2.next(); !list_2_1.done; list_2_1 = list_2.next()) {
+                        var R = list_2_1.value;
+                        var I = R.measuredBounds;
+                        var spanW = 0;
+                        var spanH = 0;
+                        for (var st = 1; st < R.rowSpan && !(N + st >= rowDefs.length); st++) {
+                            var rd = rowDefs[N + st];
+                            if (rd !== undefined && rd.actual !== 0)
+                                spanH += rd.total;
+                        }
+                        for (var st = 1; st < R.columnSpan && !(Cc + st >= colDefs.length); st++) {
+                            var cd = colDefs[Cc + st];
+                            if (cd !== undefined && cd.actual !== 0)
+                                spanW += cd.total;
+                        }
+                        var O = T.actual + spanW; // 单元格宽
+                        var X = M.actual + spanH; // 单元格高
+                        var cellX = h;
+                        var cellY = a;
+                        var clipX = h;
+                        var clipY = a;
+                        var clipW = O;
+                        var clipH = X;
+                        if (cellX + O > fullW)
+                            clipW = Math.max(fullW - cellX, 0);
+                        if (cellY + X > fullH)
+                            clipH = Math.max(fullH - cellY, 0);
+                        var q = R.alignment;
+                        var Q = void 0, Jv = void 0, tt = void 0, Vv = void 0;
+                        if (q.isDefault) {
+                            var dq = this._defaultAlignment;
+                            if (dq.isDefault || isNaN(dq.x) || isNaN(dq.y))
+                                dq = Spot.Center;
+                            Q = dq.x;
+                            Jv = dq.y;
+                            tt = dq.offsetX;
+                            Vv = dq.offsetY;
+                            var colAl = T.alignment;
+                            var rowAl = M.alignment;
+                            if (!colAl.isDefault && !isNaN(colAl.x) && !isNaN(colAl.y)) {
+                                Q = colAl.x;
+                                tt = colAl.offsetX;
+                            }
+                            if (!rowAl.isDefault && !isNaN(rowAl.x) && !isNaN(rowAl.y)) {
+                                Jv = rowAl.y;
+                                Vv = rowAl.offsetY;
+                            }
+                        }
+                        else {
+                            Q = q.x;
+                            Jv = q.y;
+                            tt = q.offsetX;
+                            Vv = q.offsetY;
+                        }
+                        if (isNaN(Q) || isNaN(Jv)) {
+                            Q = 0.5;
+                            Jv = 0.5;
+                            tt = 0;
+                            Vv = 0;
+                        }
+                        var Ew = I.width;
+                        var Wh = I.height;
+                        var mg = R.margin;
+                        var mh = mg.right + mg.left;
+                        var mv = mg.top + mg.bottom;
+                        var C = R._gpWithDefs(this, M, T, false);
+                        if (isNaN(R.desiredSize.width) && (C === StretchFill || C === StretchHorizontal)) {
+                            Ew = Math.max(O - mh, 0);
+                        }
+                        if (isNaN(R.desiredSize.height) && (C === StretchFill || C === StretchVertical)) {
+                            Wh = Math.max(X - mv, 0);
+                        }
+                        Ew = Math.min(R.maxSize.width, Ew);
+                        Wh = Math.min(R.maxSize.height, Wh);
+                        Ew = Math.max(R.minSize.width, Ew);
+                        Wh = Math.max(R.minSize.height, Wh);
+                        var boxW = Ew + mh;
+                        var boxH = Wh + mv;
+                        var ex = cellX + O * Q - boxW * Q + tt + mg.left;
+                        var ey = cellY + X * Jv - boxH * Jv + Vv + mg.top;
+                        if (R.visible) {
+                            var contains = ex >= clipX && ey >= clipY &&
+                                ex + I.width <= clipX + clipW && ey + I.height <= clipY + clipH;
+                            if (contains) {
+                                R._arrange(new Rect(ex, ey, Ew, Wh));
+                            }
+                            else {
+                                R._arrange(new Rect(ex, ey, Ew, Wh));
+                            }
+                        }
+                    }
+                }
+                catch (e_36_1) { e_36 = { error: e_36_1 }; }
+                finally {
+                    try {
+                        if (list_2_1 && !list_2_1.done && (_b = list_2.return)) _b.call(list_2);
+                    }
+                    finally { if (e_36) throw e_36.error; }
+                }
+            }
+        }
     };
     // ============ PanelPosition measure/arrange ============
+    /** 官方 PanelLayoutPosition.measure：union 隐含 (0,0)（初始 union 为空点） */
     Panel.prototype._measurePosition = function (availW, availH) {
-        var e_30, _a;
-        var pad = this._padding;
-        var maxW = 0;
-        var maxH = 0;
+        var e_37, _a;
         try {
             for (var _b = __values(this._elements), _c = _b.next(); !_c.done; _c = _b.next()) {
                 var elem = _c.value;
@@ -9344,27 +11053,28 @@ var Panel = /** @class */ (function (_super) {
                 elem._measure(availW, availH);
                 var mb = elem.measuredBounds;
                 var m = elem.margin;
-                // Position panels use the element's position (x, y) for placement
-                // The measured size is the union of all positioned elements
-                var posX = isNaN(elem.position.x) ? 0 : elem.position.x;
-                var posY = isNaN(elem.position.y) ? 0 : elem.position.y;
-                var elemRight = posX + mb.width + m.left + m.right;
-                var elemBottom = posY + mb.height + m.top + m.bottom;
-                maxW = Math.max(maxW, elemRight);
-                maxH = Math.max(maxH, elemBottom);
+                var boxW = Math.max(mb.width + m.left + m.right, 0);
+                var boxH = Math.max(mb.height + m.top + m.bottom, 0);
+                var px = elem.position.x;
+                var py = elem.position.y;
+                if (!isFinite(px))
+                    px = 0;
+                if (!isFinite(py))
+                    py = 0;
+                this._unionInto(px, py, boxW, boxH);
             }
         }
-        catch (e_30_1) { e_30 = { error: e_30_1 }; }
+        catch (e_37_1) { e_37 = { error: e_37_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_30) throw e_30.error; }
+            finally { if (e_37) throw e_37.error; }
         }
-        this._measuredBounds = new Rect(0, 0, maxW + pad.left + pad.right, maxH + pad.top + pad.bottom);
     };
+    /** 官方 PanelLayoutPosition.arrange：pos - (union - pad) + margin */
     Panel.prototype._arrangePosition = function (innerX, innerY, innerW, innerH) {
-        var e_31, _a;
+        var e_38, _a;
         try {
             for (var _b = __values(this._elements), _c = _b.next(); !_c.done; _c = _b.next()) {
                 var elem = _c.value;
@@ -9372,22 +11082,25 @@ var Panel = /** @class */ (function (_super) {
                     continue;
                 var mb = elem.measuredBounds;
                 var m = elem.margin;
-                var posX = isNaN(elem.position.x) ? 0 : elem.position.x;
-                var posY = isNaN(elem.position.y) ? 0 : elem.position.y;
-                elem._arrange(new Rect(innerX + posX + m.left, innerY + posY + m.top, mb.width, mb.height));
+                var px = elem.position.x;
+                var py = elem.position.y;
+                if (!isFinite(px))
+                    px = 0;
+                if (!isFinite(py))
+                    py = 0;
+                elem._arrange(new Rect(innerX + px - this._originX + m.left, innerY + py - this._originY + m.top, mb.width, mb.height));
             }
         }
-        catch (e_31_1) { e_31 = { error: e_31_1 }; }
+        catch (e_38_1) { e_38 = { error: e_38_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_31) throw e_31.error; }
+            finally { if (e_38) throw e_38.error; }
         }
     };
     // ============ PanelViewbox measure/arrange ============
     Panel.prototype._measureViewbox = function (availW, availH) {
-        var pad = this._padding;
         var child = this._elements.find(function (e) { return e.visible; }) || null;
         if (child) {
             child._measure(Infinity, Infinity);
@@ -9395,10 +11108,7 @@ var Panel = /** @class */ (function (_super) {
             var m = child.margin;
             var w = Math.min(availW, mb.width + m.left + m.right);
             var h = Math.min(availH, mb.height + m.top + m.bottom);
-            this._measuredBounds = new Rect(0, 0, w + pad.left + pad.right, h + pad.top + pad.bottom);
-        }
-        else {
-            this._measuredBounds = new Rect(0, 0, pad.left + pad.right, pad.top + pad.bottom);
+            this._unionRect.set(0, 0, w, h);
         }
     };
     Panel.prototype._arrangeViewbox = function (innerX, innerY, width, height) {
@@ -9443,62 +11153,62 @@ var Panel = /** @class */ (function (_super) {
     };
     // ============ PanelGraduated measure/arrange ============
     Panel.prototype._measureGraduated = function (availW, availH) {
-        var e_32, _a;
-        var pad = this._padding;
+        var e_39, _a;
         var _b = this._findMainAndOthers(), main = _b.main, others = _b.others;
-        var measuredW = 0;
-        var measuredH = 0;
-        if (main !== null) {
+        if (main !== null && main.visible) {
             main._measure(availW, availH);
             var mb = main.measuredBounds;
             var m = main.margin;
-            measuredW = mb.width + m.left + m.right;
-            measuredH = mb.height + m.top + m.bottom;
+            this._unionRect.set(0, 0, Math.max(mb.width + m.left + m.right, 0), Math.max(mb.height + m.top + m.bottom, 0));
         }
         try {
-            for (var others_5 = __values(others), others_5_1 = others_5.next(); !others_5_1.done; others_5_1 = others_5.next()) {
-                var elem = others_5_1.value;
+            for (var others_1 = __values(others), others_1_1 = others_1.next(); !others_1_1.done; others_1_1 = others_1.next()) {
+                var elem = others_1_1.value;
+                if (!elem.visible)
+                    continue;
                 elem._measure(availW, availH);
+                var mb = elem.measuredBounds;
+                var m = elem.margin;
+                this._unionInto(0, 0, Math.max(mb.width + m.left + m.right, 0), Math.max(mb.height + m.top + m.bottom, 0));
             }
         }
-        catch (e_32_1) { e_32 = { error: e_32_1 }; }
+        catch (e_39_1) { e_39 = { error: e_39_1 }; }
         finally {
             try {
-                if (others_5_1 && !others_5_1.done && (_a = others_5.return)) _a.call(others_5);
+                if (others_1_1 && !others_1_1.done && (_a = others_1.return)) _a.call(others_1);
             }
-            finally { if (e_32) throw e_32.error; }
+            finally { if (e_39) throw e_39.error; }
         }
-        this._measuredBounds = new Rect(0, 0, measuredW + pad.left + pad.right, measuredH + pad.top + pad.bottom);
     };
     Panel.prototype._arrangeGraduated = function (innerX, innerY, innerW, innerH) {
-        var e_33, _a;
+        var e_40, _a;
         var _b = this._findMainAndOthers(), main = _b.main, others = _b.others;
         if (main !== null) {
             var m = main.margin;
             main._arrange(new Rect(innerX + m.left, innerY + m.top, innerW - m.left - m.right, innerH - m.top - m.bottom));
         }
         try {
-            for (var others_6 = __values(others), others_6_1 = others_6.next(); !others_6_1.done; others_6_1 = others_6.next()) {
-                var elem = others_6_1.value;
+            for (var others_2 = __values(others), others_2_1 = others_2.next(); !others_2_1.done; others_2_1 = others_2.next()) {
+                var elem = others_2_1.value;
                 var mb = elem.measuredBounds;
                 var alignment = this._resolveAlignment(elem);
                 var pos = alignment.positionInRect(new Rect(innerX, innerY, innerW, innerH));
-                var focus_4 = this._resolveAlignmentFocus(elem);
-                var focusPos = focus_4.positionInRect(new Rect(0, 0, mb.width, mb.height));
+                var focus_1 = this._resolveAlignmentFocus(elem);
+                var focusPos = focus_1.positionInRect(new Rect(0, 0, mb.width, mb.height));
                 elem._arrange(new Rect(pos.x - focusPos.x, pos.y - focusPos.y, mb.width, mb.height));
             }
         }
-        catch (e_33_1) { e_33 = { error: e_33_1 }; }
+        catch (e_40_1) { e_40 = { error: e_40_1 }; }
         finally {
             try {
-                if (others_6_1 && !others_6_1.done && (_a = others_6.return)) _a.call(others_6);
+                if (others_2_1 && !others_2_1.done && (_a = others_2.return)) _a.call(others_2);
             }
-            finally { if (e_33) throw e_33.error; }
+            finally { if (e_40) throw e_40.error; }
         }
     };
     // ============ PanelLink measure/arrange ============
-    Panel.prototype._measureLink = function (widthConstraint, heightConstraint) {
-        var e_34, _a;
+    Panel.prototype._measureLink = function (availW, availH) {
+        var e_41, _a;
         try {
             for (var _b = __values(this._elements), _c = _b.next(); !_c.done; _c = _b.next()) {
                 var elem = _c.value;
@@ -9507,12 +11217,12 @@ var Panel = /** @class */ (function (_super) {
                 elem._measure(Infinity, Infinity);
             }
         }
-        catch (e_34_1) { e_34 = { error: e_34_1 }; }
+        catch (e_41_1) { e_41 = { error: e_41_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_34) throw e_34.error; }
+            finally { if (e_41) throw e_41.error; }
         }
         var link = this;
         var points = link.points;
@@ -9529,14 +11239,14 @@ var Panel = /** @class */ (function (_super) {
                 maxX = Math.max(maxX, p.x);
                 maxY = Math.max(maxY, p.y);
             }
-            this._measuredBounds = new Rect(0, 0, maxX - minX, maxY - minY);
+            this._unionRect.set(0, 0, maxX - minX, maxY - minY);
         }
         else {
-            this._measuredBounds = new Rect(0, 0, 1, 1);
+            this._unionRect.set(0, 0, 1, 1);
         }
     };
     Panel.prototype._arrangeLink = function (bounds) {
-        var e_35, _a, e_36, _b, e_37, _c, e_38, _d, e_39, _e;
+        var e_42, _a, e_43, _b, e_44, _c, e_45, _d, e_46, _e;
         var link = this;
         var points = link.points;
         if (!points || points.count < 2) {
@@ -9549,12 +11259,12 @@ var Panel = /** @class */ (function (_super) {
                     elem._arrange(new Rect(0, 0, mb.width, mb.height));
                 }
             }
-            catch (e_35_1) { e_35 = { error: e_35_1 }; }
+            catch (e_42_1) { e_42 = { error: e_42_1 }; }
             finally {
                 try {
                     if (_g && !_g.done && (_a = _f.return)) _a.call(_f);
                 }
-                finally { if (e_35) throw e_35.error; }
+                finally { if (e_42) throw e_42.error; }
             }
             return;
         }
@@ -9568,12 +11278,12 @@ var Panel = /** @class */ (function (_super) {
                 minY = Math.min(minY, p.y);
             }
         }
-        catch (e_36_1) { e_36 = { error: e_36_1 }; }
+        catch (e_43_1) { e_43 = { error: e_43_1 }; }
         finally {
             try {
                 if (pts_1_1 && !pts_1_1.done && (_b = pts_1.return)) _b.call(pts_1);
             }
-            finally { if (e_36) throw e_36.error; }
+            finally { if (e_43) throw e_43.error; }
         }
         var segLengths = [];
         var totalLength = 0;
@@ -9596,12 +11306,12 @@ var Panel = /** @class */ (function (_super) {
                 }
             }
         }
-        catch (e_37_1) { e_37 = { error: e_37_1 }; }
+        catch (e_44_1) { e_44 = { error: e_44_1 }; }
         finally {
             try {
                 if (_j && !_j.done && (_c = _h.return)) _c.call(_h);
             }
-            finally { if (e_37) throw e_37.error; }
+            finally { if (e_44) throw e_44.error; }
         }
         if (!foundPanelMain) {
             try {
@@ -9615,12 +11325,12 @@ var Panel = /** @class */ (function (_super) {
                     }
                 }
             }
-            catch (e_38_1) { e_38 = { error: e_38_1 }; }
+            catch (e_45_1) { e_45 = { error: e_45_1 }; }
             finally {
                 try {
                     if (_l && !_l.done && (_d = _k.return)) _d.call(_k);
                 }
-                finally { if (e_38) throw e_38.error; }
+                finally { if (e_45) throw e_45.error; }
             }
         }
         try {
@@ -9681,12 +11391,12 @@ var Panel = /** @class */ (function (_super) {
                 }
             }
         }
-        catch (e_39_1) { e_39 = { error: e_39_1 }; }
+        catch (e_46_1) { e_46 = { error: e_46_1 }; }
         finally {
             try {
                 if (_o && !_o.done && (_e = _m.return)) _e.call(_m);
             }
-            finally { if (e_39) throw e_39.error; }
+            finally { if (e_46) throw e_46.error; }
         }
     };
     Panel.prototype._getPointAtDistance = function (pts, segLengths, distance) {
@@ -9715,35 +11425,21 @@ var Panel = /** @class */ (function (_super) {
         return 0;
     };
     // ============ Internal helpers ============
+    /** 官方：alignment → defaultAlignment，仍默认则 Center */
     Panel.prototype._resolveAlignment = function (elem) {
         var a = elem.alignment;
-        if (!a.isDefault)
-            return a;
-        // Auto and Spot panels default to centering non-main elements
-        if (this._type === PanelAuto || this._type === PanelSpot) {
-            return new Spot(0.5, 0.5);
-        }
-        // Vertical and Horizontal panels default to Spot.Center (matching GoJS):
-        // an element narrower than the panel is centered along the panel's cross axis.
-        if (this._type === PanelVertical || this._type === PanelHorizontal) {
-            return new Spot(0.5, 0.5);
-        }
-        return this._defaultAlignment;
+        if (a.isDefault)
+            a = this._defaultAlignment;
+        if (a.isDefault || isNaN(a.x) || isNaN(a.y))
+            return Spot.Center;
+        return a;
     };
+    /** 官方：alignmentFocus 默认 → 回退为该元素的 alignment（focus 落在 alignment 同一边） */
     Panel.prototype._resolveAlignmentFocus = function (elem) {
         var af = elem.alignmentFocus;
-        if (!af.isDefault)
-            return af;
-        if (this._alignmentFocusName) {
-            var named = this.findObject(this._alignmentFocusName);
-            if (named)
-                return named.alignmentFocus;
-        }
-        // Auto and Spot panels default to centering the element's focus
-        if (this._type === PanelAuto || this._type === PanelSpot) {
-            return new Spot(0.5, 0.5);
-        }
-        return Spot.Default.copy();
+        if (af.isDefault)
+            return this._resolveAlignment(elem);
+        return af;
     };
     Panel.prototype._resolveStretchWidth = function (elem, available, measured) {
         var stretch = elem.stretch !== StretchDefault ? elem.stretch : this._defaultStretch;
@@ -9778,191 +11474,19 @@ var Panel = /** @class */ (function (_super) {
     };
     Panel.prototype._ensureColumnDefinition = function (index) {
         while (this._columnDefinitions.length <= index) {
-            this._columnDefinitions.push(new RowColumnDefinition());
+            var def = new RowColumnDefinition();
+            def.column = this._columnDefinitions.length;
+            def._setPanel(this);
+            this._columnDefinitions.push(def);
         }
     };
     Panel.prototype._ensureRowDefinition = function (index) {
         while (this._rowDefinitions.length <= index) {
-            this._rowDefinitions.push(new RowColumnDefinition());
+            var def = new RowColumnDefinition();
+            def.row = this._rowDefinitions.length;
+            def._setPanel(this);
+            this._rowDefinitions.push(def);
         }
-    };
-    Panel.prototype._computeColumnWidths = function (availW) {
-        var e_40, _a;
-        var colCount = Math.max(this.columnCount, this._columnDefinitions.length);
-        if (colCount === 0)
-            return [];
-        var widths = new Array(colCount).fill(0);
-        var defined = new Array(colCount).fill(false);
-        for (var i = 0; i < colCount; i++) {
-            var def = i < this._columnDefinitions.length ? this._columnDefinitions[i] : null;
-            if (def && !isNaN(def.width) && def.width > 0) {
-                widths[i] = def.width;
-                defined[i] = true;
-            }
-        }
-        try {
-            for (var _b = __values(this._elements), _c = _b.next(); !_c.done; _c = _b.next()) {
-                var elem = _c.value;
-                if (!elem.visible)
-                    continue;
-                var col = elem.column;
-                var colSpan = elem.columnSpan;
-                if (colSpan > 1)
-                    continue;
-                if (!defined[col]) {
-                    elem._measure(Infinity, Infinity);
-                    var mb = elem.measuredBounds;
-                    var m = elem.margin;
-                    var needed = mb.width + m.left + m.right;
-                    if (needed > widths[col]) {
-                        widths[col] = needed;
-                    }
-                }
-            }
-        }
-        catch (e_40_1) { e_40 = { error: e_40_1 }; }
-        finally {
-            try {
-                if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
-            }
-            finally { if (e_40) throw e_40.error; }
-        }
-        for (var i = 0; i < colCount; i++) {
-            var def = i < this._columnDefinitions.length ? this._columnDefinitions[i] : null;
-            if (def) {
-                widths[i] = Math.max(def.minimum, Math.min(def.maximum, widths[i]));
-            }
-        }
-        var totalDefined = 0;
-        var undefinedCount = 0;
-        for (var i = 0; i < colCount; i++) {
-            if (defined[i]) {
-                totalDefined += widths[i];
-            }
-            else {
-                undefinedCount++;
-            }
-        }
-        var remaining = Math.max(0, availW - totalDefined);
-        if (undefinedCount > 0 && remaining > 0) {
-            var autoCount = 0;
-            var propTotal = 0;
-            for (var i = 0; i < colCount; i++) {
-                if (defined[i])
-                    continue;
-                var def = i < this._columnDefinitions.length ? this._columnDefinitions[i] : null;
-                if (def && def.sizing === SizingProp) {
-                    propTotal += (widths[i] > 0 ? widths[i] : 1);
-                }
-                else {
-                    autoCount++;
-                }
-            }
-            var autoRemaining = Math.max(0, remaining - propTotal);
-            for (var i = 0; i < colCount; i++) {
-                if (defined[i])
-                    continue;
-                var def = i < this._columnDefinitions.length ? this._columnDefinitions[i] : null;
-                if (def && def.sizing === SizingProp) {
-                    var ratio = propTotal > 0 ? (widths[i] > 0 ? widths[i] : 1) / propTotal : 1 / colCount;
-                    widths[i] = remaining * ratio;
-                }
-                else if (def && def.sizing === SizingAuto) ;
-                else if (autoCount > 0) {
-                    widths[i] = Math.max(widths[i], autoRemaining / autoCount);
-                }
-            }
-        }
-        return widths;
-    };
-    Panel.prototype._computeRowHeights = function (availH) {
-        var e_41, _a;
-        var rowCount = Math.max(this.rowCount, this._rowDefinitions.length);
-        if (rowCount === 0)
-            return [];
-        var heights = new Array(rowCount).fill(0);
-        var defined = new Array(rowCount).fill(false);
-        for (var i = 0; i < rowCount; i++) {
-            var def = i < this._rowDefinitions.length ? this._rowDefinitions[i] : null;
-            if (def && !isNaN(def.height) && def.height > 0) {
-                heights[i] = def.height;
-                defined[i] = true;
-            }
-        }
-        try {
-            for (var _b = __values(this._elements), _c = _b.next(); !_c.done; _c = _b.next()) {
-                var elem = _c.value;
-                if (!elem.visible)
-                    continue;
-                var row = elem.row;
-                var rowSpan = elem.rowSpan;
-                if (rowSpan > 1)
-                    continue;
-                if (!defined[row]) {
-                    elem._measure(Infinity, Infinity);
-                    var mb = elem.measuredBounds;
-                    var m = elem.margin;
-                    var needed = mb.height + m.top + m.bottom;
-                    if (needed > heights[row]) {
-                        heights[row] = needed;
-                    }
-                }
-            }
-        }
-        catch (e_41_1) { e_41 = { error: e_41_1 }; }
-        finally {
-            try {
-                if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
-            }
-            finally { if (e_41) throw e_41.error; }
-        }
-        for (var i = 0; i < rowCount; i++) {
-            var def = i < this._rowDefinitions.length ? this._rowDefinitions[i] : null;
-            if (def) {
-                heights[i] = Math.max(def.minimum, Math.min(def.maximum, heights[i]));
-            }
-        }
-        var totalDefined = 0;
-        var undefinedCount = 0;
-        for (var i = 0; i < rowCount; i++) {
-            if (defined[i]) {
-                totalDefined += heights[i];
-            }
-            else {
-                undefinedCount++;
-            }
-        }
-        var remaining = Math.max(0, availH - totalDefined);
-        if (undefinedCount > 0 && remaining > 0) {
-            var autoCount = 0;
-            var propTotal = 0;
-            for (var i = 0; i < rowCount; i++) {
-                if (defined[i])
-                    continue;
-                var def = i < this._rowDefinitions.length ? this._rowDefinitions[i] : null;
-                if (def && def.sizing === SizingProp) {
-                    propTotal += (heights[i] > 0 ? heights[i] : 1);
-                }
-                else {
-                    autoCount++;
-                }
-            }
-            var autoRemaining = Math.max(0, remaining - propTotal);
-            for (var i = 0; i < rowCount; i++) {
-                if (defined[i])
-                    continue;
-                var def = i < this._rowDefinitions.length ? this._rowDefinitions[i] : null;
-                if (def && def.sizing === SizingProp) {
-                    var ratio = propTotal > 0 ? (heights[i] > 0 ? heights[i] : 1) / propTotal : 1 / rowCount;
-                    heights[i] = remaining * ratio;
-                }
-                else if (def && def.sizing === SizingAuto) ;
-                else if (autoCount > 0) {
-                    heights[i] = Math.max(heights[i], autoRemaining / autoCount);
-                }
-            }
-        }
-        return heights;
     };
     Panel.prototype._findItemTemplate = function (data) {
         if (!data)
@@ -10015,8 +11539,10 @@ GraphObject.defineBuilder('Panel', Panel);
  */
 var Part = /** @class */ (function (_super) {
     __extends(Part, _super);
-    function Part(type) {
-        var _this = _super.call(this, type) || this;
+    function Part(type, init) {
+        var _this = this;
+        var _a = __read(Panel._resolveArgs(type, init), 2), t = _a[0], i = _a[1];
+        _this = _super.call(this, t, undefined) || this;
         // ============ Private property storage ============
         _this._diagram = null;
         _this._location = new Point(NaN, NaN);
@@ -10044,9 +11570,24 @@ var Part = /** @class */ (function (_super) {
         _this._category = '';
         _this._itemIndex = -1;
         _this._containingGroup = null;
+        // ============ Properties ============
+        _this._syncGuard = false;
         _this._className = 'Part';
+        if (i) {
+            _this.set(i);
+        }
         return _this;
     }
+    /** 官方 Part.g()：部件级失效向 Diagram 冒泡（图片加载/文本变更 → 重排） */
+    Part.prototype._invalidateMeasure = function () {
+        _super.prototype._invalidateMeasure.call(this);
+        var d = this._diagram;
+        if (d) {
+            d._layoutInvalid = true;
+            if (typeof d.requestUpdate === 'function')
+                d.requestUpdate();
+        }
+    };
     Object.defineProperty(Part.prototype, "visible", {
         get: function () { return this._visible; },
         set: function (val) {
@@ -10067,17 +11608,70 @@ var Part = /** @class */ (function (_super) {
         enumerable: false,
         configurable: true
     });
+    /** 官方 WD：location 点相对 bounds TL 的偏移（locationObject = part 本身，naturalBounds + locationSpot） */
+    Part.prototype._locationOffset = function (out) {
+        var p = out || new Point();
+        // 官方 WD：Group 的 locationObject = placeholder（偏移 = placeholder 在 group 局部的链偏移 + spot）
+        var locObj = this;
+        if (this._className === 'Group') {
+            var ph = this.placeholder;
+            if (ph)
+                locObj = ph;
+        }
+        var sp = this._locationSpot;
+        var nb = locObj._naturalBounds;
+        var w = nb ? nb.width : 0;
+        var h = nb ? nb.height : 0;
+        if (!(w > 0))
+            w = locObj._measuredBounds ? locObj._measuredBounds.width : 0;
+        if (!(h > 0))
+            h = locObj._measuredBounds ? locObj._measuredBounds.height : 0;
+        if (!(w > 0))
+            w = 0;
+        if (!(h > 0))
+            h = 0;
+        var cx = 0;
+        var cy = 0;
+        if (locObj !== this) {
+            var chain = this.localOffsetTo(locObj);
+            if (chain) {
+                cx = chain.x;
+                cy = chain.y;
+            }
+        }
+        p.x = cx + sp.x * w + sp.offsetX - (this._measuredBounds ? this._measuredBounds.x : 0);
+        p.y = cy + sp.y * h + sp.offsetY - (this._measuredBounds ? this._measuredBounds.y : 0);
+        return p;
+    };
     Object.defineProperty(Part.prototype, "location", {
-        // ============ Properties ============
         get: function () { return this._location; },
         set: function (val) {
             var p = val && typeof val.copy === 'function' ? val.copy() : (val ? new Point(val.x || 0, val.y || 0) : new Point(NaN, NaN));
-            if (this._location.equals(p))
+            var old = this._location;
+            var differs = (old.x !== p.x && (!isNaN(old.x) || !isNaN(p.x))) || (old.y !== p.y && (!isNaN(old.y) || !isNaN(p.y)));
+            if (!differs)
                 return;
             this._location = p;
-            this.position = p;
-            this._actualBounds.x = p.x;
-            this._actualBounds.y = p.y;
+            if (!this._syncGuard) {
+                this._syncGuard = true;
+                // 官方 t4：position 为实值时平移；position 为 NaN 时留给 ensureBounds/bF
+                var pos = this._position;
+                if (!isNaN(pos.x) && !isNaN(pos.y)) {
+                    if (!isNaN(old.x) && !isNaN(old.y)) {
+                        var np = new Point(pos.x + (p.x - old.x), pos.y + (p.y - old.y));
+                        this._position = np;
+                        this._actualBounds.x = np.x;
+                        this._actualBounds.y = np.y;
+                    }
+                    else {
+                        var off = this._locationOffset();
+                        this._position = new Point(p.x - off.x, p.y - off.y);
+                        this._actualBounds.x = this._position.x;
+                        this._actualBounds.y = this._position.y;
+                    }
+                }
+                this._syncGuard = false;
+            }
             if (this._diagram && this._isLayoutPositioned) {
                 var layout = this._diagram.layout;
                 if (layout && layout.isOngoing) {
@@ -10091,6 +11685,86 @@ var Part = /** @class */ (function (_super) {
         enumerable: false,
         configurable: true
     });
+    Object.defineProperty(Part.prototype, "position", {
+        /** 官方 Part.position（GraphObject.position 的 Part 覆盖：与 location 按 locationSpot 同步） */
+        get: function () { return this._position; },
+        set: function (val) {
+            var p = val && typeof val.copy === 'function' ? val.copy() : (val ? new Point(val.x || 0, val.y || 0) : new Point(NaN, NaN));
+            var old = this._position;
+            var differs = (old.x !== p.x && (!isNaN(old.x) || !isNaN(p.x))) || (old.y !== p.y && (!isNaN(old.y) || !isNaN(p.y)));
+            if (!differs)
+                return;
+            this._position = p;
+            this._invalidateArrange();
+            if (!this._syncGuard) {
+                this._syncGuard = true;
+                // 官方 cN：仅当 position 与 location 均为实值时按 Δ 平移 location
+                // （position 为 NaN 时不动 location —— location 为权威来源，由 ensureBounds/sync 推导 position）
+                var pos = this._position;
+                var oldPosReal = !isNaN(old.x) && !isNaN(old.y);
+                if (oldPosReal && !isNaN(pos.x) && !isNaN(pos.y)) {
+                    this._location = new Point(this._location.x + (p.x - old.x), this._location.y + (p.y - old.y));
+                }
+                this._syncGuard = false;
+            }
+            this._actualBounds.x = p.x;
+            this._actualBounds.y = p.y;
+        },
+        enumerable: false,
+        configurable: true
+    });
+    /**
+     * 官方 bF（location 驱动）：arrange 后 locationSpot 偏移变化时，用 location 重新推导 position。
+     */
+    Part.prototype.syncPositionFromLocation = function () {
+        var loc = this._location;
+        if (isNaN(loc.x) || isNaN(loc.y))
+            return;
+        var off = this._locationOffset();
+        var p = new Point(loc.x - off.x, loc.y - off.y);
+        this._position = p;
+        this._actualBounds.x = p.x;
+        this._actualBounds.y = p.y;
+    };
+    /**
+     * 从 this 到后代 target 的面板局部偏移累加（基于 actualBounds 局部坐标链）。
+     */
+    Part.prototype.localOffsetTo = function (target) {
+        var contains = function (o) {
+            return o === target || (o._elements ? o._elements.some(function (c) { return contains(c); }) : false);
+        };
+        var acc = function (obj, px, py) {
+            var e_1, _a;
+            var els = obj._elements;
+            if (!els)
+                return null;
+            try {
+                for (var els_1 = __values(els), els_1_1 = els_1.next(); !els_1_1.done; els_1_1 = els_1.next()) {
+                    var ch = els_1_1.value;
+                    var ab = ch._actualBounds;
+                    var nx = px + (ab && !isNaN(ab.x) ? ab.x : 0);
+                    var ny = py + (ab && !isNaN(ab.y) ? ab.y : 0);
+                    if (ch === target)
+                        return { x: nx, y: ny };
+                    if (contains(ch)) {
+                        var r_1 = acc(ch, nx, ny);
+                        if (r_1)
+                            return r_1;
+                    }
+                }
+            }
+            catch (e_1_1) { e_1 = { error: e_1_1 }; }
+            finally {
+                try {
+                    if (els_1_1 && !els_1_1.done && (_a = els_1.return)) _a.call(els_1);
+                }
+                finally { if (e_1) throw e_1.error; }
+            }
+            return null;
+        };
+        var r = acc(this, 0, 0);
+        return r ? new Point(r.x, r.y) : null;
+    };
     Object.defineProperty(Part.prototype, "locationSpot", {
         get: function () { return this._locationSpot; },
         set: function (val) {
@@ -10282,6 +11956,14 @@ var Part = /** @class */ (function (_super) {
         enumerable: false,
         configurable: true
     });
+    /** 官方 Part.canLayout */
+    Part.prototype.canLayout = function () {
+        if (!this._isLayoutPositioned || !this._visible)
+            return false;
+        if (this.isLinkLabel)
+            return false;
+        return true;
+    };
     Object.defineProperty(Part.prototype, "isVirtual", {
         get: function () { return false; },
         enumerable: false,
@@ -10320,25 +12002,45 @@ var Part = /** @class */ (function (_super) {
     Part.prototype.findObject = function (name) {
         return typeof _super.prototype.findObject === 'function' ? _super.prototype.findObject.call(this, name) : null;
     };
-    /** Find the main element of this Part */
-    Part.prototype.findMainElement = function () {
-        // Stub - depends on Panel implementation
-        return null;
-    };
-    /** Ensure the bounds of this Part are computed */
+    /** Ensure the bounds of this Part are computed (official: measure + updateBounds + sync position/location) */
     Part.prototype.ensureBounds = function () {
-        // Stub - depends on layout/measurement system
+        if (typeof this._measure === 'function')
+            this._measure(Infinity, Infinity);
+        var mb = this._measuredBounds;
+        if (mb && Number.isFinite(mb.width) && Number.isFinite(mb.height) && mb.width > 0 && mb.height > 0) {
+            this._actualBounds.width = mb.width;
+            this._actualBounds.height = mb.height;
+        }
+        var pos = this._position;
+        var loc = this._location;
+        var posReal = !isNaN(pos.x) && !isNaN(pos.y);
+        var locReal = !isNaN(loc.x) && !isNaN(loc.y);
+        if (!locReal && posReal) {
+            var off = this._locationOffset();
+            this._location = new Point(pos.x + off.x, pos.y + off.y);
+        }
+        else if (locReal && !posReal) {
+            this.position = loc; // setter derives position from location offset
+        }
+        this._actualBounds.x = this._position.x;
+        this._actualBounds.y = this._position.y;
     };
     /** Get the bounding rectangle in document coordinates */
     Part.prototype.getDocumentBounds = function () {
         return this._actualBounds.copy();
     };
-    /** Move this Part to a new location */
-    Part.prototype.move = function (newLoc) {
-        this._location = newLoc.copy();
-        this.position = newLoc.copy();
-        this._actualBounds.x = newLoc.x;
-        this._actualBounds.y = newLoc.y;
+    /** 官方 Part.move(newLoc, isLocation?)：isLocation=true 移动 location，否则移动 position */
+    Part.prototype.move = function (newLoc, isLocation) {
+        if (isLocation === true) {
+            this.location = newLoc;
+        }
+        else {
+            this.position = newLoc;
+        }
+    };
+    /** 官方 Part.moveTo(x, y, isLocation?) */
+    Part.prototype.moveTo = function (x, y, isLocation) {
+        this.move(new Point(x, y), isLocation);
     };
     /** Add an adornment for the given category */
     Part.prototype.addAdornment = function (category, ad) {
@@ -10419,7 +12121,10 @@ var Part = /** @class */ (function (_super) {
     };
     /** Update target bindings for a given property, or all if no property name given */
     Part.prototype.updateTargetBindings = function (propname) {
-        // Stub - depends on Binding/Diagram system
+        var d = this._diagram;
+        if (d && typeof d._updateBindingsForPart === 'function') {
+            d._updateBindingsForPart(this, propname);
+        }
     };
     return Part;
 }(Panel));
@@ -10431,7 +12136,9 @@ GraphObject.defineBuilder('Part', Part);
 var Link = /** @class */ (function (_super) {
     __extends(Link, _super);
     function Link(type, init) {
-        var _this = _super.call(this, type || PanelLink) || this;
+        var _this = this;
+        var _a = __read(Panel._resolveArgs(type, init), 2), t = _a[0], i = _a[1];
+        _this = _super.call(this, t !== undefined && t !== null ? t : PanelLink, undefined) || this;
         // ============ Private property storage ============
         _this._fromNode = null;
         _this._toNode = null;
@@ -10451,8 +12158,8 @@ var Link = /** @class */ (function (_super) {
         _this._jumpOver = 8;
         _this._jumpGap = 8;
         _this._className = 'Link';
-        if (init) {
-            _this.set(init);
+        if (i) {
+            _this.set(i);
         }
         return _this;
     }
@@ -10936,31 +12643,20 @@ GraphObject.defineBuilder('Link', Link);
 var Node = /** @class */ (function (_super) {
     __extends(Node, _super);
     function Node(type, init) {
-        var _this = _super.call(this, typeof type === 'string' ? Node._resolvePanelType(type) : type) || this;
+        var _this = this;
+        var _a = __read(Panel._resolveArgs(type, init), 2), t = _a[0], i = _a[1];
+        _this = _super.call(this, t, undefined) || this;
         // ============ Private property storage ============
         _this._isTreeExpanded = true;
         _this._wasTreeExpanded = true;
         _this._isSubGraphExpanded = true;
         _this._treeExpandedDirection = TreeStyleLayered;
         _this._className = 'Node';
-        if (init) {
-            _this.set(init);
+        if (i) {
+            _this.set(i);
         }
         return _this;
     }
-    Node._resolvePanelType = function (type) {
-        var map = {
-            'Auto': PanelAuto,
-            'Vertical': PanelVertical,
-            'Horizontal': PanelHorizontal,
-            'Spot': PanelSpot,
-            'Table': PanelTable,
-            'Position': PanelPosition,
-            'Grid': PanelGrid,
-            'Link': PanelLink,
-        };
-        return map[type] || PanelAuto;
-    };
     Object.defineProperty(Node.prototype, "isTreeExpanded", {
         // ============ Properties ============
         get: function () { return this._isTreeExpanded; },
@@ -11113,7 +12809,7 @@ var Node = /** @class */ (function (_super) {
     Node.prototype.findNodesConnected = function () {
         var e_4, _a;
         var result = new List();
-        var seen = new Set();
+        var seen = new Set$1();
         var diagram = this._diagram;
         if (!diagram)
             return result;
@@ -11149,7 +12845,7 @@ var Node = /** @class */ (function (_super) {
     Node.prototype.findNodesInto = function () {
         var e_5, _a;
         var result = new List();
-        var seen = new Set();
+        var seen = new Set$1();
         var diagram = this._diagram;
         if (!diagram)
             return result;
@@ -11181,7 +12877,7 @@ var Node = /** @class */ (function (_super) {
     Node.prototype.findNodesOutOf = function () {
         var e_6, _a;
         var result = new List();
-        var seen = new Set();
+        var seen = new Set$1();
         var diagram = this._diagram;
         if (!diagram)
             return result;
@@ -11314,7 +13010,7 @@ var Node = /** @class */ (function (_super) {
         }
         if (model instanceof GraphLinksModel) {
             var linksOutOf = this.findLinksOutOf();
-            var seen = new Set();
+            var seen = new Set$1();
             var it = linksOutOf.iterator;
             while (it.next()) {
                 var link = it.value;
@@ -11352,7 +13048,7 @@ var Node = /** @class */ (function (_super) {
         return computeLevel(this);
     };
     Node.prototype.findCommonParent = function (node) {
-        var ancestors = new Set();
+        var ancestors = new Set$1();
         var current = this;
         while (current) {
             ancestors.add(current);
@@ -11384,17 +13080,939 @@ var Node = /** @class */ (function (_super) {
 }(Part));
 GraphObject.defineBuilder('Node', Node);
 
+/**
+ * LayoutVertex - represents a node in the layout network.
+ */
+var LayoutVertex = /** @class */ (function () {
+    function LayoutVertex() {
+        /** The network this vertex belongs to */
+        this.network = null;
+        /** X position of the vertex center */
+        this.x = 0;
+        /** Y position of the vertex center */
+        this.y = 0;
+        /** Bounding rectangle of the vertex */
+        this.bounds = new Rect(0, 0, 0, 0);
+        /** Focus X offset (0-1 relative to width) for connection points */
+        this.focusX = 0.5;
+        /** Focus Y offset (0-1 relative to height) for connection points */
+        this.focusY = 0.5;
+        /** The Part associated with this vertex, if any */
+        this.part = null;
+        /** Edges where this vertex is the source */
+        this.sourceEdges = new List();
+        /** Edges where this vertex is the destination */
+        this.destinationEdges = new List();
+        /** The Node associated with this vertex, if any */
+        this.node = null;
+        /** Whether this vertex is artificial (not associated with a real part) */
+        this._isArtificial = false;
+        /** Internal index for algorithms */
+        this._index = -1;
+    }
+    Object.defineProperty(LayoutVertex.prototype, "width", {
+        /** Width of the vertex */
+        get: function () {
+            return this.bounds.width;
+        },
+        set: function (val) {
+            this.bounds.width = val;
+        },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(LayoutVertex.prototype, "height", {
+        /** Height of the vertex */
+        get: function () {
+            return this.bounds.height;
+        },
+        set: function (val) {
+            this.bounds.height = val;
+        },
+        enumerable: false,
+        configurable: true
+    });
+    /** Add an edge where this vertex is the destination */
+    LayoutVertex.prototype.addDestinationEdge = function (edge) {
+        this.destinationEdges.add(edge);
+    };
+    /** Add an edge where this vertex is the source */
+    LayoutVertex.prototype.addSourceEdge = function (edge) {
+        this.sourceEdges.add(edge);
+    };
+    /** Delete an edge from both source and destination lists */
+    LayoutVertex.prototype.deleteEdge = function (edge) {
+        this.sourceEdges.remove(edge);
+        this.destinationEdges.remove(edge);
+    };
+    Object.defineProperty(LayoutVertex.prototype, "center", {
+        /** Get the center point of this vertex */
+        get: function () {
+            return {
+                x: this.x + this.width * this.focusX,
+                y: this.y + this.height * this.focusY
+            };
+        },
+        enumerable: false,
+        configurable: true
+    });
+    /** 像素 focus：TreeVertex.focus(Point) 优先，其次 focusX/Y 分数 × 尺寸 */
+    LayoutVertex.prototype._focusPx = function () {
+        var f = this.focus;
+        if (f && typeof f.x === 'number' && typeof f.y === 'number')
+            return { x: f.x, y: f.y };
+        return { x: this.focusX * this.bounds.width, y: this.focusY * this.bounds.height };
+    };
+    Object.defineProperty(LayoutVertex.prototype, "centerX", {
+        /** 官方 LayoutVertex.centerX = bounds.x + focus.x */
+        get: function () {
+            return this.bounds.x + this._focusPx().x;
+        },
+        set: function (val) {
+            var dx = val - this.centerX;
+            this.bounds.x += dx;
+            this.x += dx;
+        },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(LayoutVertex.prototype, "centerY", {
+        /** 官方 LayoutVertex.centerY = bounds.y + focus.y */
+        get: function () {
+            return this.bounds.y + this._focusPx().y;
+        },
+        set: function (val) {
+            var dy = val - this.centerY;
+            this.bounds.y += dy;
+            this.y += dy;
+        },
+        enumerable: false,
+        configurable: true
+    });
+    LayoutVertex.smartComparer = function (a, b) {
+        var na = a.data ? String(a.data.key) : '';
+        var nb = b.data ? String(b.data.key) : '';
+        var naNum = parseFloat(na);
+        var nbNum = parseFloat(nb);
+        if (!isNaN(naNum) && !isNaN(nbNum))
+            return naNum - nbNum;
+        return na < nb ? -1 : na > nb ? 1 : 0;
+    };
+    return LayoutVertex;
+}());
+
+/**
+ * LayoutEdge - represents a link in the layout network.
+ */
+var LayoutEdge = /** @class */ (function () {
+    function LayoutEdge() {
+        /** The network this edge belongs to */
+        this.network = null;
+        /** The source vertex of this edge */
+        this.fromVertex = null;
+        /** The destination vertex of this edge */
+        this.toVertex = null;
+        /** The Link associated with this edge, if any */
+        this.link = null;
+        /** The preferred length of this edge */
+        this.length = NaN;
+        /** The weight of this edge for layout calculations */
+        this.weight = 1;
+    }
+    /** Get the other vertex given one vertex of this edge */
+    LayoutEdge.prototype.getOtherVertex = function (vertex) {
+        if (vertex === this.fromVertex)
+            return this.toVertex;
+        if (vertex === this.toVertex)
+            return this.fromVertex;
+        return null;
+    };
+    return LayoutEdge;
+}());
+
+/**
+ * LayoutNetwork - the graph structure used by layouts.
+ * Contains vertexes (nodes) and edges (links) for layout computation.
+ */
+var LayoutNetwork = /** @class */ (function () {
+    function LayoutNetwork() {
+        /** The layout that owns this network */
+        this.layout = null;
+        /** All vertexes in this network */
+        this.vertexes = new List();
+        /** All edges in this network */
+        this.edges = new List();
+        /** Map from Link to LayoutEdge */
+        this.linkToLayoutEdge = new Map$1();
+        /** Map from Node to LayoutVertex */
+        this.nodeToLayoutVertex = new Map$1();
+    }
+    /** Create a new vertex (subclasses override to return specialized vertexes) */
+    LayoutNetwork.prototype.createVertex = function () {
+        return new LayoutVertex();
+    };
+    /** Create a new edge (subclasses override to return specialized edges) */
+    LayoutNetwork.prototype.createEdge = function () {
+        return new LayoutEdge();
+    };
+    /** Add a vertex to this network */
+    LayoutNetwork.prototype.addVertex = function (vertex) {
+        vertex.network = this;
+        this.vertexes.add(vertex);
+        return vertex;
+    };
+    /** Add an edge to this network (官方：toVertex.addSourceEdge, fromVertex.addDestinationEdge) */
+    LayoutNetwork.prototype.addEdge = function (edge) {
+        edge.network = this;
+        this.edges.add(edge);
+        if (edge.toVertex) {
+            edge.toVertex.addSourceEdge(edge);
+        }
+        if (edge.fromVertex) {
+            edge.fromVertex.addDestinationEdge(edge);
+        }
+        return edge;
+    };
+    /** Add a link to the network, creating an edge between the from/to vertexes */
+    LayoutNetwork.prototype.addLink = function (link) {
+        var fromNode = link.fromNode;
+        var toNode = link.toNode;
+        if (!fromNode || !toNode)
+            return null;
+        var fromVertex = this.findVertex(fromNode);
+        if (!fromVertex) {
+            fromVertex = this.addNode(fromNode);
+        }
+        var toVertex = this.findVertex(toNode);
+        if (!toVertex) {
+            toVertex = this.addNode(toNode);
+        }
+        var edge = this.linkVertexes(fromVertex, toVertex);
+        edge.link = link;
+        this.linkToLayoutEdge.set(link, edge);
+        return edge;
+    };
+    /** Add a node to the network, creating a vertex */
+    LayoutNetwork.prototype.addNode = function (node) {
+        var vertex = this.findVertex(node);
+        if (vertex)
+            return vertex;
+        vertex = this.createVertex();
+        vertex.network = this;
+        vertex.node = node;
+        vertex.part = node;
+        // Get bounds from the node
+        var bounds = node.getDocumentBounds();
+        vertex.bounds = bounds.copy();
+        vertex.x = bounds.x;
+        vertex.y = bounds.y;
+        this.vertexes.add(vertex);
+        this.nodeToLayoutVertex.set(node, vertex);
+        return vertex;
+    };
+    /** Delete all artificial vertexes from the network */
+    LayoutNetwork.prototype.deleteArtificialVertexes = function () {
+        var e_1, _a, e_2, _b;
+        var toRemove = [];
+        var it = this.vertexes.iterator;
+        while (it.next()) {
+            var v = it.value;
+            if (v._isArtificial) {
+                toRemove.push(v);
+            }
+        }
+        try {
+            for (var toRemove_1 = __values(toRemove), toRemove_1_1 = toRemove_1.next(); !toRemove_1_1.done; toRemove_1_1 = toRemove_1.next()) {
+                var v = toRemove_1_1.value;
+                // Remove all edges connected to this vertex
+                var edgesToRemove = [];
+                var srcIt = v.sourceEdges.iterator;
+                while (srcIt.next()) {
+                    edgesToRemove.push(srcIt.value);
+                }
+                var dstIt = v.destinationEdges.iterator;
+                while (dstIt.next()) {
+                    edgesToRemove.push(dstIt.value);
+                }
+                try {
+                    for (var edgesToRemove_1 = (e_2 = void 0, __values(edgesToRemove)), edgesToRemove_1_1 = edgesToRemove_1.next(); !edgesToRemove_1_1.done; edgesToRemove_1_1 = edgesToRemove_1.next()) {
+                        var e = edgesToRemove_1_1.value;
+                        this.deleteEdge(e);
+                    }
+                }
+                catch (e_2_1) { e_2 = { error: e_2_1 }; }
+                finally {
+                    try {
+                        if (edgesToRemove_1_1 && !edgesToRemove_1_1.done && (_b = edgesToRemove_1.return)) _b.call(edgesToRemove_1);
+                    }
+                    finally { if (e_2) throw e_2.error; }
+                }
+                this.vertexes.remove(v);
+            }
+        }
+        catch (e_1_1) { e_1 = { error: e_1_1 }; }
+        finally {
+            try {
+                if (toRemove_1_1 && !toRemove_1_1.done && (_a = toRemove_1.return)) _a.call(toRemove_1);
+            }
+            finally { if (e_1) throw e_1.error; }
+        }
+    };
+    /** Delete self-loop edges (where fromVertex === toVertex) */
+    LayoutNetwork.prototype.deleteSelfEdges = function () {
+        var e_3, _a;
+        var toRemove = [];
+        var it = this.edges.iterator;
+        while (it.next()) {
+            var e = it.value;
+            if (e.fromVertex === e.toVertex) {
+                toRemove.push(e);
+            }
+        }
+        try {
+            for (var toRemove_2 = __values(toRemove), toRemove_2_1 = toRemove_2.next(); !toRemove_2_1.done; toRemove_2_1 = toRemove_2.next()) {
+                var e = toRemove_2_1.value;
+                this.deleteEdge(e);
+            }
+        }
+        catch (e_3_1) { e_3 = { error: e_3_1 }; }
+        finally {
+            try {
+                if (toRemove_2_1 && !toRemove_2_1.done && (_a = toRemove_2.return)) _a.call(toRemove_2);
+            }
+            finally { if (e_3) throw e_3.error; }
+        }
+    };
+    /** Find the vertex associated with a node */
+    LayoutNetwork.prototype.findVertex = function (node) {
+        return this.nodeToLayoutVertex.get(node) || null;
+    };
+    /** Find the edge associated with a link */
+    LayoutNetwork.prototype.findEdge = function (link) {
+        return this.linkToLayoutEdge.get(link) || null;
+    };
+    /** Create an edge connecting two vertexes */
+    LayoutNetwork.prototype.linkVertexes = function (fromVertex, toVertex) {
+        var edge = this.createEdge();
+        edge.network = this;
+        edge.fromVertex = fromVertex;
+        edge.toVertex = toVertex;
+        toVertex.addSourceEdge(edge);
+        fromVertex.addDestinationEdge(edge);
+        this.edges.add(edge);
+        return edge;
+    };
+    /** Delete an edge from the network */
+    LayoutNetwork.prototype.deleteEdge = function (edge) {
+        if (edge.toVertex) {
+            edge.toVertex.sourceEdges.remove(edge);
+        }
+        if (edge.fromVertex) {
+            edge.fromVertex.destinationEdges.remove(edge);
+        }
+        this.edges.remove(edge);
+        if (edge.link) {
+            this.linkToLayoutEdge.remove(edge.link);
+        }
+    };
+    /** Split this network into sub-networks of connected components */
+    LayoutNetwork.prototype.splitIntoSubNetworks = function () {
+        var result = new List();
+        if (this.vertexes.count === 0)
+            return result;
+        var visited = new Set$1();
+        var it = this.vertexes.iterator;
+        while (it.next()) {
+            var startVertex = it.value;
+            if (visited.has(startVertex))
+                continue;
+            // BFS to find all connected vertexes
+            var component = new LayoutNetwork();
+            component.layout = this.layout;
+            var queue = [startVertex];
+            visited.add(startVertex);
+            while (queue.length > 0) {
+                var v = queue.shift();
+                component.addVertex(v);
+                // Traverse source edges
+                var srcIt = v.sourceEdges.iterator;
+                while (srcIt.next()) {
+                    var e = srcIt.value;
+                    if (e.toVertex && !visited.has(e.toVertex)) {
+                        visited.add(e.toVertex);
+                        queue.push(e.toVertex);
+                    }
+                    component.addEdge(e);
+                }
+                // Traverse destination edges
+                var dstIt = v.destinationEdges.iterator;
+                while (dstIt.next()) {
+                    var e = dstIt.value;
+                    if (e.fromVertex && !visited.has(e.fromVertex)) {
+                        visited.add(e.fromVertex);
+                        queue.push(e.fromVertex);
+                    }
+                    if (!component.edges.contains(e)) {
+                        component.addEdge(e);
+                    }
+                }
+            }
+            result.add(component);
+        }
+        return result;
+    };
+    return LayoutNetwork;
+}());
+
+/**
+ * Layout - base class for all layout algorithms.
+ * Subclasses must override doLayout() to implement specific layout algorithms.
+ */
+var Layout = /** @class */ (function () {
+    function Layout() {
+        // ============ Protected property storage ============
+        this._arrangementOrigin = new Point(0, 0);
+        this._isInitial = true;
+        this._isOngoing = true;
+        this._isRealtime = true;
+        this._isRouting = true;
+        this._isValidLayout = true;
+        this._isViewportSized = false;
+        this._boundsComputation = null;
+        this._network = null;
+        this._diagram = null;
+        this._group = null;
+    }
+    Object.defineProperty(Layout.prototype, "arrangementOrigin", {
+        // ============ Properties ============
+        get: function () { return this._arrangementOrigin; },
+        set: function (val) { this._arrangementOrigin = val.copy(); this.invalidateLayout(); },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(Layout.prototype, "isInitial", {
+        get: function () { return this._isInitial; },
+        set: function (val) { this._isInitial = val; },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(Layout.prototype, "isOngoing", {
+        get: function () { return this._isOngoing; },
+        set: function (val) { this._isOngoing = val; },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(Layout.prototype, "isRealtime", {
+        get: function () { return this._isRealtime; },
+        set: function (val) { this._isRealtime = val; },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(Layout.prototype, "isRouting", {
+        get: function () { return this._isRouting; },
+        set: function (val) { this._isRouting = val; },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(Layout.prototype, "isValidLayout", {
+        get: function () { return this._isValidLayout; },
+        set: function (val) { this._isValidLayout = val; },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(Layout.prototype, "isViewportSized", {
+        get: function () { return this._isViewportSized; },
+        set: function (val) { this._isViewportSized = val; },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(Layout.prototype, "boundsComputation", {
+        get: function () {
+            return this._boundsComputation;
+        },
+        set: function (val) {
+            this._boundsComputation = val;
+        },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(Layout.prototype, "network", {
+        get: function () { return this._network; },
+        set: function (val) { this._network = val; },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(Layout.prototype, "diagram", {
+        get: function () { return this._diagram; },
+        set: function (val) { this._diagram = val; },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(Layout.prototype, "group", {
+        get: function () { return this._group; },
+        set: function (val) { this._group = val; },
+        enumerable: false,
+        configurable: true
+    });
+    // ============ Methods ============
+    /**
+     * Perform the layout on the given collection of parts.
+     * 官方 base Layout.doLayout：收集未定位的顶层部件（doMinimalNoNetworkLayout 的 Ga 谓词），
+     * 按 ceil(sqrt(n)) 列的极简网格摆放（仅对 location/position 均为 NaN 的部件）。
+     * @param coll - A Diagram, Group, Iterable<Part>, or array of Parts
+     */
+    Layout.prototype.doLayout = function (coll) {
+        var parts = this.collectMinimalParts(coll);
+        if (parts.length > 0) {
+            this.doMinimalNoNetworkLayout(parts);
+        }
+        this.isValidLayout = true;
+    };
+    /**
+     * 官方 Layout.Zh（base 版收集，谓词 = Ga(t)）：
+     * - Diagram：nodes(topLevelOnly) + parts(topLevelOnly) 两趟
+     * - Group：memberParts(topLevelOnly=false)
+     * - 其他可迭代集合：addAll，不带谓词
+     * 谓词 Ga(t) = (!location实值 && !position实值) || (Group && t.Ga)
+     * Node 分支：Group.layout===null 时递归 memberParts；其余 ensureBounds 后加入。
+     */
+    Layout.prototype.collectMinimalParts = function (coll) {
+        var e_1, _a;
+        var out = [];
+        var seen = new Set$1();
+        if (!coll)
+            return out;
+        var ga = function (h) {
+            var loc = h.location;
+            var pos = h.position;
+            var locReal = loc && !isNaN(loc.x) && !isNaN(loc.y);
+            var posReal = pos && !isNaN(pos.x) && !isNaN(pos.y);
+            return (!locReal && !posReal) || (h._className === 'Group' && h.Ga === true);
+        };
+        var add = function (h) {
+            if (seen.has(h))
+                return;
+            seen.add(h);
+            out.push(h);
+        };
+        var zh = function (it, topLevelOnly) {
+            if (!it)
+                return;
+            while (it.next && it.next()) {
+                var h = it.value;
+                if (topLevelOnly && !h.isTopLevel)
+                    continue;
+                if (!ga(h))
+                    continue;
+                if (typeof h.canLayout === 'function' ? !h.canLayout() : (h.isLayoutPositioned === false || h.visible === false))
+                    continue;
+                if (h instanceof Node) {
+                    if (h.isLinkLabel)
+                        continue;
+                    if (h._className === 'Group' && h.layout === null) {
+                        zh(h.memberParts.iterator, false);
+                    }
+                    else {
+                        h.ensureBounds();
+                        add(h);
+                    }
+                }
+                else if (!(h instanceof Link)) {
+                    h.ensureBounds();
+                    add(h);
+                }
+            }
+        };
+        if (coll._layers !== undefined || (typeof coll.nodes !== 'undefined' && typeof coll.links !== 'undefined')) {
+            // Diagram：nodes + parts 两趟（均为 topLevelOnly）
+            zh(coll.nodes, true);
+            if (coll.parts)
+                zh(coll.parts, true);
+        }
+        else if (coll.memberParts !== undefined) {
+            // Group
+            zh(coll.memberParts.iterator, false);
+        }
+        else if (Array.isArray(coll)) {
+            try {
+                for (var coll_1 = __values(coll), coll_1_1 = coll_1.next(); !coll_1_1.done; coll_1_1 = coll_1.next()) {
+                    var p = coll_1_1.value;
+                    add(p);
+                }
+            }
+            catch (e_1_1) { e_1 = { error: e_1_1 }; }
+            finally {
+                try {
+                    if (coll_1_1 && !coll_1_1.done && (_a = coll_1.return)) _a.call(coll_1);
+                }
+                finally { if (e_1) throw e_1.error; }
+            }
+        }
+        else if (coll.iterator) {
+            var it2 = coll.iterator;
+            while (it2.next())
+                add(it2.value);
+        }
+        else if (typeof coll.next === 'function') {
+            zh(coll, false);
+        }
+        return out;
+    };
+    /**
+     * 官方 Layout.doMinimalNoNetworkLayout：
+     * arrangementOrigin = initialOrigin(arrangementOrigin)（原地变更），
+     * cols = ceil(sqrt(n))，步长 max(w,50)+20，行高 max(max(h,50))，moveTo 后 Group.Ga=false。
+     */
+    Layout.prototype.doMinimalNoNetworkLayout = function (parts) {
+        var e_2, _a;
+        var count = parts.length;
+        if (count === 0)
+            return;
+        var cols = Math.max(1, Math.ceil(Math.sqrt(count)));
+        this._arrangementOrigin = this.initialOrigin(this._arrangementOrigin);
+        var sx = this._arrangementOrigin.x;
+        var sy = this._arrangementOrigin.y;
+        var x = sx;
+        var y = sy;
+        var col = 0;
+        var rowH = 0;
+        try {
+            for (var parts_1 = __values(parts), parts_1_1 = parts_1.next(); !parts_1_1.done; parts_1_1 = parts_1.next()) {
+                var c = parts_1_1.value;
+                c.ensureBounds();
+                var f = c.measuredBounds;
+                var w = f ? f.width : 0;
+                var h = f ? f.height : 0;
+                c.moveTo(x, y);
+                if (c._className === 'Group') {
+                    c.Ga = false;
+                }
+                x += Math.max(w, 50) + 20;
+                rowH = Math.max(rowH, Math.max(h, 50));
+                if (col >= cols - 1) {
+                    col = 0;
+                    x = sx;
+                    y += rowH + 20;
+                    rowH = 0;
+                }
+                else {
+                    col++;
+                }
+            }
+        }
+        catch (e_2_1) { e_2 = { error: e_2_1 }; }
+        finally {
+            try {
+                if (parts_1_1 && !parts_1_1.done && (_a = parts_1.return)) _a.call(parts_1);
+            }
+            finally { if (e_2) throw e_2.error; }
+        }
+    };
+    /**
+     * Collect all Parts that should be laid out from the given collection.
+     * @param coll - A Diagram, Iterable<Part>, or array of Parts
+     */
+    Layout.prototype.collectParts = function (coll) {
+        var e_3, _a, e_4, _b;
+        var parts = new List();
+        if (!coll)
+            return parts;
+        // If it's a Diagram, collect all nodes and links
+        if (coll._layers) {
+            var diagram = coll;
+            try {
+                for (var _c = __values(diagram._layers), _d = _c.next(); !_d.done; _d = _c.next()) {
+                    var layer = _d.value;
+                    if (layer.isTemporary)
+                        continue;
+                    var partsIt = layer.parts;
+                    while (partsIt.next()) {
+                        var part = partsIt.value;
+                        if (part.isLayoutPositioned && part.visible) {
+                            parts.add(part);
+                        }
+                    }
+                }
+            }
+            catch (e_3_1) { e_3 = { error: e_3_1 }; }
+            finally {
+                try {
+                    if (_d && !_d.done && (_a = _c.return)) _a.call(_c);
+                }
+                finally { if (e_3) throw e_3.error; }
+            }
+            this._diagram = diagram;
+            return parts;
+        }
+        // If it has an iterator (Iterable<Part>)
+        if (typeof coll.iterator === 'function' || (coll.iterator && typeof coll.iterator.next === 'function')) {
+            var it = coll.iterator;
+            while (it.next()) {
+                var part = it.value;
+                if (part instanceof Part && part.isLayoutPositioned && part.visible) {
+                    parts.add(part);
+                }
+            }
+            return parts;
+        }
+        // If it's an array
+        if (Array.isArray(coll)) {
+            try {
+                for (var coll_2 = __values(coll), coll_2_1 = coll_2.next(); !coll_2_1.done; coll_2_1 = coll_2.next()) {
+                    var part = coll_2_1.value;
+                    if (part instanceof Part && part.isLayoutPositioned && part.visible) {
+                        parts.add(part);
+                    }
+                }
+            }
+            catch (e_4_1) { e_4 = { error: e_4_1 }; }
+            finally {
+                try {
+                    if (coll_2_1 && !coll_2_1.done && (_b = coll_2.return)) _b.call(coll_2);
+                }
+                finally { if (e_4) throw e_4.error; }
+            }
+            return parts;
+        }
+        return parts;
+    };
+    /**
+     * Commit the layout by moving parts to their computed positions.
+     * Called after the layout algorithm has computed positions.
+     */
+    Layout.prototype.commitLayout = function () {
+        if (!this._network)
+            return;
+        var it = this._network.vertexes.iterator;
+        while (it.next()) {
+            var vertex = it.value;
+            if (vertex.node && !vertex._isArtificial) {
+                var node = vertex.node;
+                node.move(new Point(vertex.x, vertex.y));
+            }
+        }
+        var eit = this._network.edges.iterator;
+        while (eit.next()) {
+            var edge = eit.value;
+            if (edge.link) {
+                edge.link.computePoints();
+            }
+        }
+    };
+    /**
+     * Create a copy of this layout.
+     */
+    Layout.prototype.copy = function () {
+        var copy = new Layout();
+        copy._arrangementOrigin = this._arrangementOrigin.copy();
+        copy._isInitial = this._isInitial;
+        copy._isOngoing = this._isOngoing;
+        copy._isRealtime = this._isRealtime;
+        copy._isRouting = this._isRouting;
+        copy._isValidLayout = this._isValidLayout;
+        copy._isViewportSized = this._isViewportSized;
+        copy._boundsComputation = this._boundsComputation;
+        return copy;
+    };
+    /**
+     * Create a new LayoutNetwork for this layout.
+     */
+    Layout.prototype.createNetwork = function () {
+        var net = new LayoutNetwork();
+        net.layout = this;
+        return net;
+    };
+    /**
+     * Get the layout bounds of a part.
+     * @param part - The part to get bounds for
+     */
+    Layout.prototype.getLayoutBounds = function (part) {
+        var bounds = part.getDocumentBounds();
+        if (this._boundsComputation) {
+            return this._boundsComputation(this, part, bounds);
+        }
+        return bounds;
+    };
+    /**
+     * Return the initial origin point for the layout.
+     * 官方 Layout.initialOrigin：
+     * - group 有 placeholder → placeholder 文档 TopLeft（NaN → 回退 origin）+ padding
+     * - group 无 placeholder → group.position（NaN → 回退 origin）
+     * - 无 group → origin
+     */
+    Layout.prototype.initialOrigin = function (t) {
+        var origin = t ? t : this._arrangementOrigin;
+        var g = this._group;
+        if (g) {
+            var ph = this._findPlaceholder(g);
+            if (ph) {
+                // 文档坐标 = group.position（NaN 不计入，视作 0）+ placeholder 局部链偏移
+                var local = this._panelLocalPoint(g, ph);
+                var pos_1 = g.position;
+                var sx = local ? local.x : NaN;
+                var sy = local ? local.y : NaN;
+                if (pos_1 && !isNaN(pos_1.x) && !isNaN(pos_1.y)) {
+                    sx += pos_1.x;
+                    sy += pos_1.y;
+                }
+                if (isNaN(sx) || isNaN(sy)) {
+                    sx = origin.x;
+                    sy = origin.y;
+                }
+                var pad = typeof ph._padding === 'number' ? ph._padding : 0;
+                return new Point(sx + pad, sy + pad);
+            }
+            var pos = g.position;
+            if (pos && !isNaN(pos.x) && !isNaN(pos.y))
+                return pos.copy();
+            return origin.copy();
+        }
+        return origin.copy();
+    };
+    Layout.prototype._findPlaceholder = function (group) {
+        var search = function (obj) {
+            var e_5, _a;
+            if (!obj)
+                return null;
+            if (obj._isPlaceholder)
+                return obj;
+            var els = obj._elements;
+            if (els) {
+                try {
+                    for (var els_1 = __values(els), els_1_1 = els_1.next(); !els_1_1.done; els_1_1 = els_1.next()) {
+                        var ch = els_1_1.value;
+                        var r = search(ch);
+                        if (r)
+                            return r;
+                    }
+                }
+                catch (e_5_1) { e_5 = { error: e_5_1 }; }
+                finally {
+                    try {
+                        if (els_1_1 && !els_1_1.done && (_a = els_1.return)) _a.call(els_1);
+                    }
+                    finally { if (e_5) throw e_5.error; }
+                }
+            }
+            return null;
+        };
+        return search(group);
+    };
+    /** target 在 group 面板内的局部偏移（沿 actualBounds 局部链累加）；找不到 → null */
+    Layout.prototype._panelLocalPoint = function (group, target) {
+        var contains = function (o) {
+            return o === target || (o._elements ? o._elements.some(function (c) { return contains(c); }) : false);
+        };
+        var acc = function (obj, px, py) {
+            var e_6, _a;
+            var els = obj._elements;
+            if (!els)
+                return null;
+            try {
+                for (var els_2 = __values(els), els_2_1 = els_2.next(); !els_2_1.done; els_2_1 = els_2.next()) {
+                    var ch = els_2_1.value;
+                    var ab = ch.actualBounds;
+                    var nx = px + (ab ? ab.x : NaN);
+                    var ny = py + (ab ? ab.y : NaN);
+                    if (ch === target)
+                        return new Point(nx, ny);
+                    if (ch._elements && contains(ch)) {
+                        var r = acc(ch, nx, ny);
+                        if (r)
+                            return r;
+                    }
+                }
+            }
+            catch (e_6_1) { e_6 = { error: e_6_1 }; }
+            finally {
+                try {
+                    if (els_2_1 && !els_2_1.done && (_a = els_2.return)) _a.call(els_2);
+                }
+                finally { if (e_6) throw e_6.error; }
+            }
+            return null;
+        };
+        return acc(group, 0, 0);
+    };
+    /**
+     * Invalidate this layout, causing it to be re-performed.
+     */
+    Layout.prototype.invalidateLayout = function () {
+        this._isValidLayout = false;
+        if (this._diagram) {
+            this._diagram._layoutInvalid = true;
+            this._diagram.requestUpdate();
+        }
+        if (this._group) {
+            this._group._layoutInvalid = true;
+            if (this._group.diagram) {
+                this._group.diagram.requestUpdate();
+            }
+        }
+    };
+    /**
+     * Build a LayoutNetwork from the parts in the given collection.
+     * @param coll - A Diagram, Iterable<Part>, or array of Parts
+     */
+    Layout.prototype.makeNetwork = function (coll) {
+        var net = this.createNetwork();
+        var parts = this.collectParts(coll);
+        // Add all nodes as vertexes
+        var it = parts.iterator;
+        while (it.next()) {
+            var part = it.value;
+            if (part instanceof Node) {
+                var vertex = net.addNode(part);
+                if (part._measure) {
+                    part._measure(Infinity, Infinity);
+                }
+                var bounds = this.getLayoutBounds(part);
+                var mb = part.measuredBounds;
+                if (mb && mb.width > 0 && mb.height > 0) {
+                    bounds = new Rect(bounds.x, bounds.y, mb.width, mb.height);
+                }
+                vertex.bounds = bounds.copy();
+                vertex.x = bounds.x;
+                vertex.y = bounds.y;
+            }
+        }
+        // Add all links as edges
+        var linkIt = parts.iterator;
+        while (linkIt.next()) {
+            var part = linkIt.value;
+            if (part instanceof Link) {
+                net.addLink(part);
+            }
+        }
+        this._network = net;
+        return net;
+    };
+    /**
+     * Update the positions of parts after the layout has been computed.
+     */
+    Layout.prototype.updateParts = function () {
+        this.commitLayout();
+    };
+    return Layout;
+}());
+
 var Group = /** @class */ (function (_super) {
     __extends(Group, _super);
     function Group(type, init) {
-        var _this = _super.call(this, type) || this;
+        var _this = this;
+        var _a = __read(Panel._resolveArgs(type, init), 2), t = _a[0], i = _a[1];
+        _this = _super.call(this, t, undefined) || this;
         _this._handlesDragDrop = false;
-        _this._memberParts = new Set();
+        _this._memberParts = new Set$1();
         _this._ungroupable = false;
         _this._layout = null;
+        _this._ga = false;
         _this._className = 'Group';
-        if (init) {
-            _this.set(init);
+        // 官方 Group：默认 layout = new Layout（group 指向自己），init 可覆盖
+        _this._layout = new Layout();
+        _this._layout.group = _this;
+        if (i) {
+            _this.set(i);
         }
         return _this;
     }
@@ -11408,12 +14026,13 @@ var Group = /** @class */ (function (_super) {
         get: function () {
             var findPlaceholder = function (obj) {
                 var e_1, _a;
-                if ('_placeholderBounds' in obj && obj.constructor.name === 'Placeholder')
+                if (obj._isPlaceholder)
                     return obj;
-                if ('_elements' in obj) {
+                var els = obj._elements;
+                if (els) {
                     try {
-                        for (var _b = __values(obj._elements), _c = _b.next(); !_c.done; _c = _b.next()) {
-                            var child = _c.value;
+                        for (var els_1 = __values(els), els_1_1 = els_1.next(); !els_1_1.done; els_1_1 = els_1.next()) {
+                            var child = els_1_1.value;
                             var found = findPlaceholder(child);
                             if (found)
                                 return found;
@@ -11422,7 +14041,7 @@ var Group = /** @class */ (function (_super) {
                     catch (e_1_1) { e_1 = { error: e_1_1 }; }
                     finally {
                         try {
-                            if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
+                            if (els_1_1 && !els_1_1.done && (_a = els_1.return)) _a.call(els_1);
                         }
                         finally { if (e_1) throw e_1.error; }
                     }
@@ -11456,6 +14075,13 @@ var Group = /** @class */ (function (_super) {
         enumerable: false,
         configurable: true
     });
+    Object.defineProperty(Group.prototype, "Ga", {
+        /** 官方 Group 的 Ga 标志：diagram 布局前递归组布局将其置位，diagram 布局收集后清除。 */
+        get: function () { return this._ga; },
+        set: function (val) { this._ga = val; },
+        enumerable: false,
+        configurable: true
+    });
     Group.prototype.addMembers = function (collection, check) {
         var it = collection.iterator;
         while (it.next()) {
@@ -11483,20 +14109,45 @@ var Group = /** @class */ (function (_super) {
         }
         return true;
     };
-    Group.prototype.move = function (newLoc) {
-        var oldLoc = this.location;
-        _super.prototype.move.call(this, newLoc);
-        var dx = newLoc.x - oldLoc.x;
-        var dy = newLoc.y - oldLoc.y;
-        if (isNaN(dx) || isNaN(dy))
+    Group.prototype.move = function (newLoc, isLocation) {
+        var src = isLocation === true ? this.location : this.position;
+        var sNaNx = isNaN(src.x);
+        var sNaNy = isNaN(src.y);
+        var tNaNx = isNaN(newLoc.x);
+        var tNaNy = isNaN(newLoc.y);
+        if ((src.x === newLoc.x || (sNaNx && tNaNx)) && (src.y === newLoc.y || (sNaNy && tNaNy)))
             return;
+        var dx = newLoc.x - (sNaNx ? 0 : src.x);
+        var dy = newLoc.y - (sNaNy ? 0 : src.y);
+        _super.prototype.move.call(this, newLoc, isLocation);
         if (dx !== 0 || dy !== 0) {
-            var it = this._memberParts.iterator;
-            while (it.next()) {
-                var part = it.value;
-                var partLoc = part.location;
-                part.move(new Point(partLoc.x + dx, partLoc.y + dy));
-            }
+            var seen_1 = new Set$1();
+            var walk_1 = function (g) {
+                var it = g._memberParts.iterator;
+                while (it.next()) {
+                    var d = it.value;
+                    if (seen_1.has(d))
+                        continue;
+                    seen_1.add(d);
+                    if (d.isLinkLabel)
+                        continue;
+                    if (d._className === 'Link')
+                        continue;
+                    var pos = d.position;
+                    if (!isNaN(pos.x) && !isNaN(pos.y)) {
+                        d.position = new Point(pos.x + dx, pos.y + dy);
+                    }
+                    else {
+                        var loc = d.location;
+                        if (!isNaN(loc.x) && !isNaN(loc.y)) {
+                            d.location = new Point(loc.x + dx, loc.y + dy);
+                        }
+                    }
+                    if (d._className === 'Group')
+                        walk_1(d);
+                }
+            };
+            walk_1(this);
         }
     };
     Group.prototype.copy = function () {
@@ -11510,6 +14161,11 @@ var Group = /** @class */ (function (_super) {
         c._treeExpandedDirection = this._treeExpandedDirection;
         c._handlesDragDrop = this._handlesDragDrop;
         c._ungroupable = this._ungroupable;
+        if (this._layout) {
+            var lo = this._layout.copy();
+            lo.group = c;
+            c._layout = lo;
+        }
         return c;
     };
     return Group;
@@ -11523,17 +14179,16 @@ GraphObject.defineBuilder('Group', Group);
 var Adornment = /** @class */ (function (_super) {
     __extends(Adornment, _super);
     function Adornment(type, init) {
-        var _this = _super.call(this) || this;
+        var _this = this;
+        var _a = __read(Panel._resolveArgs(type, init), 2), t = _a[0], i = _a[1];
+        _this = _super.call(this, t, undefined) || this;
         /** 被装饰的 GraphObject */
         _this._adornedObject = null;
         /** 装饰类别 */
         _this._adornmentCategory = '';
         _this._className = 'Adornment';
-        if (type !== undefined) {
-            _this._type = type;
-        }
-        if (init) {
-            _this.set(init);
+        if (i) {
+            _this.set(i);
         }
         return _this;
     }
@@ -11652,25 +14307,56 @@ var Placeholder = /** @class */ (function (_super) {
         enumerable: false,
         configurable: true
     });
+    /**
+     * 官方 Placeholder.measure（computeBorder）：
+     * 1) union 可见成员的 actualBounds（文档坐标，成员 ab 实值才计入；跳过 Link）；
+     * 2) 无成员 union → border = group.location 实值点 (0×0)，否则 (0,0)；
+     * 3) padding（number = 四边均匀）外扩；
+     * 4) measuredBounds = (0,0,max(borderW,minW),max(borderH,minH))；
+     * 5) 有成员 union 且 border x/y 实值 → group.location = border 按 group.locationSpot 锚点。
+     */
     Placeholder.prototype._measure = function (availW, availH) {
         var group = this._findGroup();
         if (group) {
-            var bounds = null;
-            var groupPos = group.location;
+            var union = null;
             var it = group.memberParts.iterator;
             while (it.next()) {
                 var part = it.value;
                 if (!part.visible)
                     continue;
-                var partBounds = part.getDocumentBounds();
-                var localBounds = new Rect(partBounds.x - groupPos.x, partBounds.y - groupPos.y, partBounds.width, partBounds.height);
-                bounds = bounds ? bounds.union(localBounds) : localBounds;
+                if (part._className === 'Link')
+                    continue;
+                var ab = part.actualBounds;
+                if (!ab || isNaN(ab.x) || isNaN(ab.y))
+                    continue;
+                if (union) {
+                    union = union.union(ab);
+                }
+                else {
+                    union = ab.copy();
+                }
             }
-            var pad = this._padding;
-            var w = bounds ? bounds.width : 0;
-            var h = bounds ? bounds.height : 0;
-            this._measuredBounds = new Rect(0, 0, w + pad * 2, h + pad * 2);
+            var border = void 0;
+            if (union) {
+                var pad = this._padding;
+                border = new Rect(union.x - pad, union.y - pad, union.width + pad * 2, union.height + pad * 2);
+            }
+            else {
+                var gloc = group.location;
+                border = new Rect(gloc && !isNaN(gloc.x) ? gloc.x : 0, gloc && !isNaN(gloc.y) ? gloc.y : 0, 0, 0);
+            }
+            var minSize = this.minSize;
+            var mw = minSize && minSize.width > 0 ? minSize.width : 0;
+            var mh = minSize && minSize.height > 0 ? minSize.height : 0;
+            this._measuredBounds = new Rect(0, 0, Math.max(border.width, mw), Math.max(border.height, mh));
             this._naturalBounds = this._measuredBounds.copy();
+            if (union && Number.isFinite(border.x) && Number.isFinite(border.y)) {
+                var ls = group.locationSpot;
+                var pt = new Point(border.x + ls.x * border.width + ls.offsetX, border.y + ls.y * border.height + ls.offsetY);
+                if (!isNaN(pt.x) && !isNaN(pt.y)) {
+                    group.location = pt;
+                }
+            }
         }
         else {
             this._measuredBounds = new Rect(0, 0, 0, 0);
@@ -12599,6 +15285,11 @@ var CanvasRenderer = /** @class */ (function () {
         if (panelType === PanelGrid) {
             this.renderGrid(panel);
         }
+        // Row/col panels do not offset their children (official Bn() == false):
+        // grandchildren coords are in TABLE space, so inherit this panel's offset
+        var isRowCol = panelType === PanelTableRow || panelType === PanelTableColumn;
+        var childOX = isRowCol ? offsetX : panelX;
+        var childOY = isRowCol ? offsetY : panelY;
         // Render children based on panel type
         if (panelType === PanelAuto) {
             // Auto: render main element first (fills panel), then others on top
@@ -12633,7 +15324,7 @@ var CanvasRenderer = /** @class */ (function () {
             try {
                 for (var others_1 = __values(others), others_1_1 = others_1.next(); !others_1_1.done; others_1_1 = others_1.next()) {
                     var elem = others_1_1.value;
-                    this.renderGraphObject(elem, panelX, panelY);
+                    this.renderGraphObject(elem, childOX, childOY);
                 }
             }
             catch (e_9_1) { e_9 = { error: e_9_1 }; }
@@ -12650,7 +15341,7 @@ var CanvasRenderer = /** @class */ (function () {
             try {
                 for (var elements_5 = __values(elements), elements_5_1 = elements_5.next(); !elements_5_1.done; elements_5_1 = elements_5.next()) {
                     var elem = elements_5_1.value;
-                    this.renderGraphObject(elem, panelX, panelY);
+                    this.renderGraphObject(elem, childOX, childOY);
                 }
             }
             catch (e_10_1) { e_10 = { error: e_10_1 }; }
@@ -12693,7 +15384,7 @@ var CanvasRenderer = /** @class */ (function () {
             try {
                 for (var others_2 = __values(others), others_2_1 = others_2.next(); !others_2_1.done; others_2_1 = others_2.next()) {
                     var elem = others_2_1.value;
-                    this.renderGraphObject(elem, panelX, panelY);
+                    this.renderGraphObject(elem, childOX, childOY);
                 }
             }
             catch (e_12_1) { e_12 = { error: e_12_1 }; }
@@ -12709,7 +15400,7 @@ var CanvasRenderer = /** @class */ (function () {
             try {
                 for (var elements_7 = __values(elements), elements_7_1 = elements_7.next(); !elements_7_1.done; elements_7_1 = elements_7.next()) {
                     var elem = elements_7_1.value;
-                    this.renderGraphObject(elem, panelX, panelY);
+                    this.renderGraphObject(elem, childOX, childOY);
                 }
             }
             catch (e_13_1) { e_13 = { error: e_13_1 }; }
@@ -12726,7 +15417,7 @@ var CanvasRenderer = /** @class */ (function () {
             try {
                 for (var elements_8 = __values(elements), elements_8_1 = elements_8.next(); !elements_8_1.done; elements_8_1 = elements_8.next()) {
                     var elem = elements_8_1.value;
-                    this.renderGraphObject(elem, panelX, panelY);
+                    this.renderGraphObject(elem, childOX, childOY);
                 }
             }
             catch (e_14_1) { e_14 = { error: e_14_1 }; }
@@ -12749,7 +15440,7 @@ var CanvasRenderer = /** @class */ (function () {
             try {
                 for (var elements_9 = __values(elements), elements_9_1 = elements_9.next(); !elements_9_1.done; elements_9_1 = elements_9.next()) {
                     var elem = elements_9_1.value;
-                    this.renderGraphObject(elem, panelX, panelY);
+                    this.renderGraphObject(elem, childOX, childOY);
                 }
             }
             catch (e_15_1) { e_15 = { error: e_15_1 }; }
@@ -12766,7 +15457,7 @@ var CanvasRenderer = /** @class */ (function () {
             try {
                 for (var elements_10 = __values(elements), elements_10_1 = elements_10.next(); !elements_10_1.done; elements_10_1 = elements_10.next()) {
                     var elem = elements_10_1.value;
-                    this.renderGraphObject(elem, panelX, panelY);
+                    this.renderGraphObject(elem, childOX, childOY);
                 }
             }
             catch (e_16_1) { e_16 = { error: e_16_1 }; }
@@ -13202,7 +15893,7 @@ var CanvasRenderer = /** @class */ (function () {
         if (!ctx)
             return;
         var text = String(Math.round(val + tickBase));
-        var font = textBlock._font || '10px sans-serif';
+        var font = textBlock._font || '13px sans-serif';
         var stroke = textBlock._stroke || 'black';
         ctx.save();
         ctx.translate(x, y);
@@ -14137,7 +16828,7 @@ var DraggingTool = /** @class */ (function (_super) {
         this._draggedParts = new Map$1();
         var selection = diagram.selection;
         if (selection) {
-            var selectedSet = new Set();
+            var selectedSet = new Set$1();
             var it0 = selection.iterator;
             while (it0.next()) {
                 selectedSet.add(it0.value);
@@ -16576,7 +19267,7 @@ var ToolManager = /** @class */ (function (_super) {
     };
     /** Dispatch mouse-wheel event to the current tool. */
     ToolManager.prototype.doMouseWheel = function () {
-        if (this._currentTool) {
+        if (this._currentTool && this._currentTool.isActive) {
             this._currentTool.doMouseWheel();
         }
         else {
@@ -17852,7 +20543,7 @@ var Diagram = /** @class */ (function () {
         this._linkTemplateMap = new Map$1();
         this._groupTemplate = null;
         this._groupTemplateMap = new Map$1();
-        this._selection = new Set();
+        this._selection = new Set$1();
         this._maxSelectionCount = Infinity;
         this._layout = null;
         this._isInitial = true;
@@ -17861,6 +20552,7 @@ var Diagram = /** @class */ (function () {
         this._layers = [];
         this._parts = new Map$1();
         this._nodeKeyMap = new Map$1();
+        this._treeLinkDataByChildKey = new Map$1();
         this._changedListeners = [];
         this._diagramListeners = new Map$1();
         this._needsRender = false;
@@ -17892,6 +20584,9 @@ var Diagram = /** @class */ (function () {
         this._commandHandler = new CommandHandler();
         this._animationManager = new AnimationManager();
         this._themeManager = new ThemeManager();
+        // 官方 Diagram：默认 layout = new Layout（base，极简网格摆放未定位部件）
+        this._layout = new Layout();
+        this._layout.diagram = this;
         if (div) {
             div.style.position = 'relative';
             div.style.overflow = 'hidden';
@@ -18827,6 +21522,7 @@ var Diagram = /** @class */ (function () {
             this._layoutInvalid = true;
         }
         this._performLayout();
+        this._layoutInvalid = false;
         this.requestUpdate(invalidate);
     };
     Diagram.prototype.updateAllTargetBindings = function (propname) {
@@ -18886,30 +21582,30 @@ var Diagram = /** @class */ (function () {
     };
     // ============ Rebuild Parts ============
     Diagram.prototype.rebuildParts = function () {
-        var e_6, _a, e_7, _b, e_8, _c, e_9, _d;
+        var e_6, _a, e_7, _b, e_8, _c, e_9, _d, e_10, _e;
         this._clearAllParts();
         var model = this._model;
         if (!model)
             return;
         try {
-            for (var _e = __values(model.nodeDataArray), _f = _e.next(); !_f.done; _f = _e.next()) {
-                var nodeData = _f.value;
+            for (var _f = __values(model.nodeDataArray), _g = _f.next(); !_g.done; _g = _f.next()) {
+                var nodeData = _g.value;
                 this._addNodeForData(nodeData);
             }
         }
         catch (e_6_1) { e_6 = { error: e_6_1 }; }
         finally {
             try {
-                if (_f && !_f.done && (_a = _e.return)) _a.call(_e);
+                if (_g && !_g.done && (_a = _f.return)) _a.call(_f);
             }
             finally { if (e_6) throw e_6.error; }
         }
         try {
-            for (var _g = __values(model.nodeDataArray), _h = _g.next(); !_h.done; _h = _g.next()) {
-                var nodeData = _h.value;
+            for (var _h = __values(model.nodeDataArray), _j = _h.next(); !_j.done; _j = _h.next()) {
+                var nodeData = _j.value;
                 var groupKey = model.getGroupKeyForNodeData(nodeData);
                 if (groupKey !== undefined && groupKey !== null) {
-                    var node = this._nodeKeyMap.get(nodeData.key);
+                    var node = this._nodeKeyMap.get(model.getKeyForNodeData(nodeData));
                     var groupNode = this._nodeKeyMap.get(groupKey);
                     if (node && groupNode && groupNode._memberParts !== undefined) {
                         node.containingGroup = groupNode;
@@ -18920,22 +21616,22 @@ var Diagram = /** @class */ (function () {
         catch (e_7_1) { e_7 = { error: e_7_1 }; }
         finally {
             try {
-                if (_h && !_h.done && (_b = _g.return)) _b.call(_g);
+                if (_j && !_j.done && (_b = _h.return)) _b.call(_h);
             }
             finally { if (e_7) throw e_7.error; }
         }
         if (model instanceof GraphLinksModel) {
             var glm = model;
             try {
-                for (var _j = __values(glm.linkDataArray), _k = _j.next(); !_k.done; _k = _j.next()) {
-                    var linkData = _k.value;
+                for (var _k = __values(glm.linkDataArray), _l = _k.next(); !_l.done; _l = _k.next()) {
+                    var linkData = _l.value;
                     this._addLinkForData(linkData);
                 }
             }
             catch (e_8_1) { e_8 = { error: e_8_1 }; }
             finally {
                 try {
-                    if (_k && !_k.done && (_c = _j.return)) _c.call(_j);
+                    if (_l && !_l.done && (_c = _k.return)) _c.call(_k);
                 }
                 finally { if (e_8) throw e_8.error; }
             }
@@ -18943,8 +21639,8 @@ var Diagram = /** @class */ (function () {
         else if (model instanceof TreeModel) {
             var tm = model;
             try {
-                for (var _l = __values(model.nodeDataArray), _m = _l.next(); !_m.done; _m = _l.next()) {
-                    var nodeData = _m.value;
+                for (var _m = __values(model.nodeDataArray), _o = _m.next(); !_o.done; _o = _m.next()) {
+                    var nodeData = _o.value;
                     var parentKey = tm.getParentKeyForNodeData(nodeData);
                     if (parentKey !== undefined && parentKey !== null) {
                         this._addLinkForTreeData(nodeData, parentKey);
@@ -18954,11 +21650,35 @@ var Diagram = /** @class */ (function () {
             catch (e_9_1) { e_9 = { error: e_9_1 }; }
             finally {
                 try {
-                    if (_m && !_m.done && (_d = _l.return)) _d.call(_l);
+                    if (_o && !_o.done && (_d = _m.return)) _d.call(_m);
                 }
                 finally { if (e_9) throw e_9.error; }
             }
         }
+        try {
+            // 链接创建后再对所有 Part 重跑 bindings（如 counter 的 visible/count 依赖 findLinksOutOf）
+            for (var _p = __values(model.nodeDataArray), _q = _p.next(); !_q.done; _q = _p.next()) {
+                var nodeData = _q.value;
+                var node = this._nodeKeyMap.get(model.getKeyForNodeData(nodeData));
+                if (node)
+                    node.updateTargetBindings();
+            }
+        }
+        catch (e_10_1) { e_10 = { error: e_10_1 }; }
+        finally {
+            try {
+                if (_q && !_q.done && (_e = _p.return)) _e.call(_p);
+            }
+            finally { if (e_10) throw e_10.error; }
+        }
+        try {
+            var it = this.links;
+            if (it) {
+                while (it.next())
+                    it.value.updateTargetBindings();
+            }
+        }
+        catch (e) { /* links 迭代不可用时忽略 */ }
         this._layoutInvalid = true;
         this.requestUpdate();
     };
@@ -18972,7 +21692,7 @@ var Diagram = /** @class */ (function () {
     // ============ Batch set ============
     Diagram.prototype.set = function (props) {
         for (var key in props) {
-            if (key === 'model' || key === 'div')
+            if (key === 'div')
                 continue;
             if (key.indexOf('.') >= 0) {
                 var parts = key.split('.');
@@ -18999,7 +21719,7 @@ var Diagram = /** @class */ (function () {
     };
     // ============ Internal Methods ============
     Diagram.prototype._createDefaultLayers = function () {
-        var e_10, _a;
+        var e_11, _a;
         var names = ['Background', 'Grid', '', 'Foreground', 'Adornment', 'Tool'];
         try {
             for (var names_1 = __values(names), names_1_1 = names_1.next(); !names_1_1.done; names_1_1 = names_1.next()) {
@@ -19013,12 +21733,12 @@ var Diagram = /** @class */ (function () {
                 this._layers.push(layer);
             }
         }
-        catch (e_10_1) { e_10 = { error: e_10_1 }; }
+        catch (e_11_1) { e_11 = { error: e_11_1 }; }
         finally {
             try {
                 if (names_1_1 && !names_1_1.done && (_a = names_1.return)) _a.call(names_1);
             }
-            finally { if (e_10) throw e_10.error; }
+            finally { if (e_11) throw e_11.error; }
         }
         this._createDefaultGrid();
     };
@@ -19103,22 +21823,23 @@ var Diagram = /** @class */ (function () {
         return link;
     };
     Diagram.prototype._clearAllParts = function () {
-        var e_11, _a;
+        var e_12, _a;
         try {
             for (var _b = __values(this._layers), _c = _b.next(); !_c.done; _c = _b.next()) {
                 var layer = _c.value;
                 layer.clear();
             }
         }
-        catch (e_11_1) { e_11 = { error: e_11_1 }; }
+        catch (e_12_1) { e_12 = { error: e_12_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_11) throw e_11.error; }
+            finally { if (e_12) throw e_12.error; }
         }
         this._parts.clear();
         this._nodeKeyMap.clear();
+        this._treeLinkDataByChildKey.clear();
         this._selection.clear();
     };
     Diagram.prototype._addNodeForData = function (data) {
@@ -19168,7 +21889,7 @@ var Diagram = /** @class */ (function () {
     };
     Diagram.prototype._propagatePartToChildren = function (part) {
         var setPart = function (obj) {
-            var e_12, _a;
+            var e_13, _a;
             obj._part = part;
             if (obj instanceof Panel) {
                 try {
@@ -19177,12 +21898,12 @@ var Diagram = /** @class */ (function () {
                         setPart(child);
                     }
                 }
-                catch (e_12_1) { e_12 = { error: e_12_1 }; }
+                catch (e_13_1) { e_13 = { error: e_13_1 }; }
                 finally {
                     try {
                         if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
                     }
-                    finally { if (e_12) throw e_12.error; }
+                    finally { if (e_13) throw e_13.error; }
                 }
             }
         };
@@ -19213,6 +21934,12 @@ var Diagram = /** @class */ (function () {
         this._parts.set(data, link);
         this.add(link);
         this._applyBindings(link, data);
+        var fn = link.fromNode;
+        var tn = link.toNode;
+        if (fn)
+            fn.updateTargetBindings();
+        if (tn)
+            tn.updateTargetBindings();
         return link;
     };
     Diagram.prototype._addLinkForTreeData = function (childData, parentKey) {
@@ -19230,12 +21957,21 @@ var Diagram = /** @class */ (function () {
             template = this._linkTemplate;
         }
         var link = template.copy();
-        link.data = childData;
+        var linkData = {
+            from: parentKey,
+            to: childKey
+        };
+        link.data = linkData;
         link.fromNode = parentNode;
         link.toNode = childNode;
-        this._parts.set(childData, link);
+        if (childKey !== undefined) {
+            this._treeLinkDataByChildKey.set(childKey, linkData);
+        }
+        this._parts.set(linkData, link);
         this.add(link);
-        this._applyBindings(link, childData);
+        this._applyBindings(link, linkData);
+        parentNode.updateTargetBindings();
+        childNode.updateTargetBindings();
         return link;
     };
     Diagram.prototype._removeNodeForData = function (data) {
@@ -19247,13 +21983,22 @@ var Diagram = /** @class */ (function () {
             var key = this._model.getKeyForNodeData(data);
             if (key !== undefined) {
                 this._nodeKeyMap.remove(key);
+                var linkData = this._treeLinkDataByChildKey.get(key);
+                if (linkData) {
+                    this._treeLinkDataByChildKey.remove(key);
+                    var treeLink = this._parts.get(linkData);
+                    if (treeLink) {
+                        this._parts.remove(linkData);
+                        this.remove(treeLink);
+                    }
+                }
             }
             this._parts.remove(data);
             this.remove(part);
         }
     };
     Diagram.prototype._removeLinksForNode = function (node) {
-        var e_13, _a, e_14, _b;
+        var e_14, _a, e_15, _b;
         var linksToRemove = [];
         try {
             for (var _c = __values(this._layers), _d = _c.next(); !_d.done; _d = _c.next()) {
@@ -19269,12 +22014,12 @@ var Diagram = /** @class */ (function () {
                 }
             }
         }
-        catch (e_13_1) { e_13 = { error: e_13_1 }; }
+        catch (e_14_1) { e_14 = { error: e_14_1 }; }
         finally {
             try {
                 if (_d && !_d.done && (_a = _c.return)) _a.call(_c);
             }
-            finally { if (e_13) throw e_13.error; }
+            finally { if (e_14) throw e_14.error; }
         }
         try {
             for (var linksToRemove_1 = __values(linksToRemove), linksToRemove_1_1 = linksToRemove_1.next(); !linksToRemove_1_1.done; linksToRemove_1_1 = linksToRemove_1.next()) {
@@ -19282,16 +22027,19 @@ var Diagram = /** @class */ (function () {
                 var data = link.data;
                 if (data) {
                     this._parts.remove(data);
+                    if (data.to !== undefined) {
+                        this._treeLinkDataByChildKey.remove(data.to);
+                    }
                 }
                 this.remove(link);
             }
         }
-        catch (e_14_1) { e_14 = { error: e_14_1 }; }
+        catch (e_15_1) { e_15 = { error: e_15_1 }; }
         finally {
             try {
                 if (linksToRemove_1_1 && !linksToRemove_1_1.done && (_b = linksToRemove_1.return)) _b.call(linksToRemove_1);
             }
-            finally { if (e_14) throw e_14.error; }
+            finally { if (e_15) throw e_15.error; }
         }
     };
     Diagram.prototype._removeLinkForData = function (data) {
@@ -19304,7 +22052,8 @@ var Diagram = /** @class */ (function () {
     Diagram.prototype._resolveBindingValue = function (binding, obj, data, part) {
         if (binding.isFromModel) {
             var val = this._model ? this._model.modelData[binding.sourceProperty] : undefined;
-            if (binding.conversion)
+            // 官方：源值 undefined → 跳过（不 convert、不赋值）
+            if (val !== undefined && binding.conversion)
                 val = binding.conversion(val, obj, this._model);
             return val;
         }
@@ -19319,12 +22068,12 @@ var Diagram = /** @class */ (function () {
             }
             var val = void 0;
             if (sourceObj) {
-                val = sourceObj[binding.sourceProperty];
+                val = binding.sourceProperty === '' ? sourceObj : sourceObj[binding.sourceProperty];
             }
             else {
                 val = undefined;
             }
-            if (binding.conversion)
+            if (val !== undefined && binding.conversion)
                 val = binding.conversion(val, obj, this._model);
             return val;
         }
@@ -19336,7 +22085,7 @@ var Diagram = /** @class */ (function () {
         this._applyBindingsToObject(part, data, part);
     };
     Diagram.prototype._applyBindingsToObject = function (obj, data, part) {
-        var e_15, _a, e_16, _b;
+        var e_16, _a, e_17, _b;
         var bindings = obj._bindings;
         if (bindings && bindings.length > 0) {
             try {
@@ -19348,12 +22097,12 @@ var Diagram = /** @class */ (function () {
                     }
                 }
             }
-            catch (e_15_1) { e_15 = { error: e_15_1 }; }
+            catch (e_16_1) { e_16 = { error: e_16_1 }; }
             finally {
                 try {
                     if (bindings_1_1 && !bindings_1_1.done && (_a = bindings_1.return)) _a.call(bindings_1);
                 }
-                finally { if (e_15) throw e_15.error; }
+                finally { if (e_16) throw e_16.error; }
             }
         }
         if (obj instanceof Panel) {
@@ -19361,15 +22110,16 @@ var Diagram = /** @class */ (function () {
             try {
                 for (var elements_1 = __values(elements), elements_1_1 = elements_1.next(); !elements_1_1.done; elements_1_1 = elements_1.next()) {
                     var child = elements_1_1.value;
-                    this._applyBindingsToObject(child, data, part);
+                    var childData = child._data;
+                    this._applyBindingsToObject(child, childData !== null && childData !== undefined ? childData : data, part);
                 }
             }
-            catch (e_16_1) { e_16 = { error: e_16_1 }; }
+            catch (e_17_1) { e_17 = { error: e_17_1 }; }
             finally {
                 try {
                     if (elements_1_1 && !elements_1_1.done && (_b = elements_1.return)) _b.call(elements_1);
                 }
-                finally { if (e_16) throw e_16.error; }
+                finally { if (e_17) throw e_17.error; }
             }
         }
     };
@@ -19380,7 +22130,7 @@ var Diagram = /** @class */ (function () {
         this._updateBindingsForObject(part, data, propname, part);
     };
     Diagram.prototype._updateBindingsForObject = function (obj, data, propname, part) {
-        var e_17, _a, e_18, _b;
+        var e_18, _a, e_19, _b;
         var bindings = obj._bindings;
         if (bindings && bindings.length > 0) {
             try {
@@ -19394,12 +22144,12 @@ var Diagram = /** @class */ (function () {
                     }
                 }
             }
-            catch (e_17_1) { e_17 = { error: e_17_1 }; }
+            catch (e_18_1) { e_18 = { error: e_18_1 }; }
             finally {
                 try {
                     if (bindings_2_1 && !bindings_2_1.done && (_a = bindings_2.return)) _a.call(bindings_2);
                 }
-                finally { if (e_17) throw e_17.error; }
+                finally { if (e_18) throw e_18.error; }
             }
         }
         if (obj instanceof Panel) {
@@ -19407,20 +22157,21 @@ var Diagram = /** @class */ (function () {
             try {
                 for (var elements_2 = __values(elements), elements_2_1 = elements_2.next(); !elements_2_1.done; elements_2_1 = elements_2.next()) {
                     var child = elements_2_1.value;
-                    this._updateBindingsForObject(child, data, propname, part);
+                    var childData = child._data;
+                    this._updateBindingsForObject(child, childData !== null && childData !== undefined ? childData : data, propname, part);
                 }
             }
-            catch (e_18_1) { e_18 = { error: e_18_1 }; }
+            catch (e_19_1) { e_19 = { error: e_19_1 }; }
             finally {
                 try {
                     if (elements_2_1 && !elements_2_1.done && (_b = elements_2.return)) _b.call(elements_2);
                 }
-                finally { if (e_18) throw e_18.error; }
+                finally { if (e_19) throw e_19.error; }
             }
         }
     };
     Diagram.prototype._handlePartPropertyChanged = function (part, obj, propname, value) {
-        var e_19, _a;
+        var e_20, _a;
         var data = part.data;
         if (!data)
             return;
@@ -19454,15 +22205,16 @@ var Diagram = /** @class */ (function () {
                 }
             }
         }
-        catch (e_19_1) { e_19 = { error: e_19_1 }; }
+        catch (e_20_1) { e_20 = { error: e_20_1 }; }
         finally {
             try {
                 if (bindings_3_1 && !bindings_3_1.done && (_a = bindings_3.return)) _a.call(bindings_3);
             }
-            finally { if (e_19) throw e_19.error; }
+            finally { if (e_20) throw e_20.error; }
         }
     };
     Diagram.prototype._onModelChanged = function (e) {
+        var e_21, _a, e_22, _b, e_23, _c, e_24, _d;
         if (e.isTransactionChange) {
             this._raiseChangedEvent(e);
             return;
@@ -19480,6 +22232,12 @@ var Diagram = /** @class */ (function () {
                             if (groupNode && groupNode._memberParts !== undefined) {
                                 node.containingGroup = groupNode;
                             }
+                        }
+                    }
+                    if (this._model instanceof TreeModel) {
+                        var parentKey = this._model.getParentKeyForNodeData(data);
+                        if (parentKey !== undefined && parentKey !== null) {
+                            this._addLinkForTreeData(data, parentKey);
                         }
                     }
                     needsLayout = true;
@@ -19509,7 +22267,78 @@ var Diagram = /** @class */ (function () {
             else if (e.isPropertyChange) {
                 var data = e.object;
                 if (data && data instanceof Model) {
-                    this.updateAllTargetBindings();
+                    // 官方：Set 变更 modelChange==="nodeDataArray"/"linkDataArray" → kA(old) + xw(new)
+                    if (e.propertyName === 'nodeDataArray') {
+                        var oldArr = Array.isArray(e.oldValue) ? e.oldValue : [];
+                        var newArr = Array.isArray(e.newValue) ? e.newValue : [];
+                        try {
+                            for (var oldArr_1 = __values(oldArr), oldArr_1_1 = oldArr_1.next(); !oldArr_1_1.done; oldArr_1_1 = oldArr_1.next()) {
+                                var d = oldArr_1_1.value;
+                                if (newArr.indexOf(d) < 0)
+                                    this._removeNodeForData(d);
+                            }
+                        }
+                        catch (e_21_1) { e_21 = { error: e_21_1 }; }
+                        finally {
+                            try {
+                                if (oldArr_1_1 && !oldArr_1_1.done && (_a = oldArr_1.return)) _a.call(oldArr_1);
+                            }
+                            finally { if (e_21) throw e_21.error; }
+                        }
+                        try {
+                            for (var newArr_1 = __values(newArr), newArr_1_1 = newArr_1.next(); !newArr_1_1.done; newArr_1_1 = newArr_1.next()) {
+                                var d = newArr_1_1.value;
+                                if (oldArr.indexOf(d) < 0)
+                                    this._addNodeForData(d);
+                            }
+                        }
+                        catch (e_22_1) { e_22 = { error: e_22_1 }; }
+                        finally {
+                            try {
+                                if (newArr_1_1 && !newArr_1_1.done && (_b = newArr_1.return)) _b.call(newArr_1);
+                            }
+                            finally { if (e_22) throw e_22.error; }
+                        }
+                        needsLayout = true;
+                        this.requestUpdate();
+                    }
+                    else if (e.propertyName === 'linkDataArray') {
+                        var oldArr = Array.isArray(e.oldValue) ? e.oldValue : [];
+                        var newArr = Array.isArray(e.newValue) ? e.newValue : [];
+                        try {
+                            for (var oldArr_2 = __values(oldArr), oldArr_2_1 = oldArr_2.next(); !oldArr_2_1.done; oldArr_2_1 = oldArr_2.next()) {
+                                var d = oldArr_2_1.value;
+                                if (newArr.indexOf(d) < 0)
+                                    this._removeLinkForData(d);
+                            }
+                        }
+                        catch (e_23_1) { e_23 = { error: e_23_1 }; }
+                        finally {
+                            try {
+                                if (oldArr_2_1 && !oldArr_2_1.done && (_c = oldArr_2.return)) _c.call(oldArr_2);
+                            }
+                            finally { if (e_23) throw e_23.error; }
+                        }
+                        try {
+                            for (var newArr_2 = __values(newArr), newArr_2_1 = newArr_2.next(); !newArr_2_1.done; newArr_2_1 = newArr_2.next()) {
+                                var d = newArr_2_1.value;
+                                if (oldArr.indexOf(d) < 0)
+                                    this._addLinkForData(d);
+                            }
+                        }
+                        catch (e_24_1) { e_24 = { error: e_24_1 }; }
+                        finally {
+                            try {
+                                if (newArr_2_1 && !newArr_2_1.done && (_d = newArr_2.return)) _d.call(newArr_2);
+                            }
+                            finally { if (e_24) throw e_24.error; }
+                        }
+                        needsLayout = true;
+                        this.requestUpdate();
+                    }
+                    else {
+                        this.updateAllTargetBindings();
+                    }
                 }
                 else if (data) {
                     var part = this._parts.get(data);
@@ -19554,14 +22383,15 @@ var Diagram = /** @class */ (function () {
                     }
                 }
             }
-            if (needsLayout && this._layout && this._layout.isOngoing) {
-                this._layout.invalidateLayout();
+            if (needsLayout) {
+                this._layoutInvalid = true;
+                this.requestUpdate();
             }
         }
         this._raiseChangedEvent(e);
     };
     Diagram.prototype._rebuildTreeLinks = function () {
-        var e_20, _a, e_21, _b, e_22, _c;
+        var e_25, _a, e_26, _b, e_27, _c;
         var linksToRemove = [];
         try {
             for (var _d = __values(this._layers), _e = _d.next(); !_e.done; _e = _d.next()) {
@@ -19575,29 +22405,32 @@ var Diagram = /** @class */ (function () {
                 }
             }
         }
-        catch (e_20_1) { e_20 = { error: e_20_1 }; }
+        catch (e_25_1) { e_25 = { error: e_25_1 }; }
         finally {
             try {
                 if (_e && !_e.done && (_a = _d.return)) _a.call(_d);
             }
-            finally { if (e_20) throw e_20.error; }
+            finally { if (e_25) throw e_25.error; }
         }
         try {
             for (var linksToRemove_2 = __values(linksToRemove), linksToRemove_2_1 = linksToRemove_2.next(); !linksToRemove_2_1.done; linksToRemove_2_1 = linksToRemove_2.next()) {
                 var link = linksToRemove_2_1.value;
                 var data = link.data;
                 if (data) {
+                    if (data.to !== undefined) {
+                        this._treeLinkDataByChildKey.remove(data.to);
+                    }
                     this._parts.remove(data);
                 }
                 this.remove(link);
             }
         }
-        catch (e_21_1) { e_21 = { error: e_21_1 }; }
+        catch (e_26_1) { e_26 = { error: e_26_1 }; }
         finally {
             try {
                 if (linksToRemove_2_1 && !linksToRemove_2_1.done && (_b = linksToRemove_2.return)) _b.call(linksToRemove_2);
             }
-            finally { if (e_21) throw e_21.error; }
+            finally { if (e_26) throw e_26.error; }
         }
         if (this._model instanceof TreeModel) {
             var tm = this._model;
@@ -19606,39 +22439,40 @@ var Diagram = /** @class */ (function () {
                     var nodeData = _g.value;
                     var parentKey = tm.getParentKeyForNodeData(nodeData);
                     if (parentKey !== undefined && parentKey !== null) {
-                        if (!this._parts.has(nodeData)) {
+                        var childKey = this._model.getKeyForNodeData(nodeData);
+                        if (childKey !== undefined && !this._treeLinkDataByChildKey.has(childKey)) {
                             this._addLinkForTreeData(nodeData, parentKey);
                         }
                     }
                 }
             }
-            catch (e_22_1) { e_22 = { error: e_22_1 }; }
+            catch (e_27_1) { e_27 = { error: e_27_1 }; }
             finally {
                 try {
                     if (_g && !_g.done && (_c = _f.return)) _c.call(_f);
                 }
-                finally { if (e_22) throw e_22.error; }
+                finally { if (e_27) throw e_27.error; }
             }
         }
     };
     Diagram.prototype._raiseChangedEvent = function (e) {
-        var e_23, _a;
+        var e_28, _a;
         try {
             for (var _b = __values(this._changedListeners), _c = _b.next(); !_c.done; _c = _b.next()) {
                 var listener = _c.value;
                 listener(e);
             }
         }
-        catch (e_23_1) { e_23 = { error: e_23_1 }; }
+        catch (e_28_1) { e_28 = { error: e_28_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_23) throw e_23.error; }
+            finally { if (e_28) throw e_28.error; }
         }
     };
     Diagram.prototype._raiseDiagramEvent = function (name) {
-        var e_24, _a;
+        var e_29, _a;
         var args = [];
         for (var _i = 1; _i < arguments.length; _i++) {
             args[_i - 1] = arguments[_i];
@@ -19651,12 +22485,12 @@ var Diagram = /** @class */ (function () {
                     listener.apply(void 0, __spreadArray([], __read(args), false));
                 }
             }
-            catch (e_24_1) { e_24 = { error: e_24_1 }; }
+            catch (e_29_1) { e_29 = { error: e_29_1 }; }
             finally {
                 try {
                     if (listeners_1_1 && !listeners_1_1.done && (_a = listeners_1.return)) _a.call(listeners_1);
                 }
-                finally { if (e_24) throw e_24.error; }
+                finally { if (e_29) throw e_29.error; }
             }
         }
     };
@@ -19691,8 +22525,9 @@ var Diagram = /** @class */ (function () {
         this._animationFrameId = 0;
         this._checkResize();
         if (this._layoutInvalid) {
-            this._layoutInvalid = false;
             this._performLayout();
+            // 布局期间发生的级联失效不再触发新一轮（对齐官方：单次 layoutDiagram 通过）
+            this._layoutInvalid = false;
         }
         this._updateGeometry();
         if (this._renderer) {
@@ -19702,8 +22537,88 @@ var Diagram = /** @class */ (function () {
             this.requestUpdate();
         }
     };
+    /**
+     * 官方 measure+arrange 全体部件（Ht 语义）：
+     * pass1 非 Group 非 Link → pass2 Group → pass3 Link；
+     * 每个部件：ensureBounds（measure + bF 位置同步，仅 measure=true 时；渲染阶段只 arrange，
+     * 对齐官方 render 不重新 measure）→ _arrange(原始 position, measuredBounds)
+     * → syncPositionFromLocation（arrange 后 locationSpot 偏移变化时重推 position）。
+     * position 为 NaN 时按原样传入（ab.x/y 保持 NaN，对齐官方）。
+     */
+    Diagram.prototype._measureArrangeAll = function (measure) {
+        var _this = this;
+        if (measure === void 0) { measure = true; }
+        var pass = function (kind) {
+            var e_30, _a;
+            try {
+                for (var _b = __values(_this._layers), _c = _b.next(); !_c.done; _c = _b.next()) {
+                    var layer = _c.value;
+                    if (layer.isTemporary)
+                        continue;
+                    var partsIt = layer.parts;
+                    while (partsIt.next()) {
+                        var part = partsIt.value;
+                        if (!part.visible)
+                            continue;
+                        var isLink = part instanceof Link;
+                        var isGroup = part._className === 'Group';
+                        if (kind === 0 && (isLink || isGroup))
+                            continue;
+                        if (kind === 1 && !isGroup)
+                            continue;
+                        if (kind === 2 && !isLink)
+                            continue;
+                        if (measure)
+                            part.ensureBounds();
+                        var pos = part.position;
+                        var mb = part.measuredBounds;
+                        part._arrange(new Rect(pos.x, pos.y, mb.width, mb.height));
+                        if (!isLink && typeof part.syncPositionFromLocation === 'function') {
+                            part.syncPositionFromLocation();
+                        }
+                    }
+                }
+            }
+            catch (e_30_1) { e_30 = { error: e_30_1 }; }
+            finally {
+                try {
+                    if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
+                }
+                finally { if (e_30) throw e_30.error; }
+            }
+        };
+        pass(0);
+        pass(1);
+        pass(2);
+    };
+    Diagram.prototype._collectGroups = function () {
+        var e_31, _a;
+        var groups = [];
+        try {
+            for (var _b = __values(this._layers), _c = _b.next(); !_c.done; _c = _b.next()) {
+                var layer = _c.value;
+                if (layer.isTemporary)
+                    continue;
+                var partsIt = layer.parts;
+                while (partsIt.next()) {
+                    var part = partsIt.value;
+                    if (part._className === 'Group')
+                        groups.push(part);
+                }
+            }
+        }
+        catch (e_31_1) { e_31 = { error: e_31_1 }; }
+        finally {
+            try {
+                if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
+            }
+            finally { if (e_31) throw e_31.error; }
+        }
+        return groups;
+    };
     Diagram.prototype._performLayout = function () {
-        var e_25, _a, e_26, _b;
+        var e_32, _a, e_33, _b;
+        var _this = this;
         var oldPositions = new Map$1();
         if (this._animationManager.isEnabled) {
             try {
@@ -19715,52 +22630,104 @@ var Diagram = /** @class */ (function () {
                     while (partsIt.next()) {
                         var part = partsIt.value;
                         if (part instanceof Node && part.isLayoutPositioned && part.visible) {
-                            oldPositions.add(part, part.location.copy());
+                            var loc = part.location;
+                            if (loc && !isNaN(loc.x) && !isNaN(loc.y)) {
+                                oldPositions.add(part, loc.copy());
+                            }
                         }
                     }
                 }
             }
-            catch (e_25_1) { e_25 = { error: e_25_1 }; }
+            catch (e_32_1) { e_32 = { error: e_32_1 }; }
             finally {
                 try {
                     if (_d && !_d.done && (_a = _c.return)) _a.call(_c);
                 }
-                finally { if (e_25) throw e_25.error; }
+                finally { if (e_32) throw e_32.error; }
             }
         }
+        // ====== 官方 layoutDiagram(iC) 顺序 ======
+        // 0) 预排：全体 measure+arrange（成员文档 ab 就绪；组内未定位时 placeholder union 为非有限 → 不设 location）
+        this._measureArrangeAll();
+        // 1) 递归组布局（子组优先，官方 rD）：Ga = !location.isReal()；布局后 Db = 补测重排 + 位置同步
+        var allGroups = this._collectGroups();
+        var visited = new Set$1();
+        var nestedGroupsOf = function (g) {
+            var out = [];
+            var walk = function (owner) {
+                var it = owner.memberParts ? owner.memberParts.iterator : null;
+                if (!it)
+                    return;
+                while (it.next()) {
+                    var d = it.value;
+                    if (d._className === 'Group')
+                        out.push(d);
+                }
+            };
+            walk(g);
+            return out;
+        };
+        var visitGroup = function (g) {
+            var e_34, _a;
+            if (visited.has(g))
+                return;
+            visited.add(g);
+            try {
+                for (var _b = __values(nestedGroupsOf(g)), _c = _b.next(); !_c.done; _c = _b.next()) {
+                    var sub = _c.value;
+                    visitGroup(sub);
+                }
+            }
+            catch (e_34_1) { e_34 = { error: e_34_1 }; }
+            finally {
+                try {
+                    if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
+                }
+                finally { if (e_34) throw e_34.error; }
+            }
+            var gl = g.layout;
+            if (!gl)
+                return;
+            if (gl.isInitial || !gl.isValidLayout) {
+                g.Ga = isNaN(g.location.x) || isNaN(g.location.y);
+                if (gl.diagram !== _this)
+                    gl.diagram = _this;
+                var wasOngoing = gl.isOngoing;
+                gl.isOngoing = true;
+                gl.doLayout(g);
+                gl.isValidLayout = true;
+                gl.isOngoing = wasOngoing;
+                // 官方 Db(group)：measure+arrange 组子树（placeholder 设 location）+ bF 位置同步
+                _this._measureArrangeAll();
+            }
+        };
+        try {
+            for (var allGroups_1 = __values(allGroups), allGroups_1_1 = allGroups_1.next(); !allGroups_1_1.done; allGroups_1_1 = allGroups_1.next()) {
+                var g = allGroups_1_1.value;
+                visitGroup(g);
+            }
+        }
+        catch (e_33_1) { e_33 = { error: e_33_1 }; }
+        finally {
+            try {
+                if (allGroups_1_1 && !allGroups_1_1.done && (_b = allGroups_1.return)) _b.call(allGroups_1);
+            }
+            finally { if (e_33) throw e_33.error; }
+        }
+        // 2) Diagram 基础布局（官方 o.doLayout(this)）
         if (this._layout && typeof this._layout.doLayout === 'function') {
             if (this._layout.diagram !== this) {
                 this._layout.diagram = this;
             }
-            if (this._layout.isInitial || !this._layout.isValidLayout) {
-                this._layout.doLayout(this);
-            }
+            var dl = this._layout;
+            var wasOngoing = dl.isOngoing;
+            dl.isOngoing = true;
+            dl.doLayout(this);
+            dl.isValidLayout = true;
+            dl.isOngoing = wasOngoing;
         }
-        try {
-            for (var _e = __values(this._layers), _f = _e.next(); !_f.done; _f = _e.next()) {
-                var layer = _f.value;
-                if (layer.isTemporary)
-                    continue;
-                var partsIt = layer.parts;
-                while (partsIt.next()) {
-                    var part = partsIt.value;
-                    if (part._className === 'Group' && part.layout) {
-                        var groupLayout = part.layout;
-                        if (groupLayout.isInitial || !groupLayout.isValidLayout) {
-                            groupLayout.diagram = this;
-                            groupLayout.doLayout(part);
-                        }
-                    }
-                }
-            }
-        }
-        catch (e_26_1) { e_26 = { error: e_26_1 }; }
-        finally {
-            try {
-                if (_f && !_f.done && (_b = _e.return)) _b.call(_e);
-            }
-            finally { if (e_26) throw e_26.error; }
-        }
+        // 官方 Db(this)：diagram 布局后全体补测重排 + 位置同步（否则 location 保持 NaN）
+        this._measureArrangeAll();
         if (this._animationManager.isEnabled && oldPositions.count > 0) {
             var anim = this._animationManager.defaultAnimation;
             anim.clear();
@@ -19840,343 +22807,31 @@ var Diagram = /** @class */ (function () {
             return;
         this.alignDocument(this._contentAlignment, this._contentAlignment);
     };
-    Diagram.prototype._findGroupPlaceholder = function (group) {
-        // Walk the group's panel tree to locate the first Placeholder, tracking the
-        // accumulated actualBounds offset of each nested panel from the group's origin.
-        var walk = function (obj, px, py) {
-            var e_27, _a;
-            if (!obj)
-                return null;
-            if (obj._isPlaceholder) {
-                return { panelX: px, panelY: py, phX: obj.actualBounds ? obj.actualBounds.x : 0, phY: obj.actualBounds ? obj.actualBounds.y : 0 };
-            }
-            if (obj instanceof Panel || (obj._elements && obj._elements.length !== undefined)) {
-                var elements = obj._elements;
-                try {
-                    for (var elements_3 = __values(elements), elements_3_1 = elements_3.next(); !elements_3_1.done; elements_3_1 = elements_3.next()) {
-                        var child = elements_3_1.value;
-                        var ab = obj.actualBounds;
-                        var dx = (obj === group) ? 0 : (ab ? ab.x : 0);
-                        var dy = (obj === group) ? 0 : (ab ? ab.y : 0);
-                        var r = walk(child, px + dx, py + dy);
-                        if (r)
-                            return r;
-                    }
-                }
-                catch (e_27_1) { e_27 = { error: e_27_1 }; }
-                finally {
-                    try {
-                        if (elements_3_1 && !elements_3_1.done && (_a = elements_3.return)) _a.call(elements_3);
-                    }
-                    finally { if (e_27) throw e_27.error; }
-                }
-            }
-            return null;
-        };
-        return walk(group, 0, 0);
-    };
-    // Compute the (x, y) offset within the group's document coordinate system at
-    // which the member area (the placeholder) begins. This depends only on the
-    // group's header height and the placeholder's margin plus the surrounding
-    // shape's stroke -- NOT on the members' positions -- so it is stable across
-    // layout passes and avoids the placeholder<->member measurement cycle.
-    Diagram.prototype._computeGroupMemberOrigin = function (group) {
-        var headerEl = group._elements && group._elements[0];
-        var headerH = headerEl && headerEl.measuredBounds ? headerEl.measuredBounds.height : 0;
-        var insetX = 10;
-        var insetY = 10;
-        var walk = function (obj) {
-            var e_28, _a, e_29, _b;
-            if (!obj)
-                return false;
-            if (obj._elements && obj._elements.length !== undefined) {
-                try {
-                    for (var _c = __values(obj._elements), _d = _c.next(); !_d.done; _d = _c.next()) {
-                        var child = _d.value;
-                        if (child._isPlaceholder) {
-                            var m = child.margin;
-                            var stroke = 0;
-                            if (obj._elements) {
-                                try {
-                                    for (var _e = (e_29 = void 0, __values(obj._elements)), _f = _e.next(); !_f.done; _f = _e.next()) {
-                                        var sib = _f.value;
-                                        if (sib._strokeWidth)
-                                            stroke = sib._strokeWidth;
-                                    }
-                                }
-                                catch (e_29_1) { e_29 = { error: e_29_1 }; }
-                                finally {
-                                    try {
-                                        if (_f && !_f.done && (_b = _e.return)) _b.call(_e);
-                                    }
-                                    finally { if (e_29) throw e_29.error; }
-                                }
-                            }
-                            if (m) {
-                                insetX = m.left + stroke;
-                                insetY = m.top + stroke;
-                            }
-                            return true;
-                        }
-                        if (walk(child))
-                            return true;
-                    }
-                }
-                catch (e_28_1) { e_28 = { error: e_28_1 }; }
-                finally {
-                    try {
-                        if (_d && !_d.done && (_a = _c.return)) _a.call(_c);
-                    }
-                    finally { if (e_28) throw e_28.error; }
-                }
-            }
-            return false;
-        };
-        walk(group);
-        return { x: insetX, y: headerH + insetY };
-    };
-    // Lay out a group's member parts inside the group, starting at the top-left
-    // of the member area (below the header). The members are positioned relative
-    // to the group's header (title) so this does not depend on the placeholder's
-    // measured bounds (which in turn depend on the members' positions).
-    Diagram.prototype._layoutGroupMembers = function (group, groupInnerWidth, hSpacing, vSpacing) {
-        var gloc = group.location;
-        var gx = isNaN(gloc.x) ? 0 : gloc.x;
-        var gy = isNaN(gloc.y) ? 0 : gloc.y;
-        var origin = this._computeGroupMemberOrigin(group);
-        var baseX = gx + origin.x;
-        var baseY = gy + origin.y;
-        var mx = baseX;
-        var my = baseY;
-        var rowMax = 0;
-        var mIt = group.memberParts.iterator;
-        while (mIt.next()) {
-            var member = mIt.value;
-            var mmb = member.measuredBounds;
-            if (mx + mmb.width > gx + groupInnerWidth && mx > baseX) {
-                mx = baseX;
-                my += rowMax + vSpacing;
-                rowMax = 0;
-            }
-            member.location = new Point(mx, my);
-            mx += mmb.width + hSpacing;
-            rowMax = Math.max(rowMax, mmb.height);
-        }
-    };
     Diagram.prototype._updateGeometry = function () {
-        var e_30, _a, e_31, _b, e_32, _c, e_33, _d, e_34, _e, e_35, _f, e_36, _g, e_37, _h, e_38, _j, e_39, _k;
-        var viewSize = this.viewSize;
-        var availW = viewSize.width > 0 ? viewSize.width : 800;
-        var availH = viewSize.height > 0 ? viewSize.height : 600;
-        var partsToLayout = [];
+        var e_35, _a;
+        this._measureArrangeAll(false);
         try {
-            for (var _l = __values(this._layers), _m = _l.next(); !_m.done; _m = _l.next()) {
-                var layer = _m.value;
+            for (var _b = __values(this._layers), _c = _b.next(); !_c.done; _c = _b.next()) {
+                var layer = _c.value;
                 if (!layer.visible)
                     continue;
                 var partsIt = layer.parts;
                 while (partsIt.next()) {
                     var part = partsIt.value;
+                    if (!(part instanceof Link))
+                        continue;
                     if (!part.visible)
                         continue;
-                    part._measure(Infinity, Infinity);
-                    partsToLayout.push(part);
+                    part.computePoints();
                 }
             }
         }
-        catch (e_30_1) { e_30 = { error: e_30_1 }; }
+        catch (e_35_1) { e_35 = { error: e_35_1 }; }
         finally {
             try {
-                if (_m && !_m.done && (_a = _l.return)) _a.call(_l);
+                if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_30) throw e_30.error; }
-        }
-        if (!this._layout) {
-            var hSpacing = 20;
-            var vSpacing = 36;
-            var maxWidth = availW - 100;
-            // available width for a group's member grid
-            var groupInnerWidth = Math.max(120, Math.min(400, maxWidth - 80));
-            var isGroupPart = function (p) { return p._className === 'Group'; };
-            var isMember = function (p) { return !!p.containingGroup; };
-            // Collect the top-level layout units: non-member nodes and groups.
-            var topUnits = [];
-            var memberUnits = [];
-            try {
-                for (var partsToLayout_1 = __values(partsToLayout), partsToLayout_1_1 = partsToLayout_1.next(); !partsToLayout_1_1.done; partsToLayout_1_1 = partsToLayout_1.next()) {
-                    var part = partsToLayout_1_1.value;
-                    if (part instanceof Link)
-                        continue;
-                    if (isMember(part)) {
-                        memberUnits.push(part);
-                        continue;
-                    }
-                    topUnits.push(part);
-                }
-            }
-            catch (e_31_1) { e_31 = { error: e_31_1 }; }
-            finally {
-                try {
-                    if (partsToLayout_1_1 && !partsToLayout_1_1.done && (_b = partsToLayout_1.return)) _b.call(partsToLayout_1);
-                }
-                finally { if (e_31) throw e_31.error; }
-            }
-            // Place top-level nodes and groups in a uniform square-ish grid:
-            // every column has the same width and every row the same height, so the
-            // result reads as a neat grid (matching GoJS's default GridLayout look).
-            var cellW = 0;
-            var cellH = 0;
-            try {
-                for (var topUnits_1 = __values(topUnits), topUnits_1_1 = topUnits_1.next(); !topUnits_1_1.done; topUnits_1_1 = topUnits_1.next()) {
-                    var part = topUnits_1_1.value;
-                    var mb = part.measuredBounds;
-                    cellW = Math.max(cellW, mb.width);
-                    cellH = Math.max(cellH, mb.height);
-                }
-            }
-            catch (e_32_1) { e_32 = { error: e_32_1 }; }
-            finally {
-                try {
-                    if (topUnits_1_1 && !topUnits_1_1.done && (_c = topUnits_1.return)) _c.call(topUnits_1);
-                }
-                finally { if (e_32) throw e_32.error; }
-            }
-            cellW += hSpacing;
-            cellH += vSpacing;
-            var cols = Math.max(1, Math.floor((maxWidth - 50) / cellW));
-            var gridCol = 0;
-            var gridY = 50;
-            try {
-                for (var topUnits_2 = __values(topUnits), topUnits_2_1 = topUnits_2.next(); !topUnits_2_1.done; topUnits_2_1 = topUnits_2.next()) {
-                    var part = topUnits_2_1.value;
-                    var loc = part.location;
-                    if (!isNaN(loc.x) && !isNaN(loc.y))
-                        continue;
-                    var mb = part.measuredBounds;
-                    // If this unit is wider than the remaining columns, start a new row so
-                    // it does not overlap the cells to its right (keeps columns aligned).
-                    if (gridCol > 0 && mb.width > (cols - gridCol) * cellW - hSpacing) {
-                        gridCol = 0;
-                        gridY += cellH;
-                    }
-                    part.location = new Point(50 + gridCol * cellW, gridY);
-                    gridCol++;
-                    if (gridCol >= cols) {
-                        gridCol = 0;
-                        gridY += cellH;
-                    }
-                }
-            }
-            catch (e_33_1) { e_33 = { error: e_33_1 }; }
-            finally {
-                try {
-                    if (topUnits_2_1 && !topUnits_2_1.done && (_d = topUnits_2.return)) _d.call(topUnits_2);
-                }
-                finally { if (e_33) throw e_33.error; }
-            }
-            // Place each group's member nodes inside the group's bounds.
-            var memberGroups = [];
-            try {
-                for (var topUnits_3 = __values(topUnits), topUnits_3_1 = topUnits_3.next(); !topUnits_3_1.done; topUnits_3_1 = topUnits_3.next()) {
-                    var part = topUnits_3_1.value;
-                    if (isGroupPart(part) && part.memberParts && part.memberParts.count > 0) {
-                        memberGroups.push(part);
-                    }
-                }
-            }
-            catch (e_34_1) { e_34 = { error: e_34_1 }; }
-            finally {
-                try {
-                    if (topUnits_3_1 && !topUnits_3_1.done && (_e = topUnits_3.return)) _e.call(topUnits_3);
-                }
-                finally { if (e_34) throw e_34.error; }
-            }
-            try {
-                for (var memberGroups_1 = __values(memberGroups), memberGroups_1_1 = memberGroups_1.next(); !memberGroups_1_1.done; memberGroups_1_1 = memberGroups_1.next()) {
-                    var group = memberGroups_1_1.value;
-                    this._layoutGroupMembers(group, groupInnerWidth, hSpacing, vSpacing);
-                }
-            }
-            catch (e_35_1) { e_35 = { error: e_35_1 }; }
-            finally {
-                try {
-                    if (memberGroups_1_1 && !memberGroups_1_1.done && (_f = memberGroups_1.return)) _f.call(memberGroups_1);
-                }
-                finally { if (e_35) throw e_35.error; }
-            }
-        }
-        try {
-            for (var partsToLayout_2 = __values(partsToLayout), partsToLayout_2_1 = partsToLayout_2.next(); !partsToLayout_2_1.done; partsToLayout_2_1 = partsToLayout_2.next()) {
-                var part = partsToLayout_2_1.value;
-                if (part instanceof Link)
-                    continue;
-                var loc = part.location;
-                var x = isNaN(loc.x) ? 0 : loc.x;
-                var y = isNaN(loc.y) ? 0 : loc.y;
-                var mb = part.measuredBounds;
-                part._arrange(new Rect(x, y, mb.width, mb.height));
-            }
-        }
-        catch (e_36_1) { e_36 = { error: e_36_1 }; }
-        finally {
-            try {
-                if (partsToLayout_2_1 && !partsToLayout_2_1.done && (_g = partsToLayout_2.return)) _g.call(partsToLayout_2);
-            }
-            finally { if (e_36) throw e_36.error; }
-        }
-        try {
-            for (var partsToLayout_3 = __values(partsToLayout), partsToLayout_3_1 = partsToLayout_3.next(); !partsToLayout_3_1.done; partsToLayout_3_1 = partsToLayout_3.next()) {
-                var part = partsToLayout_3_1.value;
-                if (!(part instanceof Link))
-                    continue;
-                var loc = part.location;
-                var x = isNaN(loc.x) ? 0 : loc.x;
-                var y = isNaN(loc.y) ? 0 : loc.y;
-                var mb = part.measuredBounds;
-                part._arrange(new Rect(x, y, mb.width, mb.height));
-                part.computePoints();
-            }
-        }
-        catch (e_37_1) { e_37 = { error: e_37_1 }; }
-        finally {
-            try {
-                if (partsToLayout_3_1 && !partsToLayout_3_1.done && (_h = partsToLayout_3.return)) _h.call(partsToLayout_3);
-            }
-            finally { if (e_37) throw e_37.error; }
-        }
-        var groupsToRemeasure = [];
-        try {
-            for (var partsToLayout_4 = __values(partsToLayout), partsToLayout_4_1 = partsToLayout_4.next(); !partsToLayout_4_1.done; partsToLayout_4_1 = partsToLayout_4.next()) {
-                var part = partsToLayout_4_1.value;
-                if (part._className === 'Group') {
-                    groupsToRemeasure.push(part);
-                }
-            }
-        }
-        catch (e_38_1) { e_38 = { error: e_38_1 }; }
-        finally {
-            try {
-                if (partsToLayout_4_1 && !partsToLayout_4_1.done && (_j = partsToLayout_4.return)) _j.call(partsToLayout_4);
-            }
-            finally { if (e_38) throw e_38.error; }
-        }
-        try {
-            for (var groupsToRemeasure_1 = __values(groupsToRemeasure), groupsToRemeasure_1_1 = groupsToRemeasure_1.next(); !groupsToRemeasure_1_1.done; groupsToRemeasure_1_1 = groupsToRemeasure_1.next()) {
-                var group = groupsToRemeasure_1_1.value;
-                group._measure(availW, availH);
-                var loc = group.location;
-                var x = isNaN(loc.x) ? 0 : loc.x;
-                var y = isNaN(loc.y) ? 0 : loc.y;
-                var mb = group.measuredBounds;
-                group._arrange(new Rect(x, y, mb.width, mb.height));
-            }
-        }
-        catch (e_39_1) { e_39 = { error: e_39_1 }; }
-        finally {
-            try {
-                if (groupsToRemeasure_1_1 && !groupsToRemeasure_1_1.done && (_k = groupsToRemeasure_1.return)) _k.call(groupsToRemeasure_1);
-            }
-            finally { if (e_39) throw e_39.error; }
+            finally { if (e_35) throw e_35.error; }
         }
     };
     Diagram.prototype._setupResizeObserver = function () {
@@ -20947,637 +23602,6 @@ var HTMLInfo = /** @class */ (function () {
 }());
 
 /**
- * LayoutVertex - represents a node in the layout network.
- */
-var LayoutVertex = /** @class */ (function () {
-    function LayoutVertex() {
-        /** The network this vertex belongs to */
-        this.network = null;
-        /** X position of the vertex center */
-        this.x = 0;
-        /** Y position of the vertex center */
-        this.y = 0;
-        /** Bounding rectangle of the vertex */
-        this.bounds = new Rect(0, 0, 0, 0);
-        /** Focus X offset (0-1 relative to width) for connection points */
-        this.focusX = 0.5;
-        /** Focus Y offset (0-1 relative to height) for connection points */
-        this.focusY = 0.5;
-        /** The Part associated with this vertex, if any */
-        this.part = null;
-        /** Edges where this vertex is the source */
-        this.sourceEdges = new List();
-        /** Edges where this vertex is the destination */
-        this.destinationEdges = new List();
-        /** The Node associated with this vertex, if any */
-        this.node = null;
-        /** Whether this vertex is artificial (not associated with a real part) */
-        this._isArtificial = false;
-        /** Internal index for algorithms */
-        this._index = -1;
-    }
-    Object.defineProperty(LayoutVertex.prototype, "width", {
-        /** Width of the vertex */
-        get: function () {
-            return this.bounds.width;
-        },
-        set: function (val) {
-            this.bounds.width = val;
-        },
-        enumerable: false,
-        configurable: true
-    });
-    Object.defineProperty(LayoutVertex.prototype, "height", {
-        /** Height of the vertex */
-        get: function () {
-            return this.bounds.height;
-        },
-        set: function (val) {
-            this.bounds.height = val;
-        },
-        enumerable: false,
-        configurable: true
-    });
-    /** Add an edge where this vertex is the destination */
-    LayoutVertex.prototype.addDestinationEdge = function (edge) {
-        this.destinationEdges.add(edge);
-    };
-    /** Add an edge where this vertex is the source */
-    LayoutVertex.prototype.addSourceEdge = function (edge) {
-        this.sourceEdges.add(edge);
-    };
-    /** Delete an edge from both source and destination lists */
-    LayoutVertex.prototype.deleteEdge = function (edge) {
-        this.sourceEdges.remove(edge);
-        this.destinationEdges.remove(edge);
-    };
-    Object.defineProperty(LayoutVertex.prototype, "center", {
-        /** Get the center point of this vertex */
-        get: function () {
-            return {
-                x: this.x + this.width * this.focusX,
-                y: this.y + this.height * this.focusY
-            };
-        },
-        enumerable: false,
-        configurable: true
-    });
-    LayoutVertex.smartComparer = function (a, b) {
-        var na = a.data ? String(a.data.key) : '';
-        var nb = b.data ? String(b.data.key) : '';
-        var naNum = parseFloat(na);
-        var nbNum = parseFloat(nb);
-        if (!isNaN(naNum) && !isNaN(nbNum))
-            return naNum - nbNum;
-        return na < nb ? -1 : na > nb ? 1 : 0;
-    };
-    return LayoutVertex;
-}());
-
-/**
- * LayoutEdge - represents a link in the layout network.
- */
-var LayoutEdge = /** @class */ (function () {
-    function LayoutEdge() {
-        /** The network this edge belongs to */
-        this.network = null;
-        /** The source vertex of this edge */
-        this.fromVertex = null;
-        /** The destination vertex of this edge */
-        this.toVertex = null;
-        /** The Link associated with this edge, if any */
-        this.link = null;
-        /** The preferred length of this edge */
-        this.length = NaN;
-        /** The weight of this edge for layout calculations */
-        this.weight = 1;
-    }
-    /** Get the other vertex given one vertex of this edge */
-    LayoutEdge.prototype.getOtherVertex = function (vertex) {
-        if (vertex === this.fromVertex)
-            return this.toVertex;
-        if (vertex === this.toVertex)
-            return this.fromVertex;
-        return null;
-    };
-    return LayoutEdge;
-}());
-
-/**
- * LayoutNetwork - the graph structure used by layouts.
- * Contains vertexes (nodes) and edges (links) for layout computation.
- */
-var LayoutNetwork = /** @class */ (function () {
-    function LayoutNetwork() {
-        /** The layout that owns this network */
-        this.layout = null;
-        /** All vertexes in this network */
-        this.vertexes = new List();
-        /** All edges in this network */
-        this.edges = new List();
-        /** Map from Link to LayoutEdge */
-        this.linkToLayoutEdge = new Map$1();
-        /** Map from Node to LayoutVertex */
-        this.nodeToLayoutVertex = new Map$1();
-    }
-    /** Add a vertex to this network */
-    LayoutNetwork.prototype.addVertex = function (vertex) {
-        vertex.network = this;
-        this.vertexes.add(vertex);
-        return vertex;
-    };
-    /** Add an edge to this network */
-    LayoutNetwork.prototype.addEdge = function (edge) {
-        edge.network = this;
-        this.edges.add(edge);
-        if (edge.fromVertex) {
-            edge.fromVertex.addSourceEdge(edge);
-        }
-        if (edge.toVertex) {
-            edge.toVertex.addDestinationEdge(edge);
-        }
-        return edge;
-    };
-    /** Add a link to the network, creating an edge between the from/to vertexes */
-    LayoutNetwork.prototype.addLink = function (link) {
-        var fromNode = link.fromNode;
-        var toNode = link.toNode;
-        if (!fromNode || !toNode)
-            return null;
-        var fromVertex = this.findVertex(fromNode);
-        if (!fromVertex) {
-            fromVertex = this.addNode(fromNode);
-        }
-        var toVertex = this.findVertex(toNode);
-        if (!toVertex) {
-            toVertex = this.addNode(toNode);
-        }
-        var edge = this.linkVertexes(fromVertex, toVertex);
-        edge.link = link;
-        this.linkToLayoutEdge.set(link, edge);
-        return edge;
-    };
-    /** Add a node to the network, creating a vertex */
-    LayoutNetwork.prototype.addNode = function (node) {
-        var vertex = this.findVertex(node);
-        if (vertex)
-            return vertex;
-        vertex = new LayoutVertex();
-        vertex.network = this;
-        vertex.node = node;
-        vertex.part = node;
-        // Get bounds from the node
-        var bounds = node.getDocumentBounds();
-        vertex.bounds = bounds.copy();
-        vertex.x = bounds.x;
-        vertex.y = bounds.y;
-        this.vertexes.add(vertex);
-        this.nodeToLayoutVertex.set(node, vertex);
-        return vertex;
-    };
-    /** Delete all artificial vertexes from the network */
-    LayoutNetwork.prototype.deleteArtificialVertexes = function () {
-        var e_1, _a, e_2, _b;
-        var toRemove = [];
-        var it = this.vertexes.iterator;
-        while (it.next()) {
-            var v = it.value;
-            if (v._isArtificial) {
-                toRemove.push(v);
-            }
-        }
-        try {
-            for (var toRemove_1 = __values(toRemove), toRemove_1_1 = toRemove_1.next(); !toRemove_1_1.done; toRemove_1_1 = toRemove_1.next()) {
-                var v = toRemove_1_1.value;
-                // Remove all edges connected to this vertex
-                var edgesToRemove = [];
-                var srcIt = v.sourceEdges.iterator;
-                while (srcIt.next()) {
-                    edgesToRemove.push(srcIt.value);
-                }
-                var dstIt = v.destinationEdges.iterator;
-                while (dstIt.next()) {
-                    edgesToRemove.push(dstIt.value);
-                }
-                try {
-                    for (var edgesToRemove_1 = (e_2 = void 0, __values(edgesToRemove)), edgesToRemove_1_1 = edgesToRemove_1.next(); !edgesToRemove_1_1.done; edgesToRemove_1_1 = edgesToRemove_1.next()) {
-                        var e = edgesToRemove_1_1.value;
-                        this.deleteEdge(e);
-                    }
-                }
-                catch (e_2_1) { e_2 = { error: e_2_1 }; }
-                finally {
-                    try {
-                        if (edgesToRemove_1_1 && !edgesToRemove_1_1.done && (_b = edgesToRemove_1.return)) _b.call(edgesToRemove_1);
-                    }
-                    finally { if (e_2) throw e_2.error; }
-                }
-                this.vertexes.remove(v);
-            }
-        }
-        catch (e_1_1) { e_1 = { error: e_1_1 }; }
-        finally {
-            try {
-                if (toRemove_1_1 && !toRemove_1_1.done && (_a = toRemove_1.return)) _a.call(toRemove_1);
-            }
-            finally { if (e_1) throw e_1.error; }
-        }
-    };
-    /** Delete self-loop edges (where fromVertex === toVertex) */
-    LayoutNetwork.prototype.deleteSelfEdges = function () {
-        var e_3, _a;
-        var toRemove = [];
-        var it = this.edges.iterator;
-        while (it.next()) {
-            var e = it.value;
-            if (e.fromVertex === e.toVertex) {
-                toRemove.push(e);
-            }
-        }
-        try {
-            for (var toRemove_2 = __values(toRemove), toRemove_2_1 = toRemove_2.next(); !toRemove_2_1.done; toRemove_2_1 = toRemove_2.next()) {
-                var e = toRemove_2_1.value;
-                this.deleteEdge(e);
-            }
-        }
-        catch (e_3_1) { e_3 = { error: e_3_1 }; }
-        finally {
-            try {
-                if (toRemove_2_1 && !toRemove_2_1.done && (_a = toRemove_2.return)) _a.call(toRemove_2);
-            }
-            finally { if (e_3) throw e_3.error; }
-        }
-    };
-    /** Find the vertex associated with a node */
-    LayoutNetwork.prototype.findVertex = function (node) {
-        return this.nodeToLayoutVertex.get(node) || null;
-    };
-    /** Find the edge associated with a link */
-    LayoutNetwork.prototype.findEdge = function (link) {
-        return this.linkToLayoutEdge.get(link) || null;
-    };
-    /** Create an edge connecting two vertexes */
-    LayoutNetwork.prototype.linkVertexes = function (fromVertex, toVertex) {
-        var edge = new LayoutEdge();
-        edge.network = this;
-        edge.fromVertex = fromVertex;
-        edge.toVertex = toVertex;
-        fromVertex.addSourceEdge(edge);
-        toVertex.addDestinationEdge(edge);
-        this.edges.add(edge);
-        return edge;
-    };
-    /** Delete an edge from the network */
-    LayoutNetwork.prototype.deleteEdge = function (edge) {
-        if (edge.fromVertex) {
-            edge.fromVertex.sourceEdges.remove(edge);
-        }
-        if (edge.toVertex) {
-            edge.toVertex.destinationEdges.remove(edge);
-        }
-        this.edges.remove(edge);
-        if (edge.link) {
-            this.linkToLayoutEdge.remove(edge.link);
-        }
-    };
-    /** Split this network into sub-networks of connected components */
-    LayoutNetwork.prototype.splitIntoSubNetworks = function () {
-        var result = new List();
-        if (this.vertexes.count === 0)
-            return result;
-        var visited = new Set();
-        var it = this.vertexes.iterator;
-        while (it.next()) {
-            var startVertex = it.value;
-            if (visited.has(startVertex))
-                continue;
-            // BFS to find all connected vertexes
-            var component = new LayoutNetwork();
-            component.layout = this.layout;
-            var queue = [startVertex];
-            visited.add(startVertex);
-            while (queue.length > 0) {
-                var v = queue.shift();
-                component.addVertex(v);
-                // Traverse source edges
-                var srcIt = v.sourceEdges.iterator;
-                while (srcIt.next()) {
-                    var e = srcIt.value;
-                    if (e.toVertex && !visited.has(e.toVertex)) {
-                        visited.add(e.toVertex);
-                        queue.push(e.toVertex);
-                    }
-                    component.addEdge(e);
-                }
-                // Traverse destination edges
-                var dstIt = v.destinationEdges.iterator;
-                while (dstIt.next()) {
-                    var e = dstIt.value;
-                    if (e.fromVertex && !visited.has(e.fromVertex)) {
-                        visited.add(e.fromVertex);
-                        queue.push(e.fromVertex);
-                    }
-                    if (!component.edges.contains(e)) {
-                        component.addEdge(e);
-                    }
-                }
-            }
-            result.add(component);
-        }
-        return result;
-    };
-    return LayoutNetwork;
-}());
-
-/**
- * Layout - base class for all layout algorithms.
- * Subclasses must override doLayout() to implement specific layout algorithms.
- */
-var Layout = /** @class */ (function () {
-    function Layout() {
-        // ============ Protected property storage ============
-        this._arrangementOrigin = new Point(0, 0);
-        this._isInitial = true;
-        this._isOngoing = true;
-        this._isRealtime = true;
-        this._isRouting = true;
-        this._isValidLayout = true;
-        this._isViewportSized = false;
-        this._boundsComputation = null;
-        this._network = null;
-        this._diagram = null;
-        this._group = null;
-    }
-    Object.defineProperty(Layout.prototype, "arrangementOrigin", {
-        // ============ Properties ============
-        get: function () { return this._arrangementOrigin; },
-        set: function (val) { this._arrangementOrigin = val.copy(); this.invalidateLayout(); },
-        enumerable: false,
-        configurable: true
-    });
-    Object.defineProperty(Layout.prototype, "isInitial", {
-        get: function () { return this._isInitial; },
-        set: function (val) { this._isInitial = val; },
-        enumerable: false,
-        configurable: true
-    });
-    Object.defineProperty(Layout.prototype, "isOngoing", {
-        get: function () { return this._isOngoing; },
-        set: function (val) { this._isOngoing = val; },
-        enumerable: false,
-        configurable: true
-    });
-    Object.defineProperty(Layout.prototype, "isRealtime", {
-        get: function () { return this._isRealtime; },
-        set: function (val) { this._isRealtime = val; },
-        enumerable: false,
-        configurable: true
-    });
-    Object.defineProperty(Layout.prototype, "isRouting", {
-        get: function () { return this._isRouting; },
-        set: function (val) { this._isRouting = val; },
-        enumerable: false,
-        configurable: true
-    });
-    Object.defineProperty(Layout.prototype, "isValidLayout", {
-        get: function () { return this._isValidLayout; },
-        set: function (val) { this._isValidLayout = val; },
-        enumerable: false,
-        configurable: true
-    });
-    Object.defineProperty(Layout.prototype, "isViewportSized", {
-        get: function () { return this._isViewportSized; },
-        set: function (val) { this._isViewportSized = val; },
-        enumerable: false,
-        configurable: true
-    });
-    Object.defineProperty(Layout.prototype, "boundsComputation", {
-        get: function () {
-            return this._boundsComputation;
-        },
-        set: function (val) {
-            this._boundsComputation = val;
-        },
-        enumerable: false,
-        configurable: true
-    });
-    Object.defineProperty(Layout.prototype, "network", {
-        get: function () { return this._network; },
-        set: function (val) { this._network = val; },
-        enumerable: false,
-        configurable: true
-    });
-    Object.defineProperty(Layout.prototype, "diagram", {
-        get: function () { return this._diagram; },
-        set: function (val) { this._diagram = val; },
-        enumerable: false,
-        configurable: true
-    });
-    Object.defineProperty(Layout.prototype, "group", {
-        get: function () { return this._group; },
-        set: function (val) { this._group = val; },
-        enumerable: false,
-        configurable: true
-    });
-    // ============ Methods ============
-    /**
-     * Perform the layout on the given collection of parts.
-     * @param coll - A Diagram, Iterable<Part>, or array of Parts
-     */
-    Layout.prototype.doLayout = function (coll) {
-        // Base implementation - subclasses override
-        var parts = this.collectParts(coll);
-        if (parts.count === 0)
-            return;
-        this.isValidLayout = true;
-    };
-    /**
-     * Collect all Parts that should be laid out from the given collection.
-     * @param coll - A Diagram, Iterable<Part>, or array of Parts
-     */
-    Layout.prototype.collectParts = function (coll) {
-        var e_1, _a, e_2, _b;
-        var parts = new List();
-        if (!coll)
-            return parts;
-        // If it's a Diagram, collect all nodes and links
-        if (coll._layers) {
-            var diagram = coll;
-            try {
-                for (var _c = __values(diagram._layers), _d = _c.next(); !_d.done; _d = _c.next()) {
-                    var layer = _d.value;
-                    if (layer.isTemporary)
-                        continue;
-                    var partsIt = layer.parts;
-                    while (partsIt.next()) {
-                        var part = partsIt.value;
-                        if (part.isLayoutPositioned && part.visible) {
-                            parts.add(part);
-                        }
-                    }
-                }
-            }
-            catch (e_1_1) { e_1 = { error: e_1_1 }; }
-            finally {
-                try {
-                    if (_d && !_d.done && (_a = _c.return)) _a.call(_c);
-                }
-                finally { if (e_1) throw e_1.error; }
-            }
-            this._diagram = diagram;
-            return parts;
-        }
-        // If it has an iterator (Iterable<Part>)
-        if (typeof coll.iterator === 'function' || (coll.iterator && typeof coll.iterator.next === 'function')) {
-            var it = coll.iterator;
-            while (it.next()) {
-                var part = it.value;
-                if (part instanceof Part && part.isLayoutPositioned && part.visible) {
-                    parts.add(part);
-                }
-            }
-            return parts;
-        }
-        // If it's an array
-        if (Array.isArray(coll)) {
-            try {
-                for (var coll_1 = __values(coll), coll_1_1 = coll_1.next(); !coll_1_1.done; coll_1_1 = coll_1.next()) {
-                    var part = coll_1_1.value;
-                    if (part instanceof Part && part.isLayoutPositioned && part.visible) {
-                        parts.add(part);
-                    }
-                }
-            }
-            catch (e_2_1) { e_2 = { error: e_2_1 }; }
-            finally {
-                try {
-                    if (coll_1_1 && !coll_1_1.done && (_b = coll_1.return)) _b.call(coll_1);
-                }
-                finally { if (e_2) throw e_2.error; }
-            }
-            return parts;
-        }
-        return parts;
-    };
-    /**
-     * Commit the layout by moving parts to their computed positions.
-     * Called after the layout algorithm has computed positions.
-     */
-    Layout.prototype.commitLayout = function () {
-        if (!this._network)
-            return;
-        var it = this._network.vertexes.iterator;
-        while (it.next()) {
-            var vertex = it.value;
-            if (vertex.node && !vertex._isArtificial) {
-                var node = vertex.node;
-                node.move(new Point(vertex.x, vertex.y));
-            }
-        }
-        var eit = this._network.edges.iterator;
-        while (eit.next()) {
-            var edge = eit.value;
-            if (edge.link) {
-                edge.link.computePoints();
-            }
-        }
-    };
-    /**
-     * Create a copy of this layout.
-     */
-    Layout.prototype.copy = function () {
-        var copy = new Layout();
-        copy._arrangementOrigin = this._arrangementOrigin.copy();
-        copy._isInitial = this._isInitial;
-        copy._isOngoing = this._isOngoing;
-        copy._isRealtime = this._isRealtime;
-        copy._isRouting = this._isRouting;
-        copy._isValidLayout = this._isValidLayout;
-        copy._isViewportSized = this._isViewportSized;
-        copy._boundsComputation = this._boundsComputation;
-        return copy;
-    };
-    /**
-     * Create a new LayoutNetwork for this layout.
-     */
-    Layout.prototype.createNetwork = function () {
-        var net = new LayoutNetwork();
-        net.layout = this;
-        return net;
-    };
-    /**
-     * Get the layout bounds of a part.
-     * @param part - The part to get bounds for
-     */
-    Layout.prototype.getLayoutBounds = function (part) {
-        var bounds = part.getDocumentBounds();
-        if (this._boundsComputation) {
-            return this._boundsComputation(this, part, bounds);
-        }
-        return bounds;
-    };
-    /**
-     * Return the initial origin point for the layout.
-     */
-    Layout.prototype.initialOrigin = function () {
-        return this._arrangementOrigin.copy();
-    };
-    /**
-     * Invalidate this layout, causing it to be re-performed.
-     */
-    Layout.prototype.invalidateLayout = function () {
-        this._isValidLayout = false;
-        if (this._diagram) {
-            this._diagram._layoutInvalid = true;
-            this._diagram.requestUpdate();
-        }
-        if (this._group) {
-            this._group._layoutInvalid = true;
-            if (this._group.diagram) {
-                this._group.diagram.requestUpdate();
-            }
-        }
-    };
-    /**
-     * Build a LayoutNetwork from the parts in the given collection.
-     * @param coll - A Diagram, Iterable<Part>, or array of Parts
-     */
-    Layout.prototype.makeNetwork = function (coll) {
-        var net = this.createNetwork();
-        var parts = this.collectParts(coll);
-        // Add all nodes as vertexes
-        var it = parts.iterator;
-        while (it.next()) {
-            var part = it.value;
-            if (part instanceof Node) {
-                var vertex = net.addNode(part);
-                var bounds = this.getLayoutBounds(part);
-                vertex.bounds = bounds.copy();
-                vertex.x = bounds.x;
-                vertex.y = bounds.y;
-            }
-        }
-        // Add all links as edges
-        var linkIt = parts.iterator;
-        while (linkIt.next()) {
-            var part = linkIt.value;
-            if (part instanceof Link) {
-                net.addLink(part);
-            }
-        }
-        this._network = net;
-        return net;
-    };
-    /**
-     * Update the positions of parts after the layout has been computed.
-     */
-    Layout.prototype.updateParts = function () {
-        this.commitLayout();
-    };
-    return Layout;
-}());
-
-/**
  * GridLayout - arranges parts in a grid pattern.
  */
 var GridLayout = /** @class */ (function (_super) {
@@ -21747,104 +23771,176 @@ var GridLayout = /** @class */ (function (_super) {
     return GridLayout;
 }(Layout));
 
-var TreeVertex = /** @class */ (function () {
+/**
+ * TreeVertex - TreeLayout 专用顶点（官方 TreeVertex 的移植）。
+ *
+ * 与基础 LayoutVertex 的差异：
+ * - focus 是绝对偏移量 Point（官方 LayoutVertex.focus），不是 0-1 分数
+ * - 携带树结构（parent/children/level）与几何中间量 K/kt/gt/mm/pm
+ * - 携带可继承的布局属性（sorting/angle/alignment/nodeSpacing/layerSpacing/...）
+ */
+var TreeVertex = /** @class */ (function (_super) {
+    __extends(TreeVertex, _super);
     function TreeVertex() {
+        var _this = _super.apply(this, __spreadArray([], __read(arguments), false)) || this;
+        // ============ 树结构（官方 Bk/Vk/zk/Ar/Xk/Yk/Kk/Je） ============
+        _this.initialized = false;
+        _this.parent = null;
+        _this.children = [];
+        _this.level = 0;
+        _this.descendantCount = 0;
+        _this.maxChildrenCount = 0;
+        _this.maxGenerationCount = 0;
+        _this.comments = null;
+        // ============ 布局几何中间量（官方 K/kt/gt/mm/pm） ============
+        /** 官方 K — 本顶点相对父顶点的偏移 */
+        _this.relativePosition = new Point(0, 0);
+        /** 官方 kt — 子树包围尺寸 */
+        _this.subtreeSize = new Size(0, 0);
+        /** 官方 gt — 子树对齐偏移（用于父顶点的居中/总线计算） */
+        _this.subtreeOffset = new Point(0, 0);
+        /** 官方 mm — 起始边线（链接脊线/压缩用） */
+        _this.mm = null;
+        /** 官方 pm — 结束边线 */
+        _this.pm = null;
+        /** 官方 LayoutVertex.focus — 从 bounds 原点到节点中心的绝对偏移 */
+        _this.focus = new Point(0, 0);
+        // ============ 可继承属性（官方构造器默认值） ============
+        _this.sorting = TreeSortingForwards;
+        _this.comparer = TreeVertex.standardComparer;
+        _this.angle = 0;
+        _this.alignment = TreeAlignmentCenterChildren;
+        _this.nodeIndent = 0;
+        _this.nodeIndentPastParent = 0;
+        _this.nodeSpacing = 20;
+        _this.layerSpacing = 50;
+        _this.layerSpacingParentOverlap = 0;
+        _this.compaction = TreeCompactionBlock;
+        _this.breadthLimit = 0;
+        _this.rowSpacing = 25;
+        _this.rowIndent = 10;
+        _this.commentSpacing = 10;
+        _this.commentMargin = 20;
+        _this.setsPortSpot = true;
+        _this.portSpot = Spot.Default;
+        _this.setsChildPortSpot = true;
+        _this.childPortSpot = Spot.Default;
+        return _this;
     }
+    Object.defineProperty(TreeVertex.prototype, "childrenCount", {
+        get: function () {
+            return this.children.length;
+        },
+        enumerable: false,
+        configurable: true
+    });
+    /** 官方 TreeVertex.copyInheritedPropertiesFrom */
+    TreeVertex.prototype.copyInheritedPropertiesFrom = function (t) {
+        if (t === null)
+            return;
+        this.sorting = t.sorting;
+        this.comparer = t.comparer;
+        this.angle = t.angle;
+        this.alignment = t.alignment;
+        this.nodeIndent = t.nodeIndent;
+        this.nodeIndentPastParent = t.nodeIndentPastParent;
+        this.nodeSpacing = t.nodeSpacing;
+        this.layerSpacing = t.layerSpacing;
+        this.layerSpacingParentOverlap = t.layerSpacingParentOverlap;
+        this.compaction = t.compaction;
+        this.breadthLimit = t.breadthLimit;
+        this.rowSpacing = t.rowSpacing;
+        this.rowIndent = t.rowIndent;
+        this.commentSpacing = t.commentSpacing;
+        this.commentMargin = t.commentMargin;
+        this.setsPortSpot = t.setsPortSpot;
+        this.portSpot = t.portSpot;
+        this.setsChildPortSpot = t.setsChildPortSpot;
+        this.childPortSpot = t.childPortSpot;
+    };
+    TreeVertex.standardComparer = function (a, b) {
+        var _a, _b, _c, _d;
+        var ka = a.node ? String((_b = (_a = a.node.data) === null || _a === void 0 ? void 0 : _a.key) !== null && _b !== void 0 ? _b : '') : '';
+        var kb = b.node ? String((_d = (_c = b.node.data) === null || _c === void 0 ? void 0 : _c.key) !== null && _d !== void 0 ? _d : '') : '';
+        var na = parseFloat(ka);
+        var nb = parseFloat(kb);
+        if (!isNaN(na) && !isNaN(nb))
+            return na - nb;
+        return ka < kb ? -1 : ka > kb ? 1 : 0;
+    };
     return TreeVertex;
-}());
+}(LayoutVertex));
 
 /**
- * TreeLayout - arranges nodes in a tree structure.
+ * TreeEdge - TreeLayout 专用边（官方 TreeEdge 的移植）。
+ * relativePoint（官方 Uk）由布局期间的 recordMidPoints 记录，
+ * 供 TreeEdge.commit 的链接路由修正使用。
+ */
+var TreeEdge = /** @class */ (function (_super) {
+    __extends(TreeEdge, _super);
+    function TreeEdge() {
+        var _this = _super.apply(this, __spreadArray([], __read(arguments), false)) || this;
+        /** 官方 Uk — 相对父顶点的中途点 */
+        _this.relativePoint = new Point(0, 0);
+        return _this;
+    }
+    return TreeEdge;
+}(LayoutEdge));
+
+/**
+ * TreeNetwork - TreeLayout 使用的网络，顶点为 TreeVertex，边为 TreeEdge。
+ */
+var TreeNetwork = /** @class */ (function (_super) {
+    __extends(TreeNetwork, _super);
+    function TreeNetwork() {
+        return _super !== null && _super.apply(this, arguments) || this;
+    }
+    TreeNetwork.prototype.createVertex = function () {
+        return new TreeVertex();
+    };
+    TreeNetwork.prototype.createEdge = function () {
+        return new TreeEdge();
+    };
+    return TreeNetwork;
+}(LayoutNetwork));
+
+/**
+ * TreeLayout — 官方 GoJS TreeLayout 的忠实移植。
+ *
+ * doLayout 流程（官方 doLayout）：
+ *   initTrees(YB) → initializeCounts(KB) → assignTreeValues(UB) → sortTrees(GB)
+ *   → addComments(vA) → layoutTreeReal(qB) → arrangeTrees → updateParts(commit)
+ *
+ * 关键移植说明：
+ * - 与官方一致：vertex.sourceEdges = 入边（该顶点为 to）、destinationEdges = 出边（该顶点为 from）。
+ * - 官方 focus 是绝对偏移 Point（LayoutVertex.focus），TreeVertex.focus 同义。
+ * - 官方 K/kt/gt/mm/pm → relativePosition/subtreeSize/subtreeOffset/mm/pm。
  */
 var TreeLayout = /** @class */ (function (_super) {
     __extends(TreeLayout, _super);
-    function TreeLayout() {
+    function TreeLayout(init) {
         var _this = _super.call(this) || this;
-        _this._angle = 0;
-        _this._layerSpacing = 50;
-        _this._nodeSpacing = 20;
-        _this._treeStyle = TreeStyleLayered;
-        _this._arrangement = TreeArrangementVertical;
-        _this._layerStyle = TreeLayerStyleIndividual;
-        _this._compaction = TreeCompactionBlock;
-        _this._sorting = TreeSortingForwards;
+        // ============ 官方存储（Gi/Ki/Ru/gm/_A/Je/te/vs/U/G/Rk/Ms） ============
+        _this._roots = new Set$1();
         _this._path = TreePathDefault;
-        _this._alternateAngle = 90;
-        _this._alternateLayerSpacing = NaN;
-        _this._alternateNodeSpacing = NaN;
-        _this._alternateAlignment = TreeStyleLayered;
-        _this._alternateCompaction = TreeCompactionBlock;
-        _this._alternateSorting = TreeSortingForwards;
-        // ============ rootDefaults / alternateDefaults ============
-        _this._rootDefaults = null;
-        _this._alternateDefaults = null;
-        var rd = new TreeVertex();
-        rd.angle = 0;
-        rd.alignment = TreeAlignmentCenterChildren;
-        rd.layerSpacing = 50;
-        rd.nodeSpacing = 20;
-        rd.breadthLimit = NaN;
-        rd.rowSpacing = 0;
-        rd.sorting = TreeSortingForwards;
-        rd.compaction = TreeCompactionBlock;
-        _this._rootDefaults = rd;
-        var ad = new TreeVertex();
-        ad.angle = 90;
-        ad.alignment = TreeAlignmentCenterChildren;
-        ad.layerSpacing = 20;
-        ad.nodeSpacing = 20;
-        ad.breadthLimit = NaN;
-        ad.rowSpacing = 0;
-        ad.sorting = TreeSortingForwards;
-        ad.compaction = TreeCompactionBlock;
-        _this._alternateDefaults = ad;
+        _this._treeStyle = TreeStyleLayered;
+        _this._layerStyle = TreeLayerStyleIndividual;
+        _this._comments = true;
+        _this._arrangement = TreeArrangementVertical;
+        _this._arrangementSpacing = new Size(10, 10);
+        _this._rootDefaults = new TreeVertex();
+        _this._alternateDefaults = new TreeVertex();
+        _this._Ms = 1; // 官方 path 解析结果（1=向子,2=向父）
+        _this._layerSizes = []; // 官方 _A（Uniform 层尺寸）
+        _this._pool = []; // 官方 Rk（点数组池）
+        if (init)
+            Object.assign(_this, init);
         return _this;
     }
-    Object.defineProperty(TreeLayout.prototype, "angle", {
-        get: function () { return this._angle; },
-        set: function (val) { this._angle = val; this.invalidateLayout(); },
-        enumerable: false,
-        configurable: true
-    });
-    Object.defineProperty(TreeLayout.prototype, "layerSpacing", {
-        get: function () { return this._layerSpacing; },
-        set: function (val) { this._layerSpacing = val; this.invalidateLayout(); },
-        enumerable: false,
-        configurable: true
-    });
-    Object.defineProperty(TreeLayout.prototype, "nodeSpacing", {
-        get: function () { return this._nodeSpacing; },
-        set: function (val) { this._nodeSpacing = val; this.invalidateLayout(); },
-        enumerable: false,
-        configurable: true
-    });
-    Object.defineProperty(TreeLayout.prototype, "treeStyle", {
-        get: function () { return this._treeStyle; },
-        set: function (val) { this._treeStyle = val; this.invalidateLayout(); },
-        enumerable: false,
-        configurable: true
-    });
-    Object.defineProperty(TreeLayout.prototype, "arrangement", {
-        get: function () { return this._arrangement; },
-        set: function (val) { this._arrangement = val; this.invalidateLayout(); },
-        enumerable: false,
-        configurable: true
-    });
-    Object.defineProperty(TreeLayout.prototype, "layerStyle", {
-        get: function () { return this._layerStyle; },
-        set: function (val) { this._layerStyle = val; this.invalidateLayout(); },
-        enumerable: false,
-        configurable: true
-    });
-    Object.defineProperty(TreeLayout.prototype, "compaction", {
-        get: function () { return this._compaction; },
-        set: function (val) { this._compaction = val; this.invalidateLayout(); },
-        enumerable: false,
-        configurable: true
-    });
-    Object.defineProperty(TreeLayout.prototype, "sorting", {
-        get: function () { return this._sorting; },
-        set: function (val) { this._sorting = val; this.invalidateLayout(); },
+    Object.defineProperty(TreeLayout.prototype, "roots", {
+        // ============ 属性（代理 rootDefaults/alternateDefaults，官方同名属性） ============
+        get: function () { return this._roots; },
+        set: function (val) { this._roots = val; this.invalidateLayout(); },
         enumerable: false,
         configurable: true
     });
@@ -21854,265 +23950,700 @@ var TreeLayout = /** @class */ (function (_super) {
         enumerable: false,
         configurable: true
     });
-    Object.defineProperty(TreeLayout.prototype, "alternateAngle", {
-        get: function () { return this._alternateAngle; },
-        set: function (val) { this._alternateAngle = val; this.invalidateLayout(); },
+    Object.defineProperty(TreeLayout.prototype, "treeStyle", {
+        get: function () { return this._treeStyle; },
+        set: function (val) { this._treeStyle = val; this.invalidateLayout(); },
         enumerable: false,
         configurable: true
     });
-    Object.defineProperty(TreeLayout.prototype, "alternateLayerSpacing", {
-        get: function () { return this._alternateLayerSpacing; },
-        set: function (val) { this._alternateLayerSpacing = val; this.invalidateLayout(); },
+    Object.defineProperty(TreeLayout.prototype, "layerStyle", {
+        get: function () { return this._layerStyle; },
+        set: function (val) { this._layerStyle = val; this.invalidateLayout(); },
         enumerable: false,
         configurable: true
     });
-    Object.defineProperty(TreeLayout.prototype, "alternateNodeSpacing", {
-        get: function () { return this._alternateNodeSpacing; },
-        set: function (val) { this._alternateNodeSpacing = val; this.invalidateLayout(); },
+    Object.defineProperty(TreeLayout.prototype, "comments", {
+        get: function () { return this._comments; },
+        set: function (val) { this._comments = val; this.invalidateLayout(); },
         enumerable: false,
         configurable: true
     });
-    Object.defineProperty(TreeLayout.prototype, "alternateAlignment", {
-        get: function () { return this._alternateAlignment; },
-        set: function (val) { this._alternateAlignment = val; this.invalidateLayout(); },
+    Object.defineProperty(TreeLayout.prototype, "arrangement", {
+        get: function () { return this._arrangement; },
+        set: function (val) { this._arrangement = val; this.invalidateLayout(); },
         enumerable: false,
         configurable: true
     });
-    Object.defineProperty(TreeLayout.prototype, "alternateCompaction", {
-        get: function () { return this._alternateCompaction; },
-        set: function (val) { this._alternateCompaction = val; this.invalidateLayout(); },
-        enumerable: false,
-        configurable: true
-    });
-    Object.defineProperty(TreeLayout.prototype, "alternateSorting", {
-        get: function () { return this._alternateSorting; },
-        set: function (val) { this._alternateSorting = val; this.invalidateLayout(); },
+    Object.defineProperty(TreeLayout.prototype, "arrangementSpacing", {
+        get: function () { return this._arrangementSpacing; },
+        set: function (val) { this._arrangementSpacing = val.copy(); this.invalidateLayout(); },
         enumerable: false,
         configurable: true
     });
     Object.defineProperty(TreeLayout.prototype, "rootDefaults", {
         get: function () { return this._rootDefaults; },
-        set: function (val) { this._rootDefaults = val; },
+        set: function (val) { this._rootDefaults = val; this.invalidateLayout(); },
         enumerable: false,
         configurable: true
     });
     Object.defineProperty(TreeLayout.prototype, "alternateDefaults", {
         get: function () { return this._alternateDefaults; },
-        set: function (val) { this._alternateDefaults = val; },
+        set: function (val) { this._alternateDefaults = val; this.invalidateLayout(); },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(TreeLayout.prototype, "angle", {
+        get: function () { return this._rootDefaults.angle; },
+        set: function (val) {
+            if (this._rootDefaults.angle === val)
+                return;
+            if (val === 0 || val === 90 || val === 180 || val === 270) {
+                this._rootDefaults.angle = val;
+                this.invalidateLayout();
+            }
+        },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(TreeLayout.prototype, "alignment", {
+        get: function () { return this._rootDefaults.alignment; },
+        set: function (val) { this._rootDefaults.alignment = val; this.invalidateLayout(); },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(TreeLayout.prototype, "sorting", {
+        get: function () { return this._rootDefaults.sorting; },
+        set: function (val) { this._rootDefaults.sorting = val; this.invalidateLayout(); },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(TreeLayout.prototype, "comparer", {
+        get: function () { return this._rootDefaults.comparer; },
+        set: function (val) { this._rootDefaults.comparer = val; this.invalidateLayout(); },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(TreeLayout.prototype, "nodeIndent", {
+        get: function () { return this._rootDefaults.nodeIndent; },
+        set: function (val) { this._rootDefaults.nodeIndent = val; this.invalidateLayout(); },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(TreeLayout.prototype, "nodeIndentPastParent", {
+        get: function () { return this._rootDefaults.nodeIndentPastParent; },
+        set: function (val) { this._rootDefaults.nodeIndentPastParent = val; this.invalidateLayout(); },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(TreeLayout.prototype, "nodeSpacing", {
+        get: function () { return this._rootDefaults.nodeSpacing; },
+        set: function (val) { this._rootDefaults.nodeSpacing = val; this.invalidateLayout(); },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(TreeLayout.prototype, "layerSpacing", {
+        get: function () { return this._rootDefaults.layerSpacing; },
+        set: function (val) { this._rootDefaults.layerSpacing = val; this.invalidateLayout(); },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(TreeLayout.prototype, "layerSpacingParentOverlap", {
+        get: function () { return this._rootDefaults.layerSpacingParentOverlap; },
+        set: function (val) { this._rootDefaults.layerSpacingParentOverlap = val; this.invalidateLayout(); },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(TreeLayout.prototype, "compaction", {
+        get: function () { return this._rootDefaults.compaction; },
+        set: function (val) { this._rootDefaults.compaction = val; this.invalidateLayout(); },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(TreeLayout.prototype, "breadthLimit", {
+        get: function () { return this._rootDefaults.breadthLimit; },
+        set: function (val) { this._rootDefaults.breadthLimit = val; this.invalidateLayout(); },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(TreeLayout.prototype, "rowSpacing", {
+        get: function () { return this._rootDefaults.rowSpacing; },
+        set: function (val) { this._rootDefaults.rowSpacing = val; this.invalidateLayout(); },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(TreeLayout.prototype, "rowIndent", {
+        get: function () { return this._rootDefaults.rowIndent; },
+        set: function (val) { this._rootDefaults.rowIndent = val; this.invalidateLayout(); },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(TreeLayout.prototype, "commentSpacing", {
+        get: function () { return this._rootDefaults.commentSpacing; },
+        set: function (val) { this._rootDefaults.commentSpacing = val; this.invalidateLayout(); },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(TreeLayout.prototype, "commentMargin", {
+        get: function () { return this._rootDefaults.commentMargin; },
+        set: function (val) { this._rootDefaults.commentMargin = val; this.invalidateLayout(); },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(TreeLayout.prototype, "setsPortSpot", {
+        get: function () { return this._rootDefaults.setsPortSpot; },
+        set: function (val) { this._rootDefaults.setsPortSpot = val; this.invalidateLayout(); },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(TreeLayout.prototype, "portSpot", {
+        get: function () { return this._rootDefaults.portSpot; },
+        set: function (val) { this._rootDefaults.portSpot = val; this.invalidateLayout(); },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(TreeLayout.prototype, "setsChildPortSpot", {
+        get: function () { return this._rootDefaults.setsChildPortSpot; },
+        set: function (val) { this._rootDefaults.setsChildPortSpot = val; this.invalidateLayout(); },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(TreeLayout.prototype, "childPortSpot", {
+        get: function () { return this._rootDefaults.childPortSpot; },
+        set: function (val) { this._rootDefaults.childPortSpot = val; this.invalidateLayout(); },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(TreeLayout.prototype, "alternateAngle", {
+        get: function () { return this._alternateDefaults.angle; },
+        set: function (val) { this._alternateDefaults.angle = val; this.invalidateLayout(); },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(TreeLayout.prototype, "alternateAlignment", {
+        get: function () { return this._alternateDefaults.alignment; },
+        set: function (val) { this._alternateDefaults.alignment = val; this.invalidateLayout(); },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(TreeLayout.prototype, "alternateSorting", {
+        get: function () { return this._alternateDefaults.sorting; },
+        set: function (val) { this._alternateDefaults.sorting = val; this.invalidateLayout(); },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(TreeLayout.prototype, "alternateNodeIndent", {
+        get: function () { return this._alternateDefaults.nodeIndent; },
+        set: function (val) { this._alternateDefaults.nodeIndent = val; this.invalidateLayout(); },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(TreeLayout.prototype, "alternateNodeIndentPastParent", {
+        get: function () { return this._alternateDefaults.nodeIndentPastParent; },
+        set: function (val) { this._alternateDefaults.nodeIndentPastParent = val; this.invalidateLayout(); },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(TreeLayout.prototype, "alternateNodeSpacing", {
+        get: function () { return this._alternateDefaults.nodeSpacing; },
+        set: function (val) { this._alternateDefaults.nodeSpacing = val; this.invalidateLayout(); },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(TreeLayout.prototype, "alternateLayerSpacing", {
+        get: function () { return this._alternateDefaults.layerSpacing; },
+        set: function (val) { this._alternateDefaults.layerSpacing = val; this.invalidateLayout(); },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(TreeLayout.prototype, "alternateLayerSpacingParentOverlap", {
+        get: function () { return this._alternateDefaults.layerSpacingParentOverlap; },
+        set: function (val) { this._alternateDefaults.layerSpacingParentOverlap = val; this.invalidateLayout(); },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(TreeLayout.prototype, "alternateCompaction", {
+        get: function () { return this._alternateDefaults.compaction; },
+        set: function (val) { this._alternateDefaults.compaction = val; this.invalidateLayout(); },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(TreeLayout.prototype, "alternateBreadthLimit", {
+        get: function () { return this._alternateDefaults.breadthLimit; },
+        set: function (val) { this._alternateDefaults.breadthLimit = val; this.invalidateLayout(); },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(TreeLayout.prototype, "alternateRowSpacing", {
+        get: function () { return this._alternateDefaults.rowSpacing; },
+        set: function (val) { this._alternateDefaults.rowSpacing = val; this.invalidateLayout(); },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(TreeLayout.prototype, "alternateRowIndent", {
+        get: function () { return this._alternateDefaults.rowIndent; },
+        set: function (val) { this._alternateDefaults.rowIndent = val; this.invalidateLayout(); },
         enumerable: false,
         configurable: true
     });
     TreeLayout.prototype.copy = function () {
         var copy = new TreeLayout();
         copy._arrangementOrigin = this._arrangementOrigin.copy();
-        copy._angle = this._angle;
-        copy._layerSpacing = this._layerSpacing;
-        copy._nodeSpacing = this._nodeSpacing;
-        copy._treeStyle = this._treeStyle;
-        copy._arrangement = this._arrangement;
-        copy._layerStyle = this._layerStyle;
-        copy._compaction = this._compaction;
-        copy._sorting = this._sorting;
         copy._path = this._path;
-        copy._alternateAngle = this._alternateAngle;
-        copy._alternateLayerSpacing = this._alternateLayerSpacing;
-        copy._alternateNodeSpacing = this._alternateNodeSpacing;
-        copy._alternateAlignment = this._alternateAlignment;
-        copy._alternateCompaction = this._alternateCompaction;
-        copy._alternateSorting = this._alternateSorting;
+        copy._treeStyle = this._treeStyle;
+        copy._layerStyle = this._layerStyle;
+        copy._comments = this._comments;
+        copy._arrangement = this._arrangement;
+        copy._arrangementSpacing = this._arrangementSpacing.copy();
+        copy._rootDefaults.copyInheritedPropertiesFrom(this._rootDefaults);
+        copy._alternateDefaults.copyInheritedPropertiesFrom(this._alternateDefaults);
         return copy;
     };
-    TreeLayout.prototype.doLayout = function (coll) {
-        var e_1, _a, e_2, _b, e_3, _c, e_4, _d, e_5, _e, e_6, _f;
+    // ============ 网络构建 ============
+    TreeLayout.prototype.createNetwork = function () {
+        var net = new TreeNetwork();
+        net.layout = this;
+        return net;
+    };
+    /** 官方 TreeLayout.makeNetwork — 排除 Comment/linkLabel，过滤非法链接 */
+    TreeLayout.prototype.makeNetwork = function (coll) {
+        var net = this.createNetwork();
         var parts = this.collectParts(coll);
-        if (parts.count === 0)
-            return;
-        // Build network
-        var net = this.makeNetwork(coll);
-        if (net.vertexes.count === 0)
-            return;
-        // Build tree structure from links
-        var nodeToInfo = new Map$1();
-        var vertexToInfo = new Map$1();
-        // Create TreeNodeInfo for each vertex
-        var vit = net.vertexes.iterator;
-        while (vit.next()) {
-            var vertex = vit.value;
-            if (vertex.node) {
-                var info = {
-                    vertex: vertex,
-                    children: [],
-                    parent: null,
-                    layer: 0,
-                    relativePosition: 0
-                };
-                nodeToInfo.set(vertex.node, info);
-                vertexToInfo.set(vertex, info);
-            }
-        }
-        // Build parent-child relationships from edges
-        var eit = net.edges.iterator;
-        while (eit.next()) {
-            var edge = eit.value;
-            if (!edge.fromVertex || !edge.toVertex)
-                continue;
-            var parentInfo = vertexToInfo.get(edge.fromVertex);
-            var childInfo = vertexToInfo.get(edge.toVertex);
-            if (parentInfo && childInfo) {
-                // Determine direction based on path
-                if (this._path === TreePathSource) {
-                    // Parent is fromVertex
-                    parentInfo.children.push(childInfo);
-                    childInfo.parent = parentInfo;
-                }
-                else if (this._path === TreePathDestination) {
-                    // Parent is toVertex
-                    childInfo.children.push(parentInfo);
-                    parentInfo.parent = childInfo;
+        var nodeOK = function (n) {
+            if (n.isLinkLabel)
+                return false;
+            if (n.category === 'Comment')
+                return false;
+            if (typeof n.canLayout === 'function' && !n.canLayout())
+                return false;
+            return true;
+        };
+        var it = parts.iterator;
+        while (it.next()) {
+            var part = it.value;
+            if (part instanceof Node) {
+                if (!nodeOK(part))
+                    continue;
+                var vertex = net.addNode(part);
+                // 官方 node setter：先 ensureBounds()（measure + 更新 actualBounds 尺寸）
+                if (typeof part.ensureBounds === 'function')
+                    part.ensureBounds();
+                else if (typeof part._measure === 'function')
+                    part._measure(Infinity, Infinity);
+                var lb = this.getLayoutBounds(part);
+                var mb = part.measuredBounds;
+                var ab = part.actualBounds;
+                var w = mb && mb.width > 0 ? mb.width : (ab ? ab.width : 0);
+                var h = mb && mb.height > 0 ? mb.height : (ab ? ab.height : 0);
+                vertex.bounds = new Rect(lb.x, lb.y, w, h);
+                vertex.x = lb.x;
+                vertex.y = lb.y;
+                // 官方 LayoutVertex.node setter：focus = locationObject 中心 - bounds 原点
+                var abOK = ab && Number.isFinite(ab.x) && Number.isFinite(ab.y) &&
+                    Number.isFinite(ab.width) && Number.isFinite(ab.height) && ab.width > 0 && ab.height > 0;
+                if (abOK) {
+                    var fx = (ab.x + ab.width / 2) - lb.x;
+                    var fy = (ab.y + ab.height / 2) - lb.y;
+                    vertex.focus.set(Number.isFinite(fx) ? fx : w / 2, Number.isFinite(fy) ? fy : h / 2);
                 }
                 else {
-                    // Default: from is parent, to is child
-                    parentInfo.children.push(childInfo);
-                    childInfo.parent = parentInfo;
+                    vertex.focus.set(w / 2, h / 2);
                 }
             }
         }
-        // Sort children based on sorting option
-        var allInfos = [];
-        nodeToInfo.each(function (info) { allInfos.push(info); });
+        var it2 = parts.iterator;
+        while (it2.next()) {
+            var part = it2.value;
+            if (part instanceof Link) {
+                var link = part;
+                var fn = link.fromNode;
+                var tn = link.toNode;
+                if (!fn || !tn || fn === tn)
+                    continue;
+                if (!nodeOK(fn) || !nodeOK(tn))
+                    continue;
+                net.addLink(link);
+            }
+        }
+        this._network = net;
+        return net;
+    };
+    // ============ doLayout ============
+    TreeLayout.prototype.doLayout = function (coll) {
+        if (this._network === null)
+            this._network = this.makeNetwork(coll);
+        if (this._arrangement !== TreeArrangementFixedRoots) {
+            this._arrangementOrigin = this.initialOrigin();
+        }
+        // 官方 path → Ms 解析
+        if (this._path === TreePathDefault) {
+            var diag = this._diagram !== null ? this._diagram : (coll && coll._layers ? coll : null);
+            this._Ms = diag && diag.isTreePathToChildren === false ? 2 : 1;
+        }
+        else {
+            this._Ms = this._path === TreePathDestination ? 1 : 2;
+        }
+        if (this._network !== null && this._network.vertexes.count > 0) {
+            this._initTrees();
+            this._initializeCounts();
+            this._assignTreeValues();
+            this._sortTrees();
+            this._addCommentsAll();
+            this._layoutTreeReal();
+            this.arrangeTrees();
+            this.updateParts();
+        }
+        this._network = null;
+        this._roots = new Set$1();
+        this.isValidLayout = true;
+    };
+    // ============ 官方 YB — 建树 ============
+    TreeLayout.prototype._allVertexes = function () {
+        var s = new Set$1();
+        var it = this._network.vertexes.iterator;
+        while (it.next())
+            s.add(it.value);
+        return s;
+    };
+    TreeLayout.prototype._uninitialized = function (s) {
+        var r = new Set$1();
+        var it = s.iterator;
+        while (it.next()) {
+            if (!it.value.initialized)
+                r.add(it.value);
+        }
+        return r;
+    };
+    TreeLayout.prototype._initTrees = function () {
+        var net = this._network;
+        net.deleteSelfEdges();
+        var it = net.vertexes.iterator;
+        while (it.next()) {
+            var v = it.value;
+            v.initialized = false;
+            v.level = 0;
+            v.parent = null;
+            v.children = [];
+        }
+        if (this._roots.count > 0) {
+            var filtered = new Set$1();
+            var rit = this._roots.iterator;
+            while (rit.next()) {
+                var r = rit.value;
+                if (r instanceof Node) {
+                    var vv = net.findVertex(r);
+                    if (vv !== null)
+                        filtered.add(vv);
+                }
+                else {
+                    filtered.add(r);
+                }
+            }
+            this._roots = filtered;
+        }
+        if (this._roots.count === 0)
+            this._findRoots();
+        var rootsCopy = this._roots.copy();
+        var rcIt = rootsCopy.iterator;
+        while (rcIt.next()) {
+            var n = rcIt.value;
+            if (!n.initialized) {
+                n.initialized = true;
+                this._walkTree(n);
+            }
+        }
+        var e = this._allVertexes();
+        for (;;) {
+            var s = this._uninitialized(e);
+            if (s.count === 0)
+                break;
+            var root = this._pickRoot(s);
+            if (root !== null) {
+                this._roots.add(root);
+                root.initialized = true;
+                this._walkTree(root);
+            }
+            e = s;
+        }
+    };
+    /** 官方 findRoots */
+    TreeLayout.prototype._findRoots = function () {
+        var v = this._network.vertexes;
+        var it = v.iterator;
+        while (it.next()) {
+            var e = it.value;
+            switch (this._Ms) {
+                case 1:
+                    // 官方：sourceEdges（入边）count === 0 → 根
+                    if (e.sourceEdges.count === 0)
+                        this._roots.add(e);
+                    break;
+                case 2:
+                    if (e.destinationEdges.count === 0)
+                        this._roots.add(e);
+                    break;
+            }
+        }
+        if (this._roots.count === 0) {
+            var r = this._pickRoot(this._allVertexes());
+            if (r !== null)
+                this._roots.add(r);
+        }
+    };
+    /** 官方 dI — 选连接最少的顶点作根 */
+    TreeLayout.prototype._pickRoot = function (s) {
+        var min = 999999;
+        var best = null;
+        var it = s.iterator;
+        while (it.next()) {
+            var n = it.value;
+            var cnt = this._Ms === 1 ? n.sourceEdges.count : n.destinationEdges.count;
+            if (cnt < min) {
+                min = cnt;
+                best = n;
+            }
+        }
+        return best;
+    };
+    /** 官方 walkTree (tT) */
+    TreeLayout.prototype._walkTree = function (v) {
+        var e_1, _a, e_2, _b;
+        switch (this._Ms) {
+            case 1: {
+                if (v.destinationEdges.count > 0) {
+                    var list = [];
+                    var seen = new Set$1();
+                    var it = v.destinationEdges.iterator;
+                    while (it.next()) {
+                        var o = it.value.toVertex;
+                        if (o !== null && o !== undefined && !seen.has(o) && this._walkOK(v, o)) {
+                            seen.add(o);
+                            list.push(o);
+                        }
+                    }
+                    if (list.length > 0)
+                        v.children = list;
+                }
+                break;
+            }
+            case 2: {
+                if (v.sourceEdges.count > 0) {
+                    var list = [];
+                    var seen = new Set$1();
+                    var it = v.sourceEdges.iterator;
+                    while (it.next()) {
+                        var o = it.value.fromVertex;
+                        if (o !== null && o !== undefined && !seen.has(o) && this._walkOK(v, o)) {
+                            seen.add(o);
+                            list.push(o);
+                        }
+                    }
+                    if (list.length > 0)
+                        v.children = list;
+                }
+                break;
+            }
+        }
         try {
-            for (var allInfos_1 = __values(allInfos), allInfos_1_1 = allInfos_1.next(); !allInfos_1_1.done; allInfos_1_1 = allInfos_1.next()) {
-                var info = allInfos_1_1.value;
-                this._sortChildren(info.children);
+            for (var _c = __values(v.children), _d = _c.next(); !_d.done; _d = _c.next()) {
+                var n = _d.value;
+                n.initialized = true;
+                n.level = v.level + 1;
+                n.parent = v;
+                this._roots.delete(n);
             }
         }
         catch (e_1_1) { e_1 = { error: e_1_1 }; }
         finally {
             try {
-                if (allInfos_1_1 && !allInfos_1_1.done && (_a = allInfos_1.return)) _a.call(allInfos_1);
+                if (_d && !_d.done && (_a = _c.return)) _a.call(_c);
             }
             finally { if (e_1) throw e_1.error; }
         }
-        // Find roots (nodes with no parent)
-        var roots = [];
         try {
-            for (var allInfos_2 = __values(allInfos), allInfos_2_1 = allInfos_2.next(); !allInfos_2_1.done; allInfos_2_1 = allInfos_2.next()) {
-                var info = allInfos_2_1.value;
-                if (info.parent === null) {
-                    roots.push(info);
-                }
+            for (var _e = __values(v.children), _f = _e.next(); !_f.done; _f = _e.next()) {
+                var n = _f.value;
+                this._walkTree(n);
             }
         }
         catch (e_2_1) { e_2 = { error: e_2_1 }; }
         finally {
             try {
-                if (allInfos_2_1 && !allInfos_2_1.done && (_b = allInfos_2.return)) _b.call(allInfos_2);
+                if (_f && !_f.done && (_b = _e.return)) _b.call(_e);
             }
             finally { if (e_2) throw e_2.error; }
         }
-        // If no roots found (cyclic graph), pick the first vertex as root
-        if (roots.length === 0 && allInfos.length > 0) {
-            roots.push(allInfos[0]);
-        }
+    };
+    /** 官方 walkOK (gI) */
+    TreeLayout.prototype._walkOK = function (v, c) {
+        if (!c.initialized)
+            return true;
+        if (this._isAncestor(c, v) || c.level > v.level)
+            return false;
+        this._removeChild(c.parent, c);
+        return true;
+    };
+    /** 官方 isAncestor (vB) — a 是否为 b 的祖先 */
+    TreeLayout.prototype._isAncestor = function (a, b) {
+        var e = b.parent;
+        while (e !== null && e !== a)
+            e = e.parent;
+        return e === a;
+    };
+    /** 官方 removeChild (WB) */
+    TreeLayout.prototype._removeChild = function (p, c) {
+        var e_3, _a, e_4, _b;
+        if (p === null)
+            return;
+        var arr = p.children;
+        var count = 0;
         try {
-            // Assign layers (depth) to each node
-            for (var roots_1 = __values(roots), roots_1_1 = roots_1.next(); !roots_1_1.done; roots_1_1 = roots_1.next()) {
-                var root = roots_1_1.value;
-                this._assignLayers(root, 0);
+            for (var arr_1 = __values(arr), arr_1_1 = arr_1.next(); !arr_1_1.done; arr_1_1 = arr_1.next()) {
+                var n = arr_1_1.value;
+                if (n === c)
+                    count++;
             }
         }
         catch (e_3_1) { e_3 = { error: e_3_1 }; }
         finally {
             try {
-                if (roots_1_1 && !roots_1_1.done && (_c = roots_1.return)) _c.call(roots_1);
+                if (arr_1_1 && !arr_1_1.done && (_a = arr_1.return)) _a.call(arr_1);
             }
             finally { if (e_3) throw e_3.error; }
         }
-        // Position nodes
-        var origin = this.arrangementOrigin;
-        var isVertical = (this._angle === 0 || this._angle === 180);
-        var isReversed = (this._angle === 180 || this._angle === 270);
-        try {
-            for (var roots_2 = __values(roots), roots_2_1 = roots_2.next(); !roots_2_1.done; roots_2_1 = roots_2.next()) {
-                var root = roots_2_1.value;
-                this._layoutTree(root, isVertical, isReversed);
-            }
-        }
-        catch (e_4_1) { e_4 = { error: e_4_1 }; }
-        finally {
+        if (count > 0) {
+            var out = [];
             try {
-                if (roots_2_1 && !roots_2_1.done && (_d = roots_2.return)) _d.call(roots_2);
+                for (var arr_2 = __values(arr), arr_2_1 = arr_2.next(); !arr_2_1.done; arr_2_1 = arr_2.next()) {
+                    var n = arr_2_1.value;
+                    if (n !== c)
+                        out.push(n);
+                }
             }
-            finally { if (e_4) throw e_4.error; }
+            catch (e_4_1) { e_4 = { error: e_4_1 }; }
+            finally {
+                try {
+                    if (arr_2_1 && !arr_2_1.done && (_b = arr_2.return)) _b.call(arr_2);
+                }
+                finally { if (e_4) throw e_4.error; }
+            }
+            p.children = out;
         }
-        // Offset all positions to the arrangement origin
-        // Find the minimum position
-        var minX = Infinity, minY = Infinity;
+    };
+    // ============ 官方 KB — 初始化顶点值与计数 ============
+    TreeLayout.prototype._initializeCounts = function () {
+        var it = this._roots.iterator;
+        while (it.next()) {
+            var i = it.value;
+            if (i instanceof TreeVertex && this._roots.has(i))
+                this._initializeTree(i);
+        }
+    };
+    TreeLayout.prototype._initializeTree = function (v) {
+        var e_5, _a;
+        this._initializeTreeVertexValues(v);
+        if (v.alignment === TreeAlignmentBusBranching)
+            this._sortTreeChildren(v);
+        var i = 0;
+        var e = v.childrenCount;
+        var s = 0;
         try {
-            for (var allInfos_3 = __values(allInfos), allInfos_3_1 = allInfos_3.next(); !allInfos_3_1.done; allInfos_3_1 = allInfos_3.next()) {
-                var info = allInfos_3_1.value;
-                minX = Math.min(minX, info.vertex.x);
-                minY = Math.min(minY, info.vertex.y);
+            for (var _b = __values(v.children), _c = _b.next(); !_c.done; _c = _b.next()) {
+                var l = _c.value;
+                this._initializeTree(l);
+                i += l.descendantCount + 1;
+                e = Math.max(e, l.maxChildrenCount);
+                s = Math.max(s, l.maxGenerationCount);
             }
         }
         catch (e_5_1) { e_5 = { error: e_5_1 }; }
         finally {
             try {
-                if (allInfos_3_1 && !allInfos_3_1.done && (_e = allInfos_3.return)) _e.call(allInfos_3);
+                if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
             finally { if (e_5) throw e_5.error; }
         }
-        try {
-            // Move all nodes relative to origin
-            for (var allInfos_4 = __values(allInfos), allInfos_4_1 = allInfos_4.next(); !allInfos_4_1.done; allInfos_4_1 = allInfos_4.next()) {
-                var info = allInfos_4_1.value;
-                var v = info.vertex;
-                var x = origin.x + (v.x - minX);
-                var y = origin.y + (v.y - minY);
-                if (v.node) {
-                    v.node.move(new Point(x, y));
+        v.descendantCount = i;
+        v.maxChildrenCount = e;
+        v.maxGenerationCount = e > 0 ? s + 1 : 0;
+    };
+    /** 官方 mom (jB) — 按 treeStyle 选择继承来源顶点 */
+    TreeLayout.prototype._mom = function (v) {
+        var e_6, _a;
+        switch (this._treeStyle) {
+            case TreeStyleRootOnly:
+                return v.parent === null ? this._rootDefaults
+                    : (v.parent.parent === null ? this._alternateDefaults : v.parent);
+            case TreeStyleAlternating:
+                return v.parent !== null
+                    ? (v.parent.parent !== null ? v.parent.parent : this._alternateDefaults)
+                    : this._rootDefaults;
+            case TreeStyleLastParents: {
+                var allLeaves = true;
+                if (v.childrenCount === 0)
+                    allLeaves = false;
+                else {
+                    try {
+                        for (var _b = __values(v.children), _c = _b.next(); !_c.done; _c = _b.next()) {
+                            var c = _c.value;
+                            if (c.childrenCount > 0) {
+                                allLeaves = false;
+                                break;
+                            }
+                        }
+                    }
+                    catch (e_6_1) { e_6 = { error: e_6_1 }; }
+                    finally {
+                        try {
+                            if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
+                        }
+                        finally { if (e_6) throw e_6.error; }
+                    }
+                }
+                return allLeaves && v.parent !== null ? this._alternateDefaults
+                    : (v.parent !== null ? v.parent : this._rootDefaults);
+            }
+            default:
+            case TreeStyleLayered:
+                return v.parent !== null ? v.parent : this._rootDefaults;
+        }
+    };
+    TreeLayout.prototype._initializeTreeVertexValues = function (v) {
+        var src = this._mom(v);
+        v.copyInheritedPropertiesFrom(src);
+        if (v.parent !== null && v.parent.alignment === TreeAlignmentBusBranching) {
+            var e = v.angle;
+            var s = v.parent.children;
+            var n = 0;
+            while (n < s.length && v !== s[n])
+                n++;
+            if (n % 2 === 0) {
+                if (n !== s.length - 1) {
+                    e = e === 90 ? 180 : e === 180 ? 270 : e === 270 ? 180 : 270;
                 }
             }
-        }
-        catch (e_6_1) { e_6 = { error: e_6_1 }; }
-        finally {
-            try {
-                if (allInfos_4_1 && !allInfos_4_1.done && (_f = allInfos_4.return)) _f.call(allInfos_4);
+            else {
+                e = e === 90 ? 0 : e === 180 ? 90 : e === 270 ? 0 : 90;
             }
-            finally { if (e_6) throw e_6.error; }
+            v.angle = e;
         }
-        this.isValidLayout = true;
+        v.initialized = true;
     };
-    TreeLayout.prototype._sortChildren = function (children) {
-        switch (this._sorting) {
-            case TreeSortingAscending:
-                children.sort(function (a, b) {
-                    var _a, _b, _c, _d;
-                    var ak = a.vertex.node ? String((_b = (_a = a.vertex.node.data) === null || _a === void 0 ? void 0 : _a.key) !== null && _b !== void 0 ? _b : '') : '';
-                    var bk = b.vertex.node ? String((_d = (_c = b.vertex.node.data) === null || _c === void 0 ? void 0 : _c.key) !== null && _d !== void 0 ? _d : '') : '';
-                    return ak.localeCompare(bk);
-                });
-                break;
-            case TreeSortingDescending:
-                children.sort(function (a, b) {
-                    var _a, _b, _c, _d;
-                    var ak = a.vertex.node ? String((_b = (_a = a.vertex.node.data) === null || _a === void 0 ? void 0 : _a.key) !== null && _b !== void 0 ? _b : '') : '';
-                    var bk = b.vertex.node ? String((_d = (_c = b.vertex.node.data) === null || _c === void 0 ? void 0 : _c.key) !== null && _d !== void 0 ? _d : '') : '';
-                    return bk.localeCompare(ak);
-                });
-                break;
-            case TreeSortingReverse:
-                children.reverse();
-                break;
+    // ============ 官方 UB — assign（官方为空实现） ============
+    TreeLayout.prototype._assignTreeValues = function () {
+        var it = this._roots.iterator;
+        while (it.next()) {
+            var i = it.value;
+            if (i instanceof TreeVertex)
+                this._assignTree(i);
         }
     };
-    TreeLayout.prototype._assignLayers = function (node, layer) {
+    TreeLayout.prototype._assignTree = function (v) {
         var e_7, _a;
-        node.layer = layer;
         try {
-            for (var _b = __values(node.children), _c = _b.next(); !_c.done; _c = _b.next()) {
-                var child = _c.value;
-                this._assignLayers(child, layer + 1);
+            // 官方 assignTreeVertexValues 为空
+            for (var _b = __values(v.children), _c = _b.next(); !_c.done; _c = _b.next()) {
+                var c = _c.value;
+                this._assignTree(c);
             }
         }
         catch (e_7_1) { e_7 = { error: e_7_1 }; }
@@ -22123,25 +24654,23 @@ var TreeLayout = /** @class */ (function (_super) {
             finally { if (e_7) throw e_7.error; }
         }
     };
-    TreeLayout.prototype._layoutTree = function (root, isVertical, isReversed) {
-        // Compute subtree widths
-        this._computeSubtreeWidth(root, isVertical);
-        // Position the tree
-        this._positionTree(root, 0, 0, isVertical, isReversed);
-    };
-    TreeLayout.prototype._computeSubtreeWidth = function (node, isVertical) {
-        var e_8, _a;
-        if (node.children.length === 0) {
-            // Leaf node width is its own size
-            var size = isVertical ? node.vertex.width : node.vertex.height;
-            return size;
+    // ============ 官方 GB — 排序 ============
+    TreeLayout.prototype._sortTrees = function () {
+        var it = this._roots.iterator;
+        while (it.next()) {
+            var i = it.value;
+            if (i instanceof TreeVertex)
+                this._sortTree(i);
         }
-        var totalWidth = 0;
+    };
+    TreeLayout.prototype._sortTree = function (v) {
+        var e_8, _a;
+        if (v.alignment !== TreeAlignmentBusBranching)
+            this._sortTreeChildren(v);
         try {
-            for (var _b = __values(node.children), _c = _b.next(); !_c.done; _c = _b.next()) {
-                var child = _c.value;
-                var childWidth = this._computeSubtreeWidth(child, isVertical);
-                totalWidth += childWidth;
+            for (var _b = __values(v.children), _c = _b.next(); !_c.done; _c = _b.next()) {
+                var c = _c.value;
+                this._sortTree(c);
             }
         }
         catch (e_8_1) { e_8 = { error: e_8_1 }; }
@@ -22151,78 +24680,2227 @@ var TreeLayout = /** @class */ (function (_super) {
             }
             finally { if (e_8) throw e_8.error; }
         }
-        // Add spacing between children
-        totalWidth += (node.children.length - 1) * this._nodeSpacing;
-        var ownSize = isVertical ? node.vertex.width : node.vertex.height;
-        return Math.max(totalWidth, ownSize);
     };
-    TreeLayout.prototype._positionTree = function (node, offsetX, offsetY, isVertical, isReversed) {
-        var e_9, _a;
-        // Position this node
-        var subtreeWidth = this._computeSubtreeWidth(node, isVertical);
-        if (isVertical) {
-            // Vertical tree: layers go top-to-bottom, children spread horizontally
-            var layerOffset = isReversed ? -node.layer * this._layerSpacing : node.layer * this._layerSpacing;
-            node.vertex.x = offsetX + subtreeWidth / 2 - node.vertex.width / 2;
-            node.vertex.y = offsetY + layerOffset;
+    TreeLayout.prototype._sortTreeChildren = function (v) {
+        switch (v.sorting) {
+            default:
+            case TreeSortingForwards:
+                break;
+            case TreeSortingReverse:
+                v.children.reverse();
+                break;
+            case TreeSortingAscending:
+                v.children.sort(v.comparer);
+                break;
+            case TreeSortingDescending:
+                v.children.sort(v.comparer);
+                v.children.reverse();
+                break;
         }
-        else {
-            // Horizontal tree: layers go left-to-right, children spread vertically
-            var layerOffset = isReversed ? -node.layer * this._layerSpacing : node.layer * this._layerSpacing;
-            node.vertex.x = offsetX + layerOffset;
-            node.vertex.y = offsetY + subtreeWidth / 2 - node.vertex.height / 2;
-        }
-        // Position children
-        var childOffset = 0;
-        try {
-            for (var _b = __values(node.children), _c = _b.next(); !_c.done; _c = _b.next()) {
-                var child = _c.value;
-                var childSubtreeWidth = this._computeSubtreeWidth(child, isVertical);
-                if (isVertical) {
-                    this._positionTree(child, offsetX + childOffset, offsetY, isVertical, isReversed);
+    };
+    // ============ 官方 vA — 注释 ============
+    TreeLayout.prototype._addCommentsAll = function () {
+        if (!this._comments || this._network === null)
+            return;
+        var it = this._network.vertexes.iterator;
+        while (it.next())
+            this._addComments(it.value);
+    };
+    /** 官方 isBusAlignment */
+    TreeLayout.prototype.isBusAlignment = function (a) {
+        return a === TreeAlignmentBus || a === TreeAlignmentBusBranching ||
+            a === TreeAlignmentTopLeftBus || a === TreeAlignmentBottomRightBus;
+    };
+    /** 官方 vw — 是否 Bus/BusBranching */
+    TreeLayout.prototype._isBusBranching = function (a) {
+        return a === TreeAlignmentBus || a === TreeAlignmentBusBranching;
+    };
+    /** 官方 iT — isLeftSideBus */
+    TreeLayout.prototype._isLeftSideBus = function (v) {
+        var p = v.parent;
+        if (p !== null) {
+            var e = p.alignment;
+            if (this.isBusAlignment(e)) {
+                if (this._isBusBranching(e)) {
+                    var s = p.children;
+                    var n = 0;
+                    while (n < s.length && v !== s[n])
+                        n++;
+                    return n % 2 === 0;
                 }
-                else {
-                    this._positionTree(child, offsetX, offsetY + childOffset, isVertical, isReversed);
-                }
-                childOffset += childSubtreeWidth + this._nodeSpacing;
+                return e === TreeAlignmentTopLeftBus;
             }
         }
-        catch (e_9_1) { e_9 = { error: e_9_1 }; }
+        return false;
+    };
+    TreeLayout.prototype._addComments = function (v) {
+        var i = v.angle;
+        var p = v.parent;
+        var s = 0;
+        var n = TreeAlignmentCenterChildren;
+        var o = false;
+        if (p !== null) {
+            s = p.angle;
+            n = p.alignment;
+            o = this.isBusAlignment(n);
+        }
+        var r = i === 90 || i === 270;
+        var l = s === 90 || s === 270;
+        var h = v.childrenCount === 0;
+        var a = 0, c = 0, f = 0;
+        var u = v.commentSpacing;
+        if (v.node !== null) {
+            var d = v.node.findNodesConnected().iterator;
+            while (d.next()) {
+                var m = d.value;
+                if (m.category !== 'Comment')
+                    continue;
+                if (typeof m.canLayout === 'function' && !m.canLayout())
+                    continue;
+                if (v.comments === null)
+                    v.comments = [];
+                v.comments.push(m);
+                m.ensureBounds();
+                var g = m.measuredBounds;
+                if ((r && !h) || (!o && !l && h) || (o && l && h)) {
+                    a = Math.max(a, g.width);
+                    c += g.height + Math.abs(f);
+                }
+                else {
+                    a += g.width + Math.abs(f);
+                    c = Math.max(c, g.height);
+                }
+                f = u;
+            }
+        }
+        if (v.comments !== null) {
+            if ((r && !h) || (!o && !l && h) || (o && l && h)) {
+                a += Math.abs(v.commentMargin);
+                c = Math.max(0, c - v.height);
+            }
+            else {
+                c += Math.abs(v.commentMargin);
+                a = Math.max(0, a - v.width);
+            }
+            v.bounds = new Rect(0, 0, v.bounds.width + a, v.bounds.height + c);
+        }
+    };
+    // ============ 官方 qB — 层尺寸统一 + 树几何 ============
+    TreeLayout.prototype._layoutTreeReal = function () {
+        var e_9, _a, e_10, _b;
+        var net = this._network;
+        if (this._layerStyle === TreeLayerStyleUniform) {
+            var i = [];
+            var it = net.vertexes.iterator;
+            while (it.next()) {
+                var s = it.value;
+                var p = s.parent;
+                if (p === null)
+                    p = s;
+                var horiz = p.angle === 0 || p.angle === 180;
+                var r = i[s.level];
+                if (r === undefined)
+                    r = 0;
+                i[s.level] = Math.max(r, horiz ? s.width : s.height);
+            }
+            for (var k = 0; k < i.length; k++)
+                if (i[k] === undefined)
+                    i[k] = 0;
+            this._layerSizes = i;
+            it = net.vertexes.iterator;
+            while (it.next()) {
+                var s = it.value;
+                var p = s.parent;
+                if (p === null)
+                    p = s;
+                if (p.angle === 0 || p.angle === 180) {
+                    if (p.angle === 180)
+                        s.focus.x += i[s.level] - s.width;
+                    s.width = i[s.level];
+                }
+                else {
+                    if (p.angle === 270)
+                        s.focus.y += i[s.level] - s.height;
+                    s.height = i[s.level];
+                }
+            }
+        }
+        else if (this._layerStyle === TreeLayerStyleSiblings) {
+            var it = net.vertexes.iterator;
+            while (it.next()) {
+                var e = it.value;
+                var horiz = e.angle === 0 || e.angle === 180;
+                var n = -1;
+                try {
+                    for (var _c = (e_9 = void 0, __values(e.children)), _d = _c.next(); !_d.done; _d = _c.next()) {
+                        var r = _d.value;
+                        n = Math.max(n, horiz ? r.width : r.height);
+                    }
+                }
+                catch (e_9_1) { e_9 = { error: e_9_1 }; }
+                finally {
+                    try {
+                        if (_d && !_d.done && (_a = _c.return)) _a.call(_c);
+                    }
+                    finally { if (e_9) throw e_9.error; }
+                }
+                if (n >= 0) {
+                    try {
+                        for (var _e = (e_10 = void 0, __values(e.children)), _f = _e.next(); !_f.done; _f = _e.next()) {
+                            var r = _f.value;
+                            if (horiz) {
+                                if (e.angle === 180)
+                                    r.focus.x += n - r.width;
+                                r.width = n;
+                            }
+                            else {
+                                if (e.angle === 270)
+                                    r.focus.y += n - r.height;
+                                r.height = n;
+                            }
+                        }
+                    }
+                    catch (e_10_1) { e_10 = { error: e_10_1 }; }
+                    finally {
+                        try {
+                            if (_f && !_f.done && (_b = _e.return)) _b.call(_e);
+                        }
+                        finally { if (e_10) throw e_10.error; }
+                    }
+                }
+            }
+        }
+        var t = this._roots.iterator;
+        while (t.next()) {
+            var i = t.value;
+            if (i instanceof TreeVertex)
+                this._layoutTree(i);
+        }
+    };
+    TreeLayout.prototype._layoutTree = function (v) {
+        var e_11, _a;
+        if (v === null)
+            return;
+        try {
+            for (var _b = __values(v.children), _c = _b.next(); !_c.done; _c = _b.next()) {
+                var n = _c.value;
+                this._layoutTree(n);
+            }
+        }
+        catch (e_11_1) { e_11 = { error: e_11_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_9) throw e_9.error; }
+            finally { if (e_11) throw e_11.error; }
+        }
+        switch (v.compaction) {
+            case TreeCompactionNone:
+                this._layoutTreeNone(v);
+                break;
+            default:
+            case TreeCompactionBlock:
+                if (v.alignment === TreeAlignmentBusBranching)
+                    this._layoutTreeNone(v);
+                else
+                    this._layoutTreeBlock(v);
+                break;
         }
     };
-    // ============ Static enum constants ============
-    TreeLayout.StyleLayered = TreeStyleLayered;
-    TreeLayout.StyleAlternating = TreeStyleAlternating;
-    TreeLayout.StyleLastParents = TreeStyleLastParents;
-    TreeLayout.StyleRootOnly = TreeStyleRootOnly;
+    /** 官方 orthoAngle */
+    TreeLayout.prototype.orthoAngle = function (v) {
+        var i = v.angle;
+        return i <= 45 ? 0 : i <= 135 ? 90 : i <= 225 ? 180 : i <= 315 ? 270 : 0;
+    };
+    /** 官方 computeLayerSpacing */
+    TreeLayout.prototype.computeLayerSpacing = function (v) {
+        var i = this.orthoAngle(v);
+        var e = i === 90 || i === 270;
+        var s = v.layerSpacing;
+        if (v.layerSpacingParentOverlap > 0) {
+            var n = Math.min(1, v.layerSpacingParentOverlap);
+            s -= e ? v.height * n : v.width * n;
+        }
+        if (s < (e ? -v.height : -v.width))
+            s = e ? -v.height : -v.width;
+        return s;
+    };
+    /** 官方 computeNodeIndent */
+    TreeLayout.prototype.computeNodeIndent = function (v) {
+        var i = this.orthoAngle(v);
+        var e = i === 90 || i === 270;
+        var s = v.nodeIndent;
+        if (v.nodeIndentPastParent > 0) {
+            var n = Math.min(1, v.nodeIndentPastParent);
+            s += e ? v.width * n : v.height * n;
+        }
+        return s;
+    };
+    /** 官方 computeBusNodeSpacing */
+    TreeLayout.prototype._computeBusNodeSpacing = function (c) {
+        return c.parent === null ? 0 : c.parent.nodeSpacing;
+    };
+    /** 官方 computeBusLastRowSpacing */
+    TreeLayout.prototype._computeBusLastRowSpacing = function (c, _dir) {
+        return c.parent === null ? 0 : c.parent.rowSpacing;
+    };
+    /** 官方 ke — 分配点数组 */
+    TreeLayout.prototype._ke = function (n) {
+        var pool = this._pool[n];
+        if (pool !== undefined) {
+            var s = pool.pop();
+            if (s !== undefined)
+                return s;
+        }
+        var e = [];
+        for (var i = 0; i < n; i++)
+            e.push(new Point(0, 0));
+        return e;
+    };
+    /** 官方 bn — 回收点数组 */
+    TreeLayout.prototype._bn = function (arr) {
+        if (!arr)
+            return;
+        var i = arr.length;
+        var e = this._pool[i];
+        if (e === undefined) {
+            e = [];
+            this._pool[i] = e;
+        }
+        e.push(arr);
+    };
+    /** 官方 recordMidPoints (Ik) */
+    TreeLayout.prototype._recordMidPoints = function (v, x, y) {
+        var p = v.parent;
+        switch (this._Ms) {
+            case 1: {
+                var n = v.sourceEdges;
+                var it = n.iterator;
+                while (it.next()) {
+                    var o = it.value;
+                    if (o.fromVertex === p && o instanceof TreeEdge)
+                        o.relativePoint.set(x, y);
+                }
+                break;
+            }
+            case 2: {
+                var n = v.destinationEdges;
+                var it = n.iterator;
+                while (it.next()) {
+                    var o = it.value;
+                    if (o.toVertex === p && o instanceof TreeEdge)
+                        o.relativePoint.set(x, y);
+                }
+                break;
+            }
+        }
+    };
+    /** 官方 shiftRelPos (Iu) */
+    TreeLayout.prototype._shiftRelPos = function (v, dx, dy, from, to) {
+        if (dx === 0 && dy === 0)
+            return;
+        var ch = v.children;
+        for (var r = from; r <= to; r++) {
+            var h = ch[r].relativePosition;
+            h.x += dx;
+            h.y += dy;
+        }
+    };
+    /** 官方 nT — 按 alignment 拆分偏移 */
+    TreeLayout.prototype._alignOffset = function (alignment, dx, dy) {
+        switch (alignment) {
+            case TreeAlignmentCenterSubtrees:
+            case TreeAlignmentCenterChildren:
+                return new Point(dx / 2, dy / 2);
+            case TreeAlignmentStart:
+                return new Point(0, 0);
+            case TreeAlignmentEnd:
+                return new Point(dx, dy);
+            default:
+                return new Point(dx, dy);
+        }
+    };
+    /** 官方 Bc — shiftRelPosAlign */
+    TreeLayout.prototype._shiftRelPosAlign = function (v, alignment, dx, dy, from, to) {
+        var r = this._alignOffset(alignment, dx, dy);
+        this._shiftRelPos(v, r.x, r.y, from, to);
+    };
+    /** 官方 Ek — 平移点数组 */
+    TreeLayout.prototype._shiftPoints = function (arr, dx, dy) {
+        var e_12, _a;
+        if (!arr)
+            return;
+        try {
+            for (var arr_3 = __values(arr), arr_3_1 = arr_3.next(); !arr_3_1.done; arr_3_1 = arr_3.next()) {
+                var p = arr_3_1.value;
+                p.x += dx;
+                p.y += dy;
+            }
+        }
+        catch (e_12_1) { e_12 = { error: e_12_1 }; }
+        finally {
+            try {
+                if (arr_3_1 && !arr_3_1.done && (_a = arr_3.return)) _a.call(arr_3);
+            }
+            finally { if (e_12) throw e_12.error; }
+        }
+    };
+    /** 官方 calculateSubwidth (eT) */
+    TreeLayout.prototype._calculateSubwidth = function (v, w, x) {
+        switch (v.alignment) {
+            case TreeAlignmentCenterChildren:
+            case TreeAlignmentCenterSubtrees: {
+                var s = w;
+                if (x + v.width > s)
+                    s = x + v.width;
+                if (x < 0)
+                    s -= x;
+                return s;
+            }
+            case TreeAlignmentStart:
+                return v.width > w ? v.width : w;
+            case TreeAlignmentEnd:
+                return v.focus.x * 2 > w ? v.width : w + v.width - v.focus.x * 2;
+            case TreeAlignmentBus:
+            case TreeAlignmentBusBranching: {
+                var n = Math.min(0, x);
+                var o = Math.max(w, x + v.width);
+                return Math.max(v.width, o - n);
+            }
+            case TreeAlignmentTopLeftBus:
+                return v.width - v.focus.x + v.nodeSpacing / 2 + w;
+            case TreeAlignmentBottomRightBus:
+                return Math.max(v.width, v.focus.x + v.nodeSpacing / 2 + w);
+            default:
+                return w;
+        }
+    };
+    /** 官方 calculateSubheight (sT) */
+    TreeLayout.prototype._calculateSubheight = function (v, h, y) {
+        switch (v.alignment) {
+            case TreeAlignmentCenterChildren:
+            case TreeAlignmentCenterSubtrees: {
+                var s = h;
+                if (y + v.height > s)
+                    s = y + v.height;
+                if (y < 0)
+                    s -= y;
+                return s;
+            }
+            case TreeAlignmentStart:
+                return v.height > h ? v.height : h;
+            case TreeAlignmentEnd:
+                return v.focus.y * 2 > h ? v.height : h + v.height - v.focus.y * 2;
+            case TreeAlignmentBus:
+            case TreeAlignmentBusBranching: {
+                var n = Math.min(0, y);
+                var o = Math.max(h, y + v.height);
+                return Math.max(v.height, o - n);
+            }
+            case TreeAlignmentTopLeftBus:
+                return v.height - v.focus.y + v.nodeSpacing / 2 + h;
+            case TreeAlignmentBottomRightBus:
+                return Math.max(v.height, v.focus.y + v.nodeSpacing / 2 + h);
+            default:
+                return h;
+        }
+    };
+    /** 官方 customAlignment — 子类可覆盖 */
+    TreeLayout.prototype.customAlignment = function (_v, dx, dy, w, h) {
+        return [dx, dy, w, h];
+    };
+    // ---- 官方 fringe 合并（Block 压缩） ----
+    /** 官方 tV — merge fringes（垂直方向推进） */
+    TreeLayout.prototype._mergeFringesX = function (f, g, e) {
+        if (f === null || f.length < 2 || g === null || g.length < 2)
+            return null;
+        var s = this._ke(f.length + g.length);
+        var n = 0, o = 0, r = 0;
+        while (o < g.length && g[o].x < f[0].x) {
+            var a = g[o++];
+            s[r++].set(a.x, a.y + e);
+        }
+        while (n < f.length) {
+            var a = f[n++];
+            s[r++].set(a.x, a.y);
+        }
+        var l = f[f.length - 1].x;
+        while (o < g.length && g[o].x <= l)
+            o++;
+        while (o < g.length && g[o].x > l) {
+            var a = g[o++];
+            s[r++].set(a.x, a.y + e);
+        }
+        var h = this._ke(r);
+        for (n = 0; n < r; n++)
+            h[n].set(s[n].x, s[n].y);
+        this._bn(s);
+        return h;
+    };
+    /** 官方 ZB */
+    TreeLayout.prototype._mergeFringesY = function (f, g, e) {
+        if (f === null || f.length < 2 || g === null || g.length < 2)
+            return null;
+        var s = this._ke(f.length + g.length);
+        var n = 0, o = 0, r = 0;
+        while (o < g.length && g[o].y < f[0].y) {
+            var a = g[o++];
+            s[r++].set(a.x + e, a.y);
+        }
+        while (n < f.length) {
+            var a = f[n++];
+            s[r++].set(a.x, a.y);
+        }
+        var l = f[f.length - 1].y;
+        while (o < g.length && g[o].y <= l)
+            o++;
+        while (o < g.length && g[o].y > l) {
+            var a = g[o++];
+            s[r++].set(a.x + e, a.y);
+        }
+        var h = this._ke(r);
+        for (n = 0; n < r; n++)
+            h[n].set(s[n].x, s[n].y);
+        this._bn(s);
+        return h;
+    };
+    /** 官方 iV */
+    TreeLayout.prototype._mergeFringesX2 = function (t, g, e) {
+        if (t === null || t.length < 2 || g === null || g.length < 2)
+            return null;
+        var s = this._ke(t.length + g.length);
+        var n = 0, o = 0, r = 0;
+        while (n < t.length && t[n].x < g[0].x) {
+            var a = t[n++];
+            s[r++].set(a.x, a.y);
+        }
+        while (o < g.length) {
+            var a = g[o++];
+            s[r++].set(a.x, a.y + e);
+        }
+        var l = g[g.length - 1].x;
+        while (n < t.length && t[n].x <= l)
+            n++;
+        while (n < t.length && t[n].x > l) {
+            var a = t[n++];
+            s[r++].set(a.x, a.y);
+        }
+        var h = this._ke(r);
+        for (n = 0; n < r; n++)
+            h[n].set(s[n].x, s[n].y);
+        this._bn(s);
+        return h;
+    };
+    /** 官方 QB */
+    TreeLayout.prototype._mergeFringesY2 = function (t, g, e) {
+        if (t === null || t.length < 2 || g === null || g.length < 2)
+            return null;
+        var s = this._ke(t.length + g.length);
+        var n = 0, o = 0, r = 0;
+        while (n < t.length && t[n].y < g[0].y) {
+            var a = t[n++];
+            s[r++].set(a.x, a.y);
+        }
+        while (o < g.length) {
+            var a = g[o++];
+            s[r++].set(a.x + e, a.y);
+        }
+        var l = g[g.length - 1].y;
+        while (n < t.length && t[n].y <= l)
+            n++;
+        while (n < t.length && t[n].y > l) {
+            var a = t[n++];
+            s[r++].set(a.x, a.y);
+        }
+        var h = this._ke(r);
+        for (n = 0; n < r; n++)
+            h[n].set(s[n].x, s[n].y);
+        this._bn(s);
+        return h;
+    };
+    /** 官方 _B — minimum separation (x-fringes) */
+    TreeLayout.prototype._minSepX = function (t, g, e) {
+        var s = 9999999;
+        if (t === null || t.length < 2 || g === null || g.length < 2)
+            return s;
+        var n = 0, o = 0;
+        while (n < t.length && o < g.length) {
+            var r = t[n], l = g[o], h = l.x;
+            var a = l.y;
+            a += e;
+            var c = r;
+            if (n + 1 < t.length)
+                c = t[n + 1];
+            var f = l, u = f.x, d = f.y;
+            if (o + 1 < g.length) {
+                f = g[o + 1];
+                u = f.x;
+                d = f.y;
+                d += e;
+            }
+            var m = s;
+            if (r.x === h)
+                m = a - r.y;
+            else if (r.x > h && r.x < u)
+                m = a + ((r.x - h) / (u - h)) * (d - a) - r.y;
+            else if (h > r.x && h < c.x)
+                m = a - (r.y + ((h - r.x) / (c.x - r.x)) * (c.y - r.y));
+            if (m < s)
+                s = m;
+            if (c.x <= r.x)
+                n++;
+            else if (u <= h)
+                o++;
+            else {
+                if (c.x <= u)
+                    n++;
+                if (u <= c.x)
+                    o++;
+            }
+        }
+        return s;
+    };
+    /** 官方 $B — minimum separation (y-fringes) */
+    TreeLayout.prototype._minSepY = function (t, g, e) {
+        var s = 9999999;
+        if (t === null || t.length < 2 || g === null || g.length < 2)
+            return s;
+        var n = 0, o = 0;
+        while (n < t.length && o < g.length) {
+            var r = t[n], l = g[o];
+            var h = l.x;
+            var a = l.y;
+            h += e;
+            var c = r;
+            if (n + 1 < t.length)
+                c = t[n + 1];
+            var f = l, u = f.x, d = f.y;
+            if (o + 1 < g.length) {
+                f = g[o + 1];
+                u = f.x;
+                d = f.y;
+                u += e;
+            }
+            var m = s;
+            if (r.y === a)
+                m = h - r.x;
+            else if (r.y > a && r.y < d)
+                m = h + ((r.y - a) / (d - a)) * (u - h) - r.x;
+            else if (a > r.y && a < c.y)
+                m = h - (r.x + ((a - r.y) / (c.y - r.y)) * (c.x - r.x));
+            if (m < s)
+                s = m;
+            if (c.y <= r.y)
+                n++;
+            else if (d <= a)
+                o++;
+            else {
+                if (c.y <= d)
+                    n++;
+                if (d <= c.y)
+                    o++;
+            }
+        }
+        return s;
+    };
+    /** 官方 mergeFringes (SI) — 合并父/子边线并返回子顶点的新块位置 */
+    TreeLayout.prototype._mergeFringes = function (parent, child, f, u, A, N, r, l) {
+        var h = this.orthoAngle(parent);
+        var a = h === 90 || h === 270;
+        var c = parent.nodeSpacing;
+        var g = child.mm;
+        var p = child.pm;
+        var y = child.subtreeSize;
+        var x = a ? Math.max(N, y.height) : Math.max(A, y.width);
+        var ng = g, np = p;
+        if (ng === null || h !== this.orthoAngle(child)) {
+            ng = this._ke(2);
+            np = this._ke(2);
+            if (a) {
+                ng[0].set(0, 0);
+                ng[1].set(0, y.height);
+                np[0].set(y.width, 0);
+                np[1].set(np[0].x, ng[1].y);
+            }
+            else {
+                ng[0].set(0, 0);
+                ng[1].set(y.width, 0);
+                np[0].set(0, y.height);
+                np[1].set(ng[1].x, np[0].y);
+            }
+        }
+        if (a) {
+            var b = A;
+            var S = b - this._minSepY(u, ng, b);
+            S += c;
+            var e = this._mergeFringesY(f, ng, S);
+            var s = this._mergeFringesY2(u, np, S);
+            var n = Math.max(0, S) + y.width;
+            var o = x;
+            this._bn(f);
+            this._bn(ng);
+            this._bn(u);
+            this._bn(np);
+            if (r !== undefined) {
+                r[0] = e;
+                r[1] = s;
+            }
+            l.set(S, 0, n, o);
+        }
+        else {
+            var b = N;
+            var S = b - this._minSepX(u, ng, b);
+            S += c;
+            var e = this._mergeFringesX(f, ng, S);
+            var s = this._mergeFringesX2(u, np, S);
+            var n = x;
+            var o = Math.max(0, S) + y.height;
+            this._bn(f);
+            this._bn(ng);
+            this._bn(u);
+            this._bn(np);
+            if (r !== undefined) {
+                r[0] = e;
+                r[1] = s;
+            }
+            l.set(S, 0, n, o);
+        }
+    };
+    // ---- 官方 xI/bI — Bus 总线布局 ----
+    /** 官方 layoutBusChildrenPosDir (xI) */
+    TreeLayout.prototype._layoutBusChildrenPosDir = function (v, ch, e, s, n, o, r) {
+        var l = ch.length;
+        if (l === 0) {
+            r.set(e, 0, n, o);
+            return r;
+        }
+        if (l === 1) {
+            var y = ch[0];
+            n = y.subtreeSize.width;
+            o = y.subtreeSize.height;
+            r.set(e, 0, n, o);
+            return r;
+        }
+        var h = v.nodeSpacing;
+        var a = v.rowSpacing;
+        var f = this.orthoAngle(v) === 90;
+        var u = 0, d = 0, m = 0;
+        for (var y = 0; y < l; y++) {
+            if (y % 2 !== 0 || (l > 1 && y === l - 1))
+                continue;
+            var x = ch[y], b = x.subtreeSize, S = u === 0 ? 0 : a;
+            if (f) {
+                var k = this._computeBusNodeSpacing(x) - h;
+                x.relativePosition.set(e - (b.width + k), m + S);
+                n = Math.max(n, b.width + k);
+                o = Math.max(o, m + S + b.height);
+                m += S + b.height;
+            }
+            else {
+                var k = this._computeBusNodeSpacing(x) - h;
+                x.relativePosition.set(d + S, e - (b.height + k));
+                o = Math.max(o, b.height + k);
+                n = Math.max(n, d + S + b.width);
+                d += S + b.width;
+            }
+            u++;
+        }
+        u = 0;
+        var g = d, p = m;
+        if (f) {
+            d = e + h;
+            m = 0;
+        }
+        else {
+            d = 0;
+            m = e + h;
+        }
+        for (var y = 0; y < l; y++) {
+            if (y % 2 === 0)
+                continue;
+            var x = ch[y], b = x.subtreeSize, S = u === 0 ? 0 : a;
+            if (f) {
+                var k = this._computeBusNodeSpacing(x) - h;
+                x.relativePosition.set(d + k, m + S);
+                n = Math.max(n, d + b.width + k);
+                o = Math.max(o, m + S + b.height);
+                m += S + b.height;
+            }
+            else {
+                var k = this._computeBusNodeSpacing(x) - h;
+                x.relativePosition.set(d + S, m + k);
+                n = Math.max(n, d + S + b.width);
+                o = Math.max(o, m + b.height + k);
+                d += S + b.width;
+            }
+            u++;
+        }
+        if (l > 1 && l % 2 === 1) {
+            var y = ch[l - 1], x = y.subtreeSize;
+            var b = this._computeBusLastRowSpacing(y, f ? Math.max(Math.abs(p), Math.abs(m)) : Math.max(Math.abs(g), Math.abs(d)));
+            if (f) {
+                var S = e + h / 2 - y.focus.x - y.subtreeOffset.x;
+                y.relativePosition.set(S, o + b);
+                n = Math.max(n, S + x.width);
+                if (S < 0)
+                    n -= S;
+                o = Math.max(o, Math.max(p, m) + b + x.height);
+                if (y.relativePosition.x < 0)
+                    e = this._fixRelativePositions(v, y.relativePosition.x, false, e, h);
+            }
+            else {
+                var S = e + h / 2 - y.focus.y - y.subtreeOffset.y;
+                y.relativePosition.set(n + b, S);
+                n = Math.max(n, Math.max(g, d) + b + x.width);
+                o = Math.max(o, S + x.height);
+                if (S < 0)
+                    o -= S;
+                if (y.relativePosition.y < 0)
+                    e = this._fixRelativePositions(v, y.relativePosition.y, true, e, h);
+            }
+        }
+        r.set(e, 0, n, o);
+        return r;
+    };
+    /** 官方 layoutBusChildrenNegDir (bI) */
+    TreeLayout.prototype._layoutBusChildrenNegDir = function (v, ch, e, s, n, o, r) {
+        var l = ch.length;
+        if (l === 0) {
+            r.set(e, 0, n, o);
+            return r;
+        }
+        if (l === 1) {
+            var y = ch[0];
+            n = y.subtreeSize.width;
+            o = y.subtreeSize.height;
+            r.set(e, 0, n, o);
+            return r;
+        }
+        var h = v.nodeSpacing;
+        var a = v.rowSpacing;
+        var f = this.orthoAngle(v) === 270;
+        var u = 0, d = 0, m = 0;
+        for (var y = 0; y < l; y++) {
+            if (y % 2 !== 0 || (l > 1 && y === l - 1))
+                continue;
+            var x = ch[y], b = x.subtreeSize, S = u === 0 ? 0 : a;
+            if (f) {
+                var k = this._computeBusNodeSpacing(x) - h;
+                m -= S + b.height;
+                x.relativePosition.set(e - (b.width + k), m);
+                n = Math.max(n, b.width + k);
+                o = Math.max(o, Math.abs(m));
+            }
+            else {
+                var k = this._computeBusNodeSpacing(x) - h;
+                d -= S + b.width;
+                x.relativePosition.set(d, e - (b.height + k));
+                o = Math.max(o, b.height + k);
+                n = Math.max(n, Math.abs(d));
+            }
+            u++;
+        }
+        u = 0;
+        var g = d, p = m;
+        if (f) {
+            d = e + h;
+            m = 0;
+        }
+        else {
+            d = 0;
+            m = e + h;
+        }
+        for (var y = 0; y < l; y++) {
+            if (y % 2 === 0)
+                continue;
+            var x = ch[y], b = x.subtreeSize, S = u === 0 ? 0 : a;
+            if (f) {
+                var k = this._computeBusNodeSpacing(x) - h;
+                m -= S + b.height;
+                x.relativePosition.set(d + k, m);
+                n = Math.max(n, d + b.width + k);
+                o = Math.max(o, Math.abs(m));
+            }
+            else {
+                var k = this._computeBusNodeSpacing(x) - h;
+                d -= S + b.width;
+                x.relativePosition.set(d, m + k);
+                o = Math.max(o, m + b.height + k);
+                n = Math.max(n, Math.abs(d));
+            }
+            u++;
+        }
+        if (l > 1 && l % 2 === 1) {
+            var y = ch[l - 1], x = y.subtreeSize;
+            var b = this._computeBusLastRowSpacing(y, f ? Math.max(Math.abs(p), Math.abs(m)) : Math.max(Math.abs(g), Math.abs(d)));
+            if (f) {
+                var S = e + h / 2 - y.focus.x - y.subtreeOffset.x;
+                y.relativePosition.set(S, -o - x.height - b);
+                n = Math.max(n, S + x.width);
+                if (S < 0)
+                    n -= S;
+                o = Math.max(o, Math.abs(Math.min(p, m)) + b + x.height);
+                if (y.relativePosition.x < 0)
+                    e = this._fixRelativePositions(v, y.relativePosition.x, false, e, h);
+            }
+            else {
+                var S = e + h / 2 - y.focus.y - y.subtreeOffset.y;
+                y.relativePosition.set(-n - x.width - b, S);
+                n = Math.max(n, Math.abs(Math.min(g, d)) + b + x.width);
+                o = Math.max(o, S + x.height);
+                if (S < 0)
+                    o -= S;
+                if (y.relativePosition.y < 0)
+                    e = this._fixRelativePositions(v, y.relativePosition.y, true, e, h);
+            }
+        }
+        for (var y = 0; y < l; y++) {
+            var x = ch[y];
+            if (f)
+                x.relativePosition.set(x.relativePosition.x, x.relativePosition.y + o);
+            else
+                x.relativePosition.set(x.relativePosition.x + n, x.relativePosition.y);
+        }
+        r.set(e, 0, n, o);
+        return r;
+    };
+    /** 官方 fixRelativePostions (Ok) */
+    TreeLayout.prototype._fixRelativePositions = function (v, delta, vertical, e, spacing) {
+        var o = v.children;
+        var r = o.length;
+        for (var h = 0; h < r; h++) {
+            if (vertical)
+                o[h].relativePosition.set(o[h].relativePosition.x, o[h].relativePosition.y - delta);
+            else
+                o[h].relativePosition.set(o[h].relativePosition.x - delta, o[h].relativePosition.y);
+        }
+        var l = o[r - 1];
+        return Math.max(e, vertical ? l.subtreeOffset.y + l.focus.y - spacing / 2 : l.subtreeOffset.x + l.focus.x - spacing / 2);
+    };
+    // ============ 官方 wI — layoutTreeNone（compaction = None） ============
+    TreeLayout.prototype._layoutTreeNone = function (v) {
+        if (v.childrenCount === 0) {
+            var R = false, I = 0, O = TreeAlignmentCenterChildren;
+            if (v.parent !== null) {
+                I = v.parent.angle;
+                O = v.parent.alignment;
+                R = this.isBusAlignment(O);
+            }
+            var X = this._isLeftSideBus(v);
+            v.relativePosition.set(0, 0);
+            v.subtreeSize.set(v.width, v.height);
+            if (v.parent !== null && v.comments !== null) {
+                if (((I === 180 || I === 270) && !R) || X) {
+                    if ((I === 180 && !R) || ((I === 90 || I === 270) && X))
+                        v.subtreeOffset.set(v.width - v.focus.x * 2, 0);
+                    else
+                        v.subtreeOffset.set(0, v.height - v.focus.y * 2);
+                }
+                else
+                    v.subtreeOffset.set(0, 0);
+            }
+            else
+                v.subtreeOffset.set(0, 0);
+            return;
+        }
+        var i = this.orthoAngle(v);
+        var e = i === 90 || i === 270;
+        var s = 0;
+        var n = v.children, o = n.length;
+        for (var R = 0; R < o; R++) {
+            var I = n[R];
+            s = Math.max(s, e ? I.subtreeSize.width : I.subtreeSize.height);
+        }
+        var r = v.alignment;
+        var l = r === TreeAlignmentStart;
+        var h = r === TreeAlignmentEnd;
+        var a = this.isBusAlignment(r);
+        var c = Math.max(0, v.breadthLimit);
+        var f = this.computeLayerSpacing(v);
+        var u = v.nodeSpacing;
+        var d = this.computeNodeIndent(v);
+        var m = l || h ? 0 : d / 2;
+        var g = v.rowSpacing;
+        var p = 0;
+        if (l || h)
+            p = Math.max(0, v.rowIndent);
+        var y = v.width, x = v.height;
+        var b = 0, S = 0, k = 0, P = 0, A = 0, N = 0, M = 0, C = 0, T = 0, L = 0;
+        if (a && !this._isBusBranching(r) && i > 135)
+            n.reverse();
+        if (this._isBusBranching(r)) {
+            if (o > 1) {
+                for (var R = 0; R < o; R++) {
+                    var I = n[R], O = I.subtreeSize;
+                    if (R % 2 === 0 && R !== o - 1)
+                        T = Math.max(T, (e ? O.width : O.height) + this._computeBusNodeSpacing(I) - u);
+                    else if (R % 2 !== 0)
+                        L = Math.max(L, (e ? O.width : O.height) + this._computeBusNodeSpacing(I) - u);
+                }
+            }
+            else if (o === 1) {
+                T = e ? n[0].subtreeSize.width : n[0].subtreeSize.height;
+            }
+        }
+        if (a) {
+            switch (r) {
+                case TreeAlignmentBus:
+                case TreeAlignmentBusBranching: {
+                    var R = new Rect(0, 0, 0, 0);
+                    if (i < 135)
+                        this._layoutBusChildrenPosDir(v, n, T, L, b, S, R);
+                    else
+                        this._layoutBusChildrenNegDir(v, n, T, L, b, S, R);
+                    T = R.x;
+                    b = R.width;
+                    S = R.height;
+                    break;
+                }
+                case TreeAlignmentTopLeftBus:
+                    for (var I = 0; I < o; I++) {
+                        var O = n[I], X = O.subtreeSize, Y = M === 0 ? 0 : g;
+                        if (e) {
+                            O.relativePosition.set(s - X.width, A + Y);
+                            b = Math.max(b, X.width);
+                            S = Math.max(S, A + Y + X.height);
+                            A += Y + X.height;
+                        }
+                        else {
+                            O.relativePosition.set(P + Y, s - X.height);
+                            b = Math.max(b, P + Y + X.width);
+                            S = Math.max(S, X.height);
+                            P += Y + X.width;
+                        }
+                        M++;
+                    }
+                    break;
+                case TreeAlignmentBottomRightBus:
+                    for (var I = 0; I < o; I++) {
+                        var O = n[I], X = O.subtreeSize, Y = M === 0 ? 0 : g;
+                        if (e) {
+                            O.relativePosition.set(u / 2 + v.focus.x, A + Y);
+                            b = Math.max(b, X.width);
+                            S = Math.max(S, A + Y + X.height);
+                            A += Y + X.height;
+                        }
+                        else {
+                            O.relativePosition.set(P + Y, u / 2 + v.focus.y);
+                            b = Math.max(b, P + Y + X.width);
+                            S = Math.max(S, X.height);
+                            P += Y + X.width;
+                        }
+                        M++;
+                    }
+                    break;
+            }
+        }
+        else {
+            for (var R = 0; R < o; R++) {
+                var I = n[R], O = I.subtreeSize;
+                if (e) {
+                    if (c > 0 && M > 0 && P + u + O.width > c) {
+                        if (P < s)
+                            this._shiftRelPosAlign(v, r, s - P, 0, C, R - 1);
+                        N++;
+                        M = 0;
+                        C = R;
+                        k = S;
+                        P = 0;
+                        A = i > 135 ? -S - g : S + g;
+                    }
+                    var X = M === 0 ? m : u;
+                    this._recordMidPoints(I, 0, A);
+                    I.relativePosition.set(P + X, A);
+                    b = Math.max(b, P + X + O.width);
+                    S = Math.max(S, k + (N === 0 ? 0 : g) + O.height);
+                    P += X + O.width;
+                }
+                else {
+                    if (c > 0 && M > 0 && A + u + O.height > c) {
+                        if (A < s)
+                            this._shiftRelPosAlign(v, r, 0, s - A, C, R - 1);
+                        N++;
+                        M = 0;
+                        C = R;
+                        k = b;
+                        A = 0;
+                        P = i > 135 ? -b - g : b + g;
+                    }
+                    var X = M === 0 ? m : u;
+                    this._recordMidPoints(I, P, 0);
+                    I.relativePosition.set(P, A + X);
+                    S = Math.max(S, A + X + O.height);
+                    b = Math.max(b, k + (N === 0 ? 0 : g) + O.width);
+                    A += X + O.height;
+                }
+                M++;
+            }
+        }
+        if (N > 0) {
+            if (e) {
+                S += Math.max(0, f);
+                if (P < b)
+                    this._shiftRelPosAlign(v, r, b - P, 0, C, o - 1);
+                if (p > 0) {
+                    if (!h)
+                        this._shiftRelPos(v, p, 0, 0, o - 1);
+                    b += p;
+                }
+            }
+            else {
+                b += Math.max(0, f);
+                if (A < S)
+                    this._shiftRelPosAlign(v, r, 0, S - A, C, o - 1);
+                if (p > 0) {
+                    if (!h)
+                        this._shiftRelPos(v, 0, p, 0, o - 1);
+                    S += p;
+                }
+            }
+        }
+        var D = 0, F = 0;
+        switch (r) {
+            case TreeAlignmentCenterSubtrees:
+                if (e)
+                    D += b / 2 - v.focus.x - d / 2;
+                else
+                    F += S / 2 - v.focus.y - d / 2;
+                break;
+            default:
+            case TreeAlignmentCenterChildren:
+                if (N > 0) {
+                    if (e)
+                        D += b / 2 - v.focus.x - d / 2;
+                    else
+                        F += S / 2 - v.focus.y - d / 2;
+                }
+                else {
+                    var I = o;
+                    if (e) {
+                        var O = n[0].relativePosition.x + n[0].subtreeOffset.x;
+                        var X = n[I - 1].relativePosition.x + n[I - 1].subtreeOffset.x + n[I - 1].focus.x * 2;
+                        D += O + (X - O) / 2 - v.focus.x - d / 2;
+                    }
+                    else {
+                        var O = n[0].relativePosition.y + n[0].subtreeOffset.y;
+                        var X = n[I - 1].relativePosition.y + n[I - 1].subtreeOffset.y + n[I - 1].focus.y * 2;
+                        F += O + (X - O) / 2 - v.focus.y - d / 2;
+                    }
+                }
+                break;
+            case TreeAlignmentStart:
+                if (e) {
+                    D -= d;
+                    b += d;
+                }
+                else {
+                    F -= d;
+                    S += d;
+                }
+                break;
+            case TreeAlignmentEnd:
+                if (e) {
+                    D += b - v.width + d;
+                    b += d;
+                }
+                else {
+                    F += S - v.height + d;
+                    S += d;
+                }
+                break;
+            case TreeAlignmentBus:
+            case TreeAlignmentBusBranching:
+                if (e) {
+                    if (o > 1)
+                        D += T + u / 2 - v.focus.x;
+                    else
+                        D += n[0].focus.x - v.focus.x + n[0].subtreeOffset.x;
+                }
+                else {
+                    if (o > 1)
+                        F += T + u / 2 - v.focus.y;
+                    else
+                        F += n[0].focus.y - v.focus.y + n[0].subtreeOffset.y;
+                }
+                break;
+            case TreeAlignmentTopLeftBus:
+                if (e)
+                    D += b + u / 2 - v.focus.x;
+                else
+                    F += S + u / 2 - v.focus.y;
+                break;
+            case TreeAlignmentBottomRightBus:
+                break;
+            case TreeAlignmentCustom: {
+                var R = this.customAlignment(v, D, F, b, S);
+                D = R[0];
+                F = R[1];
+                b = R[2];
+                S = R[3];
+                break;
+            }
+        }
+        for (var R = 0; R < o; R++) {
+            var I = n[R];
+            if (e) {
+                I.relativePosition.set(I.relativePosition.x + I.subtreeOffset.x - D, I.relativePosition.y + (i > 135 ? (a ? -S : -I.subtreeSize.height) + I.subtreeOffset.y - f : x + f + I.subtreeOffset.y));
+            }
+            else {
+                I.relativePosition.set(I.relativePosition.x + (i > 135 ? (a ? -b : -I.subtreeSize.width) + I.subtreeOffset.x - f : y + f + I.subtreeOffset.x), I.relativePosition.y + I.subtreeOffset.y - F);
+            }
+        }
+        if (e) {
+            b = this._calculateSubwidth(v, b, D);
+            if (D < 0)
+                D = 0;
+            if (i > 135)
+                F += S + f;
+            S = Math.max(Math.max(S, x), S + x + f);
+        }
+        else {
+            if (i > 135)
+                D += b + f;
+            b = Math.max(Math.max(b, y), b + y + f);
+            S = this._calculateSubheight(v, S, F);
+            if (F < 0)
+                F = 0;
+        }
+        v.subtreeOffset.set(D, F);
+        v.subtreeSize.set(b, S);
+    };
+    // ============ 官方 JB — layoutTreeBlock（compaction = Block） ============
+    TreeLayout.prototype._layoutTreeBlock = function (v) {
+        if (v.childrenCount === 0) {
+            var par = v.parent;
+            var pa = 0;
+            var pr = TreeAlignmentCenterChildren;
+            var pb = false;
+            if (par !== null) {
+                pa = par.angle;
+                pr = par.alignment;
+                pb = this.isBusAlignment(pr);
+            }
+            var left = this._isLeftSideBus(v);
+            v.relativePosition.set(0, 0);
+            v.subtreeSize.set(v.width, v.height);
+            if (v.parent !== null && v.comments !== null &&
+                (((pa === 180 || pa === 270) && !pb) || left)) {
+                if ((pa === 180 && !pb) || ((pa === 90 || pa === 270) && left)) {
+                    v.subtreeOffset.set(v.width - v.focus.x * 2, 0);
+                }
+                else {
+                    v.subtreeOffset.set(0, v.height - v.focus.y * 2);
+                }
+            }
+            else {
+                v.subtreeOffset.set(0, 0);
+            }
+            v.mm = null;
+            v.pm = null;
+            return;
+        }
+        var i = this.orthoAngle(v);
+        var e = i === 90 || i === 270;
+        var s = 0;
+        var n = v.children, o = n.length;
+        for (var z = 0; z < o; z++) {
+            var ch = n[z];
+            s = Math.max(s, e ? ch.subtreeSize.width : ch.subtreeSize.height);
+        }
+        var r = v.alignment;
+        var l = r === TreeAlignmentStart;
+        var h = r === TreeAlignmentEnd;
+        var a = this.isBusAlignment(r);
+        var c = Math.max(0, v.breadthLimit);
+        var f = this.computeLayerSpacing(v);
+        var u = v.nodeSpacing;
+        var d = this.computeNodeIndent(v);
+        var m = v.rowSpacing;
+        var g = 0;
+        if (l || h)
+            g = Math.max(0, v.rowIndent);
+        var p = v.width, y = v.height;
+        var x = 0, b = 0, S = 0; // 子树总宽/总高/主轴已排长度
+        var k = null, P = null; // 起止边线
+        var A = 0, N = 0; // 当前合并块宽/高
+        var M = 0, C = 0; // 交叉轴/主轴当前位置
+        var T = 0, L = 0, D = 0; // 换行数/本行计数/换行起始下标
+        var F = 0, R = 0; // Bus 两侧最大值
+        if (a && !this._isBusBranching(r) && i > 135)
+            n.reverse();
+        if (this._isBusBranching(r)) {
+            if (o > 1) {
+                for (var z = 0; z < o; z++) {
+                    var size = n[z].subtreeSize;
+                    var dim = e ? size.width : size.height;
+                    if (z % 2 === 0 && z !== o - 1)
+                        F = Math.max(F, dim + this._computeBusNodeSpacing(n[z]) - u);
+                    else if (z % 2 !== 0)
+                        R = Math.max(R, dim + this._computeBusNodeSpacing(n[z]) - u);
+                }
+            }
+            else if (o === 1) {
+                F = e ? n[0].subtreeSize.width : n[0].subtreeSize.height;
+            }
+        }
+        if (a) {
+            switch (r) {
+                case TreeAlignmentBus:
+                case TreeAlignmentBusBranching: {
+                    var rect = new Rect(0, 0, 0, 0);
+                    if (i < 135)
+                        this._layoutBusChildrenPosDir(v, n, F, R, x, b, rect);
+                    else
+                        this._layoutBusChildrenNegDir(v, n, F, R, x, b, rect);
+                    F = rect.x;
+                    x = rect.width;
+                    b = rect.height;
+                    break;
+                }
+                case TreeAlignmentTopLeftBus:
+                    for (var z = 0; z < o; z++) {
+                        var ch = n[z], size = ch.subtreeSize, gap = L === 0 ? 0 : m;
+                        if (e) {
+                            ch.relativePosition.set(s - size.width, C + gap);
+                            x = Math.max(x, size.width);
+                            b = Math.max(b, C + gap + size.height);
+                            C += gap + size.height;
+                        }
+                        else {
+                            ch.relativePosition.set(M + gap, s - size.height);
+                            x = Math.max(x, M + gap + size.width);
+                            b = Math.max(b, size.height);
+                            M += gap + size.width;
+                        }
+                        L++;
+                    }
+                    break;
+                case TreeAlignmentBottomRightBus:
+                    for (var z = 0; z < o; z++) {
+                        var ch = n[z], size = ch.subtreeSize, gap = L === 0 ? 0 : m;
+                        if (e) {
+                            ch.relativePosition.set(u / 2 + v.focus.x, C + gap);
+                            x = Math.max(x, size.width);
+                            b = Math.max(b, C + gap + size.height);
+                            C += gap + size.height;
+                        }
+                        else {
+                            ch.relativePosition.set(M + gap, u / 2 + v.focus.y);
+                            x = Math.max(x, M + gap + size.width);
+                            b = Math.max(b, size.height);
+                            M += gap + size.width;
+                        }
+                        L++;
+                    }
+                    break;
+            }
+            k = this._ke(2);
+            P = this._ke(2);
+            if (e) {
+                k[0].set(0, 0);
+                k[1].set(0, b);
+                P[0].set(x, 0);
+                P[1].set(x, b);
+            }
+            else {
+                k[0].set(0, 0);
+                k[1].set(x, 0);
+                P[0].set(0, b);
+                P[1].set(x, b);
+            }
+        }
+        else {
+            for (var z = 0; z < o; z++) {
+                var H = n[z], size = H.subtreeSize;
+                if (e) {
+                    if (c > 0 && L > 0 && M + u + size.width > c) {
+                        if (M < s)
+                            this._shiftRelPosAlign(v, r, s - M, 0, D, z - 1);
+                        T++;
+                        L = 0;
+                        D = z;
+                        S = b;
+                        M = 0;
+                        C = i > 135 ? -b - m : b + m;
+                    }
+                    this._recordMidPoints(H, 0, C);
+                    var j = 0;
+                    if (L === 0) {
+                        k = H.mm;
+                        P = H.pm;
+                        A = size.width;
+                        N = size.height;
+                        if (k === null || P === null || i !== this.orthoAngle(H)) {
+                            k = this._ke(2);
+                            P = this._ke(2);
+                            k[0].set(0, 0);
+                            k[1].set(0, N);
+                            P[0].set(A, 0);
+                            P[1].set(A, N);
+                        }
+                    }
+                    else {
+                        var tmp = [null, null];
+                        var rect = new Rect(0, 0, 0, 0);
+                        this._mergeFringes(v, H, k, P, A, N, tmp, rect);
+                        j = rect.x;
+                        k = tmp[0];
+                        P = tmp[1];
+                        A = rect.width;
+                        N = rect.height;
+                        if (M < size.width && j < 0) {
+                            this._shiftRelPos(v, -j, 0, D, z - 1);
+                            this._shiftPoints(k, -j, 0);
+                            this._shiftPoints(P, -j, 0);
+                            j = 0;
+                        }
+                    }
+                    H.relativePosition.set(j, C);
+                    x = Math.max(x, A);
+                    b = Math.max(b, S + (T === 0 ? 0 : m) + size.height);
+                    M = A;
+                }
+                else {
+                    if (c > 0 && L > 0 && C + u + size.height > c) {
+                        if (C < s)
+                            this._shiftRelPosAlign(v, r, 0, s - C, D, z - 1);
+                        T++;
+                        L = 0;
+                        D = z;
+                        S = x;
+                        C = 0;
+                        M = i > 135 ? -x - m : x + m;
+                    }
+                    this._recordMidPoints(H, M, 0);
+                    var j = 0;
+                    if (L === 0) {
+                        k = H.mm;
+                        P = H.pm;
+                        A = size.width;
+                        N = size.height;
+                        if (k === null || P === null || i !== this.orthoAngle(H)) {
+                            k = this._ke(2);
+                            P = this._ke(2);
+                            k[0].set(0, 0);
+                            k[1].set(A, 0);
+                            P[0].set(0, N);
+                            P[1].set(A, N);
+                        }
+                    }
+                    else {
+                        var tmp = [null, null];
+                        var rect = new Rect(0, 0, 0, 0);
+                        this._mergeFringes(v, H, k, P, A, N, tmp, rect);
+                        j = rect.x;
+                        k = tmp[0];
+                        P = tmp[1];
+                        A = rect.width;
+                        N = rect.height;
+                        if (C < size.height && j < 0) {
+                            this._shiftRelPos(v, 0, -j, D, z - 1);
+                            this._shiftPoints(k, 0, -j);
+                            this._shiftPoints(P, 0, -j);
+                            j = 0;
+                        }
+                    }
+                    H.relativePosition.set(M, j);
+                    b = Math.max(b, N);
+                    x = Math.max(x, S + (T === 0 ? 0 : m) + size.width);
+                    C = N;
+                }
+                L++;
+            }
+        }
+        if (T > 0) {
+            if (e) {
+                b += Math.max(0, f);
+                if (M < x)
+                    this._shiftRelPosAlign(v, r, x - M, 0, D, o - 1);
+                if (g > 0) {
+                    if (!h)
+                        this._shiftRelPos(v, g, 0, 0, o - 1);
+                    x += g;
+                }
+            }
+            else {
+                x += Math.max(0, f);
+                if (C < b)
+                    this._shiftRelPosAlign(v, r, 0, b - C, D, o - 1);
+                if (g > 0) {
+                    if (!h)
+                        this._shiftRelPos(v, 0, g, 0, o - 1);
+                    b += g;
+                }
+            }
+        }
+        var I = 0, O = 0;
+        switch (r) {
+            case TreeAlignmentCenterSubtrees:
+                if (e)
+                    I += x / 2 - v.focus.x - d / 2;
+                else
+                    O += b / 2 - v.focus.y - d / 2;
+                break;
+            default:
+            case TreeAlignmentCenterChildren:
+                if (T > 0) {
+                    if (e)
+                        I += x / 2 - v.focus.x - d / 2;
+                    else
+                        O += b / 2 - v.focus.y - d / 2;
+                }
+                else {
+                    var len = o;
+                    if (e) {
+                        var first = n[0].relativePosition.x + n[0].subtreeOffset.x;
+                        var last = n[len - 1].relativePosition.x + n[len - 1].subtreeOffset.x + n[len - 1].focus.x * 2;
+                        I += first + (last - first) / 2 - v.focus.x - d / 2;
+                    }
+                    else {
+                        var first = n[0].relativePosition.y + n[0].subtreeOffset.y;
+                        var last = n[len - 1].relativePosition.y + n[len - 1].subtreeOffset.y + n[len - 1].focus.y * 2;
+                        O += first + (last - first) / 2 - v.focus.y - d / 2;
+                    }
+                }
+                break;
+            case TreeAlignmentStart:
+                if (e) {
+                    I -= d;
+                    x += d;
+                }
+                else {
+                    O -= d;
+                    b += d;
+                }
+                break;
+            case TreeAlignmentEnd:
+                if (e) {
+                    I += x - v.width + d;
+                    x += d;
+                }
+                else {
+                    O += b - v.height + d;
+                    b += d;
+                }
+                break;
+            case TreeAlignmentBus:
+                if (e) {
+                    if (o > 1)
+                        I += F + u / 2 - v.focus.x;
+                    else
+                        I += n[0].focus.x - v.focus.x + n[0].subtreeOffset.x;
+                }
+                else {
+                    if (o > 1)
+                        O += F + u / 2 - v.focus.y;
+                    else
+                        O += n[0].focus.y - v.focus.y + n[0].subtreeOffset.y;
+                }
+                break;
+            case TreeAlignmentTopLeftBus:
+                if (e)
+                    I += x + u / 2 - v.focus.x;
+                else
+                    O += b + u / 2 - v.focus.y;
+                break;
+            case TreeAlignmentBottomRightBus:
+                break;
+            case TreeAlignmentCustom: {
+                var z = this.customAlignment(v, I, O, x, b);
+                I = z[0];
+                O = z[1];
+                x = z[2];
+                b = z[3];
+                break;
+            }
+        }
+        for (var z = 0; z < o; z++) {
+            var H = n[z];
+            if (e) {
+                H.relativePosition.set(H.relativePosition.x + H.subtreeOffset.x - I, H.relativePosition.y + (i > 135
+                    ? (a ? -b : -H.subtreeSize.height) + H.subtreeOffset.y - f
+                    : y + f + H.subtreeOffset.y));
+            }
+            else {
+                H.relativePosition.set(H.relativePosition.x + (i > 135
+                    ? (a ? -x : -H.subtreeSize.width) + H.subtreeOffset.x - f
+                    : p + f + H.subtreeOffset.x), H.relativePosition.y + H.subtreeOffset.y - O);
+            }
+        }
+        var X = 0, Y = 0;
+        if (a) {
+            if (e) {
+                x = this._calculateSubwidth(v, x, I);
+                if (I < 0)
+                    I = 0;
+                if (i > 135)
+                    O += b + f;
+                b += y + f;
+                if (r === TreeAlignmentBottomRightBus)
+                    X += u / 2 + v.focus.x;
+                Y += y + f;
+            }
+            else {
+                if (i > 135)
+                    I += x + f;
+                x += p + f;
+                b = this._calculateSubheight(v, b, O);
+                if (O < 0)
+                    O = 0;
+                if (r === TreeAlignmentBottomRightBus)
+                    Y += u / 2 + v.focus.y;
+                X += p + f;
+            }
+        }
+        else if (e) {
+            if (v.comments === null) {
+                if (p > x) {
+                    var z = this._alignOffset(r, p - x, 0);
+                    X = z.x;
+                    Y = z.y;
+                    x = p;
+                    I = 0;
+                }
+            }
+            else {
+                x = this._calculateSubwidth(v, x, I);
+            }
+            if (I < 0) {
+                X -= I;
+                I = 0;
+            }
+            if (i > 135)
+                O += b + f;
+            b = Math.max(Math.max(b, y), b + y + f);
+            Y += y + f;
+        }
+        else {
+            if (i > 135)
+                I += x + f;
+            x = Math.max(Math.max(x, p), x + p + f);
+            if (v.comments === null) {
+                if (y > b) {
+                    var z = this._alignOffset(r, 0, y - b);
+                    X = z.x;
+                    Y = z.y;
+                    b = y;
+                    O = 0;
+                }
+            }
+            else {
+                b = this._calculateSubheight(v, b, O);
+            }
+            if (O < 0) {
+                Y -= O;
+                O = 0;
+            }
+            X += p + f;
+        }
+        var B, K;
+        if (T > 0) {
+            B = this._ke(4);
+            K = this._ke(4);
+            if (e) {
+                B[2].set(0, y + f);
+                B[3].set(B[2].x, b);
+                K[2].set(x, B[2].y);
+                K[3].set(K[2].x, B[3].y);
+            }
+            else {
+                B[2].set(p + f, 0);
+                B[3].set(x, B[2].y);
+                K[2].set(B[2].x, b);
+                K[3].set(B[3].x, K[2].y);
+            }
+        }
+        else {
+            var kk = k !== null ? k : [];
+            var pp = P !== null ? P : [];
+            B = this._ke(kk.length + 2);
+            K = this._ke(pp.length + 2);
+            for (var z = 0; z < kk.length; z++)
+                B[z + 2].set(kk[z].x + X, kk[z].y + Y);
+            for (var z = 0; z < pp.length; z++)
+                K[z + 2].set(pp[z].x + X, pp[z].y + Y);
+        }
+        if (e) {
+            B[0].set(I, 0);
+            B[1].set(B[0].x, y);
+            if (B[2].y < B[1].y) {
+                if (B[2].x > B[0].x)
+                    B[2].set(B[1].x, B[1].y);
+                else
+                    B[1].set(B[2].x, B[2].y);
+            }
+            if (B[3].y < B[2].y) {
+                if (B[3].x > B[0].x)
+                    B[3].set(B[2].x, B[2].y);
+                else
+                    B[2].set(B[3].x, B[3].y);
+            }
+            K[0].set(I + p, 0);
+            K[1].set(K[0].x, y);
+            if (K[2].y < K[1].y) {
+                if (K[2].x < K[0].x)
+                    K[2].set(K[1].x, K[1].y);
+                else
+                    K[1].set(K[2].x, K[2].y);
+            }
+            if (K[3].y < K[2].y) {
+                if (K[3].x < K[0].x)
+                    K[3].set(K[2].x, K[2].y);
+                else
+                    K[2].set(K[3].x, K[3].y);
+            }
+            B[2].y -= f / 2;
+            K[2].y -= f / 2;
+        }
+        else {
+            B[0].set(0, O);
+            B[1].set(p, B[0].y);
+            if (B[2].x < B[1].x) {
+                if (B[2].y > B[0].y)
+                    B[2].set(B[1].x, B[1].y);
+                else
+                    B[1].set(B[2].x, B[2].y);
+            }
+            if (B[3].x < B[2].x) {
+                if (B[3].y > B[0].y)
+                    B[3].set(B[2].x, B[2].y);
+                else
+                    B[2].set(B[3].x, B[3].y);
+            }
+            K[0].set(0, O + y);
+            K[1].set(p, K[0].y);
+            if (K[2].x < K[1].x) {
+                if (K[2].y < K[0].y)
+                    K[2].set(K[1].x, K[1].y);
+                else
+                    K[1].set(K[2].x, K[2].y);
+            }
+            if (K[3].x < K[2].x) {
+                if (K[3].y < K[0].y)
+                    K[3].set(K[2].x, K[2].y);
+                else
+                    K[2].set(K[3].x, K[3].y);
+            }
+            B[2].x -= f / 2;
+            K[2].x -= f / 2;
+        }
+        this._bn(k);
+        this._bn(P);
+        v.mm = B;
+        v.pm = K;
+        v.subtreeOffset.set(I, O);
+        v.subtreeSize.set(x, b);
+    };
+    // ============ 官方 arrangeTrees / oT — 绝对坐标 ============
+    TreeLayout.prototype.arrangeTrees = function () {
+        var e_13, _a;
+        if (this._arrangement === TreeArrangementFixedRoots) {
+            var it = this._roots.iterator;
+            while (it.next()) {
+                var v = it.value;
+                if (!(v instanceof TreeVertex))
+                    continue;
+                var node = v.node;
+                if (node === null)
+                    continue;
+                var pos = node.position || new Point(0, 0);
+                var x = pos.x, y = pos.y;
+                if (!Number.isFinite(x))
+                    x = 0;
+                if (!Number.isFinite(y))
+                    y = 0;
+                this._assignAbsolutePositions(v, x, y);
+            }
+        }
+        else {
+            var arr = [];
+            var it = this._roots.iterator;
+            while (it.next()) {
+                var v = it.value;
+                if (v instanceof TreeVertex)
+                    arr.push(v);
+            }
+            switch (this.sorting) {
+                default:
+                case TreeSortingForwards:
+                    break;
+                case TreeSortingReverse:
+                    arr.reverse();
+                    break;
+                case TreeSortingAscending:
+                    arr.sort(this.comparer);
+                    break;
+                case TreeSortingDescending:
+                    arr.sort(this.comparer);
+                    arr.reverse();
+                    break;
+            }
+            var origin_1 = this.arrangementOrigin;
+            var sx = origin_1.x, sy = origin_1.y;
+            try {
+                for (var arr_4 = __values(arr), arr_4_1 = arr_4.next(); !arr_4_1.done; arr_4_1 = arr_4.next()) {
+                    var v = arr_4_1.value;
+                    this._assignAbsolutePositions(v, sx + v.subtreeOffset.x, sy + v.subtreeOffset.y);
+                    if (this._arrangement === TreeArrangementVertical) {
+                        sy += v.subtreeSize.height + this._arrangementSpacing.height;
+                    }
+                    else {
+                        sx += v.subtreeSize.width + this._arrangementSpacing.width;
+                    }
+                }
+            }
+            catch (e_13_1) { e_13 = { error: e_13_1 }; }
+            finally {
+                try {
+                    if (arr_4_1 && !arr_4_1.done && (_a = arr_4.return)) _a.call(arr_4);
+                }
+                finally { if (e_13) throw e_13.error; }
+            }
+        }
+    };
+    /** 官方 oT — 递归赋绝对坐标（官方 vertex.x/y 即 bounds.x/y） */
+    TreeLayout.prototype._assignAbsolutePositions = function (v, x, y) {
+        var e_14, _a;
+        if (v === null)
+            return;
+        v.x = x;
+        v.y = y;
+        v.bounds.x = x;
+        v.bounds.y = y;
+        try {
+            for (var _b = __values(v.children), _c = _b.next(); !_c.done; _c = _b.next()) {
+                var ch = _c.value;
+                this._assignAbsolutePositions(ch, x + ch.relativePosition.x, y + ch.relativePosition.y);
+            }
+        }
+        catch (e_14_1) { e_14 = { error: e_14_1 }; }
+        finally {
+            try {
+                if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
+            }
+            finally { if (e_14) throw e_14.error; }
+        }
+    };
+    // ============ 官方 commitLayout / commitNodes / setPortSpots ============
+    TreeLayout.prototype.commitLayout = function () {
+        this._setPortSpotsAll();
+        this._commitNodes();
+        this._commitLayerRects();
+        if (this._isRouting)
+            this._commitLinks();
+    };
+    TreeLayout.prototype._commitNodes = function () {
+        if (this._network === null)
+            return;
+        var it = this._network.vertexes.iterator;
+        while (it.next()) {
+            var v = it.value;
+            if (v._isArtificial)
+                continue;
+            var node = v.node;
+            if (node === null)
+                continue;
+            var b = v.bounds;
+            var margin = node.margin;
+            var ml = margin ? (Number.isFinite(margin.left) ? margin.left : 0) : 0;
+            var mt = margin ? (Number.isFinite(margin.top) ? margin.top : 0) : 0;
+            node.move(new Point(b.x + ml, b.y + mt));
+        }
+        var it2 = this._network.vertexes.iterator;
+        while (it2.next())
+            this.layoutComments(it2.value);
+    };
+    TreeLayout.prototype._commitLinks = function () {
+        if (this._network === null)
+            return;
+        var it = this._network.edges.iterator;
+        while (it.next()) {
+            var link = it.value.link;
+            if (link !== null && link !== undefined && typeof link.computePoints === 'function') {
+                link.computePoints();
+            }
+        }
+    };
+    /** 官方 QA — Uniform 层矩形 */
+    TreeLayout.prototype._commitLayerRects = function () {
+        if (this._network === null || this._layerStyle !== TreeLayerStyleUniform)
+            return;
+        var sizes = this._layerSizes;
+        var spacings = [];
+        var total = null;
+        var it = this._network.vertexes.iterator;
+        while (it.next()) {
+            var v = it.value;
+            var b = v.bounds;
+            if (total === null)
+                total = b.copy();
+            else {
+                var x0 = Math.min(total.x, b.x), y0 = Math.min(total.y, b.y);
+                var x1 = Math.max(total.x + total.width, b.x + b.width);
+                var y1 = Math.max(total.y + total.height, b.y + b.height);
+                total.set(x0, y0, x1 - x0, y1 - y0);
+            }
+            var sp = spacings[v.level];
+            var cs = this.computeLayerSpacing(v);
+            sp = sp === undefined ? cs : Math.max(sp, cs);
+            spacings[v.level] = sp;
+        }
+        if (total === null)
+            return;
+        for (var k = 0; k < spacings.length; k++)
+            if (spacings[k] === undefined)
+                spacings[k] = 0;
+        var offset;
+        if (this.angle === 90 || this.angle === 270) {
+            total.inflate(this.nodeSpacing / 2, this.layerSpacing);
+            offset = new Point(-this.nodeSpacing / 2, -this.layerSpacing / 2);
+        }
+        else {
+            total.inflate(this.layerSpacing, this.nodeSpacing / 2);
+            offset = new Point(-this.layerSpacing / 2, -this.nodeSpacing / 2);
+        }
+        var rects = [];
+        var r = (this.angle === 90 || this.angle === 270) ? total.width : total.height;
+        var l = 0;
+        if (this.angle === 180 || this.angle === 270) {
+            for (var k = 0; k < sizes.length; k++)
+                l += sizes[k] + spacings[k];
+        }
+        for (var k = 0; k < sizes.length; k++) {
+            var a = sizes[k] + spacings[k];
+            if (this.angle === 270) {
+                l -= a;
+                rects.push(new Rect(0, l, r, a));
+            }
+            else if (this.angle === 90) {
+                rects.push(new Rect(0, l, r, a));
+                l += a;
+            }
+            else if (this.angle === 180) {
+                l -= a;
+                rects.push(new Rect(l, 0, a, r));
+            }
+            else {
+                rects.push(new Rect(l, 0, a, r));
+                l += a;
+            }
+        }
+        this.commitLayers(rects, offset);
+    };
+    /** 官方 commitLayers — 子类可覆盖 */
+    TreeLayout.prototype.commitLayers = function (_rects, _offset) { };
+    /** 官方 Vw — 遍历所有根设置端口 Spot */
+    TreeLayout.prototype._setPortSpotsAll = function () {
+        var it = this._roots.iterator;
+        while (it.next()) {
+            var v = it.value;
+            if (v instanceof TreeVertex)
+                this._setPortSpotsTree(v);
+        }
+    };
+    /** 官方 kI — 递归设置端口 Spot */
+    TreeLayout.prototype._setPortSpotsTree = function (v) {
+        var e_15, _a;
+        if (v === null)
+            return;
+        this.setPortSpots(v);
+        try {
+            for (var _b = __values(v.children), _c = _b.next(); !_c.done; _c = _b.next()) {
+                var ch = _c.value;
+                this._setPortSpotsTree(ch);
+            }
+        }
+        catch (e_15_1) { e_15 = { error: e_15_1 }; }
+        finally {
+            try {
+                if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
+            }
+            finally { if (e_15) throw e_15.error; }
+        }
+    };
+    /** 官方 setPortSpots */
+    TreeLayout.prototype.setPortSpots = function (v) {
+        var al = v.alignment;
+        if (this.isBusAlignment(al)) {
+            this._setPortSpotsBus(v, al);
+            return;
+        }
+        var ang = this.orthoAngle(v);
+        var childFirst = this._Ms === 1;
+        // 官方：Ms=1 用 destinationEdges（出边）、Ms=2 用 sourceEdges（入边）
+        var edges = childFirst ? v.destinationEdges : v.sourceEdges;
+        var it = edges.iterator;
+        while (it.next()) {
+            var link = it.value.link;
+            if (link === null || link === undefined)
+                continue;
+            var fromSpot = childFirst ? 'fromSpot' : 'toSpot';
+            var toSpot = childFirst ? 'toSpot' : 'fromSpot';
+            if (v.setsPortSpot) {
+                link[fromSpot] = v.portSpot.isDefault ? this._defaultPortSpot(ang) : v.portSpot;
+            }
+            if (v.setsChildPortSpot) {
+                link[toSpot] = v.childPortSpot.isDefault ? this._defaultChildPortSpot(ang) : v.childPortSpot;
+            }
+        }
+    };
+    /** 官方 setPortSpots 中 portSpot 的默认取值 */
+    TreeLayout.prototype._defaultPortSpot = function (ang) {
+        switch (ang) {
+            case 0: return Spot.Right;
+            case 90: return Spot.Bottom;
+            case 180: return Spot.Left;
+            default: return Spot.Top;
+        }
+    };
+    /** 官方 setPortSpots 中 childPortSpot 的默认取值 */
+    TreeLayout.prototype._defaultChildPortSpot = function (ang) {
+        switch (ang) {
+            case 0: return Spot.Left;
+            case 90: return Spot.Top;
+            case 180: return Spot.Right;
+            default: return Spot.Bottom;
+        }
+    };
+    /** 官方 eV — setPortSpotsBus */
+    TreeLayout.prototype._setPortSpotsBus = function (v, al) {
+        var childFirst = this._Ms === 1;
+        var ang = this.orthoAngle(v);
+        var n = this._defaultPortSpot(ang);
+        var ch = v.children;
+        var len = ch.length;
+        switch (al) {
+            case TreeAlignmentBus:
+            case TreeAlignmentBusBranching: {
+                for (var idx = 0; idx < len; idx++) {
+                    var child = ch[idx];
+                    var list = childFirst ? child.sourceEdges : child.destinationEdges;
+                    var edge = list.first;
+                    if (edge === undefined || edge === null)
+                        continue;
+                    var link = edge.link;
+                    if (link === null || link === undefined)
+                        continue;
+                    var f = (ang === 90 || ang === 270) ? Spot.Left : Spot.Top;
+                    if (len === 1 || (idx === len - 1 && len % 2 === 1)) {
+                        switch (ang) {
+                            case 0:
+                                f = Spot.Left;
+                                break;
+                            case 90:
+                                f = Spot.Top;
+                                break;
+                            case 180:
+                                f = Spot.Right;
+                                break;
+                            default:
+                                f = Spot.Bottom;
+                                break;
+                        }
+                    }
+                    else if (idx % 2 === 0) {
+                        f = (ang === 90 || ang === 270) ? Spot.Right : Spot.Bottom;
+                    }
+                    if (childFirst) {
+                        if (v.setsPortSpot)
+                            link.fromSpot = n;
+                        if (v.setsChildPortSpot)
+                            link.toSpot = f;
+                    }
+                    else {
+                        if (v.setsPortSpot)
+                            link.fromSpot = f;
+                        if (v.setsChildPortSpot)
+                            link.toSpot = n;
+                    }
+                }
+                break;
+            }
+            case TreeAlignmentTopLeftBus: {
+                var l = (ang === 90 || ang === 270) ? Spot.Right : Spot.Bottom;
+                var edges = childFirst ? v.destinationEdges : v.sourceEdges;
+                var it = edges.iterator;
+                while (it.next()) {
+                    var link = it.value.link;
+                    if (link === null || link === undefined)
+                        continue;
+                    if (childFirst) {
+                        if (v.setsPortSpot)
+                            link.fromSpot = n;
+                        if (v.setsChildPortSpot)
+                            link.toSpot = l;
+                    }
+                    else {
+                        if (v.setsPortSpot)
+                            link.fromSpot = l;
+                        if (v.setsChildPortSpot)
+                            link.toSpot = n;
+                    }
+                }
+                break;
+            }
+            case TreeAlignmentBottomRightBus: {
+                var l = (ang === 90 || ang === 270) ? Spot.Left : Spot.Top;
+                var edges = childFirst ? v.destinationEdges : v.sourceEdges;
+                var it = edges.iterator;
+                while (it.next()) {
+                    var link = it.value.link;
+                    if (link === null || link === undefined)
+                        continue;
+                    if (childFirst) {
+                        if (v.setsPortSpot)
+                            link.fromSpot = n;
+                        if (v.setsChildPortSpot)
+                            link.toSpot = l;
+                    }
+                    else {
+                        if (v.setsPortSpot)
+                            link.fromSpot = l;
+                        if (v.setsChildPortSpot)
+                            link.toSpot = n;
+                    }
+                }
+                break;
+            }
+        }
+    };
+    /** 官方 layoutComments — 摆放 Comment 节点 */
+    TreeLayout.prototype.layoutComments = function (v) {
+        if (v.comments === null)
+            return;
+        var node = v.node;
+        if (node === null)
+            return;
+        var nb = node.measuredBounds;
+        var par = v.parent;
+        var ang = v.angle;
+        var pAng = 0;
+        var pAl = TreeAlignmentCenterChildren;
+        var pBus = false;
+        if (par !== null) {
+            pAng = par.angle;
+            pAl = par.alignment;
+            pBus = this.isBusAlignment(pAl);
+        }
+        var vert = ang === 90 || ang === 270;
+        var pVert = pAng === 90 || pAng === 270;
+        var leaf = v.childrenCount === 0;
+        var left = this._isLeftSideBus(v);
+        var u = 0;
+        var list = v.comments;
+        var count = list.length;
+        for (var idx = 0; idx < count; idx++) {
+            var comment = list[idx];
+            var cb = comment.measuredBounds;
+            if ((vert && !leaf) || (!pBus && !pVert && leaf) || (pBus && pVert && leaf)) {
+                if ((pAng > 135 && !pBus) || (pVert && left)) {
+                    if (v.commentMargin >= 0) {
+                        comment.move(new Point(v.bounds.x - v.commentMargin - cb.width, v.bounds.y + u));
+                        this._setCommentLinkSpots(comment, Spot.Left, Spot.Right);
+                    }
+                    else {
+                        comment.move(new Point(v.bounds.x + v.focus.x * 2 - v.commentMargin, v.bounds.y + u));
+                        this._setCommentLinkSpots(comment, Spot.Right, Spot.Left);
+                    }
+                }
+                else if (v.commentMargin >= 0) {
+                    comment.move(new Point(v.bounds.x + v.focus.x * 2 + v.commentMargin, v.bounds.y + u));
+                    this._setCommentLinkSpots(comment, Spot.Right, Spot.Left);
+                }
+                else {
+                    comment.move(new Point(v.bounds.x + v.commentMargin - cb.width, v.bounds.y + u));
+                    this._setCommentLinkSpots(comment, Spot.Left, Spot.Right);
+                }
+                if (v.commentSpacing >= 0)
+                    u += cb.height + v.commentSpacing;
+                else
+                    u += v.commentSpacing - cb.height;
+            }
+            else {
+                if ((pAng > 135 && !pBus) || (!pVert && left)) {
+                    if (v.commentMargin >= 0) {
+                        comment.move(new Point(v.bounds.x + u, v.bounds.y - v.commentMargin - cb.height));
+                        this._setCommentLinkSpots(comment, Spot.Top, Spot.Bottom);
+                    }
+                    else {
+                        comment.move(new Point(v.bounds.x + u, v.bounds.y + v.focus.y * 2 - v.commentMargin));
+                        this._setCommentLinkSpots(comment, Spot.Bottom, Spot.Top);
+                    }
+                }
+                else if (v.commentMargin >= 0) {
+                    comment.move(new Point(v.bounds.x + u, v.bounds.y + v.focus.y * 2 + v.commentMargin));
+                    this._setCommentLinkSpots(comment, Spot.Bottom, Spot.Top);
+                }
+                else {
+                    comment.move(new Point(v.bounds.x + u, v.bounds.y + v.commentMargin - cb.height));
+                    this._setCommentLinkSpots(comment, Spot.Top, Spot.Bottom);
+                }
+                if (v.commentSpacing >= 0)
+                    u += cb.width + v.commentSpacing;
+                else
+                    u += v.commentSpacing - cb.width;
+            }
+        }
+        var p = u - v.commentSpacing - (vert ? nb.height : nb.width);
+        var childFirst = this._Ms === 1;
+        var edges = childFirst ? v.destinationEdges : v.sourceEdges;
+        var it = edges.iterator;
+        while (it.next()) {
+            var link = it.value.link;
+            if (link === null || link === undefined)
+                continue;
+            if (link.isAvoiding)
+                continue;
+            if (childFirst)
+                link.fromEndSegmentLength = p > 0 ? p : NaN;
+            else
+                link.toEndSegmentLength = p > 0 ? p : NaN;
+        }
+    };
+    /** 官方 layoutComments 内联的 Comment 链接 Spot 设置 */
+    TreeLayout.prototype._setCommentLinkSpots = function (comment, from, to) {
+        if (!comment || typeof comment.findLinksInto !== 'function')
+            return;
+        var it = comment.findLinksInto();
+        while (it.next()) {
+            var link = it.value;
+            if (link === null || link === undefined)
+                continue;
+            link.fromSpot = from;
+            link.toSpot = to;
+        }
+    };
+    // ============ 枚举静态常量（官方 TreeLayout 静态成员） ============
     TreeLayout.PathDefault = TreePathDefault;
     TreeLayout.PathDestination = TreePathDestination;
     TreeLayout.PathSource = TreePathSource;
+    TreeLayout.SortingForwards = TreeSortingForwards;
+    TreeLayout.SortingReverse = TreeSortingReverse;
+    TreeLayout.SortingAscending = TreeSortingAscending;
+    TreeLayout.SortingDescending = TreeSortingDescending;
+    TreeLayout.AlignmentCenterSubtrees = TreeAlignmentCenterSubtrees;
+    TreeLayout.AlignmentCenterChildren = TreeAlignmentCenterChildren;
+    TreeLayout.AlignmentStart = TreeAlignmentStart;
+    TreeLayout.AlignmentEnd = TreeAlignmentEnd;
+    TreeLayout.AlignmentBus = TreeAlignmentBus;
+    TreeLayout.AlignmentBusBranching = TreeAlignmentBusBranching;
+    TreeLayout.AlignmentTopLeftBus = TreeAlignmentTopLeftBus;
+    TreeLayout.AlignmentBottomRightBus = TreeAlignmentBottomRightBus;
+    TreeLayout.CompactionNone = TreeCompactionNone;
+    TreeLayout.CompactionBlock = TreeCompactionBlock;
+    TreeLayout.StyleLayered = TreeStyleLayered;
+    TreeLayout.StyleLastParents = TreeStyleLastParents;
+    TreeLayout.StyleAlternating = TreeStyleAlternating;
+    TreeLayout.StyleRootOnly = TreeStyleRootOnly;
     TreeLayout.ArrangementVertical = TreeArrangementVertical;
     TreeLayout.ArrangementHorizontal = TreeArrangementHorizontal;
     TreeLayout.ArrangementFixedRoots = TreeArrangementFixedRoots;
     TreeLayout.LayerIndividual = TreeLayerStyleIndividual;
     TreeLayout.LayerSiblings = TreeLayerStyleSiblings;
     TreeLayout.LayerUniform = TreeLayerStyleUniform;
-    TreeLayout.SortingForwards = TreeSortingForwards;
-    TreeLayout.SortingReverse = TreeSortingReverse;
-    TreeLayout.SortingAscending = TreeSortingAscending;
-    TreeLayout.SortingDescending = TreeSortingDescending;
-    TreeLayout.CompactionBlock = TreeCompactionBlock;
-    TreeLayout.CompactionNone = TreeCompactionNone;
-    TreeLayout.AlignmentTopLeftBus = TreeAlignmentTopLeftBus;
-    TreeLayout.AlignmentBottomRightBus = TreeAlignmentBottomRightBus;
-    TreeLayout.AlignmentBus = TreeAlignmentBus;
-    TreeLayout.AlignmentBusBranching = TreeAlignmentBusBranching;
-    TreeLayout.AlignmentCenterChildren = TreeAlignmentCenterChildren;
-    TreeLayout.AlignmentCenterSubtrees = TreeAlignmentCenterSubtrees;
-    TreeLayout.AlignmentStart = TreeAlignmentStart;
-    TreeLayout.AlignmentEnd = TreeAlignmentEnd;
     return TreeLayout;
 }(Layout));
 
@@ -23338,6 +28016,7 @@ var TreeAlignment = {
     CenterSubtrees: TreeAlignmentCenterSubtrees,
     Start: TreeAlignmentStart,
     End: TreeAlignmentEnd,
+    Custom: TreeAlignmentCustom,
 };
 var TreeCompaction = {
     Block: TreeCompactionBlock,
@@ -23448,6 +28127,7 @@ var ImageStretch = {
     UniformToFill: ImageStretchUniformToFill,
 };
 var Sizing = {
+    Default: SizingDefault,
     None: SizingNone,
     Prop: SizingProp,
     Auto: SizingAuto,
@@ -23511,6 +28191,7 @@ var LayoutConditions = {
     NodeSized: LayoutConditionsNodeSized,
 };
 var GeometryStretch = {
+    Default: GeometryStretchDefault,
     Uniform: GeometryStretchUniform,
 };
 var GeometryType = {
@@ -23610,6 +28291,7 @@ exports.FlipVertical = FlipVertical;
 exports.ForceDirectedLayout = ForceDirectedLayout;
 exports.Geometry = Geometry;
 exports.GeometryStretch = GeometryStretch;
+exports.GeometryStretchDefault = GeometryStretchDefault;
 exports.GeometryStretchUniform = GeometryStretchUniform;
 exports.GeometryType = GeometryType;
 exports.GeometryTypeLine = GeometryTypeLine;
@@ -23766,11 +28448,12 @@ exports.SegmentOrientationOrthogonal = SegmentOrientationOrthogonal;
 exports.SegmentOrientationParallel = SegmentOrientationParallel;
 exports.SegmentOrientationPerpendicular = SegmentOrientationPerpendicular;
 exports.SegmentType = SegmentType;
-exports.Set = Set;
+exports.Set = Set$1;
 exports.Shape = Shape;
 exports.Size = Size;
 exports.Sizing = Sizing;
 exports.SizingAuto = SizingAuto;
+exports.SizingDefault = SizingDefault;
 exports.SizingNone = SizingNone;
 exports.SizingProp = SizingProp;
 exports.Spot = Spot;
@@ -23799,6 +28482,7 @@ exports.TreeAlignmentBus = TreeAlignmentBus;
 exports.TreeAlignmentBusBranching = TreeAlignmentBusBranching;
 exports.TreeAlignmentCenterChildren = TreeAlignmentCenterChildren;
 exports.TreeAlignmentCenterSubtrees = TreeAlignmentCenterSubtrees;
+exports.TreeAlignmentCustom = TreeAlignmentCustom;
 exports.TreeAlignmentEnd = TreeAlignmentEnd;
 exports.TreeAlignmentStart = TreeAlignmentStart;
 exports.TreeAlignmentTopLeftBus = TreeAlignmentTopLeftBus;

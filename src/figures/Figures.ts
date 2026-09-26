@@ -2,11 +2,35 @@ import { Geometry } from '../core/Geometry';
 import { PathFigure } from '../core/PathFigure';
 import { PathSegment } from '../core/PathSegment';
 import { Map } from '../core/Map';
+import { Spot } from '../core/Spot';
+
+/** 官方 GoJS 圆角贝塞尔控制点比例：4*((√2-1)/3) */
+const EO = 4 * ((Math.sqrt(2) - 1) / 3);
 
 export const figures: Map<string, (shape: any, w: number, h: number) => Geometry> = new Map();
 
+/** 官方 go.js 内置图形名（Shape.getFigureGenerators 返回的 30 个），顺序与官方一致 */
+export const CORE_FIGURE_NAMES: string[] = [
+  'Rectangle', 'Square', 'RoundedRectangle', 'Border',
+  'RoundedTopRectangle', 'RoundedBottomRectangle', 'RoundedLeftRectangle', 'RoundedRightRectangle',
+  'Ellipse', 'Circle',
+  'TriangleRight', 'TriangleDown', 'TriangleLeft', 'TriangleUp', 'Triangle', 'Diamond',
+  'LineH', 'LineV', 'None', 'BarH', 'BarV',
+  'MinusLine', 'PlusLine', 'XLine',
+  'LineRight', 'LineDown', 'LineLeft', 'LineUp',
+  'Capsule', 'Borders'
+];
+
+/** 来自 extensions/Figures.js 的扩展图形名（官方未加载时不出现在 getFigureGenerators 中） */
+const extensionFigureNames: Set<string> = new Set();
+
 function defineFigure(name: string, func: (shape: any, w: number, h: number) => Geometry): void {
   figures.add(name, func);
+  if (CORE_FIGURE_NAMES.indexOf(name) < 0) extensionFigureNames.add(name);
+}
+
+export function isExtensionFigure(name: string): boolean {
+  return extensionFigureNames.has(name);
 }
 
 export function getFigureGeometry(name: string, w: number, h: number, p1: number = NaN, p2: number = NaN, shape?: any): Geometry | null {
@@ -74,6 +98,44 @@ defineFigure('RoundedRectangle', (shape, w, h) => {
   }
   fig.add(PathSegment.Close());
   geo.add(fig);
+
+  // 官方 spot1/spot2：随圆角收缩，供 Auto 面板定位内容
+  const d = new Spot(0, 0);
+  const m = new Spot(1, 1);
+  if (tr) {
+    let g = r;
+    g = Math.min(g, tl ? w / 3 : w);
+    g = Math.min(g, br ? h / 3 : h);
+    const p = g * EO;
+    d.offsetY = p;
+    m.offsetX = -p;
+  }
+  if (br) {
+    let g = r;
+    g = Math.min(g, bl ? w / 3 : w);
+    g = Math.min(g, tr ? h / 3 : h);
+    const p = g * EO;
+    m.offsetX = -p;
+    m.offsetY = -p;
+  }
+  if (bl) {
+    let g = r;
+    g = Math.min(g, br ? w / 3 : w);
+    g = Math.min(g, tl ? h / 3 : h);
+    const p = g * EO;
+    d.offsetX = p;
+    m.offsetY = -p;
+  }
+  if (tl) {
+    let f = r;
+    f = Math.min(f, tr ? w / 3 : w);
+    f = Math.min(f, bl ? h / 3 : h);
+    const g = f * EO;
+    d.offsetX = g;
+    d.offsetY = g;
+  }
+  geo.spot1 = d;
+  geo.spot2 = m;
   return geo;
 });
 
@@ -86,6 +148,9 @@ defineFigure('Ellipse', (shape, w, h) => {
   fig.add(PathSegment.Arc(w, ry, rx, ry, 0, false, true));
   fig.add(PathSegment.Close());
   geo.add(fig);
+  // 官方 Spot.Zk / Spot.Qk
+  geo.spot1 = new Spot(0.156, 0.156);
+  geo.spot2 = new Spot(0.844, 0.844);
   return geo;
 });
 
@@ -99,6 +164,9 @@ defineFigure('Circle', (shape, w, h) => {
   fig.add(PathSegment.Arc(cx + r, cy, r, r, 0, false, true));
   fig.add(PathSegment.Close());
   geo.add(fig);
+  geo.spot1 = new Spot(0.156, 0.156);
+  geo.spot2 = new Spot(0.844, 0.844);
+  geo.defaultStretch = 6;
   return geo;
 });
 

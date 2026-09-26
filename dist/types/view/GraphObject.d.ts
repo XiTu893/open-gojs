@@ -6,6 +6,7 @@ import { Spot } from '../core/Spot';
 import { Margin, MarginLike } from '../core/Margin';
 import { BrushLike } from '../core/Brush';
 import { Binding } from '../model/Binding';
+import { RowColumnDefinition } from './RowColumnDefinition';
 import type { Panel } from './Panel';
 import type { Part } from './Part';
 type Diagram = any;
@@ -24,10 +25,10 @@ export declare class GraphObject {
     protected _isInDocument: boolean;
     protected _isPlaceholder: boolean;
     protected _className: string;
-    private _desiredSize;
-    private _minSize;
-    private _maxSize;
-    private _margin;
+    protected _desiredSize: Size;
+    protected _minSize: Size;
+    protected _maxSize: Size;
+    protected _margin: Margin;
     private _alignment;
     private _alignmentFocus;
     private _angle;
@@ -69,7 +70,7 @@ export declare class GraphObject {
     private _segmentFraction;
     private _segmentOffset;
     private _segmentOrientation;
-    private _position;
+    protected _position: Point;
     private _click;
     private _doubleClick;
     private _contextClick;
@@ -239,8 +240,8 @@ export declare class GraphObject {
     /** Virtual copy - creates a shallow copy of this GraphObject */
     copy(): GraphObject;
     /** Apply a function to this object and return it */
-    apply(func: (obj: GraphObject) => void): GraphObject;
-    /** Find the nearest panel that has data bound to it */
+    apply(func: (obj: GraphObject, data?: any) => void, data?: any): GraphObject;
+    /** 官方 findBindingPanel：从自身（若为 Panel）起向上找带绑定的面板 */
     findBindingPanel(): Panel | null;
     attach(props: Record<string, any>): this;
     /** Get the total angle of this object in document coordinates */
@@ -265,10 +266,26 @@ export declare class GraphObject {
     _invalidateMeasure(): void;
     /** Invalidate the arrangement of this object and its ancestors */
     _invalidateArrange(): void;
-    /** Measure this object within the given constraints */
-    _measure(widthConstraint: number, heightConstraint: number): void;
+    /** Measure this object within the given constraints (官方 yt：可选 minW/minH) */
+    _measure(widthConstraint: number, heightConstraint: number, minW?: number, minH?: number): void;
     /** Apply minSize/maxSize/desiredSize constraints to measured bounds */
     protected _applySizeConstraints(): void;
+    /**
+     * 官方 GraphObject.po：scale（及 angle）作用于 measuredBounds。
+     * scale 矩阵 + 绕中心旋转，取轴对齐包围盒；naturalBounds 不受影响。
+     */
+    protected _applyMeasureTransform(): void;
+    /** 官方 GraphObject.ln(forArranging) — 解析有效 stretch */
+    _getStretch(forArranging: boolean): EnumValue;
+    /**
+     * 官方 GraphObject.gp(rowDef, colDef, forArranging)：
+     * 元素 stretch 为 Default 时，由所在行/列定义的 stretch + 面板 defaultStretch 推导有效 stretch。
+     */
+    private _resolveTableChildStretch;
+    /** 官方 GraphObject.gp(rowDef, colDef, forArranging)（stretch 已知为 Default） */
+    _gpWithDefs(panel: Panel, rowDef: RowColumnDefinition, colDef: RowColumnDefinition, forArranging: boolean): EnumValue;
+    /** 官方 GraphObject.ir(stretch, forArranging) — 按 desiredSize 精简 stretch */
+    private _refineStretch;
     /** Arrange this object within the given bounds */
     _arrange(bounds: Rect): void;
     /** Copy all properties to another GraphObject (used by copy()) */

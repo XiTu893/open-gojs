@@ -289,7 +289,7 @@ export class ToolManager extends Tool {
 
   /** Dispatch mouse-wheel event to the current tool. */
   doMouseWheel(): void {
-    if (this._currentTool) {
+    if (this._currentTool && this._currentTool.isActive) {
       this._currentTool.doMouseWheel();
     } else {
       this.standardMouseWheel();

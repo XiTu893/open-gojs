@@ -1,7 +1,7 @@
 import { Model, ObjectData } from './Model';
 import { ChangedEvent } from './ChangedEvent';
 import { Map } from '../core/Map';
-import { ChangedEventInsert, ChangedEventRemove } from '../core/EnumValues';
+import { ChangedEventInsert, ChangedEventRemove, ChangedEventProperty } from '../core/EnumValues';
 
 /**
  * GraphLinksModel - 图连接模型
@@ -44,8 +44,11 @@ export class GraphLinksModel extends Model {
     return this._linkDataArray;
   }
   set linkDataArray(val: ObjectData[]) {
+    const old = this._linkDataArray;
+    if (old === val) return;
     this._linkDataArray = val || [];
     this._rebuildLinkKeyMap();
+    this.raiseChangedEvent(ChangedEventProperty, this, 'linkDataArray', old, this._linkDataArray);
   }
 
   /** 添加链接数据 */

@@ -13,7 +13,7 @@ export {
   WrapFit, WrapDesiredSize, WrapNone,
   OverflowClip, OverflowEllipsis,
   ImageStretchNone, ImageStretchFill, ImageStretchUniform, ImageStretchUniformToFill,
-  SizingNone, SizingProp, SizingAuto,
+  SizingDefault, SizingNone, SizingProp, SizingAuto,
   TreeStyleLayered, TreeStyleAlternating, TreeStyleLastParents, TreeStyleCompact, TreeStyleRootOnly,
   TreePathDefault, TreePathDestination, TreePathSource,
   TreeArrangementVertical, TreeArrangementHorizontal, TreeArrangementFixedRoots,
@@ -22,7 +22,7 @@ export {
   TreeCompactionBlock, TreeCompactionNone,
   TreeAlignmentTopLeftBus, TreeAlignmentBottomRightBus, TreeAlignmentBus,
   TreeAlignmentBusBranching, TreeAlignmentCenterChildren, TreeAlignmentCenterSubtrees,
-  TreeAlignmentStart, TreeAlignmentEnd,
+  TreeAlignmentStart, TreeAlignmentEnd, TreeAlignmentCustom,
   CircularArrangementConstantDistance, CircularArrangementConstantAngle,
   CircularArrangementConstantRadius, CircularArrangementPacked,
   CircularDirectionClockwise, CircularDirectionCounterclockwise, CircularDirectionBidirectionalLeft, CircularDirectionBidirectionalRight,
@@ -68,6 +68,7 @@ export {
   TextEditingAcceptLostFocus,
   TextEditingStartingSingleClick,
   LayoutConditionsStandard, LayoutConditionsNodeSized,
+  GeometryStretchDefault,
   GeometryStretchUniform,
   GeometryTypeLine, GeometryTypePath,
   CircularNodeDiameterFormulaCircular, CircularNodeDiameterFormulaPythagorean,
@@ -168,7 +169,7 @@ import {
   CurveNone, CurveBezier, CurveJumpOver, CurveJumpGap,
   WrapFit, WrapDesiredSize, WrapNone,
   ImageStretchNone, ImageStretchFill, ImageStretchUniform, ImageStretchUniformToFill,
-  SizingNone, SizingProp, SizingAuto,
+  SizingDefault, SizingNone, SizingProp, SizingAuto,
   TreeStyleLayered, TreeStyleAlternating, TreeStyleLastParents, TreeStyleRootOnly,
   TreePathDefault, TreePathDestination, TreePathSource,
   TreeArrangementVertical, TreeArrangementHorizontal, TreeArrangementFixedRoots,
@@ -177,7 +178,7 @@ import {
   TreeCompactionBlock, TreeCompactionNone,
   TreeAlignmentTopLeftBus, TreeAlignmentBottomRightBus, TreeAlignmentBus,
   TreeAlignmentBusBranching, TreeAlignmentCenterChildren, TreeAlignmentCenterSubtrees,
-  TreeAlignmentStart, TreeAlignmentEnd,
+  TreeAlignmentStart, TreeAlignmentEnd, TreeAlignmentCustom,
   CircularArrangementConstantDistance, CircularArrangementConstantAngle,
   CircularArrangementConstantRadius, CircularArrangementPacked,
   CircularDirectionClockwise, CircularDirectionCounterclockwise, CircularDirectionBidirectionalLeft, CircularDirectionBidirectionalRight,
@@ -209,7 +210,7 @@ import {
   GestureModeNone, GestureModeCancel, GestureModeZoom,
   WheelModeZoom, TextEditingAcceptLostFocus, TextEditingStartingSingleClick,
   LayoutConditionsStandard, LayoutConditionsNodeSized,
-  GeometryStretchUniform, GeometryTypeLine, GeometryTypePath,
+  GeometryStretchDefault, GeometryStretchUniform, GeometryTypeLine, GeometryTypePath,
   LinkingDirectionForwardsOnly, TriggerStartBundled,
   OverflowClip, OverflowEllipsis,
 } from './core/EnumValues';
@@ -278,6 +279,7 @@ export const TreeAlignment = {
   CenterSubtrees: TreeAlignmentCenterSubtrees,
   Start: TreeAlignmentStart,
   End: TreeAlignmentEnd,
+  Custom: TreeAlignmentCustom,
 };
 
 export const TreeCompaction = {
@@ -408,6 +410,7 @@ export const ImageStretch = {
 };
 
 export const Sizing = {
+  Default: SizingDefault,
   None: SizingNone,
   Prop: SizingProp,
   Auto: SizingAuto,
@@ -484,6 +487,7 @@ export const LayoutConditions = {
 };
 
 export const GeometryStretch = {
+  Default: GeometryStretchDefault,
   Uniform: GeometryStretchUniform,
 };
 

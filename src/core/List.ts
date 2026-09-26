@@ -1,80 +1,191 @@
 import { Iterable, Iterator } from './Iterable';
+import { Set } from './Set';
 
 /**
- * List - 有序列表集合
+ * List - 有序列表（对齐官方 go.d.ts:672 class List<T> implements Iterable<T>）
+ *
+ * 官方 API:
+ *   constructor(coll?: Iterable<T> | globalThis.Iterable<T>)
+ *   add(val: T): this / push(val: T): void / addAll(coll): this
+ *   contains(val) / has(val) / indexOf(val) / elt(i) / get(i) / setElt(i, val) / set(i, val)
+ *   first(): T | null / last(): T | null / pop(): T | null
+ *   any(pred) / all(pred) / each(func): this / map<S>(func): List<S> / filter(pred): List<T>
+ *   insertAt(i, val) / remove(val): boolean / delete(val): boolean / removeAt(i): void
+ *   removeRange(from, to): this / copy() / toArray() / toSet()
+ *   sort(func) / sortRange(func, from?, to?) / reverse()
+ *   count / size / length / iterator / iteratorBackwards / [Symbol.iterator]
  */
 export class List<T> implements Iterable<T> {
   private _data: T[] = [];
 
-  constructor(iterable?: Iterable<T> | T[]) {
-    if (iterable) {
-      if (Array.isArray(iterable)) {
-        this._data = [...iterable];
-      } else if ('iterator' in iterable) {
-        const it = iterable.iterator;
-        while (it.next()) {
-          this._data.push(it.value);
-        }
-      }
+  constructor(iterable?: Iterable<T> | T[] | globalThis.Iterable<T> | null) {
+    if (iterable === null || iterable === undefined) return;
+    if (Array.isArray(iterable)) {
+      this._data = [...iterable];
+      return;
     }
-  }
-
-  get count(): number {
-    return this._data.length;
-  }
-
-  get length(): number {
-    return this._data.length;
-  }
-
-  get size(): number {
-    return this._data.length;
-  }
-
-  get iterator(): Iterator<T> {
-    return new ListIterator<T>(this._data);
-  }
-
-  /** 是否为空 */
-  get isEmpty(): boolean {
-    return this._data.length === 0;
-  }
-
-  /** 获取第一个元素 */
-  get first(): T | undefined {
-    return this._data.length > 0 ? this._data[0] : undefined;
-  }
-
-  /** 获取最后一个元素 */
-  get last(): T | undefined {
-    return this._data.length > 0 ? this._data[this._data.length - 1] : undefined;
-  }
-
-  /** 添加元素到末尾 */
-  add(item: T): this {
-    this._data.push(item);
-    return this;
-  }
-
-  addAll(coll: Iterable<T> | T[]): this {
-    if (Array.isArray(coll)) {
-      for (const item of coll) this._data.push(item);
-    } else if ('iterator' in coll) {
-      const it = coll.iterator;
+    if ('iterator' in (iterable as Iterable<T>)) {
+      const it = (iterable as Iterable<T>).iterator;
       while (it.next()) {
         this._data.push(it.value);
       }
+    } else if (typeof (iterable as unknown as { [Symbol.iterator]?: () => globalThis.IterableIterator<T> })[Symbol.iterator] === 'function') {
+      for (const item of iterable as unknown as globalThis.Iterable<T>) this._data.push(item);
+    }
+  }
+
+  /** This class implements the JavaScript Symbol.iterator. */
+  [Symbol.iterator](): globalThis.IterableIterator<T> {
+    return this._data.values();
+  }
+
+  toString(): string {
+    return 'List()';
+  }
+
+  /** Adds a given value to the end of the List. */
+  add(val: T): this {
+    this._data.push(val);
+    return this;
+  }
+
+  /** Adds a given value to the end of the List. */
+  push(val: T): void {
+    this._data.push(val);
+  }
+
+  /**
+   * Adds all of the values of a collection to the end of this List.
+   * @param coll - a GoJS Iterable or a JavaScript Iterable, including an Array
+   */
+  addAll(coll: Iterable<T> | T[] | globalThis.Iterable<T> | null): this {
+    if (coll === null || coll === undefined) return this;
+    if (Array.isArray(coll)) {
+      for (const item of coll) this._data.push(item);
+      return this;
+    }
+    if ('iterator' in (coll as Iterable<T>)) {
+      const it = (coll as Iterable<T>).iterator;
+      while (it.next()) this._data.push(it.value);
+    } else {
+      for (const item of coll as unknown as globalThis.Iterable<T>) {
+        this._data.push(item as T);
+      }
     }
     return this;
   }
 
-  /** 在指定位置插入元素 */
-  insert(index: number, item: T): this {
-    this._data.splice(index, 0, item);
+  /** Clears the List; sets count to zero. */
+  clear(): this {
+    this._data.length = 0;
     return this;
   }
 
-  /** 移除指定元素 */
+  /** Returns whether the given value is in this List. A synonym for has. */
+  contains(val: T): boolean {
+    return this._data.indexOf(val) !== -1;
+  }
+
+  /** 是否包含指定元素（同 contains） */
+  has(val: T): boolean {
+    return this._data.indexOf(val) !== -1;
+  }
+
+  /** Returns the index of the given value if it is in this List; -1 if not. */
+  indexOf(val: T): number {
+    return this._data.indexOf(val);
+  }
+
+  /** Returns the element at the given index. */
+  elt(i: number): T {
+    return this._data[i];
+  }
+
+  /** Returns the element at the given index. A synonym for elt. */
+  get(index: number): T {
+    return this._data[index];
+  }
+
+  /** Set the element at the given index to a given value. */
+  setElt(i: number, val: T): void {
+    this._data[i] = val;
+  }
+
+  /** Set the element at the given index to a given value. */
+  set(index: number, val: T): void {
+    this._data[index] = val;
+  }
+
+  /** Returns the first item in the list, or null if there is none. */
+  first(): T | null {
+    return this._data.length > 0 ? this._data[0] : null;
+  }
+
+  /** Returns the last item in the list, or null if there is none. */
+  last(): T | null {
+    return this._data.length > 0 ? this._data[this._data.length - 1] : null;
+  }
+
+  /** Returns the last item and removes it, or null if there is none. */
+  pop(): T | null {
+    const item = this._data.pop();
+    return item === undefined ? null : item;
+  }
+
+  /** True if any invocation of pred is true. For an empty collection this returns false. */
+  any(pred: (a: T) => boolean): boolean {
+    for (let i = 0; i < this._data.length; i++) {
+      if (pred(this._data[i])) return true;
+    }
+    return false;
+  }
+
+  /** True if all invocations of pred are true. For an empty collection returns true. */
+  all(pred: (item: T) => boolean): boolean {
+    for (let i = 0; i < this._data.length; i++) {
+      if (!pred(this._data[i])) return false;
+    }
+    return true;
+  }
+
+  /** Call func on each item; returns this List. */
+  each(func: (item: T) => void): this {
+    for (let i = 0; i < this._data.length; i++) {
+      func(this._data[i]);
+    }
+    return this;
+  }
+
+  /** 官方 map<S>(func): List<S> */
+  map<U>(func: (item: T) => U): List<U> {
+    const result = new List<U>();
+    for (let i = 0; i < this._data.length; i++) {
+      result.add(func(this._data[i]));
+    }
+    return result;
+  }
+
+  /** 官方 filter(pred): List<T> —— 返回 List，不是 Iterator */
+  filter(pred: (item: T) => boolean): List<T> {
+    const result = new List<T>();
+    for (let i = 0; i < this._data.length; i++) {
+      if (pred(this._data[i])) {
+        result.add(this._data[i]);
+      }
+    }
+    return result;
+  }
+
+  /** 在指定位置插入元素 */
+  insertAt(i: number, val: T): void {
+    if (i >= this._data.length) {
+      this._data.push(val);
+    } else {
+      this._data.splice(i, 0, val);
+    }
+  }
+
+  /** Removes a given value from the List. */
   remove(item: T): boolean {
     const idx = this._data.indexOf(item);
     if (idx >= 0) {
@@ -84,87 +195,60 @@ export class List<T> implements Iterable<T> {
     return false;
   }
 
-  /** 移除指定位置的元素 */
-  removeAt(index: number): T | undefined {
+  /** Removes a value (ES synonym for remove). */
+  delete(val: T): boolean {
+    return this.remove(val);
+  }
+
+  /** Removes the item at the given index. */
+  removeAt(index: number): void {
     if (index >= 0 && index < this._data.length) {
-      return this._data.splice(index, 1)[0];
+      this._data.splice(index, 1);
     }
-    return undefined;
   }
 
   /** 移除第一个元素 */
-  removeFirst(): T | undefined {
-    return this._data.shift();
+  removeFirst(): T | null {
+    return this._data.length > 0 ? this._data.shift() as T : null;
   }
 
   /** 移除最后一个元素 */
-  removeLast(): T | undefined {
-    return this._data.pop();
+  removeLast(): T | null {
+    return this._data.length > 0 ? this._data.pop() as T : null;
   }
 
-  /** 清空列表 */
-  clear(): this {
-    this._data.length = 0;
+  /** Removes a range of items from the list. */
+  removeRange(from: number, to: number): this {
+    const data = this._data;
+    const len = this._data.length;
+    if (from < 0) from = 0;
+    else if (from >= this._data.length) return this;
+    if (to < 0) return this;
+    if (to >= this._data.length) to = this._data.length - 1;
+    if (from > to) return this;
+    let n = from;
+    let o = to + 1;
+    while (o < this._data.length) data[n++] = data[o++];
+    data.length = this._data.length - (to - from + 1);
     return this;
   }
 
-  /** 是否包含指定元素 */
-  contains(item: T): boolean {
-    return this._data.indexOf(item) >= 0;
-  }
-
-  /** 查找元素索引 */
-  indexOf(item: T): number {
-    return this._data.indexOf(item);
-  }
-
-  /** 获取指定位置的元素 */
-  get(index: number): T | undefined {
-    return this._data[index];
-  }
-
-  /** 设置指定位置的元素 */
-  set(index: number, item: T): this {
-    this._data[index] = item;
-    return this;
-  }
 
   /** 转换为数组 */
   toArray(): T[] {
     return [...this._data];
   }
 
-  /** 遍历 */
-  each(func: (item: T, index: number) => void): this {
-    for (let i = 0; i < this._data.length; i++) {
-      func(this._data[i], i);
-    }
-    return this;
-  }
-
-  /** 映射 */
-  map<U>(func: (item: T, index: number) => U): List<U> {
-    const result = new List<U>();
-    for (let i = 0; i < this._data.length; i++) {
-      result.add(func(this._data[i], i));
-    }
-    return result;
-  }
-
-  /** 过滤 */
-  filter(func: (item: T, index: number) => boolean): List<T> {
-    const result = new List<T>();
-    for (let i = 0; i < this._data.length; i++) {
-      if (func(this._data[i], i)) {
-        result.add(this._data[i]);
-      }
-    }
-    return result;
+  /** 转换为官方 Set */
+  toSet(): Set<T> {
+    const s = new Set<T>();
+    for (const item of this._data) s.add(item);
+    return s;
   }
 
   /** 排序 */
-  sort(compare?: (a: T, b: T) => number): this {
-    this._data.sort(compare);
+  sort(sortfunc?: (a: T, b: T) => number): this {
+    this._data.sort(sortfunc);
     return this;
   }
 
@@ -176,28 +260,36 @@ export class List<T> implements Iterable<T> {
 
   /** 复制 */
   copy(): List<T> {
-    return new List<T>(this._data);
+    const result = new List<T>();
+    result._data = [...this._data];
+    return result;
   }
 
-  /** [Symbol.iterator] support - conditionally defined for ES6+ environments */
-  [Symbol.iterator as any](): Iterator<T> {
-    let index = 0;
-    const data = this._data;
-    return {
-      next(): IteratorResult<T> {
-        if (index < data.length) {
-          return { value: data[index++], done: false };
-        }
-        return { value: undefined as any, done: true };
-      },
-    } as any;
+  get count(): number {
+    return this._data.length;
+  }
+
+  get size(): number {
+    return this._data.length;
+  }
+
+  get length(): number {
+    return this._data.length;
+  }
+
+  get iterator(): Iterator<T> {
+    return new ListIterator<T>(this._data);
+  }
+
+  get iteratorBackwards(): Iterator<T> {
+    return new ListIteratorBackwards<T>(this._data);
   }
 }
 
 /**
- * ListIterator - List 的迭代器实现
+ * ListIterator - List 的迭代器（对齐官方 ListIterator：first/any/all/each/map/filter/count/hasNext/key）
  */
-class ListIterator<T> implements Iterator<T> {
+export class ListIterator<T> implements Iterator<T> {
   private _data: T[];
   private _index: number = -1;
 
@@ -205,11 +297,21 @@ class ListIterator<T> implements Iterator<T> {
     this._data = data;
   }
 
+  /** 官方：iterator 返回自身 */
+  get iterator(): ListIterator<T> {
+    return this;
+  }
+
   get value(): T {
     if (this._index >= 0 && this._index < this._data.length) {
       return this._data[this._index];
     }
-    throw new Error('Iterator is out of bounds');
+    return null as unknown as T;
+  }
+
+  /** 当前索引（官方 key 类型为 any） */
+  get key(): number {
+    return this._index;
   }
 
   next(): boolean {
@@ -217,18 +319,171 @@ class ListIterator<T> implements Iterator<T> {
     return this._index < this._data.length;
   }
 
+  hasNext(): boolean {
+    return this.next();
+  }
+
   reset(): void {
     this._index = -1;
+  }
+
+  first(): T | null {
+    this._index = 0;
+    return this._data.length > 0 ? this._data[0] : null;
+  }
+
+  any(pred: (item: T) => boolean): boolean {
+    this._index = -1;
+    for (let i = 0; i < this._data.length; i++) {
+      if (pred(this._data[i])) return true;
+    }
+    return false;
+  }
+
+  all(pred: (item: T) => boolean): boolean {
+    this._index = -1;
+    for (let i = 0; i < this._data.length; i++) {
+      if (!pred(this._data[i])) return false;
+    }
+    return true;
+  }
+
+  each(func: (item: T) => void): this {
+    this._index = -1;
+    for (let i = 0; i < this._data.length; i++) {
+      func(this._data[i]);
+    }
+    return this;
+  }
+
+  map<S>(func: (item: T) => S): ListIterator<S> {
+    this._index = -1;
+    const out: S[] = [];
+    for (let i = 0; i < this._data.length; i++) {
+      out.push(func(this._data[i]));
+    }
+    const l = new List<S>();
+    (l as unknown as { _data: S[] })._data = out;
+    return new ListIterator<S>(out);
+  }
+
+  filter(pred: (item: T) => boolean): ListIterator<T> {
+    this._index = -1;
+    const out: T[] = [];
+    for (let i = 0; i < this._data.length; i++) {
+      if (pred(this._data[i])) out.push(this._data[i]);
+    }
+    return new ListIterator<T>(out);
+  }
+
+  get count(): number {
+    return this._data.length;
   }
 
   toArray(): T[] {
     return [...this._data];
   }
 
-  each(func: (item: T) => void): Iterator<T> {
-    for (let i = 0; i < this._data.length; i++) {
+  [Symbol.iterator](): globalThis.IterableIterator<T> {
+    return this._data.values();
+  }
+}
+
+/**
+ * ListIteratorBackwards - 反向迭代器（官方 iteratorBackwards）
+ */
+export class ListIteratorBackwards<T> implements Iterator<T> {
+  private _data: T[];
+  private _index: number;
+
+  constructor(data: T[]) {
+    this._data = data;
+    this._index = data.length;
+  }
+
+  get iterator(): ListIteratorBackwards<T> {
+    return this;
+  }
+
+  get value(): T {
+    if (this._index >= 0 && this._index < this._data.length) {
+      return this._data[this._index];
+    }
+    return null as unknown as T;
+  }
+
+  get key(): number {
+    return this._index;
+  }
+
+  next(): boolean {
+    this._index--;
+    return this._index >= 0;
+  }
+
+  hasNext(): boolean {
+    return this._index - 1 >= 0;
+  }
+
+  reset(): void {
+    this._index = this._data.length;
+  }
+
+  first(): T | null {
+    const i = this._data.length - 1;
+    this._index = i;
+    return i >= 0 ? this._data[i] : null;
+  }
+
+  any(pred: (item: T) => boolean): boolean {
+    this._index = this._data.length;
+    for (let i = this._data.length - 1; i >= 0; i--) {
+      if (pred(this._data[i])) return true;
+    }
+    return false;
+  }
+
+  all(pred: (item: T) => boolean): boolean {
+    this._index = this._data.length;
+    for (let i = this._data.length - 1; i >= 0; i--) {
+      if (!pred(this._data[i])) return false;
+    }
+    return true;
+  }
+
+  each(func: (item: T) => void): this {
+    this._index = this._data.length;
+    for (let i = this._data.length - 1; i >= 0; i--) {
       func(this._data[i]);
     }
     return this;
+  }
+
+  map<S>(func: (item: T) => S): ListIterator<S> {
+    const out: S[] = [];
+    for (let i = this._data.length - 1; i >= 0; i--) {
+      out.push(func(this._data[i]));
+    }
+    return new ListIterator<S>(out);
+  }
+
+  filter(pred: (item: T) => boolean): ListIterator<T> {
+    const out: T[] = [];
+    for (let i = this._data.length - 1; i >= 0; i--) {
+      if (pred(this._data[i])) out.push(this._data[i]);
+    }
+    return new ListIterator<T>(out);
+  }
+
+  get count(): number {
+    return this._data.length;
+  }
+
+  toArray(): T[] {
+    return [...this._data];
+  }
+
+  [Symbol.iterator](): globalThis.IterableIterator<T> {
+    return [...this._data].reverse().values();
   }
 }

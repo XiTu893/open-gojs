@@ -1,4 +1,12 @@
 import { Iterable, Iterator, IMapIterator } from './Iterable';
+import { List } from './List';
+
+/** 内部工具：把结果数组包成 List 迭代器（官方 map/filter 返回 List 迭代器） */
+function toListIterator<U>(arr: U[]): Iterator<U> {
+  const l = new List<U>();
+  (l as any)._data = arr;
+  return l.iterator;
+}
 
 /**
  * Map - 键值映射集合
@@ -190,14 +198,14 @@ class MapIterator<K, V> implements IMapIterator<K, V> {
     if (this._index >= 0 && this._index < this._keys.length) {
       return this._keys[this._index];
     }
-    throw new Error('Iterator is out of bounds');
+    return null as unknown as K;
   }
 
   get value(): V {
     if (this._index >= 0 && this._index < this._values.length) {
       return this._values[this._index];
     }
-    throw new Error('Iterator is out of bounds');
+    return null as unknown as V;
   }
 
   next(): boolean {
@@ -205,15 +213,61 @@ class MapIterator<K, V> implements IMapIterator<K, V> {
     return this._index < this._keys.length;
   }
 
+  hasNext(): boolean {
+    return this.next();
+  }
+
   reset(): void {
     this._index = -1;
+  }
+
+  first(): V | null {
+    this._index = 0;
+    return this._values.length > 0 ? this._values[0] : null;
+  }
+
+  any(func: (item: V) => boolean): boolean {
+    this._index = -1;
+    for (let i = 0; i < this._values.length; i++) {
+      if (func(this._values[i])) return true;
+    }
+    return false;
+  }
+
+  all(func: (item: V) => boolean): boolean {
+    this._index = -1;
+    for (let i = 0; i < this._values.length; i++) {
+      if (!func(this._values[i])) return false;
+    }
+    return true;
   }
 
   toArray(): V[] {
     return [...this._values];
   }
 
+  map<U>(func: (item: V) => U): Iterator<U> {
+    const out: U[] = [];
+    for (let i = 0; i < this._values.length; i++) {
+      out.push(func(this._values[i]));
+    }
+    return toListIterator(out);
+  }
+
+  filter(func: (item: V) => boolean): Iterator<V> {
+    const out: V[] = [];
+    for (let i = 0; i < this._values.length; i++) {
+      if (func(this._values[i])) out.push(this._values[i]);
+    }
+    return toListIterator(out);
+  }
+
+  get count(): number {
+    return this._values.length;
+  }
+
   each(func: (item: V) => void): Iterator<V> {
+    this._index = -1;
     for (let i = 0; i < this._values.length; i++) {
       func(this._values[i]);
     }
@@ -241,15 +295,61 @@ class MapKeyIterator<K> implements Iterator<K> {
     return this._index < this._keys.length;
   }
 
+  hasNext(): boolean {
+    return this.next();
+  }
+
   reset(): void {
     this._index = -1;
+  }
+
+  first(): K | null {
+    this._index = 0;
+    return this._keys.length > 0 ? this._keys[0] : null;
+  }
+
+  any(func: (item: K) => boolean): boolean {
+    this._index = -1;
+    for (let i = 0; i < this._keys.length; i++) {
+      if (func(this._keys[i])) return true;
+    }
+    return false;
+  }
+
+  all(func: (item: K) => boolean): boolean {
+    this._index = -1;
+    for (let i = 0; i < this._keys.length; i++) {
+      if (!func(this._keys[i])) return false;
+    }
+    return true;
   }
 
   toArray(): K[] {
     return [...this._keys];
   }
 
+  map<U>(func: (item: K) => U): Iterator<U> {
+    const out: U[] = [];
+    for (let i = 0; i < this._keys.length; i++) {
+      out.push(func(this._keys[i]));
+    }
+    return toListIterator(out);
+  }
+
+  filter(func: (item: K) => boolean): Iterator<K> {
+    const out: K[] = [];
+    for (let i = 0; i < this._keys.length; i++) {
+      if (func(this._keys[i])) out.push(this._keys[i]);
+    }
+    return toListIterator(out);
+  }
+
+  get count(): number {
+    return this._keys.length;
+  }
+
   each(func: (item: K) => void): Iterator<K> {
+    this._index = -1;
     for (let i = 0; i < this._keys.length; i++) {
       func(this._keys[i]);
     }
@@ -269,7 +369,7 @@ class MapValueIterator<V> implements Iterator<V> {
     if (this._index >= 0 && this._index < this._values.length) {
       return this._values[this._index];
     }
-    throw new Error('Iterator is out of bounds');
+    return null as unknown as V;
   }
 
   next(): boolean {
@@ -277,15 +377,61 @@ class MapValueIterator<V> implements Iterator<V> {
     return this._index < this._values.length;
   }
 
+  hasNext(): boolean {
+    return this.next();
+  }
+
   reset(): void {
     this._index = -1;
+  }
+
+  first(): V | null {
+    this._index = 0;
+    return this._values.length > 0 ? this._values[0] : null;
+  }
+
+  any(func: (item: V) => boolean): boolean {
+    this._index = -1;
+    for (let i = 0; i < this._values.length; i++) {
+      if (func(this._values[i])) return true;
+    }
+    return false;
+  }
+
+  all(func: (item: V) => boolean): boolean {
+    this._index = -1;
+    for (let i = 0; i < this._values.length; i++) {
+      if (!func(this._values[i])) return false;
+    }
+    return true;
   }
 
   toArray(): V[] {
     return [...this._values];
   }
 
+  map<U>(func: (item: V) => U): Iterator<U> {
+    const out: U[] = [];
+    for (let i = 0; i < this._values.length; i++) {
+      out.push(func(this._values[i]));
+    }
+    return toListIterator(out);
+  }
+
+  filter(func: (item: V) => boolean): Iterator<V> {
+    const out: V[] = [];
+    for (let i = 0; i < this._values.length; i++) {
+      if (func(this._values[i])) out.push(this._values[i]);
+    }
+    return toListIterator(out);
+  }
+
+  get count(): number {
+    return this._values.length;
+  }
+
   each(func: (item: V) => void): Iterator<V> {
+    this._index = -1;
     for (let i = 0; i < this._values.length; i++) {
       func(this._values[i]);
     }

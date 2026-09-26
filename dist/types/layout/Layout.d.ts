@@ -43,9 +43,26 @@ export declare class Layout {
     set group(val: any);
     /**
      * Perform the layout on the given collection of parts.
-     * @param coll - A Diagram, Iterable<Part>, or array of Parts
+     * 官方 base Layout.doLayout：收集未定位的顶层部件（doMinimalNoNetworkLayout 的 Ga 谓词），
+     * 按 ceil(sqrt(n)) 列的极简网格摆放（仅对 location/position 均为 NaN 的部件）。
+     * @param coll - A Diagram, Group, Iterable<Part>, or array of Parts
      */
     doLayout(coll: any): void;
+    /**
+     * 官方 Layout.Zh（base 版收集，谓词 = Ga(t)）：
+     * - Diagram：nodes(topLevelOnly) + parts(topLevelOnly) 两趟
+     * - Group：memberParts(topLevelOnly=false)
+     * - 其他可迭代集合：addAll，不带谓词
+     * 谓词 Ga(t) = (!location实值 && !position实值) || (Group && t.Ga)
+     * Node 分支：Group.layout===null 时递归 memberParts；其余 ensureBounds 后加入。
+     */
+    collectMinimalParts(coll: any): Part[];
+    /**
+     * 官方 Layout.doMinimalNoNetworkLayout：
+     * arrangementOrigin = initialOrigin(arrangementOrigin)（原地变更），
+     * cols = ceil(sqrt(n))，步长 max(w,50)+20，行高 max(max(h,50))，moveTo 后 Group.Ga=false。
+     */
+    doMinimalNoNetworkLayout(parts: Part[]): void;
     /**
      * Collect all Parts that should be laid out from the given collection.
      * @param coll - A Diagram, Iterable<Part>, or array of Parts
@@ -71,8 +88,15 @@ export declare class Layout {
     getLayoutBounds(part: Part): Rect;
     /**
      * Return the initial origin point for the layout.
+     * 官方 Layout.initialOrigin：
+     * - group 有 placeholder → placeholder 文档 TopLeft（NaN → 回退 origin）+ padding
+     * - group 无 placeholder → group.position（NaN → 回退 origin）
+     * - 无 group → origin
      */
-    initialOrigin(): Point;
+    initialOrigin(t?: Point): Point;
+    private _findPlaceholder;
+    /** target 在 group 面板内的局部偏移（沿 actualBounds 局部链累加）；找不到 → null */
+    private _panelLocalPoint;
     /**
      * Invalidate this layout, causing it to be re-performed.
      */

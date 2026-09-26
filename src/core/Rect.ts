@@ -22,10 +22,10 @@ export class Rect {
         this.height = 0;
       }
     } else {
-      this.x = xOrPoint || 0;
-      this.y = (typeof yOrSize === 'number' ? yOrSize : 0);
-      this.width = width || 0;
-      this.height = height || 0;
+      this.x = typeof xOrPoint === 'number' ? xOrPoint : 0;
+      this.y = typeof yOrSize === 'number' ? yOrSize : 0;
+      this.width = typeof width === 'number' ? width : 0;
+      this.height = typeof height === 'number' ? height : 0;
     }
   }
 

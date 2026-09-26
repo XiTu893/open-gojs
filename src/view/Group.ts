@@ -6,7 +6,7 @@ import { Point } from '../core/Point';
 import { List } from '../core/List';
 import { Set } from '../core/Set';
 import type { Placeholder } from './Placeholder';
-import type { Layout } from '../layout/Layout';
+import { Layout } from '../layout/Layout';
 
 export class Group extends Node {
 
@@ -14,12 +14,17 @@ export class Group extends Node {
   private _memberParts: Set<Part> = new Set<Part>();
   protected _ungroupable: boolean = false;
   private _layout: Layout | null = null;
+  private _ga: boolean = false;
 
-  constructor(type?: any, init?: Partial<Group>) {
-    super(type);
+  constructor(type?: any, init?: any) {
+    const [t, i] = Panel._resolveArgs(type, init);
+    super(t, undefined);
     this._className = 'Group';
-    if (init) {
-      this.set(init);
+    // 官方 Group：默认 layout = new Layout（group 指向自己），init 可覆盖
+    this._layout = new Layout();
+    this._layout.group = this;
+    if (i) {
+      this.set(i);
     }
   }
 
@@ -28,9 +33,10 @@ export class Group extends Node {
 
   get placeholder(): Placeholder | null {
     const findPlaceholder = (obj: GraphObject): Placeholder | null => {
-      if ('_placeholderBounds' in obj && obj.constructor.name === 'Placeholder') return obj as Placeholder;
-      if ('_elements' in obj) {
-        for (const child of (obj as any)._elements) {
+      if ((obj as any)._isPlaceholder) return obj as Placeholder;
+      const els = (obj as any)._elements;
+      if (els) {
+        for (const child of els) {
           const found = findPlaceholder(child);
           if (found) return found;
         }
@@ -52,6 +58,10 @@ export class Group extends Node {
       (val as any)._group = this;
     }
   }
+
+  /** 官方 Group 的 Ga 标志：diagram 布局前递归组布局将其置位，diagram 布局收集后清除。 */
+  get Ga(): boolean { return this._ga; }
+  set Ga(val: boolean) { this._ga = val; }
 
   addMembers(collection: any, check?: boolean): boolean {
     const it = collection.iterator;
@@ -80,19 +90,39 @@ export class Group extends Node {
     return true;
   }
 
-  move(newLoc: Point): void {
-    const oldLoc = this.location;
-    super.move(newLoc);
-    const dx = newLoc.x - oldLoc.x;
-    const dy = newLoc.y - oldLoc.y;
-    if (isNaN(dx) || isNaN(dy)) return;
+  move(newLoc: Point, isLocation?: boolean): void {
+    const src = isLocation === true ? this.location : this.position;
+    const sNaNx = isNaN(src.x);
+    const sNaNy = isNaN(src.y);
+    const tNaNx = isNaN(newLoc.x);
+    const tNaNy = isNaN(newLoc.y);
+    if ((src.x === newLoc.x || (sNaNx && tNaNx)) && (src.y === newLoc.y || (sNaNy && tNaNy))) return;
+    const dx = newLoc.x - (sNaNx ? 0 : src.x);
+    const dy = newLoc.y - (sNaNy ? 0 : src.y);
+    super.move(newLoc, isLocation);
     if (dx !== 0 || dy !== 0) {
-      const it = this._memberParts.iterator;
-      while (it.next()) {
-        const part = it.value;
-        const partLoc = part.location;
-        part.move(new Point(partLoc.x + dx, partLoc.y + dy));
-      }
+      const seen = new Set<Part>();
+      const walk = (g: Group): void => {
+        const it = g._memberParts.iterator;
+        while (it.next()) {
+          const d: any = it.value;
+          if (seen.has(d)) continue;
+          seen.add(d);
+          if (d.isLinkLabel) continue;
+          if (d._className === 'Link') continue;
+          const pos = d.position;
+          if (!isNaN(pos.x) && !isNaN(pos.y)) {
+            d.position = new Point(pos.x + dx, pos.y + dy);
+          } else {
+            const loc = d.location;
+            if (!isNaN(loc.x) && !isNaN(loc.y)) {
+              d.location = new Point(loc.x + dx, loc.y + dy);
+            }
+          }
+          if (d._className === 'Group') walk(d);
+        }
+      };
+      walk(this);
     }
   }
 
@@ -107,6 +137,11 @@ export class Group extends Node {
     c._treeExpandedDirection = this._treeExpandedDirection;
     c._handlesDragDrop = this._handlesDragDrop;
     c._ungroupable = this._ungroupable;
+    if (this._layout) {
+      const lo = this._layout.copy();
+      lo.group = c;
+      c._layout = lo;
+    }
     return c;
   }
 }

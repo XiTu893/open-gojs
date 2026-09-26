@@ -20,6 +20,7 @@ import { Iterator } from '../core/Iterable';
 import { BrushLike } from '../core/Brush';
 import { Binding } from '../model/Binding';
 import { GraphObject } from './GraphObject';
+import { Shape } from './Shape';
 import { RowColumnDefinition } from './RowColumnDefinition';
 
 /**
@@ -33,18 +34,22 @@ export class Panel extends GraphObject {
   _columnDefinitions: RowColumnDefinition[] = [];
 
   // ============ Private property storage ============
-  protected _type: EnumValue = PanelAuto;
+  // 官方 Panel 构造：type === undefined → Panel.Position
+  protected _type: EnumValue = PanelPosition;
   private _data: any = null;
   private _padding: Margin = Margin.Zero.copy();
   private _defaultAlignment: Spot = Spot.Default.copy();
   private _defaultStretch: EnumValue = StretchDefault;
-  private _defaultColumnSeparatorStroke: BrushLike = '';
+  private _originX: number = 0;
+  private _originY: number = 0;
+  private _unionRect: Rect = new Rect();
+  private _defaultColumnSeparatorStroke: BrushLike = null;
   private _defaultColumnSeparatorStrokeWidth: number = 1;
-  private _defaultRowSeparatorStroke: BrushLike = '';
+  private _defaultRowSeparatorStroke: BrushLike = null;
   private _defaultRowSeparatorStrokeWidth: number = 1;
   private _defaultSeparatorPadding: Margin = Margin.Zero.copy();
-  private _columnSizing: EnumValue = SizingNone;
-  private _rowSizing: EnumValue = SizingNone;
+  private _columnSizing: EnumValue = SizingProp;
+  private _rowSizing: EnumValue = SizingProp;
   private _isClipping: boolean = false;
   private _isEnabled: boolean = true;
   private _alignmentFocusName: string = '';
@@ -67,15 +72,27 @@ export class Panel extends GraphObject {
   _viewboxScaleX: number = 1;
   _viewboxScaleY: number = 1;
 
-  constructor(type?: EnumValue | string, init?: Partial<Panel>) {
+  constructor(type?: EnumValue | string | object | null, init?: Partial<Panel>) {
     super();
     this._className = 'Panel';
-    if (type !== undefined) {
-      this._type = typeof type === 'string' ? Panel._resolvePanelTypeStr(type) : type;
+    // 官方 Panel 构造：undefined → Position；string → 按名解析；EnumValue → 直接用；其它对象 → 作为 init
+    let t: any = type;
+    let i: any = init;
+    if (t !== undefined && t !== null) {
+      if (typeof t === 'string') this._type = Panel._resolvePanelTypeStr(t);
+      else if (t instanceof EnumValue) this._type = t;
+      else i = t;
     }
-    if (init) {
-      this.set(init);
+    if (i) {
+      this.set(i);
     }
+  }
+
+  /** 官方各子类构造参数解析：string/EnumValue → type；其它对象 → init */
+  protected static _resolveArgs(type: any, init: any): [any, any] {
+    if (typeof type === 'string' || type instanceof EnumValue) return [type, init];
+    if (type) return [undefined, type];
+    return [undefined, init];
   }
 
   private static _resolvePanelTypeStr(type: string): EnumValue {
@@ -90,6 +107,8 @@ export class Panel extends GraphObject {
       'Viewbox': PanelViewbox,
       'Graduated': PanelGraduated,
       'Link': PanelLink,
+      'TableRow': PanelTableRow,
+      'TableColumn': PanelTableColumn,
     };
     return map[type] || PanelAuto;
   }
@@ -405,11 +424,15 @@ export class Panel extends GraphObject {
     return null;
   }
 
+  /** 官方 findMainElement：第一个 isPanelMain，否则 elements[0]，空则 null */
   findMainElement(): GraphObject | null {
-    for (const elem of this._elements) {
-      if (elem.isPanelMain) return elem;
+    const els = this._elements;
+    const len = els.length;
+    if (len === 0) return null;
+    for (let i = 0; i < len; i++) {
+      if (els[i].isPanelMain === true) return els[i];
     }
-    return null;
+    return els[0];
   }
 
   findItemPanelForData(data: any): Panel | null {
@@ -471,7 +494,6 @@ export class Panel extends GraphObject {
 
   rebuildItemElements(): void {
     // Remove existing item-generated elements
-    // Elements that were generated from itemArray have _itemIndex >= 0
     for (let i = this._elements.length - 1; i >= 0; i--) {
       const elem = this._elements[i];
       if (elem instanceof Panel && (elem as Panel)._itemIndex >= 0) {
@@ -479,32 +501,53 @@ export class Panel extends GraphObject {
         this._elements.splice(i, 1);
       }
     }
-    // Rebuild from itemArray
     const arr = this._itemArray;
-    if (!arr) return;
+    if (!arr || arr.length === 0) {
+      this._invalidateMeasure();
+      return;
+    }
+    // official Qp(): leading non-item count (Auto/Spot -> min(len,1), Table -> 0)
+    let start = 0;
+    if (this._type === PanelAuto || this._type === PanelSpot) {
+      start = Math.min(this._elements.length, 1);
+    }
     for (let i = 0; i < arr.length; i++) {
       const itemData = arr[i];
       const template = this._findItemTemplate(itemData);
       if (template) {
         const copy = template.copy() as Panel;
-        copy._data = itemData;
         copy._itemIndex = i;
-        copy.updateTargetBindings();
         (copy as any)._panel = this;
-        this._elements.push(copy);
+        this._elements.splice(start + i, 0, copy);
+        copy._data = itemData;
+        copy.updateTargetBindings();
       }
+    }
+    // official EN(start, 0): TableRow -> row = element index, TableColumn -> column = element index
+    let s = start, n = 0;
+    while (s < this._elements.length) {
+      const o = this._elements[s];
+      if (o instanceof Panel) {
+        if (o._type === PanelTableRow) {
+          (o as any).row = s;
+        } else if (o._type === PanelTableColumn) {
+          (o as any).column = s;
+        }
+        (o as any)._itemIndex = n;
+      }
+      s++;
+      n++;
     }
     this._invalidateMeasure();
   }
 
   updateTargetBindings(propname?: string): void {
     for (const elem of this._elements) {
-      if (elem instanceof Panel) {
-        (elem as Panel).updateTargetBindings(propname);
-      }
+      // 官方 RN：每个对象用自己的 data（子对象 _data 覆盖继承）
+      const data = (elem as any)._data !== null && (elem as any)._data !== undefined
+        ? (elem as any)._data : this._data;
       const bindings: Binding[] = (elem as any)._bindings;
       if (bindings && bindings.length > 0) {
-        const data = this._data;
         if (data) {
           for (const binding of bindings) {
             if (propname === undefined || propname === binding.sourceProperty) {
@@ -512,6 +555,21 @@ export class Panel extends GraphObject {
               (elem as any)[binding.targetProperty] = val;
             }
           }
+        }
+      }
+      if (elem instanceof Panel) {
+        // 递归时向子面板传递 data（子面板 _data 未设则继承）
+        if ((elem as Panel)._data === null || (elem as Panel)._data === undefined) {
+          if (data !== this._data) {
+            const saved = this._data;
+            (this as any)._data = data;
+            (elem as Panel).updateTargetBindings(propname);
+            (this as any)._data = saved;
+          } else {
+            (elem as Panel).updateTargetBindings(propname);
+          }
+        } else {
+          (elem as Panel).updateTargetBindings(propname);
         }
       }
     }
@@ -577,60 +635,120 @@ export class Panel extends GraphObject {
 
   // ============ Override _measure and _arrange ============
 
-  _measure(widthConstraint: number, heightConstraint: number): void {
+  _measure(widthConstraint: number, heightConstraint: number, minW?: number, minH?: number): void {
     const pad = this._padding;
-    const availW = Math.max(0, widthConstraint - pad.left - pad.right);
-    const availH = Math.max(0, heightConstraint - pad.top - pad.bottom);
-
-    let measuredW = 0;
-    let measuredH = 0;
+    const mar = this._margin;
+    const minS = this._minSize;
+    const maxS = this._maxSize;
+    const ds = this._desiredSize;
+    // 官方 GraphObject.yt：约束/最小值先减去本对象 margin
+    let t = Math.max(widthConstraint - mar.left - mar.right, 0);
+    let i = Math.max(heightConstraint - mar.top - mar.bottom, 0);
+    let e = Math.max((minW || 0) - mar.left - mar.right, 0);
+    let s = Math.max((minH || 0) - mar.top - mar.bottom, 0);
+    // 官方 yt：desiredSize 覆盖（Panel lp() = 0）
+    if (isFinite(ds.width)) t = ds.width;
+    if (isFinite(ds.height)) i = ds.height;
+    // 官方 yt：按本面板有效 stretch 预处理；Panel 特有——None/Vertical/Horizontal 把约束置为 Infinity
+    const S = this._getStretch(true);
+    let f = e;
+    let u = s;
+    if (S === StretchNone) {
+      f = 0;
+      u = 0;
+      t = Infinity;
+      i = Infinity;
+    } else if (S === StretchFill) {
+      if (isFinite(t) && t > e) f = t;
+      if (isFinite(i) && i > s) u = i;
+    } else if (S === StretchHorizontal) {
+      if (isFinite(t) && t > e) f = t;
+      u = 0;
+      i = Infinity;
+    } else if (S === StretchVertical) {
+      f = 0;
+      if (isFinite(i) && i > s) u = i;
+      t = Infinity;
+    }
+    // 官方 yt：min/max 夹取
+    if (f > maxS.width && minS.width < maxS.width) f = maxS.width;
+    if (u > maxS.height && minS.height < maxS.height) u = maxS.height;
+    e = Math.max(f, minS.width);
+    s = Math.max(u, minS.height);
+    if (maxS.width < e) e = Math.min(minS.width, e);
+    if (maxS.height < s) s = Math.min(minS.height, s);
+    t = Math.min(maxS.width, t);
+    i = Math.min(maxS.height, i);
+    t = Math.max(e, t);
+    i = Math.max(s, i);
+    // 官方 Panel.Yd：可用尺寸扣除 padding
+    const availW = Math.max(t - pad.left - pad.right, 0);
+    const availH = Math.max(i - pad.top - pad.bottom, 0);
+    const union = this._unionRect;
+    union.set(0, 0, 0, 0);
 
     if (this._type === PanelAuto) {
       this._measureAuto(availW, availH);
-      return;
     } else if (this._type === PanelVertical) {
       this._measureVertical(availW, availH);
-      return;
     } else if (this._type === PanelHorizontal) {
       this._measureHorizontal(availW, availH);
-      return;
     } else if (this._type === PanelSpot) {
       this._measureSpot(availW, availH);
-      return;
     } else if (this._type === PanelTable) {
-      this._measureTable(availW, availH);
-      return;
+      this._measureTable(availW, availH, e, s);
     } else if (this._type === PanelPosition) {
       this._measurePosition(availW, availH);
-      return;
     } else if (this._type === PanelLink) {
-      this._measureLink(widthConstraint, heightConstraint);
-      return;
+      this._measureLink(availW, availH);
     } else if (this._type === PanelViewbox) {
       this._measureViewbox(availW, availH);
-      return;
     } else if (this._type === PanelGraduated) {
       this._measureGraduated(availW, availH);
-      return;
     } else if (this._type === PanelGrid) {
-      this._measuredBounds = new Rect(0, 0, 0, 0);
-      return;
+      // union 保持 (0,0,0,0)
+    } else {
+      // 默认：所有可见元素包围盒
+      let maxW = 0;
+      let maxH = 0;
+      for (const elem of this._elements) {
+        if (!elem.visible) continue;
+        elem._measure(availW, availH);
+        const mb = elem.measuredBounds;
+        const m = elem.margin;
+        maxW = Math.max(maxW, mb.width + m.left + m.right);
+        maxH = Math.max(maxH, mb.height + m.top + m.bottom);
+      }
+      union.set(0, 0, maxW, maxH);
     }
 
-    // Default fallback: measure all elements
-    for (const elem of this._elements) {
-      if (!elem.visible) continue;
-      elem._measure(availW, availH);
-      const mb = elem.measuredBounds;
-      const m = elem.margin;
-      measuredW = Math.max(measuredW, mb.width + m.left + m.right);
-      measuredH = Math.max(measuredH, mb.height + m.top + m.bottom);
-    }
+    // 官方 Panel.Yd：union 内容 + padding；desired/max/min 夹取；不被 constraint 夹
+    let c = union.width + pad.left + pad.right;
+    let fh = union.height + pad.top + pad.bottom;
+    if (isFinite(ds.width)) c = ds.width;
+    if (isFinite(ds.height)) fh = ds.height;
+    c = Math.min(maxS.width, c);
+    fh = Math.min(maxS.height, fh);
+    c = Math.max(minS.width, c);
+    fh = Math.max(minS.height, fh);
+    c = Math.max(e, c);
+    fh = Math.max(s, fh);
+    this._originX = union.x;
+    this._originY = union.y;
+    union.set(union.x, union.y, c, fh);
+    this._naturalBounds = new Rect(0, 0, c, fh);
+    this._measuredBounds = new Rect(0, 0, c, fh);
+    this._applyMeasureTransform();
+  }
 
-    this._measuredBounds = new Rect(0, 0,
-      Math.min(measuredW + pad.left + pad.right, widthConstraint),
-      Math.min(measuredH + pad.top + pad.bottom, heightConstraint)
-    );
+  /** 就地并入 union */
+  private _unionInto(x: number, y: number, w: number, h: number): void {
+    const u = this._unionRect;
+    const nx = Math.min(u.x, x);
+    const ny = Math.min(u.y, y);
+    const nr = Math.max(u.right, x + w);
+    const nb = Math.max(u.bottom, y + h);
+    u.set(nx, ny, nr - nx, nb - ny);
   }
 
   _arrange(bounds: Rect): void {
@@ -681,94 +799,126 @@ export class Panel extends GraphObject {
    * or the first visible element if none has isPanelMain.
    */
   private _findMainAndOthers(): { main: GraphObject | null; others: GraphObject[] } {
-    let main: GraphObject | null = null;
+    const main = this.findMainElement();
     const others: GraphObject[] = [];
     for (const elem of this._elements) {
-      if (!elem.visible) continue;
-      if (main === null || elem.isPanelMain) {
-        if (main !== null && !main.isPanelMain) others.push(main);
-        main = elem;
-      } else {
-        others.push(elem);
-      }
+      if (elem !== main) others.push(elem);
     }
     return { main, others };
   }
 
-  private _measureAuto(availW: number, availH: number): void {
-    const pad = this._padding;
-    const { main, others } = this._findMainAndOthers();
-
-    // Step 1: Measure all non-main elements first (they determine the content size)
-    let contentW = 0;
-    let contentH = 0;
-    for (const elem of others) {
-      elem._measure(availW, availH);
-      const mb = elem.measuredBounds;
-      const m = elem.margin;
-      contentW = Math.max(contentW, mb.width + m.left + m.right);
-      contentH = Math.max(contentH, mb.height + m.top + m.bottom);
+  /** 官方 kN：主 Shape 的 spot1（Shape.spot1 → geometry.spot1 → TopLeft） */
+  private _panelSpot1(g: GraphObject): Spot {
+    if (g instanceof Shape) {
+      const s = g.spot1;
+      if (s !== Spot.Default) return s;
+      const geo = g._getGeometry();
+      if (geo !== null && geo.spot1) return geo.spot1;
     }
-
-    // Step 2: Measure the main element, sized to fit around the content
-    if (main !== null) {
-      const m = main.margin;
-      const strokeW = (main as any)._strokeWidth ? (main as any)._strokeWidth * 2 : 0;
-      const mainAvailW = Math.min(availW, contentW + m.left + m.right + strokeW);
-      const mainAvailH = Math.min(availH, contentH + m.top + m.bottom + strokeW);
-      main._measure(mainAvailW, mainAvailH);
-
-      const mb = main.measuredBounds;
-      const mainW = Math.max(mb.width + m.left + m.right, contentW + m.left + m.right + strokeW);
-      const mainH = Math.max(mb.height + m.top + m.bottom, contentH + m.top + m.bottom + strokeW);
-
-      this._measuredBounds = new Rect(0, 0,
-        mainW + pad.left + pad.right,
-        mainH + pad.top + pad.bottom
-      );
-    } else if (others.length > 0) {
-      this._measuredBounds = new Rect(0, 0,
-        contentW + pad.left + pad.right,
-        contentH + pad.top + pad.bottom
-      );
-    } else {
-      this._measuredBounds = new Rect(0, 0, pad.left + pad.right, pad.top + pad.bottom);
-    }
+    return Spot.TopLeft;
   }
 
-  private _arrangeAuto(innerX: number, innerY: number, innerW: number, innerH: number): void {
-    const { main, others } = this._findMainAndOthers();
-
-    if (main !== null) {
-      // Arrange the main element to fill the entire panel area
-      const m = main.margin;
-      main._arrange(new Rect(
-        innerX + m.left,
-        innerY + m.top,
-        innerW - m.left - m.right,
-        innerH - m.top - m.bottom
-      ));
+  /** 官方 PN：主 Shape 的 spot2 → BottomRight 兜底 */
+  private _panelSpot2(g: GraphObject): Spot {
+    if (g instanceof Shape) {
+      const s = g.spot2;
+      if (s !== Spot.Default) return s;
+      const geo = g._getGeometry();
+      if (geo !== null && geo.spot2) return geo.spot2;
     }
+    return Spot.BottomRight;
+  }
 
-    // Position other elements by alignment within the panel area (default: centered)
-    for (const elem of others) {
-      const mb = elem.measuredBounds;
-      const m = elem.margin;
-      const alignment = this._resolveAlignment(elem);
-      const pos = alignment.positionInRect(new Rect(
-        innerX + m.left,
-        innerY + m.top,
-        Math.max(0, innerW - m.left - m.right),
-        Math.max(0, innerH - m.top - m.bottom)
-      ));
-      const focus = this._resolveAlignmentFocus(elem);
-      const focusPos = focus.positionInRect(new Rect(0, 0, mb.width, mb.height));
-      elem._arrange(new Rect(
-        pos.x - focusPos.x,
-        pos.y - focusPos.y,
-        mb.width,
-        mb.height
-      ));
+  /** 官方 PanelLayoutAuto.measure */
+  private _measureAuto(availW: number, availH: number): void {
+    const els = this._elements;
+    if (els.length === 0) return;
+    const main = this.findMainElement()!;
+    const ma = main.margin;
+    const u = ma.right + ma.left;
+    const d = ma.top + ma.bottom;
+    main._measure(availW, availH);
+    let mb = main.measuredBounds;
+    let stroke = 0;
+    if (main instanceof Shape) stroke = (main as Shape).strokeWidth * main.scale;
+    let y = Math.max(mb.width + u, 0);
+    let x = Math.max(mb.height + d, 0);
+    const s1 = this._panelSpot1(main);
+    const s2 = this._panelSpot2(main);
+    let holeW = availW;
+    let holeH = availH;
+    if (isFinite(availW)) holeW = Math.max(Math.abs(s1.x * y + s1.offsetX - (s2.x * y + s2.offsetX)) - stroke, 0);
+    if (isFinite(availH)) holeH = Math.max(Math.abs(s1.y * x + s1.offsetY - (s2.y * x + s2.offsetY)) - stroke, 0);
+    let maxT = 0;
+    let maxTh = 0;
+    for (const el of els) {
+      if (el === main || !el.visible) continue;
+      const em = el.margin;
+      el._measure(holeW, holeH);
+      mb = el.measuredBounds;
+      y = Math.max(mb.width + em.left + em.right, 0);
+      x = Math.max(mb.height + em.top + em.bottom, 0);
+      maxT = Math.max(maxT, y);
+      maxTh = Math.max(maxTh, x);
+    }
+    const union = this._unionRect;
+    if (els.length === 1) {
+      mb = main.measuredBounds;
+      union.set(0, 0, Math.max(mb.width + u, 0), Math.max(mb.height + d, 0));
+      return;
+    }
+    let D = 0;
+    let F = 0;
+    if (s2.x !== s1.x && s2.y !== s1.y) {
+      D = maxT / Math.abs(s2.x - s1.x);
+      F = maxTh / Math.abs(s2.y - s1.y);
+    }
+    D += Math.abs(s1.offsetX) + Math.abs(s2.offsetX) + stroke;
+    F += Math.abs(s1.offsetY) + Math.abs(s2.offsetY) + stroke;
+    let R = main.stretch;
+    if (R === StretchDefault) R = main._getStretch(false);
+    if (R === StretchFill) {
+      if (isFinite(availW)) D = availW;
+      if (isFinite(availH)) F = availH;
+    } else if (R === StretchHorizontal) {
+      if (isFinite(availW)) D = availW;
+    } else if (R === StretchVertical) {
+      if (isFinite(availH)) F = availH;
+    }
+    main._measure(D, F);
+    mb = main.measuredBounds;
+    union.set(0, 0, Math.max(mb.width + u, 0), Math.max(mb.height + d, 0));
+  }
+
+  /** 官方 PanelLayoutAuto.arrange */
+  private _arrangeAuto(innerX: number, innerY: number, innerW: number, innerH: number): void {
+    const els = this._elements;
+    if (els.length === 0) return;
+    const main = this.findMainElement()!;
+    const ma = main.margin;
+    const pad = this._padding;
+    const mb = main.measuredBounds;
+    main._arrange(new Rect(pad.left + ma.left, pad.top + ma.top, mb.width, mb.height));
+    const s1 = this._panelSpot1(main);
+    const s2 = this._panelSpot2(main);
+    const hx1 = s1.x * mb.width + s1.offsetX;
+    const hy1 = s1.y * mb.height + s1.offsetY;
+    const hx2 = s2.x * mb.width + s2.offsetX;
+    const hy2 = s2.y * mb.height + s2.offsetY;
+    const holeX = Math.min(hx1, hx2) + ma.left + pad.left;
+    const holeY = Math.min(hy1, hy2) + ma.top + pad.top;
+    const holeW = Math.abs(hx2 - hx1);
+    const holeH = Math.abs(hy2 - hy1);
+    for (const el of els) {
+      if (el === main || !el.visible) continue;
+      const eMb = el.measuredBounds;
+      const em = el.margin;
+      const boxW = Math.max(eMb.width + em.left + em.right, 0);
+      const boxH = Math.max(eMb.height + em.top + em.bottom, 0);
+      const A = this._resolveAlignment(el);
+      const x = holeW * A.x + A.offsetX - boxW * A.x + em.left + holeX;
+      const yy = holeH * A.y + A.offsetY - boxH * A.y + em.top + holeY;
+      el._arrange(new Rect(x, yy, eMb.width, eMb.height));
     }
   }
 
@@ -778,20 +928,43 @@ export class Panel extends GraphObject {
     const pad = this._padding;
     let totalH = 0;
     let maxW = 0;
+    // 官方 PanelLayoutVertical.measure 两阶段：先 measure {None, Vertical} stretch 子元素
+    // 得到内容宽 maxW；然后 Fill/Horizontal stretch 子元素按内容宽 measure（不扩展面板）。
+    const fillElems: GraphObject[] = [];
 
     for (const elem of this._elements) {
       if (!elem.visible) continue;
-      elem._measure(availW, availH - totalH);
+      const st = elem._getStretch(false);
+      if (st === StretchFill || st === StretchHorizontal) {
+        fillElems.push(elem);
+        continue;
+      }
+      elem._measure(availW, Infinity);
       const mb = elem.measuredBounds;
       const m = elem.margin;
       totalH += mb.height + m.top + m.bottom;
       maxW = Math.max(maxW, mb.width + m.left + m.right);
     }
 
-    this._measuredBounds = new Rect(0, 0,
-      maxW + pad.left + pad.right,
-      totalH + pad.top + pad.bottom
-    );
+    // 官方：i = desiredSize.width ? min(ds, maxSize) : (内容宽非0 ? min(内容宽, maxSize) : 原 availW)
+    let contentW = availW;
+    if (!isNaN(this._desiredSize.width)) {
+      contentW = Math.min(this._desiredSize.width, this._maxSize.width);
+    } else if (maxW !== 0) {
+      contentW = Math.min(maxW, this._maxSize.width);
+    }
+
+    for (const elem of fillElems) {
+      if (!elem.visible) continue;
+      // 官方：u.yt(i, ...) —— 子元素自身 margin 在其 _measure（GraphObject.yt）内扣除
+      elem._measure(contentW, Infinity);
+      const mb = elem.measuredBounds;
+      const m = elem.margin;
+      totalH += mb.height + m.top + m.bottom;
+      maxW = Math.max(maxW, mb.width + m.left + m.right);
+    }
+
+    this._unionRect.set(0, 0, maxW, totalH);
   }
 
   private _arrangeVertical(innerX: number, innerY: number, innerW: number, innerH: number): void {
@@ -830,10 +1003,7 @@ export class Panel extends GraphObject {
       maxH = Math.max(maxH, mb.height + m.top + m.bottom);
     }
 
-    this._measuredBounds = new Rect(0, 0,
-      totalW + pad.left + pad.right,
-      maxH + pad.top + pad.bottom
-    );
+    this._unionRect.set(0, 0, totalW, maxH);
   }
 
   private _arrangeHorizontal(innerX: number, innerY: number, innerW: number, innerH: number): void {
@@ -857,199 +1027,807 @@ export class Panel extends GraphObject {
 
   // ============ PanelSpot measure/arrange ============
 
+  /** 官方 PanelLayoutSpot.measure（两遍） */
   private _measureSpot(availW: number, availH: number): void {
-    const pad = this._padding;
-    const { main, others } = this._findMainAndOthers();
-
-    let measuredW = 0;
-    let measuredH = 0;
-
-    if (main !== null) {
-      main._measure(availW, availH);
-      const mb = main.measuredBounds;
-      const m = main.margin;
-      measuredW = mb.width + m.left + m.right;
-      measuredH = mb.height + m.top + m.bottom;
+    const els = this._elements;
+    if (els.length === 0) return;
+    const main = this.findMainElement()!;
+    const ma = main.margin;
+    const u = ma.right + ma.left;
+    const d = ma.top + ma.bottom;
+    main._measure(availW, availH);
+    const union = this._unionRect;
+    // 第一遍：对齐参照盒 k = (0,0,mainW,mainH)；S = main margin 盒
+    const mB = main.measuredBounds;
+    let kw = mB.width;
+    let kh = mB.height;
+    const sBoxX = -ma.left;
+    const sBoxY = -ma.top;
+    const sBoxW = Math.max(mB.width + u, 0);
+    const sBoxH = Math.max(mB.height + d, 0);
+    let hasOther = false;
+    for (const el of els) {
+      if (el === main || !el.visible) continue;
+      const em = el.margin;
+      let D = em.left;
+      let F = em.top;
+      let cw = em.right + em.left;
+      let ch = em.top + em.bottom;
+      let T = availW;
+      let L = availH;
+      const R = el._getStretch(false);
+      if (R === StretchFill) {
+        T = kw;
+        L = kh;
+        cw = 0;
+        ch = 0;
+        D = 0;
+        F = 0;
+      } else if (R === StretchHorizontal) {
+        T = kw;
+        cw = 0;
+        D = 0;
+      } else if (R === StretchVertical) {
+        L = kh;
+        ch = 0;
+        F = 0;
+      }
+      el._measure(T, L);
+      const mb = el.measuredBounds;
+      const y = Math.max(mb.width + cw, 0);
+      const x = Math.max(mb.height + ch, 0);
+      let A = el.alignment;
+      if (A.isDefault) A = this._defaultAlignment;
+      if (A.isDefault || isNaN(A.x) || isNaN(A.y)) A = Spot.Center;
+      let I = el.alignmentFocus;
+      if (I.isDefault) I = Spot.Center;
+      const X = -D + A.x * kw + A.offsetX - (I.x * mb.width + I.offsetX);
+      const Y = -F + A.y * kh + A.offsetY - (I.y * mb.height + I.offsetY);
+      if (!hasOther) {
+        hasOther = true;
+        union.set(X, Y, y, x);
+      } else {
+        this._unionInto(X, Y, y, x);
+      }
     }
-
-    for (const elem of others) {
-      elem._measure(availW, availH);
+    if (!hasOther) union.set(sBoxX, sBoxY, sBoxW, sBoxH);
+    else this._unionInto(sBoxX, sBoxY, sBoxW, sBoxH);
+    // 主元素 stretch 早退（官方 switch）
+    let R = main.stretch;
+    if (R === StretchDefault) R = main._getStretch(false);
+    if (R === StretchNone) return;
+    if (R === StretchFill && !isFinite(availW) && !isFinite(availH)) return;
+    if (R === StretchHorizontal && !isFinite(availW)) return;
+    if (R === StretchVertical && !isFinite(availH)) return;
+    // 第二遍：参照盒为 main margin 盒（不含 k.x 偏移）
+    const mB2 = main.measuredBounds;
+    kw = Math.max(mB2.width + u, 0);
+    kh = Math.max(mB2.height + d, 0);
+    if (!hasOther) return;
+    for (const el of els) {
+      if (el === main || !el.visible) continue;
+      const em = el.margin;
+      const mb = el.measuredBounds;
+      const y = Math.max(mb.width + em.right + em.left, 0);
+      const x = Math.max(mb.height + em.top + em.bottom, 0);
+      let A = el.alignment;
+      if (A.isDefault) A = this._defaultAlignment;
+      if (A.isDefault || isNaN(A.x) || isNaN(A.y)) A = Spot.Center;
+      let I = el.alignmentFocus;
+      if (I.isDefault) I = Spot.Center;
+      const X = A.x * kw + A.offsetX - (I.x * mb.width + I.offsetX) - em.left;
+      const Y = A.y * kh + A.offsetY - (I.y * mb.height + I.offsetY) - em.top;
+      this._unionInto(X, Y, y, x);
     }
-
-    this._measuredBounds = new Rect(0, 0,
-      measuredW + pad.left + pad.right,
-      measuredH + pad.top + pad.bottom
-    );
+    this._unionInto(sBoxX, sBoxY, sBoxW, sBoxH);
   }
 
+  /** 官方 PanelLayoutSpot.arrange */
   private _arrangeSpot(innerX: number, innerY: number, innerW: number, innerH: number): void {
-    const { main, others } = this._findMainAndOthers();
-
-    if (main !== null) {
-      const m = main.margin;
-      main._arrange(new Rect(
-        innerX + m.left,
-        innerY + m.top,
-        innerW - m.left - m.right,
-        innerH - m.top - m.bottom
-      ));
-    }
-
-    for (const elem of others) {
-      const mb = elem.measuredBounds;
-      const alignment = this._resolveAlignment(elem);
-      const pos = alignment.positionInRect(new Rect(innerX, innerY, innerW, innerH));
-      const focus = this._resolveAlignmentFocus(elem);
-      const focusPos = focus.positionInRect(new Rect(0, 0, mb.width, mb.height));
-      elem._arrange(new Rect(
-        pos.x - focusPos.x,
-        pos.y - focusPos.y,
-        mb.width,
-        mb.height
-      ));
+    const els = this._elements;
+    if (els.length === 0) return;
+    const main = this.findMainElement()!;
+    const pad = this._padding;
+    const mb = main.measuredBounds;
+    const fx = pad.left - this._originX;
+    const fy = pad.top - this._originY;
+    main._arrange(new Rect(fx, fy, mb.width, mb.height));
+    const dw = mb.width;
+    const dh = mb.height;
+    for (const el of els) {
+      if (el === main || !el.visible) continue;
+      const eMb = el.measuredBounds;
+      let A = el.alignment;
+      if (A.isDefault) A = this._defaultAlignment;
+      if (A.isDefault || isNaN(A.x) || isNaN(A.y)) A = Spot.Center;
+      let I = el.alignmentFocus;
+      if (I.isDefault) I = Spot.Center;
+      let f = A.x * dw + A.offsetX - (I.x * eMb.width + I.offsetX);
+      let uu = A.y * dh + A.offsetY - (I.y * eMb.height + I.offsetY);
+      f += -this._originX;
+      uu += -this._originY;
+      el._arrange(new Rect(pad.left + f, pad.top + uu, eMb.width, eMb.height));
     }
   }
 
-  // ============ PanelTable measure/arrange (simplified) ============
+  // ============ PanelTable measure/arrange (官方 PanelLayoutTable 移植) ============
 
-  private _measureTable(availW: number, availH: number): void {
-    const pad = this._padding;
-    // Determine column widths and row heights
-    const colWidths = this._computeColumnWidths(availW);
-    const rowHeights = this._computeRowHeights(availH);
+  private _isRowColPanel(obj: GraphObject): obj is Panel {
+    return obj instanceof Panel && (obj.type === PanelTableRow || obj.type === PanelTableColumn);
+  }
 
-    // Measure each element with its cell constraints
-    for (const elem of this._elements) {
-      if (!elem.visible) continue;
-      const col = elem.column;
-      const row = elem.row;
-      const colSpan = elem.columnSpan;
-      const rowSpan = elem.rowSpan;
+  private _measureTable(availW: number, availH: number, minW: number, minH: number): void {
+    const elements = this._elements;
 
-      let cellW = 0;
-      for (let c = col; c < col + colSpan && c < colWidths.length; c++) {
-        cellW += colWidths[c];
+    // 官方 measure：hoist TableRow/TableColumn 子元素到扁平单元格列表
+    const flat: GraphObject[] = [];
+    const hoisted: Panel[] = [];
+    for (const E of elements) {
+      if (this._isRowColPanel(E) && E.visible) {
+        hoisted.push(E);
+        for (const et of E._elements) {
+          if (E.type === PanelTableRow) (et as GraphObject).row = (E as Panel).row;
+          else (et as GraphObject).column = (E as Panel).column;
+          flat.push(et);
+        }
+      } else {
+        flat.push(E);
       }
-      let cellH = 0;
-      for (let r = row; r < row + rowSpan && r < rowHeights.length; r++) {
-        cellH += rowHeights[r];
-      }
-
-      elem._measure(cellW, cellH);
     }
 
-    let totalW = 0;
-    for (const w of colWidths) totalW += w;
-    let totalH = 0;
-    for (const h of rowHeights) totalH += h;
+    if (flat.length === 0) {
+      this.getRowDefinition(0);
+      this.getColumnDefinition(0);
+    }
 
-    this._measuredBounds = new Rect(0, 0,
-      totalW + pad.left + pad.right,
-      totalH + pad.top + pad.bottom
-    );
+    // 单元格映射 c[row][col] = [elements]
+    const cells: (GraphObject[] | undefined)[][] = [];
+    for (const E of flat) {
+      if (!E.visible) continue;
+      const r = E.row;
+      const c = E.column;
+      if (!cells[r]) cells[r] = [];
+      if (!cells[r][c]) cells[r][c] = [];
+      cells[r][c]!.push(E);
+    }
+
+    const spanElems: GraphObject[] = [];            // 官方 u
+    const singleElems: GraphObject[] = [];          // 官方 d
+    const colFillMark: (number | null | undefined)[] = [];  // 官方 m
+    const rowFillMark: (number | null | undefined)[] = [];  // 官方 g
+    const colDefTouched: boolean[] = [];             // 官方 f
+
+    let p = availW;   // 剩余宽度预算
+    let y = availH;   // 剩余高度预算
+
+    // 重置已存在的定义
+    for (const def of this._rowDefinitions) { def.actual = 0; def.measured = 0; }
+    for (const def of this._columnDefinitions) { def.actual = 0; def.measured = 0; }
+
+    const topIndex = Math.min(this.topIndex, cells.length - 1);
+    const leftIndex = Math.min(this.leftIndex,
+      cells.reduce((mx, row) => Math.max(mx, row ? row.length : 0), 0) - 1);
+
+    // ============ PASS 1：内容自然测量（yt(∞,∞,0,0)）并增长行/列定义 ============
+    const rowCount = cells.length;
+    for (let V = 0; V < rowCount; V++) {
+      if (!cells[V]) continue;
+      const P = cells[V]!.length;
+      const rowDef = this.getRowDefinition(V);
+      rowDef.actual = 0;
+      rowDef.measured = 0;
+      for (let W = 0; W < P; W++) {
+        const list = cells[V][W];
+        if (!list) continue;
+        const colDef = this.getColumnDefinition(W);
+        if (colDefTouched[W] === undefined) {
+          colDef.actual = 0;
+          colDef.measured = 0;
+          colDefTouched[W] = true;
+        }
+        for (const nt of list) {
+          if (!nt.visible) continue;
+          const rowSpan1 = nt.rowSpan <= 1;
+          const colSpan1 = nt.columnSpan <= 1;
+          if ((!rowSpan1 || !colSpan1) && !(V < topIndex) && !(W < leftIndex)) spanElems.push(nt);
+          const mg = nt.margin;
+          const mh = mg.right + mg.left;
+          const mv = mg.top + mg.bottom;
+          const C = nt._gpWithDefs(this, rowDef, colDef, false);
+          const dsz = nt.desiredSize;
+          const wSet = !isNaN(dsz.width);
+          const hSet = !isNaN(dsz.height);
+          if (C !== StretchNone && !(wSet && hSet) && !(V < topIndex) && !(W < leftIndex)) {
+            if (colSpan1 && colFillMark[W] === undefined &&
+                (C === StretchFill || C === StretchHorizontal)) {
+              colFillMark[W] = -1;
+            }
+            if (rowSpan1 && rowFillMark[V] === undefined &&
+                (C === StretchFill || C === StretchVertical)) {
+              rowFillMark[V] = -1;
+            }
+            if (rowSpan1 && colSpan1) singleElems.push(nt);
+          }
+          nt._measure(Infinity, Infinity, 0, 0);
+          if (V < topIndex || W < leftIndex) continue;
+          const mb = nt.measuredBounds;
+          const gw = Math.max(mb.width + mh, 0);
+          const gh = Math.max(mb.height + mv, 0);
+          if (rowSpan1 && (C === StretchNone || C === StretchHorizontal)) {
+            const spacing = rowDef.computeEffectiveSpacing();
+            const wasZero = rowDef.actual === 0;
+            let grow = Math.max(gh - rowDef.actual, 0);
+            if (grow + (wasZero ? spacing : 0) > y) grow = Math.max(y - spacing, 0);
+            rowDef.measured = rowDef.measured + grow;
+            rowDef.actual = rowDef.actual + grow;
+            y = Math.max(y - (grow + (wasZero ? spacing : 0)), 0);
+          }
+          if (colSpan1 && (C === StretchNone || C === StretchVertical)) {
+            const spacing = colDef.computeEffectiveSpacing();
+            const wasZero = colDef.actual === 0;
+            let grow = Math.max(gw - colDef.actual, 0);
+            if (grow + (wasZero ? spacing : 0) > p) grow = Math.max(p - spacing, 0);
+            colDef.measured = colDef.measured + grow;
+            colDef.actual = colDef.actual + grow;
+            p = Math.max(p - (grow + (wasZero ? spacing : 0)), 0);
+          }
+        }
+      }
+    }
+
+    // ============ 固定尺寸合计 L/D，重算剩余预算 ============
+    let L = 0;   // 列内容合计
+    let D = 0;   // 行内容合计
+    const colCount = this._columnDefinitions.length;
+    for (let V = 0; V < colCount; V++) {
+      const def = this._columnDefinitions[V];
+      if (def === undefined) continue;
+      L += isNaN(def.width) ? def.measured : def.width;
+      if (def.measured !== 0) L += def.computeEffectiveSpacing();
+    }
+    const rowsDefCount = this._rowDefinitions.length;
+    for (let V = 0; V < rowsDefCount; V++) {
+      const def = this._rowDefinitions[V];
+      if (def === undefined) continue;
+      D += isNaN(def.height) ? def.measured : def.height;
+      if (def.measured !== 0) D += def.computeEffectiveSpacing();
+    }
+    p = Math.max(availW - L, 0);
+    y = Math.max(availH - D, 0);
+    let F = y;   // 行剩余预算（供单格元素分配）
+    let R = p;   // 列剩余预算
+
+    // ============ d 通道：单格元素的内容最大值 m/g ============
+    for (const E of singleElems) {
+      const rowDef = this.getRowDefinition(E.row);
+      const colDef = this.getColumnDefinition(E.column);
+      const mb = E.measuredBounds;
+      const mg = E.margin;
+      const mh = mg.right + mg.left;
+      const mv = mg.top + mg.bottom;
+      if (colDef.measured === 0 && colFillMark[E.column] !== undefined) {
+        colFillMark[E.column] = Math.max(mb.width + mh, colFillMark[E.column] as number);
+      } else {
+        colFillMark[E.column] = null;
+      }
+      if (rowDef.measured === 0 && rowFillMark[E.row] !== undefined) {
+        rowFillMark[E.row] = Math.max(mb.height + mv, rowFillMark[E.row] as number);
+      } else {
+        rowFillMark[E.row] = null;
+      }
+    }
+    let O = 0;
+    for (let i = 0; i < colFillMark.length; i++) {
+      if (colFillMark[i] !== undefined) O += colFillMark[i] as any;
+    }
+    let I = 0;
+    for (let i = 0; i < rowFillMark.length; i++) {
+      if (rowFillMark[i] !== undefined) I += rowFillMark[i] as any;
+    }
+
+    // ============ 单元格通道：按单元格约束二次测量 ============
+    let cw = 0;   // 当前单元格宽
+    let ch = 0;   // 当前单元格高
+    for (const E of singleElems) {
+      const rowDef = this.getRowDefinition(E.row);
+      const colDef = this.getColumnDefinition(E.column);
+      let cellW: number;
+      if (isFinite(colDef.width)) cellW = colDef.width;
+      else if (isFinite(p) && colFillMark[E.column] !== null) {
+        cellW = O === 0 ? colDef.actual + p : (colFillMark[E.column] as number) / O * R;
+      } else if (colFillMark[E.column] !== null) cellW = p;
+      else cellW = colDef.actual || p;
+      cellW = Math.max(0, cellW - colDef.computeEffectiveSpacing());
+      let cellH: number;
+      if (isFinite(rowDef.height)) cellH = rowDef.height;
+      else if (isFinite(y) && rowFillMark[E.row] !== null) {
+        cellH = I === 0 ? rowDef.actual + y : (rowFillMark[E.row] as number) / I * F;
+      } else if (rowFillMark[E.row] !== null) cellH = y;
+      else cellH = rowDef.actual || y;
+      cellH = Math.max(0, cellH - rowDef.computeEffectiveSpacing());
+      cw = Math.max(colDef.minimum, Math.min(cellW, colDef.maximum));
+      ch = Math.max(rowDef.minimum, Math.min(cellH, rowDef.maximum));
+      const C = E._gpWithDefs(this, rowDef, colDef, false);
+      if (C === StretchHorizontal) ch = Math.max(ch, rowDef.actual + y);
+      else if (C === StretchVertical) cw = Math.max(cw, colDef.actual + p);
+      const mg = E.margin;
+      const mh = mg.right + mg.left;
+      const mv = mg.top + mg.bottom;
+      let at = colDef.minimum;
+      let ct = rowDef.minimum;
+      const mb = E.measuredBounds;
+      if (mb.width === 0 && colFillMark[E.column] !== null) at = Math.max(at, colFillMark[E.column] as any);
+      if (mb.height === 0 && rowFillMark[E.row] !== null) ct = Math.max(at, rowFillMark[E.row] as any);
+      E._measure(cw, ch, at, ct);
+      const mb2 = E.measuredBounds;
+      let fw = Math.max(mb2.width + mh, 0);
+      let fh = Math.max(mb2.height + mv, 0);
+      if (isFinite(p)) fw = Math.min(fw, cw);
+      if (isFinite(y)) fh = Math.min(fh, ch);
+      const prevH = rowDef.actual;
+      rowDef.actual = Math.max(rowDef.actual, fh);
+      rowDef.measured = Math.max(rowDef.measured, fh);
+      const growH = rowDef.actual - prevH;
+      y = Math.max(y - growH, 0);
+      if (rowFillMark[E.row] === null) F = Math.max(F - growH, 0);
+      const prevW = colDef.actual;
+      colDef.actual = Math.max(colDef.actual, fw);
+      colDef.measured = Math.max(colDef.measured, fw);
+      const growW = colDef.actual - prevW;
+      p = Math.max(p - growW, 0);
+      if (colFillMark[E.column] === null) R = Math.max(R - growW, 0);
+    }
+
+    // ============ 跨行/列元素通道 ============
+    if (spanElems.length > 0) {
+      const K: (number | undefined)[] = [];   // 行 actual 快照
+      const z: (number | undefined)[] = [];   // 列 actual 快照
+      for (let V = 0; V < rowCount; V++) {
+        if (!cells[V]) continue;
+        K[V] = this.getRowDefinition(V).actual;
+        for (let W = 0; W < cells[V]!.length; W++) {
+          if (!cells[V][W]) continue;
+          z[W] = this.getColumnDefinition(W).actual;
+        }
+      }
+      const Yw = { w: 0 };
+      const Yh = { h: 0 };
+      const spanExtra = { w: 0, h: 0 };
+      for (const E of spanElems) {
+        if (!E.visible) continue;
+        const rowDef = this.getRowDefinition(E.row);
+        const colDef = this.getColumnDefinition(E.column);
+        Yw.w = Math.max(colDef.minimum, Math.min(availW, colDef.maximum));
+        Yh.h = Math.max(rowDef.minimum, Math.min(availH, rowDef.maximum));
+        const C = E._gpWithDefs(this, rowDef, colDef, false);
+        if (C === StretchFill) {
+          if (z[E.column] !== 0 && z[E.column] !== undefined) Yw.w = Math.min(Yw.w, z[E.column] as number);
+          if (K[E.row] !== 0 && K[E.row] !== undefined) Yh.h = Math.min(Yh.h, K[E.row] as number);
+        } else if (C === StretchHorizontal) {
+          if (z[E.column] !== 0 && z[E.column] !== undefined) Yw.w = Math.min(Yw.w, z[E.column] as number);
+        } else if (C === StretchVertical) {
+          if (K[E.row] !== 0 && K[E.row] !== undefined) Yh.h = Math.min(Yh.h, K[E.row] as number);
+        }
+        if (C === StretchFill || C === StretchVertical) {
+          let extra = 0;
+          for (let st = 0; st < this._rowDefinitions.length; st++) {
+            if (st >= E.row && st < E.row + E.rowSpan) continue;
+            const rd = this._rowDefinitions[st];
+            if (rd !== undefined) {
+              extra += K[st] || 0;
+              if (rd.measured !== 0) extra += rd.computeEffectiveSpacing();
+            }
+          }
+          Yh.h = Math.max(Yh.h - extra, 0);
+        }
+        if (C === StretchFill || C === StretchHorizontal) {
+          let extra = 0;
+          for (let st = 0; st < this._columnDefinitions.length; st++) {
+            if (st >= E.column && st < E.column + E.columnSpan) continue;
+            const cd = this._columnDefinitions[st];
+            if (cd !== undefined) {
+              extra += z[st] || 0;
+              if (cd.measured !== 0) extra += cd.computeEffectiveSpacing();
+            }
+          }
+          Yw.w = Math.max(Yw.w - extra, 0);
+        }
+        if (isFinite(colDef.width)) Yw.w = colDef.width;
+        if (isFinite(rowDef.height)) Yh.h = rowDef.height;
+        spanExtra.w = 0;
+        spanExtra.h = 0;
+        let at = colDef.minimum;
+        let ct = rowDef.minimum;
+        let lastRowDef = rowDef;
+        for (let st = 1; st < E.rowSpan && !(E.row + st >= this._rowDefinitions.length); st++) {
+          const rd = this.getRowDefinition(E.row + st);
+          lastRowDef = rd;
+          if (C === StretchFill || C === StretchVertical) {
+            if (rd.actual === 0) continue;
+            spanExtra.h += Math.max(rd.minimum, Math.min(rd.actual, rd.maximum));
+          } else {
+            spanExtra.h += Math.max(rd.minimum, isNaN(rd.height) ? rd.maximum : Math.min(rd.height, rd.maximum));
+          }
+          ct += rd.minimum;
+        }
+        let lastColDef = colDef;
+        for (let st = 1; st < E.columnSpan && !(E.column + st >= this._columnDefinitions.length); st++) {
+          const cd = this.getColumnDefinition(E.column + st);
+          lastColDef = cd;
+          if (C === StretchFill || C === StretchHorizontal) {
+            if (cd.actual === 0) continue;
+            spanExtra.w += Math.max(cd.minimum, Math.min(cd.actual, cd.maximum));
+          } else {
+            spanExtra.w += Math.max(cd.minimum, isNaN(cd.width) ? cd.maximum : Math.min(cd.width, cd.maximum));
+          }
+          at += cd.minimum;
+        }
+        Yw.w += spanExtra.w;
+        Yh.h += spanExtra.h;
+        const mg = E.margin;
+        const mh = mg.right + mg.left;
+        const mv = mg.top + mg.bottom;
+        E._measure(Yw.w, Yh.h, at, ct);
+        const mb = E.measuredBounds;
+        const fw = Math.max(mb.width + mh, 0);
+        const fh = Math.max(mb.height + mv, 0);
+        // 行跨度增长
+        let spanTotal = 0;
+        let growDef = lastRowDef;
+        for (let st = 0; st < E.rowSpan && !(E.row + st >= this._rowDefinitions.length); st++) {
+          const rd = this.getRowDefinition(E.row + st);
+          growDef = rd;
+          spanTotal += rd.total || 0;
+        }
+        if (spanTotal < fh) {
+          let remain = fh - spanTotal;
+          if (rowDef.spanAllocation !== null) {
+            const alloc = rowDef.spanAllocation;
+            for (let ut = 0; ut < E.rowSpan && !(remain <= 0 || E.row + ut >= this._rowDefinitions.length); ut++) {
+              const rd = this.getRowDefinition(E.row + ut);
+              const base = rd.actual;
+              const add = alloc(E, rd, fh - spanTotal);
+              rd.actual = Math.min(rd.maximum, base + add);
+              if (rd.actual !== base) remain -= rd.actual - base;
+            }
+          }
+          let g = growDef;
+          while (remain > 0 && g !== undefined) {
+            const base = g.actual;
+            if (isNaN(g.height) && g.maximum > base) {
+              g.actual = Math.min(g.maximum, base + remain);
+              if (g.actual !== base) remain -= g.actual - base;
+            }
+            if (g.index === 0) break;
+            g = this.getRowDefinition(g.index - 1);
+          }
+        }
+        // 列跨度增长
+        let spanTotalC = 0;
+        let growDefC = lastColDef;
+        for (let st = 0; st < E.columnSpan && !(E.column + st >= this._columnDefinitions.length); st++) {
+          const cd = this.getColumnDefinition(E.column + st);
+          growDefC = cd;
+          spanTotalC += cd.total || 0;
+        }
+        if (spanTotalC < fw) {
+          let remain = fw - spanTotalC;
+          if (colDef.spanAllocation !== null) {
+            const alloc = colDef.spanAllocation;
+            for (let ut = 0; ut < E.columnSpan && !(remain <= 0 || E.column + ut >= this._columnDefinitions.length); ut++) {
+              const cd = this.getColumnDefinition(E.column + ut);
+              const base = cd.actual;
+              const add = alloc(E, cd, fw - spanTotalC);
+              cd.actual = Math.min(cd.maximum, base + add);
+              if (cd.actual !== base) remain -= cd.actual - base;
+            }
+          }
+          let g = growDefC;
+          while (remain > 0 && g !== undefined) {
+            const base = g.actual;
+            if (isNaN(g.width) && g.maximum > base) {
+              g.actual = Math.min(g.maximum, base + remain);
+              if (g.actual !== base) remain -= g.actual - base;
+            }
+            if (g.index === 0) break;
+            g = this.getColumnDefinition(g.index - 1);
+          }
+        }
+      }
+    }
+
+    // ============ 最终列/行缩放与位置 ============
+    const ds = this._desiredSize;
+    const maxS = this._maxSize;
+    const C = this._getStretch(true);
+    let L2 = 0;
+    let D2 = 0;
+    let q = 0;   // 固定列宽合计
+    let Q = 0;   // 固定行高合计
+    for (let V = 0; V < colCount; V++) {
+      const def = this._columnDefinitions[V];
+      if (def === undefined) continue;
+      if (isFinite(def.width)) {
+        q += def.width;
+        q += def.computeEffectiveSpacing();
+        continue;
+      }
+      if (def.effectiveSizing() === SizingNone) {
+        q += def.actual;
+        q += def.computeEffectiveSpacing();
+        continue;
+      }
+      if (def.actual !== 0) {
+        L2 += def.actual;
+        L2 += def.computeEffectiveSpacing();
+      }
+    }
+    let H = 0;
+    if (isFinite(ds.width)) H = Math.min(ds.width, maxS.width);
+    else if (C !== StretchNone && isFinite(availW)) H = availW;
+    else H = L2;
+    H = Math.max(H, isFinite(availW) ? Math.min(minW, availW) : minW);
+    H = Math.max(H - q, 0);
+    const J = L2 === 0 ? 1 : Math.max(H / L2, 1);
+    let offX = 0;
+    for (let V = 0; V < colCount; V++) {
+      const def = this._columnDefinitions[V];
+      if (def === undefined) continue;
+      if (!isFinite(def.width) && def.effectiveSizing() !== SizingNone) def.actual = def.actual * J;
+      def.position = offX;
+      if (def.actual !== 0) {
+        offX += def.actual;
+        offX += def.computeEffectiveSpacing();
+      }
+    }
+    let v = 0;
+    for (let V = 0; V < rowsDefCount; V++) {
+      const def = this._rowDefinitions[V];
+      if (def === undefined) continue;
+      if (isFinite(def.height)) {
+        Q += def.height;
+        Q += def.computeEffectiveSpacing();
+        continue;
+      }
+      if (def.effectiveSizing() === SizingNone) {
+        Q += def.actual;
+        Q += def.computeEffectiveSpacing();
+        continue;
+      }
+      if (def.actual !== 0) {
+        D2 += def.actual;
+        D2 += def.computeEffectiveSpacing();
+      }
+    }
+    if (isFinite(ds.height)) v = Math.min(ds.height, maxS.height);
+    else if (C !== StretchNone && isFinite(availH)) v = availH;
+    else v = D2;
+    v = Math.max(v, isFinite(availH) ? Math.min(minH, availH) : minH);
+    v = Math.max(v - Q, 0);
+    const TT = D2 === 0 ? 1 : Math.max(v / D2, 1);
+    let offY = 0;
+    for (let V = 0; V < rowsDefCount; V++) {
+      const def = this._rowDefinitions[V];
+      if (def === undefined) continue;
+      if (!isFinite(def.height) && def.effectiveSizing() !== SizingNone) def.actual = def.actual * TT;
+      def.position = offY;
+      if (def.actual !== 0) {
+        offY += def.actual;
+        offY += def.computeEffectiveSpacing();
+      }
+    }
+
+    // hoisted TableRow/TableColumn 面板自身的 measuredBounds
+    for (const E of hoisted) {
+      let w = 0;
+      let h = 0;
+      if (E.type === PanelTableRow) {
+        w = offX;
+        h = this.getRowDefinition(E.row).actual;
+      } else {
+        w = this.getColumnDefinition(E.column).actual;
+        h = offY;
+      }
+      E._measuredBounds = new Rect(0, 0, w, h);
+      E._naturalBounds = new Rect(0, 0, w, h);
+    }
+
+    // 官方：单元格缓存 t.Gh 供 arrange 使用；n 内容尺寸 → union
+    (this as any)._lastCells = cells;
+    this._unionRect.set(0, 0, offX, offY);
   }
 
   private _arrangeTable(innerX: number, innerY: number, innerW: number, innerH: number): void {
-    const colWidths = this._computeColumnWidths(innerW);
-    const rowHeights = this._computeRowHeights(innerH);
+    const cells = (this as any)._lastCells as (GraphObject[] | undefined)[][] | undefined;
+    if (!cells) return;
+    const pad = this._padding;
+    const padL = pad.left;
+    const padT = pad.top;
+    const fullW = innerW + padL + pad.right;
+    const fullH = innerH + padT + pad.bottom;
 
-    (this as any)._lastColWidths = colWidths;
-    (this as any)._lastRowHeights = rowHeights;
-
-    // Compute column x positions
-    const colX: number[] = [];
-    let cx = innerX;
-    for (const w of colWidths) {
-      colX.push(cx);
-      cx += w;
+    const rowDefs = this._rowDefinitions;
+    const colDefs = this._columnDefinitions;
+    const c = cells.length;
+    let f = 0;
+    for (let N = 0; N < c; N++) {
+      if (cells[N]) f = Math.max(f, cells[N]!.length);
     }
 
-    // Compute row y positions
-    const rowY: number[] = [];
-    let ry = innerY;
-    for (const h of rowHeights) {
-      rowY.push(ry);
-      ry += h;
+    // 首个非零 actual 的行/列偏移（topIndex/leftIndex 滚动）
+    let pIdx = Math.min(this.topIndex, c - 1);
+    let rowOffset = 0;
+    if (rowDefs.length > 0) {
+      while (pIdx !== c && (rowDefs[pIdx] === undefined || rowDefs[pIdx].actual === 0)) pIdx++;
+      pIdx = Math.max(Math.min(pIdx, c - 1), 0);
+      rowOffset = -(rowDefs[pIdx] ? rowDefs[pIdx].position : 0);
+    }
+    let yIdx = Math.min(this.leftIndex, f - 1);
+    let colOffset = 0;
+    if (colDefs.length > 0) {
+      while (yIdx !== f && (colDefs[yIdx] === undefined || colDefs[yIdx].actual === 0)) yIdx++;
+      yIdx = Math.max(Math.min(yIdx, f - 1), 0);
+      colOffset = -(colDefs[yIdx] ? colDefs[yIdx].position : 0);
+    }
+    let firstRowIdx = 0;
+    while (firstRowIdx !== c && rowDefs[firstRowIdx] === undefined) firstRowIdx++;
+    let firstColIdx = 0;
+    while (firstColIdx !== f && colDefs[firstColIdx] === undefined) firstColIdx++;
+
+    // ============ 第一遍：hoisted TableRow/TableColumn 面板自身矩形 ============
+    for (const M of this._elements) {
+      if (!this._isRowColPanel(M) || !M.visible) continue;
+      let k: RowColumnDefinition;
+      let Pc: RowColumnDefinition;
+      let cellY: number;
+      let cellX: number;
+      if (M.type === PanelTableRow) {
+        k = this.getRowDefinition(M.row);
+        Pc = this.getColumnDefinition(firstColIdx);
+        cellY = k.position + rowOffset + padT;
+        if (k.actual !== 0) cellY += k.computeEffectiveSpacingTop(Math.max(firstRowIdx, pIdx));
+        cellX = Pc.position + colOffset + padL;
+        if (Pc.actual !== 0) cellX += Pc.computeEffectiveSpacingTop(Math.max(firstColIdx, yIdx));
+      } else {
+        k = this.getRowDefinition(firstRowIdx);
+        Pc = this.getColumnDefinition(M.column);
+        cellY = k.position + rowOffset + padT;
+        if (k.actual !== 0) cellY += k.computeEffectiveSpacingTop(Math.max(firstRowIdx, pIdx));
+        cellX = Pc.position + colOffset + padL;
+        if (Pc.actual !== 0) cellX += Pc.computeEffectiveSpacingTop(Math.max(firstColIdx, yIdx));
+      }
+      const mb = M.measuredBounds;
+      const x = M.type === PanelTableRow ? padL : cellX;
+      const yy = M.type === PanelTableColumn ? padT : cellY;
+      M._actualBounds = new Rect(x, yy, mb.width, mb.height);
+      M._naturalBounds = new Rect(0, 0, mb.width, mb.height);
     }
 
-    for (const elem of this._elements) {
-      if (!elem.visible) continue;
-      const col = elem.column;
-      const row = elem.row;
-      const colSpan = elem.columnSpan;
-      const rowSpan = elem.rowSpan;
+    // ============ 第二遍：单元格内元素对齐排布 ============
+    for (let N = 0; N < c; N++) {
+      const row = cells[N];
+      if (!row) continue;
+      const M = this.getRowDefinition(N);
+      let a = M.position + rowOffset + padT;
+      if (M.actual !== 0) a += M.computeEffectiveSpacingTop(Math.max(firstRowIdx, pIdx));
+      for (let Cc = 0; Cc < row.length; Cc++) {
+        const list = row[Cc];
+        if (!list) continue;
+        const T = this.getColumnDefinition(Cc);
+        let h = T.position + colOffset + padL;
+        if (T.actual !== 0) h += T.computeEffectiveSpacingTop(Math.max(firstColIdx, yIdx));
+        for (const R of list) {
+          const I = R.measuredBounds;
+          let spanW = 0;
+          let spanH = 0;
+          for (let st = 1; st < R.rowSpan && !(N + st >= rowDefs.length); st++) {
+            const rd = rowDefs[N + st];
+            if (rd !== undefined && rd.actual !== 0) spanH += rd.total;
+          }
+          for (let st = 1; st < R.columnSpan && !(Cc + st >= colDefs.length); st++) {
+            const cd = colDefs[Cc + st];
+            if (cd !== undefined && cd.actual !== 0) spanW += cd.total;
+          }
+          const O = T.actual + spanW;      // 单元格宽
+          const X = M.actual + spanH;      // 单元格高
+          const cellX = h;
+          const cellY = a;
+          const clipX = h;
+          const clipY = a;
+          let clipW = O;
+          let clipH = X;
+          if (cellX + O > fullW) clipW = Math.max(fullW - cellX, 0);
+          if (cellY + X > fullH) clipH = Math.max(fullH - cellY, 0);
 
-      let cellX = col < colX.length ? colX[col] : innerX;
-      let cellY = row < rowY.length ? rowY[row] : innerY;
-      let cellW = 0;
-      for (let c = col; c < col + colSpan && c < colWidths.length; c++) {
-        cellW += colWidths[c];
+          let q = R.alignment;
+          let Q: number, Jv: number, tt: number, Vv: number;
+          if (q.isDefault) {
+            let dq = this._defaultAlignment;
+            if (dq.isDefault || isNaN(dq.x) || isNaN(dq.y)) dq = Spot.Center;
+            Q = dq.x; Jv = dq.y; tt = dq.offsetX; Vv = dq.offsetY;
+            const colAl = T.alignment;
+            const rowAl = M.alignment;
+            if (!colAl.isDefault && !isNaN(colAl.x) && !isNaN(colAl.y)) {
+              Q = colAl.x;
+              tt = colAl.offsetX;
+            }
+            if (!rowAl.isDefault && !isNaN(rowAl.x) && !isNaN(rowAl.y)) {
+              Jv = rowAl.y;
+              Vv = rowAl.offsetY;
+            }
+          } else {
+            Q = q.x; Jv = q.y; tt = q.offsetX; Vv = q.offsetY;
+          }
+          if (isNaN(Q) || isNaN(Jv)) {
+            Q = 0.5; Jv = 0.5; tt = 0; Vv = 0;
+          }
+
+          let Ew = I.width;
+          let Wh = I.height;
+          const mg = R.margin;
+          const mh = mg.right + mg.left;
+          const mv = mg.top + mg.bottom;
+          const C = R._gpWithDefs(this, M, T, false);
+          if (isNaN(R.desiredSize.width) && (C === StretchFill || C === StretchHorizontal)) {
+            Ew = Math.max(O - mh, 0);
+          }
+          if (isNaN(R.desiredSize.height) && (C === StretchFill || C === StretchVertical)) {
+            Wh = Math.max(X - mv, 0);
+          }
+          Ew = Math.min(R.maxSize.width, Ew);
+          Wh = Math.min(R.maxSize.height, Wh);
+          Ew = Math.max(R.minSize.width, Ew);
+          Wh = Math.max(R.minSize.height, Wh);
+          const boxW = Ew + mh;
+          const boxH = Wh + mv;
+          const ex = cellX + O * Q - boxW * Q + tt + mg.left;
+          const ey = cellY + X * Jv - boxH * Jv + Vv + mg.top;
+          if (R.visible) {
+            const contains = ex >= clipX && ey >= clipY &&
+              ex + I.width <= clipX + clipW && ey + I.height <= clipY + clipH;
+            if (contains) {
+              R._arrange(new Rect(ex, ey, Ew, Wh));
+            } else {
+              R._arrange(new Rect(ex, ey, Ew, Wh));
+            }
+          }
+        }
       }
-      let cellH = 0;
-      for (let r = row; r < row + rowSpan && r < rowHeights.length; r++) {
-        cellH += rowHeights[r];
-      }
-
-      const m = elem.margin;
-      const mb = elem.measuredBounds;
-      const alignment = this._resolveAlignment(elem);
-      const focus = this._resolveAlignmentFocus(elem);
-
-      const availW = cellW - m.left - m.right;
-      const availH = cellH - m.top - m.bottom;
-      const elemW = this._resolveStretchWidth(elem, availW, mb.width);
-      const elemH = this._resolveStretchHeight(elem, availH, mb.height);
-
-      const pos = alignment.positionInRect(new Rect(cellX + m.left, cellY + m.top, availW, availH));
-      const focusPos = focus.positionInRect(new Rect(0, 0, elemW, elemH));
-
-      elem._arrange(new Rect(
-        pos.x - focusPos.x,
-        pos.y - focusPos.y,
-        elemW,
-        elemH
-      ));
     }
   }
 
   // ============ PanelPosition measure/arrange ============
 
+  /** 官方 PanelLayoutPosition.measure：union 隐含 (0,0)（初始 union 为空点） */
   private _measurePosition(availW: number, availH: number): void {
-    const pad = this._padding;
-    let maxW = 0;
-    let maxH = 0;
-
     for (const elem of this._elements) {
       if (!elem.visible) continue;
       elem._measure(availW, availH);
       const mb = elem.measuredBounds;
       const m = elem.margin;
-      // Position panels use the element's position (x, y) for placement
-      // The measured size is the union of all positioned elements
-      const posX = isNaN(elem.position.x) ? 0 : elem.position.x;
-      const posY = isNaN(elem.position.y) ? 0 : elem.position.y;
-      const elemRight = posX + mb.width + m.left + m.right;
-      const elemBottom = posY + mb.height + m.top + m.bottom;
-      maxW = Math.max(maxW, elemRight);
-      maxH = Math.max(maxH, elemBottom);
+      const boxW = Math.max(mb.width + m.left + m.right, 0);
+      const boxH = Math.max(mb.height + m.top + m.bottom, 0);
+      let px = elem.position.x;
+      let py = elem.position.y;
+      if (!isFinite(px)) px = 0;
+      if (!isFinite(py)) py = 0;
+      this._unionInto(px, py, boxW, boxH);
     }
-
-    this._measuredBounds = new Rect(0, 0,
-      maxW + pad.left + pad.right,
-      maxH + pad.top + pad.bottom
-    );
   }
 
+  /** 官方 PanelLayoutPosition.arrange：pos - (union - pad) + margin */
   private _arrangePosition(innerX: number, innerY: number, innerW: number, innerH: number): void {
     for (const elem of this._elements) {
       if (!elem.visible) continue;
       const mb = elem.measuredBounds;
       const m = elem.margin;
-      const posX = isNaN(elem.position.x) ? 0 : elem.position.x;
-      const posY = isNaN(elem.position.y) ? 0 : elem.position.y;
+      let px = elem.position.x;
+      let py = elem.position.y;
+      if (!isFinite(px)) px = 0;
+      if (!isFinite(py)) py = 0;
       elem._arrange(new Rect(
-        innerX + posX + m.left,
-        innerY + posY + m.top,
+        innerX + px - this._originX + m.left,
+        innerY + py - this._originY + m.top,
         mb.width,
         mb.height
       ));
@@ -1059,7 +1837,6 @@ export class Panel extends GraphObject {
   // ============ PanelViewbox measure/arrange ============
 
   private _measureViewbox(availW: number, availH: number): void {
-    const pad = this._padding;
     const child = this._elements.find(e => e.visible) || null;
 
     if (child) {
@@ -1068,9 +1845,7 @@ export class Panel extends GraphObject {
       const m = child.margin;
       const w = Math.min(availW, mb.width + m.left + m.right);
       const h = Math.min(availH, mb.height + m.top + m.bottom);
-      this._measuredBounds = new Rect(0, 0, w + pad.left + pad.right, h + pad.top + pad.bottom);
-    } else {
-      this._measuredBounds = new Rect(0, 0, pad.left + pad.right, pad.top + pad.bottom);
+      this._unionRect.set(0, 0, w, h);
     }
   }
 
@@ -1122,28 +1897,22 @@ export class Panel extends GraphObject {
   // ============ PanelGraduated measure/arrange ============
 
   private _measureGraduated(availW: number, availH: number): void {
-    const pad = this._padding;
     const { main, others } = this._findMainAndOthers();
 
-    let measuredW = 0;
-    let measuredH = 0;
-
-    if (main !== null) {
+    if (main !== null && main.visible) {
       main._measure(availW, availH);
       const mb = main.measuredBounds;
       const m = main.margin;
-      measuredW = mb.width + m.left + m.right;
-      measuredH = mb.height + m.top + m.bottom;
+      this._unionRect.set(0, 0, Math.max(mb.width + m.left + m.right, 0), Math.max(mb.height + m.top + m.bottom, 0));
     }
 
     for (const elem of others) {
+      if (!elem.visible) continue;
       elem._measure(availW, availH);
+      const mb = elem.measuredBounds;
+      const m = elem.margin;
+      this._unionInto(0, 0, Math.max(mb.width + m.left + m.right, 0), Math.max(mb.height + m.top + m.bottom, 0));
     }
-
-    this._measuredBounds = new Rect(0, 0,
-      measuredW + pad.left + pad.right,
-      measuredH + pad.top + pad.bottom
-    );
   }
 
   private _arrangeGraduated(innerX: number, innerY: number, innerW: number, innerH: number): void {
@@ -1176,7 +1945,7 @@ export class Panel extends GraphObject {
 
   // ============ PanelLink measure/arrange ============
 
-  private _measureLink(widthConstraint: number, heightConstraint: number): void {
+  private _measureLink(availW: number, availH: number): void {
     for (const elem of this._elements) {
       if (!elem.visible) continue;
       elem._measure(Infinity, Infinity);
@@ -1198,9 +1967,9 @@ export class Panel extends GraphObject {
         maxX = Math.max(maxX, p.x);
         maxY = Math.max(maxY, p.y);
       }
-      this._measuredBounds = new Rect(0, 0, maxX - minX, maxY - minY);
+      this._unionRect.set(0, 0, maxX - minX, maxY - minY);
     } else {
-      this._measuredBounds = new Rect(0, 0, 1, 1);
+      this._unionRect.set(0, 0, 1, 1);
     }
   }
 
@@ -1348,33 +2117,19 @@ export class Panel extends GraphObject {
 
   // ============ Internal helpers ============
 
+  /** 官方：alignment → defaultAlignment，仍默认则 Center */
   private _resolveAlignment(elem: GraphObject): Spot {
-    const a = elem.alignment;
-    if (!a.isDefault) return a;
-    // Auto and Spot panels default to centering non-main elements
-    if (this._type === PanelAuto || this._type === PanelSpot) {
-      return new Spot(0.5, 0.5);
-    }
-    // Vertical and Horizontal panels default to Spot.Center (matching GoJS):
-    // an element narrower than the panel is centered along the panel's cross axis.
-    if (this._type === PanelVertical || this._type === PanelHorizontal) {
-      return new Spot(0.5, 0.5);
-    }
-    return this._defaultAlignment;
+    let a = elem.alignment;
+    if (a.isDefault) a = this._defaultAlignment;
+    if (a.isDefault || isNaN(a.x) || isNaN(a.y)) return Spot.Center;
+    return a;
   }
 
+  /** 官方：alignmentFocus 默认 → 回退为该元素的 alignment（focus 落在 alignment 同一边） */
   private _resolveAlignmentFocus(elem: GraphObject): Spot {
     const af = elem.alignmentFocus;
-    if (!af.isDefault) return af;
-    if (this._alignmentFocusName) {
-      const named = this.findObject(this._alignmentFocusName);
-      if (named) return named.alignmentFocus;
-    }
-    // Auto and Spot panels default to centering the element's focus
-    if (this._type === PanelAuto || this._type === PanelSpot) {
-      return new Spot(0.5, 0.5);
-    }
-    return Spot.Default.copy();
+    if (af.isDefault) return this._resolveAlignment(elem);
+    return af;
   }
 
   private _resolveStretchWidth(elem: GraphObject, available: number, measured: number): number {
@@ -1408,176 +2163,20 @@ export class Panel extends GraphObject {
 
   private _ensureColumnDefinition(index: number): void {
     while (this._columnDefinitions.length <= index) {
-      this._columnDefinitions.push(new RowColumnDefinition());
+      const def = new RowColumnDefinition();
+      def.column = this._columnDefinitions.length;
+      def._setPanel(this);
+      this._columnDefinitions.push(def);
     }
   }
 
   private _ensureRowDefinition(index: number): void {
     while (this._rowDefinitions.length <= index) {
-      this._rowDefinitions.push(new RowColumnDefinition());
+      const def = new RowColumnDefinition();
+      def.row = this._rowDefinitions.length;
+      def._setPanel(this);
+      this._rowDefinitions.push(def);
     }
-  }
-
-  private _computeColumnWidths(availW: number): number[] {
-    const colCount = Math.max(this.columnCount, this._columnDefinitions.length);
-    if (colCount === 0) return [];
-
-    const widths: number[] = new Array(colCount).fill(0);
-    const defined: boolean[] = new Array(colCount).fill(false);
-
-    for (let i = 0; i < colCount; i++) {
-      const def = i < this._columnDefinitions.length ? this._columnDefinitions[i] : null;
-      if (def && !isNaN(def.width) && def.width > 0) {
-        widths[i] = def.width;
-        defined[i] = true;
-      }
-    }
-
-    for (const elem of this._elements) {
-      if (!elem.visible) continue;
-      const col = elem.column;
-      const colSpan = elem.columnSpan;
-      if (colSpan > 1) continue;
-
-      if (!defined[col]) {
-        elem._measure(Infinity, Infinity);
-        const mb = elem.measuredBounds;
-        const m = elem.margin;
-        const needed = mb.width + m.left + m.right;
-        if (needed > widths[col]) {
-          widths[col] = needed;
-        }
-      }
-    }
-
-    for (let i = 0; i < colCount; i++) {
-      const def = i < this._columnDefinitions.length ? this._columnDefinitions[i] : null;
-      if (def) {
-        widths[i] = Math.max(def.minimum, Math.min(def.maximum, widths[i]));
-      }
-    }
-
-    let totalDefined = 0;
-    let undefinedCount = 0;
-    for (let i = 0; i < colCount; i++) {
-      if (defined[i]) {
-        totalDefined += widths[i];
-      } else {
-        undefinedCount++;
-      }
-    }
-
-    const remaining = Math.max(0, availW - totalDefined);
-    if (undefinedCount > 0 && remaining > 0) {
-      let autoCount = 0;
-      let propTotal = 0;
-      for (let i = 0; i < colCount; i++) {
-        if (defined[i]) continue;
-        const def = i < this._columnDefinitions.length ? this._columnDefinitions[i] : null;
-        if (def && def.sizing === SizingProp) {
-          propTotal += (widths[i] > 0 ? widths[i] : 1);
-        } else {
-          autoCount++;
-        }
-      }
-
-      const autoRemaining = Math.max(0, remaining - propTotal);
-      for (let i = 0; i < colCount; i++) {
-        if (defined[i]) continue;
-        const def = i < this._columnDefinitions.length ? this._columnDefinitions[i] : null;
-        if (def && def.sizing === SizingProp) {
-          const ratio = propTotal > 0 ? (widths[i] > 0 ? widths[i] : 1) / propTotal : 1 / colCount;
-          widths[i] = remaining * ratio;
-        } else if (def && def.sizing === SizingAuto) {
-          // keep the auto-calculated width
-        } else if (autoCount > 0) {
-          widths[i] = Math.max(widths[i], autoRemaining / autoCount);
-        }
-      }
-    }
-
-    return widths;
-  }
-
-  private _computeRowHeights(availH: number): number[] {
-    const rowCount = Math.max(this.rowCount, this._rowDefinitions.length);
-    if (rowCount === 0) return [];
-
-    const heights: number[] = new Array(rowCount).fill(0);
-    const defined: boolean[] = new Array(rowCount).fill(false);
-
-    for (let i = 0; i < rowCount; i++) {
-      const def = i < this._rowDefinitions.length ? this._rowDefinitions[i] : null;
-      if (def && !isNaN(def.height) && def.height > 0) {
-        heights[i] = def.height;
-        defined[i] = true;
-      }
-    }
-
-    for (const elem of this._elements) {
-      if (!elem.visible) continue;
-      const row = elem.row;
-      const rowSpan = elem.rowSpan;
-      if (rowSpan > 1) continue;
-
-      if (!defined[row]) {
-        elem._measure(Infinity, Infinity);
-        const mb = elem.measuredBounds;
-        const m = elem.margin;
-        const needed = mb.height + m.top + m.bottom;
-        if (needed > heights[row]) {
-          heights[row] = needed;
-        }
-      }
-    }
-
-    for (let i = 0; i < rowCount; i++) {
-      const def = i < this._rowDefinitions.length ? this._rowDefinitions[i] : null;
-      if (def) {
-        heights[i] = Math.max(def.minimum, Math.min(def.maximum, heights[i]));
-      }
-    }
-
-    let totalDefined = 0;
-    let undefinedCount = 0;
-    for (let i = 0; i < rowCount; i++) {
-      if (defined[i]) {
-        totalDefined += heights[i];
-      } else {
-        undefinedCount++;
-      }
-    }
-
-    const remaining = Math.max(0, availH - totalDefined);
-    if (undefinedCount > 0 && remaining > 0) {
-      let autoCount = 0;
-      let propTotal = 0;
-      for (let i = 0; i < rowCount; i++) {
-        if (defined[i]) continue;
-        const def = i < this._rowDefinitions.length ? this._rowDefinitions[i] : null;
-        if (def && def.sizing === SizingProp) {
-          propTotal += (heights[i] > 0 ? heights[i] : 1);
-        } else {
-          autoCount++;
-        }
-      }
-
-      const autoRemaining = Math.max(0, remaining - propTotal);
-      for (let i = 0; i < rowCount; i++) {
-        if (defined[i]) continue;
-        const def = i < this._rowDefinitions.length ? this._rowDefinitions[i] : null;
-        if (def && def.sizing === SizingProp) {
-          const ratio = propTotal > 0 ? (heights[i] > 0 ? heights[i] : 1) / propTotal : 1 / rowCount;
-          heights[i] = remaining * ratio;
-        } else if (def && def.sizing === SizingAuto) {
-          // keep the auto-calculated height
-        } else if (autoCount > 0) {
-          heights[i] = Math.max(heights[i], autoRemaining / autoCount);
-        }
-      }
-    }
-
-    return heights;
   }
 
   private _findItemTemplate(data: any): Panel | null {

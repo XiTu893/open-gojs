@@ -5,7 +5,6 @@ import { Rect } from '../core/Rect';
 import { Spot } from '../core/Spot';
 import { Map } from '../core/Map';
 import { Iterator } from '../core/Iterable';
-import { EnumValue } from '../core/EnumValues';
 /**
  * Part - base class for top-level visual elements (Node, Link, Adornment).
  * Extends Panel with location, selection, shadow, and adornment support.
@@ -37,11 +36,27 @@ export declare class Part extends Panel {
     private _category;
     protected _itemIndex: number;
     protected _containingGroup: any;
-    constructor(type?: EnumValue);
+    constructor(type?: any, init?: any);
+    /** 官方 Part.g()：部件级失效向 Diagram 冒泡（图片加载/文本变更 → 重排） */
+    _invalidateMeasure(): void;
     get visible(): boolean;
     set visible(val: boolean);
+    private _syncGuard;
+    /** 官方 WD：location 点相对 bounds TL 的偏移（locationObject = part 本身，naturalBounds + locationSpot） */
+    private _locationOffset;
     get location(): Point;
     set location(val: Point);
+    /** 官方 Part.position（GraphObject.position 的 Part 覆盖：与 location 按 locationSpot 同步） */
+    get position(): Point;
+    set position(val: Point);
+    /**
+     * 官方 bF（location 驱动）：arrange 后 locationSpot 偏移变化时，用 location 重新推导 position。
+     */
+    syncPositionFromLocation(): void;
+    /**
+     * 从 this 到后代 target 的面板局部偏移累加（基于 actualBounds 局部坐标链）。
+     */
+    localOffsetTo(target: GraphObject): Point | null;
     get locationSpot(): Spot;
     set locationSpot(val: Spot);
     get locationObjectName(): string;
@@ -89,20 +104,22 @@ export declare class Part extends Panel {
     get itemIndex(): number;
     set itemIndex(val: number);
     get isTopLevel(): boolean;
+    /** 官方 Part.canLayout */
+    canLayout(): boolean;
     get isVirtual(): boolean;
     get containingGroup(): any;
     set containingGroup(val: any);
     get adornmentStream(): Iterator<any>;
     /** Find a named GraphObject within this Part */
     findObject(name: string): GraphObject | null;
-    /** Find the main element of this Part */
-    findMainElement(): GraphObject | null;
-    /** Ensure the bounds of this Part are computed */
+    /** Ensure the bounds of this Part are computed (official: measure + updateBounds + sync position/location) */
     ensureBounds(): void;
     /** Get the bounding rectangle in document coordinates */
     getDocumentBounds(): Rect;
-    /** Move this Part to a new location */
-    move(newLoc: Point): void;
+    /** 官方 Part.move(newLoc, isLocation?)：isLocation=true 移动 location，否则移动 position */
+    move(newLoc: Point, isLocation?: boolean): void;
+    /** 官方 Part.moveTo(x, y, isLocation?) */
+    moveTo(x: number, y: number, isLocation?: boolean): void;
     /** Add an adornment for the given category */
     addAdornment(category: string, ad: any): void;
     /** Remove the adornment for the given category */

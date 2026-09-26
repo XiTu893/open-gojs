@@ -19,9 +19,13 @@ export declare class LayoutNetwork {
     linkToLayoutEdge: Map<Link, LayoutEdge>;
     /** Map from Node to LayoutVertex */
     nodeToLayoutVertex: Map<Node, LayoutVertex>;
+    /** Create a new vertex (subclasses override to return specialized vertexes) */
+    createVertex(): LayoutVertex;
+    /** Create a new edge (subclasses override to return specialized edges) */
+    createEdge(): LayoutEdge;
     /** Add a vertex to this network */
     addVertex(vertex: LayoutVertex): LayoutVertex;
-    /** Add an edge to this network */
+    /** Add an edge to this network (官方：toVertex.addSourceEdge, fromVertex.addDestinationEdge) */
     addEdge(edge: LayoutEdge): LayoutEdge;
     /** Add a link to the network, creating an edge between the from/to vertexes */
     addLink(link: Link): LayoutEdge | null;

@@ -1,5 +1,5 @@
 import { GraphObject } from './GraphObject';
-import { EnumValue, BrushSolid, GeometryStretchUniform, GeometryStretchNone, GeometryStretchFill, GeometryStretchUniformToFill } from '../core/EnumValues';
+import { EnumValue, BrushSolid, GeometryStretchDefault, GeometryStretchUniform, GeometryStretchNone, GeometryStretchFill, GeometryStretchUniformToFill, StretchDefault, StretchFill, StretchNone, StretchUniform, StretchUniformToFill, StretchHorizontal, StretchVertical } from '../core/EnumValues';
 import { Brush, BrushLike } from '../core/Brush';
 import { Geometry } from '../core/Geometry';
 import { PathFigure } from '../core/PathFigure';
@@ -9,7 +9,8 @@ import { Rect } from '../core/Rect';
 import { Point } from '../core/Point';
 import { Spot } from '../core/Spot';
 import { List } from '../core/List';
-import { getFigureGeometry, figures } from '../figures/Figures';
+import { Map as Dict } from '../core/Map';
+import { getFigureGeometry, figures, CORE_FIGURE_NAMES, isExtensionFigure } from '../figures/Figures';
 
 /**
  * Shape - 几何图形
@@ -37,7 +38,7 @@ export class Shape extends GraphObject {
   private _parameter2: number = NaN;
   private _toArrow: string = 'None';
   private _fromArrow: string = '';
-  private _geometryStretch: EnumValue = GeometryStretchUniform;
+  private _geometryStretch: EnumValue = GeometryStretchDefault;
   private _fillRule: string = 'nonzero';
 
   constructor(figOrGeo?: string | Geometry | Partial<Shape>, init?: Partial<Shape>) {
@@ -181,8 +182,15 @@ export class Shape extends GraphObject {
   }
 
   private _getFigureGeometry(figureName: string): Geometry | null {
-    const w = isNaN(this.width) ? 100 : this.width;
-    const h = isNaN(this.height) ? 100 : this.height;
+    // 优先使用 measure 记录的内容尺寸（不含描边、已解析 desiredSize/constraint）
+    const gw = (this as any)._geoW;
+    const gh = (this as any)._geoH;
+    const w = typeof gw === 'number' && isFinite(gw) && gw > 0
+      ? gw
+      : (isNaN(this.width) ? 100 : this.width);
+    const h = typeof gh === 'number' && isFinite(gh) && gh > 0
+      ? gh
+      : (isNaN(this.height) ? 100 : this.height);
 
     const geo = getFigureGeometry(figureName, w, h, this._parameter1, this._parameter2, this);
     if (geo) return geo;
@@ -207,24 +215,118 @@ export class Shape extends GraphObject {
     }
   }
 
-  /** 测量对象尺寸 */
-  _measure(widthConstraint: number, heightConstraint: number): void {
-    const geo = this._getGeometry();
-    if (geo) {
-      const bounds = geo.bounds;
-      const w = isNaN(this.width) ? bounds.width : this.width;
-      const h = isNaN(this.height) ? bounds.height : this.height;
-      this._naturalBounds = new Rect(0, 0, w, h);
-    } else {
-      const w = isNaN(this.width) ? 0 : this.width;
-      const h = isNaN(this.height) ? 0 : this.height;
-      this._naturalBounds = new Rect(0, 0, w, h);
+  /** 官方 Shape.Yd 的自然尺寸来源：显式 geometry → 其 bounds；figure → 官方 Shape.VN(figure)(null,100,100)；
+   *  与上次测量结果无关（否则 Auto 面板反复测量会让 geometry.spot1/spot2 随几何尺寸收缩，形成级联误差） */
+  private _naturalSize(): { w: number; h: number } {
+    if (this._geometry !== null) {
+      const b = this._geometry.bounds;
+      return { w: b.width, h: b.height };
     }
+    if (this._figure && this._figure !== 'None') {
+      const g = getFigureGeometry(this._figure, 100, 100, NaN, NaN, null);
+      if (g) {
+        const b = g.bounds;
+        return { w: b.width, h: b.height };
+      }
+    }
+    if (this._geometryString) {
+      try {
+        const g = Geometry.parse(this._geometryString);
+        const b = g.bounds;
+        return { w: b.width, h: b.height };
+      } catch { /* fall through */ }
+    }
+    if (this._toArrow && this._toArrow !== 'None') {
+      const g = Shape._getArrowheadGeometry(this._toArrow);
+      if (g) { const b = g.bounds; return { w: b.width, h: b.height }; }
+    }
+    if (this._fromArrow && this._fromArrow !== 'None') {
+      const g = Shape._getArrowheadGeometry(this._fromArrow);
+      if (g) { const b = g.bounds; return { w: b.width, h: b.height }; }
+    }
+    return { w: 0, h: 0 };
+  }
 
-    const measuredWidth = Math.min(this._naturalBounds.width, widthConstraint);
-    const measuredHeight = Math.min(this._naturalBounds.height, heightConstraint);
-    this._measuredBounds = new Rect(0, 0, measuredWidth, measuredHeight);
-    this._applySizeConstraints();
+  /** 测量对象尺寸 — 官方 GraphObject.yt + Shape.Yd（holes=0），measuredBounds 含 strokeWidth */
+  _measure(widthConstraint: number, heightConstraint: number): void {
+    const strokeW = this._strokeWidth;
+    const m = this._margin;
+    const mH = m.left + m.right;
+    const mV = m.top + m.bottom;
+    const ds = this._desiredSize;
+    // 官方 yt：约束减去 margin，desiredSize 覆盖（+stroke 作为“含描边”约束）
+    let t = Math.max(widthConstraint - mH, 0);
+    let i = Math.max(heightConstraint - mV, 0);
+    if (isFinite(ds.width)) t = ds.width + strokeW;
+    if (isFinite(ds.height)) i = ds.height + strokeW;
+
+    // 官方 ln(!0)：raw stretch 解析（Auto 主元素 → Fill 等）
+    const st = this._getStretch(true);
+    const nat = this._naturalSize();
+    let e = 0; // holes（本调用链恒为 0）
+    let s = 0;
+    let aW = nat.w;
+    let aH = nat.h;
+    if (st === StretchNone) {
+      e = 0;
+      s = 0;
+    } else if (st === StretchVertical) {
+      aW = Math.max(t - strokeW, 0);
+      s = 0;
+    } else if (st === StretchHorizontal) {
+      e = 0;
+      aH = Math.max(i - strokeW, 0);
+    } else {
+      // Fill（及非官方 Uniform 等按 Fill 处理）：内容可超过自然尺寸
+      aW = Math.max(t - strokeW, 0);
+      aH = Math.max(i - strokeW, 0);
+    }
+    if (isFinite(ds.width)) aW = ds.width;
+    if (isFinite(ds.height)) aH = ds.height;
+    const maxS = this._maxSize;
+    const minS = this._minSize;
+    e = Math.max(e - strokeW, minS.width);
+    s = Math.max(s - strokeW, minS.height);
+    aW = Math.min(maxS.width, aW);
+    aH = Math.min(maxS.height, aH);
+    aW = isFinite(aW) ? Math.max(e, aW) : Math.max(nat.w, e);
+    aH = isFinite(aH) ? Math.max(s, aH) : Math.max(nat.h, s);
+
+    // 官方 Yd 的 yM：geometryStretch 决定生成几何的宽高
+    const yM = this._resolvedGeometryStretch();
+    let gW = aW;
+    let gH = aH;
+    if (yM === 0) {
+      gW = nat.w;
+      gH = nat.h;
+    } else if (yM === 6) {
+      const k = nat.w > 0 && nat.h > 0 ? Math.min(aW / nat.w, aH / nat.h) : 1;
+      gW = nat.w * k;
+      gH = nat.h * k;
+    }
+    // 2（Fill）及以上默认：gW/gH = 内容尺寸
+    (this as any)._geoW = gW;
+    (this as any)._geoH = gH;
+    this._naturalBounds = new Rect(0, 0, aW, aH);
+    this._measuredBounds = new Rect(0, 0, aW + strokeW, aH + strokeW);
+    this._applyMeasureTransform();
+  }
+
+  /** 官方 Shape.yM：geometryStretch 显式值否则 geometry/figure 的 defaultStretch */
+  private _resolvedGeometryStretch(): number {
+    const gs = this._geometryStretch;
+    if (gs !== GeometryStretchDefault) {
+      if (gs === GeometryStretchNone) return 0;
+      if (gs === GeometryStretchUniform) return 6;
+      return 2; // Fill / UniformToFill（非官方按 Fill）
+    }
+    // Default：显式 geometry → 官方 t===1 ? 2 : t；figure → figure geometry 的 defaultStretch
+    if (this._geometry !== null) return this._geometry.defaultStretch !== undefined ? (this._geometry.defaultStretch === 1 ? 2 : this._geometry.defaultStretch) : 2;
+    if (this._figure && this._figure !== 'None') {
+      const g = getFigureGeometry(this._figure, 100, 100, NaN, NaN, null);
+      if (g) return g.defaultStretch !== undefined ? (g.defaultStretch === 1 ? 2 : g.defaultStretch) : 2;
+    }
+    return 2;
   }
 
   /** 绘制图形 */
@@ -454,6 +556,8 @@ export class Shape extends GraphObject {
     shape._fromArrow = this._fromArrow;
     shape._geometryStretch = this._geometryStretch;
     shape._fillRule = this._fillRule;
+    shape._spot1 = this._spot1 ? this._spot1.copy() : null;
+    shape._spot2 = this._spot2 ? this._spot2.copy() : null;
     return shape;
   }
 
@@ -462,7 +566,19 @@ export class Shape extends GraphObject {
   }
 
   static getFigureGenerators(): any {
-    return figures;
+    // 官方返回 G.Mn 中所有非小写名（内置 30 个 + 运行时 defineFigureGenerator 定义的），
+    // 不含 extensions/Figures.js 的扩展图形（官方样例未加载该文件）
+    const result = new Dict<string, any>();
+    for (const name of CORE_FIGURE_NAMES) {
+      const f = figures.get(name);
+      if (f !== undefined) result.add(name, f);
+    }
+    const it = figures.iterator;
+    while (it.next()) {
+      const name = (it as any).key;
+      if (CORE_FIGURE_NAMES.indexOf(name) < 0 && !isExtensionFigure(name)) result.add(name, it.value);
+    }
+    return result;
   }
 
   private static _arrowheadGeometries: Record<string, Geometry> | null = null;

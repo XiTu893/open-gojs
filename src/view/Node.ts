@@ -20,26 +20,13 @@ export class Node extends Part {
   protected _isSubGraphExpanded: boolean = true;
   protected _treeExpandedDirection: EnumValue = TreeStyleLayered;
 
-  constructor(type?: EnumValue | string, init?: Partial<Node>) {
-    super(typeof type === 'string' ? Node._resolvePanelType(type) : type);
+  constructor(type?: any, init?: any) {
+    const [t, i] = Panel._resolveArgs(type, init);
+    super(t, undefined);
     this._className = 'Node';
-    if (init) {
-      this.set(init);
+    if (i) {
+      this.set(i);
     }
-  }
-
-  private static _resolvePanelType(type: string): EnumValue {
-    const map: Record<string, EnumValue> = {
-      'Auto': PanelAuto,
-      'Vertical': PanelVertical,
-      'Horizontal': PanelHorizontal,
-      'Spot': PanelSpot,
-      'Table': PanelTable,
-      'Position': PanelPosition,
-      'Grid': PanelGrid,
-      'Link': PanelLink,
-    };
-    return map[type] || PanelAuto;
   }
 
   // ============ Properties ============

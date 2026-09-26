@@ -96,12 +96,18 @@ export class Point {
 
   /** 旋转（弧度） */
   rotate(angle: number): Point {
-    const cos = Math.cos(angle);
-    const sin = Math.sin(angle);
-    return new Point(
-      this.x * cos - this.y * sin,
-      this.x * sin + this.y * cos
-    );
+    // 官方 Point.rotate：角度为度数
+    let s = 0, n = 0;
+    const a = ((angle % 360) + 360) % 360;
+    if (a === 90) { s = 0; n = 1; }
+    else if (a === 180) { s = -1; n = 0; }
+    else if (a === 270) { s = 0; n = -1; }
+    else {
+      const rad = a * Math.PI / 180;
+      s = Math.cos(rad);
+      n = Math.sin(rad);
+    }
+    return new Point(s * this.x - n * this.y, n * this.x + s * this.y);
   }
 
   /** 点积 */

@@ -13,10 +13,16 @@ export class Geometry {
   private _defaultFigure: PathFigure;
   /** 边界矩形 */
   private _bounds: Rect | null = null;
-  /** 是否包含奇偶填充 */
+  /** 是否包含偶奇填充 */
   public fillRule: string = 'evenodd';
   /** 图形名称（用于 figure 属性） */
   public name: string = '';
+  /** Auto 面板内容定位用的左上锚点（官方 geometry.spot1） */
+  public spot1: any = null;
+  /** Auto 面板内容定位用的右下锚点（官方 geometry.spot2） */
+  public spot2: any = null;
+  /** 官方 geometry.defaultStretch（0=None 2=Fill 4=Vertical 5=Horizontal 6=Uniform），默认 Fill */
+  public defaultStretch: number = 2;
 
   constructor(figures?: PathFigure | PathFigure[]) {
     this._figures = new List<PathFigure>();
@@ -166,6 +172,21 @@ export class Geometry {
     if (!commands) return geo;
 
     let curX = 0, curY = 0;
+    let hasMove = false;
+    let current = fig;
+
+    const startFigure = (x: number, y: number): void => {
+      if (hasMove || current.segments.count > 0) {
+        current = new PathFigure(x, y);
+        geo.add(current);
+      } else {
+        current.startX = x;
+        current.startY = y;
+      }
+      hasMove = true;
+      curX = x;
+      curY = y;
+    };
 
     for (const cmd of commands) {
       const type = cmd[0];
@@ -173,78 +194,76 @@ export class Geometry {
 
       switch (type) {
         case 'M':
-          curX = args[0]; curY = args[1];
-          fig.startX = curX; fig.startY = curY;
-          for (let i = 2; i < args.length; i += 2) {
+          startFigure(args[0], args[1]);
+          for (let i = 2; i + 1 < args.length; i += 2) {
             curX = args[i]; curY = args[i + 1];
-            fig.add(PathSegment.Line(curX, curY));
+            current.add(PathSegment.Line(curX, curY));
           }
           break;
         case 'm':
-          curX += args[0]; curY += args[1];
-          fig.startX = curX; fig.startY = curY;
-          for (let i = 2; i < args.length; i += 2) {
+          startFigure(curX + args[0], curY + args[1]);
+          for (let i = 2; i + 1 < args.length; i += 2) {
             curX += args[i]; curY += args[i + 1];
-            fig.add(PathSegment.Line(curX, curY));
+            current.add(PathSegment.Line(curX, curY));
           }
           break;
         case 'L':
-          for (let i = 0; i < args.length; i += 2) {
+          for (let i = 0; i + 1 < args.length; i += 2) {
             curX = args[i]; curY = args[i + 1];
-            fig.add(PathSegment.Line(curX, curY));
+            current.add(PathSegment.Line(curX, curY));
           }
           break;
         case 'l':
-          for (let i = 0; i < args.length; i += 2) {
+          for (let i = 0; i + 1 < args.length; i += 2) {
             curX += args[i]; curY += args[i + 1];
-            fig.add(PathSegment.Line(curX, curY));
+            current.add(PathSegment.Line(curX, curY));
           }
           break;
         case 'H':
-          for (const x of args) { curX = x; fig.add(PathSegment.Line(curX, curY)); }
+          for (const x of args) { curX = x; current.add(PathSegment.Line(curX, curY)); }
           break;
         case 'h':
-          for (const dx of args) { curX += dx; fig.add(PathSegment.Line(curX, curY)); }
+          for (const dx of args) { curX += dx; current.add(PathSegment.Line(curX, curY)); }
           break;
         case 'V':
-          for (const y of args) { curY = y; fig.add(PathSegment.Line(curX, curY)); }
+          for (const y of args) { curY = y; current.add(PathSegment.Line(curX, curY)); }
           break;
         case 'v':
-          for (const dy of args) { curY += dy; fig.add(PathSegment.Line(curX, curY)); }
+          for (const dy of args) { curY += dy; current.add(PathSegment.Line(curX, curY)); }
           break;
         case 'C':
-          for (let i = 0; i < args.length; i += 6) {
-            fig.add(PathSegment.CubicBezier(args[i + 4], args[i + 5], args[i], args[i + 1], args[i + 2], args[i + 3]));
+          for (let i = 0; i + 5 < args.length; i += 6) {
+            current.add(PathSegment.CubicBezier(args[i + 4], args[i + 5], args[i], args[i + 1], args[i + 2], args[i + 3]));
             curX = args[i + 4]; curY = args[i + 5];
           }
           break;
         case 'c':
-          for (let i = 0; i < args.length; i += 6) {
-            fig.add(PathSegment.CubicBezier(curX + args[i + 4], curY + args[i + 5], curX + args[i], curY + args[i + 1], curX + args[i + 2], curY + args[i + 3]));
+          for (let i = 0; i + 5 < args.length; i += 6) {
+            current.add(PathSegment.CubicBezier(curX + args[i + 4], curY + args[i + 5], curX + args[i], curY + args[i + 1], curX + args[i + 2], curY + args[i + 3]));
             curX += args[i + 4]; curY += args[i + 5];
           }
           break;
         case 'Q':
-          for (let i = 0; i < args.length; i += 4) {
-            fig.add(PathSegment.QuadraticBezier(args[i + 2], args[i + 3], args[i], args[i + 1]));
+          for (let i = 0; i + 3 < args.length; i += 4) {
+            current.add(PathSegment.QuadraticBezier(args[i + 2], args[i + 3], args[i], args[i + 1]));
             curX = args[i + 2]; curY = args[i + 3];
           }
           break;
         case 'q':
-          for (let i = 0; i < args.length; i += 4) {
-            fig.add(PathSegment.QuadraticBezier(curX + args[i + 2], curY + args[i + 3], curX + args[i], curY + args[i + 1]));
+          for (let i = 0; i + 3 < args.length; i += 4) {
+            current.add(PathSegment.QuadraticBezier(curX + args[i + 2], curY + args[i + 3], curX + args[i], curY + args[i + 1]));
             curX += args[i + 2]; curY += args[i + 3];
           }
           break;
         case 'A':
-          for (let i = 0; i < args.length; i += 7) {
-            fig.add(PathSegment.Arc(args[i + 5], args[i + 6], args[i], args[i + 1], args[i + 2], args[i + 3] !== 0, args[i + 4] !== 0));
+          for (let i = 0; i + 6 < args.length; i += 7) {
+            current.add(PathSegment.Arc(args[i + 5], args[i + 6], args[i], args[i + 1], args[i + 2], args[i + 3] !== 0, args[i + 4] !== 0));
             curX = args[i + 5]; curY = args[i + 6];
           }
           break;
         case 'Z':
         case 'z':
-          fig.add(PathSegment.Close());
+          current.add(PathSegment.Close());
           break;
       }
     }

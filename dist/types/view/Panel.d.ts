@@ -21,6 +21,9 @@ export declare class Panel extends GraphObject {
     private _padding;
     private _defaultAlignment;
     private _defaultStretch;
+    private _originX;
+    private _originY;
+    private _unionRect;
     private _defaultColumnSeparatorStroke;
     private _defaultColumnSeparatorStrokeWidth;
     private _defaultRowSeparatorStroke;
@@ -49,7 +52,9 @@ export declare class Panel extends GraphObject {
     private _viewboxStretch;
     _viewboxScaleX: number;
     _viewboxScaleY: number;
-    constructor(type?: EnumValue | string, init?: Partial<Panel>);
+    constructor(type?: EnumValue | string | object | null, init?: Partial<Panel>);
+    /** 官方各子类构造参数解析：string/EnumValue → type；其它对象 → init */
+    protected static _resolveArgs(type: any, init: any): [any, any];
     private static _resolvePanelTypeStr;
     get type(): EnumValue;
     set type(val: EnumValue);
@@ -126,6 +131,7 @@ export declare class Panel extends GraphObject {
     insertAt(index: number, element: GraphObject): Panel;
     elt(index: number): GraphObject;
     findObject(name: string): GraphObject | null;
+    /** 官方 findMainElement：第一个 isPanelMain，否则 elements[0]，空则 null */
     findMainElement(): GraphObject | null;
     findItemPanelForData(data: any): Panel | null;
     getColumnDefinition(index: number): RowColumnDefinition;
@@ -139,7 +145,9 @@ export declare class Panel extends GraphObject {
     copy(): Panel;
     /** Copy Panel-specific properties to another Panel */
     protected _copyPanelPropertiesTo(copy: Panel): void;
-    _measure(widthConstraint: number, heightConstraint: number): void;
+    _measure(widthConstraint: number, heightConstraint: number, minW?: number, minH?: number): void;
+    /** 就地并入 union */
+    private _unionInto;
     _arrange(bounds: Rect): void;
     /**
      * Find the main element and separate others.
@@ -147,17 +155,28 @@ export declare class Panel extends GraphObject {
      * or the first visible element if none has isPanelMain.
      */
     private _findMainAndOthers;
+    /** 官方 kN：主 Shape 的 spot1（Shape.spot1 → geometry.spot1 → TopLeft） */
+    private _panelSpot1;
+    /** 官方 PN：主 Shape 的 spot2 → BottomRight 兜底 */
+    private _panelSpot2;
+    /** 官方 PanelLayoutAuto.measure */
     private _measureAuto;
+    /** 官方 PanelLayoutAuto.arrange */
     private _arrangeAuto;
     private _measureVertical;
     private _arrangeVertical;
     private _measureHorizontal;
     private _arrangeHorizontal;
+    /** 官方 PanelLayoutSpot.measure（两遍） */
     private _measureSpot;
+    /** 官方 PanelLayoutSpot.arrange */
     private _arrangeSpot;
+    private _isRowColPanel;
     private _measureTable;
     private _arrangeTable;
+    /** 官方 PanelLayoutPosition.measure：union 隐含 (0,0)（初始 union 为空点） */
     private _measurePosition;
+    /** 官方 PanelLayoutPosition.arrange：pos - (union - pad) + margin */
     private _arrangePosition;
     private _measureViewbox;
     private _arrangeViewbox;
@@ -167,7 +186,9 @@ export declare class Panel extends GraphObject {
     private _arrangeLink;
     private _getPointAtDistance;
     private _getAngleAtDistance;
+    /** 官方：alignment → defaultAlignment，仍默认则 Center */
     private _resolveAlignment;
+    /** 官方：alignmentFocus 默认 → 回退为该元素的 alignment（focus 落在 alignment 同一边） */
     private _resolveAlignmentFocus;
     private _resolveStretchWidth;
     private _resolveStretchHeight;
@@ -175,8 +196,6 @@ export declare class Panel extends GraphObject {
     private _resolveUniformScale;
     private _ensureColumnDefinition;
     private _ensureRowDefinition;
-    private _computeColumnWidths;
-    private _computeRowHeights;
     private _findItemTemplate;
     _handleObjectPropertyChanged(obj: GraphObject, propname: string, value?: any): void;
     static Auto: EnumValue;

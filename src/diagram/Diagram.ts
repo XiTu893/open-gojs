@@ -33,6 +33,7 @@ import { CommandHandler } from '../command/CommandHandler';
 import { AnimationManager } from '../animation/AnimationManager';
 import { InputEvent } from './InputEvent';
 import { ThemeManager } from './ThemeManager';
+import { Layout } from '../layout/Layout';
 
 export class Diagram {
 
@@ -93,6 +94,7 @@ export class Diagram {
 
   _parts: Map<any, Part> = new Map<any, Part>();
   _nodeKeyMap: Map<any, Node> = new Map<any, Node>();
+  _treeLinkDataByChildKey: Map<any, ObjectData> = new Map<any, ObjectData>();
 
   _changedListeners: Function[] = [];
   _diagramListeners: Map<string, Function[]> = new Map<string, Function[]>();
@@ -125,6 +127,9 @@ export class Diagram {
     this._commandHandler = new CommandHandler();
     this._animationManager = new AnimationManager();
     this._themeManager = new ThemeManager();
+    // 官方 Diagram：默认 layout = new Layout（base，极简网格摆放未定位部件）
+    this._layout = new Layout();
+    this._layout.diagram = this;
 
     if (div) {
       div.style.position = 'relative';
@@ -864,6 +869,7 @@ export class Diagram {
       this._layoutInvalid = true;
     }
     this._performLayout();
+    this._layoutInvalid = false;
     this.requestUpdate(invalidate);
   }
 
@@ -948,7 +954,7 @@ export class Diagram {
     for (const nodeData of model.nodeDataArray) {
       const groupKey = model.getGroupKeyForNodeData(nodeData);
       if (groupKey !== undefined && groupKey !== null) {
-        const node = this._nodeKeyMap.get(nodeData.key);
+        const node = this._nodeKeyMap.get(model.getKeyForNodeData(nodeData));
         const groupNode = this._nodeKeyMap.get(groupKey);
         if (node && groupNode && (groupNode as any)._memberParts !== undefined) {
           node.containingGroup = groupNode;
@@ -970,6 +976,18 @@ export class Diagram {
         }
       }
     }
+
+    // 链接创建后再对所有 Part 重跑 bindings（如 counter 的 visible/count 依赖 findLinksOutOf）
+    for (const nodeData of model.nodeDataArray) {
+      const node = this._nodeKeyMap.get(model.getKeyForNodeData(nodeData));
+      if (node) node.updateTargetBindings();
+    }
+    try {
+      const it = this.links;
+      if (it) {
+        while (it.next()) it.value.updateTargetBindings();
+      }
+    } catch (e) { /* links 迭代不可用时忽略 */ }
 
      this._layoutInvalid = true;
     this.requestUpdate();
@@ -995,7 +1013,7 @@ export class Diagram {
 
   set(props: Partial<Diagram>): this {
     for (const key in props) {
-      if (key === 'model' || key === 'div') continue;
+      if (key === 'div') continue;
       if (key.indexOf('.') >= 0) {
         const parts = key.split('.');
         let target: any = this;
@@ -1128,6 +1146,7 @@ export class Diagram {
     }
     this._parts.clear();
     this._nodeKeyMap.clear();
+    this._treeLinkDataByChildKey.clear();
     this._selection.clear();
   }
 
@@ -1222,6 +1241,11 @@ export class Diagram {
 
     this._applyBindings(link, data);
 
+    const fn = link.fromNode;
+    const tn = link.toNode;
+    if (fn) fn.updateTargetBindings();
+    if (tn) tn.updateTargetBindings();
+
     return link;
   }
 
@@ -1241,15 +1265,26 @@ export class Diagram {
     }
 
     const link = template!.copy() as Link;
-    link.data = childData;
+    const linkData: ObjectData = {
+      from: parentKey,
+      to: childKey
+    };
+    link.data = linkData;
     link.fromNode = parentNode;
     link.toNode = childNode;
 
-    this._parts.set(childData, link);
+    if (childKey !== undefined) {
+      this._treeLinkDataByChildKey.set(childKey, linkData);
+    }
+
+    this._parts.set(linkData, link);
 
     this.add(link);
 
-    this._applyBindings(link, childData);
+    this._applyBindings(link, linkData);
+
+    parentNode.updateTargetBindings();
+    childNode.updateTargetBindings();
 
     return link;
   }
@@ -1263,6 +1298,15 @@ export class Diagram {
       const key = this._model.getKeyForNodeData(data);
       if (key !== undefined) {
         this._nodeKeyMap.remove(key);
+        const linkData = this._treeLinkDataByChildKey.get(key);
+        if (linkData) {
+          this._treeLinkDataByChildKey.remove(key);
+          const treeLink = this._parts.get(linkData);
+          if (treeLink) {
+            this._parts.remove(linkData);
+            this.remove(treeLink);
+          }
+        }
       }
       this._parts.remove(data);
       this.remove(part);
@@ -1286,6 +1330,9 @@ export class Diagram {
       const data = link.data;
       if (data) {
         this._parts.remove(data);
+        if (data.to !== undefined) {
+          this._treeLinkDataByChildKey.remove(data.to);
+        }
       }
       this.remove(link);
     }
@@ -1302,7 +1349,8 @@ export class Diagram {
   private _resolveBindingValue(binding: Binding, obj: GraphObject, data: ObjectData, part: Part): any {
     if (binding.isFromModel) {
       let val = this._model ? this._model.modelData[binding.sourceProperty] : undefined;
-      if (binding.conversion) val = binding.conversion(val, obj, this._model);
+      // 官方：源值 undefined → 跳过（不 convert、不赋值）
+      if (val !== undefined && binding.conversion) val = binding.conversion(val, obj, this._model);
       return val;
     } else if (binding.sourceObject !== null) {
       const sourceName = binding.sourceObject;
@@ -1314,11 +1362,11 @@ export class Diagram {
       }
       let val: any;
       if (sourceObj) {
-        val = (sourceObj as any)[binding.sourceProperty];
+        val = binding.sourceProperty === '' ? sourceObj : (sourceObj as any)[binding.sourceProperty];
       } else {
         val = undefined;
       }
-      if (binding.conversion) val = binding.conversion(val, obj, this._model);
+      if (val !== undefined && binding.conversion) val = binding.conversion(val, obj, this._model);
       return val;
     } else {
       return binding.getValueFromSource(data, obj, this._model);
@@ -1342,7 +1390,12 @@ export class Diagram {
     if (obj instanceof Panel) {
       const elements = (obj as Panel)._elements;
       for (const child of elements) {
-        this._applyBindingsToObject(child, data, part);
+        const childData = (child as any)._data;
+        this._applyBindingsToObject(
+          child,
+          childData !== null && childData !== undefined ? childData : data,
+          part,
+        );
       }
     }
   }
@@ -1368,7 +1421,13 @@ export class Diagram {
     if (obj instanceof Panel) {
       const elements = (obj as Panel)._elements;
       for (const child of elements) {
-        this._updateBindingsForObject(child, data, propname, part);
+        const childData = (child as any)._data;
+        this._updateBindingsForObject(
+          child,
+          childData !== null && childData !== undefined ? childData : data,
+          propname,
+          part,
+        );
       }
     }
   }
@@ -1422,6 +1481,12 @@ export class Diagram {
               }
             }
           }
+          if (this._model instanceof TreeModel) {
+            const parentKey = (this._model as TreeModel).getParentKeyForNodeData(data);
+            if (parentKey !== undefined && parentKey !== null) {
+              this._addLinkForTreeData(data, parentKey);
+            }
+          }
           needsLayout = true;
         }
       } else if (e.isRemoveChange && e.propertyName === 'nodeDataArray') {
@@ -1445,7 +1510,32 @@ export class Diagram {
       } else if (e.isPropertyChange) {
         const data = e.object;
         if (data && data instanceof Model) {
-          this.updateAllTargetBindings();
+          // 官方：Set 变更 modelChange==="nodeDataArray"/"linkDataArray" → kA(old) + xw(new)
+          if (e.propertyName === 'nodeDataArray') {
+            const oldArr: ObjectData[] = Array.isArray(e.oldValue) ? e.oldValue : [];
+            const newArr: ObjectData[] = Array.isArray(e.newValue) ? e.newValue : [];
+            for (const d of oldArr) {
+              if (newArr.indexOf(d) < 0) this._removeNodeForData(d);
+            }
+            for (const d of newArr) {
+              if (oldArr.indexOf(d) < 0) this._addNodeForData(d);
+            }
+            needsLayout = true;
+            this.requestUpdate();
+          } else if (e.propertyName === 'linkDataArray') {
+            const oldArr: ObjectData[] = Array.isArray(e.oldValue) ? e.oldValue : [];
+            const newArr: ObjectData[] = Array.isArray(e.newValue) ? e.newValue : [];
+            for (const d of oldArr) {
+              if (newArr.indexOf(d) < 0) this._removeLinkForData(d);
+            }
+            for (const d of newArr) {
+              if (oldArr.indexOf(d) < 0) this._addLinkForData(d);
+            }
+            needsLayout = true;
+            this.requestUpdate();
+          } else {
+            this.updateAllTargetBindings();
+          }
         } else if (data) {
           const part = this._parts.get(data);
           if (part) {
@@ -1487,8 +1577,9 @@ export class Diagram {
           }
         }
       }
-      if (needsLayout && this._layout && (this._layout as any).isOngoing) {
-        (this._layout as any).invalidateLayout();
+      if (needsLayout) {
+        this._layoutInvalid = true;
+        this.requestUpdate();
       }
     }
 
@@ -1509,6 +1600,9 @@ export class Diagram {
     for (const link of linksToRemove) {
       const data = link.data;
       if (data) {
+        if (data.to !== undefined) {
+          this._treeLinkDataByChildKey.remove(data.to);
+        }
         this._parts.remove(data);
       }
       this.remove(link);
@@ -1519,7 +1613,8 @@ export class Diagram {
       for (const nodeData of this._model.nodeDataArray) {
         const parentKey = tm.getParentKeyForNodeData(nodeData);
         if (parentKey !== undefined && parentKey !== null) {
-          if (!this._parts.has(nodeData)) {
+          const childKey = this._model.getKeyForNodeData(nodeData);
+          if (childKey !== undefined && !this._treeLinkDataByChildKey.has(childKey)) {
             this._addLinkForTreeData(nodeData, parentKey);
           }
         }
@@ -1571,8 +1666,9 @@ export class Diagram {
     this._checkResize();
 
     if (this._layoutInvalid) {
-      this._layoutInvalid = false;
       this._performLayout();
+      // 布局期间发生的级联失效不再触发新一轮（对齐官方：单次 layoutDiagram 通过）
+      this._layoutInvalid = false;
     }
 
     this._updateGeometry();
@@ -1586,6 +1682,55 @@ export class Diagram {
     }
   }
 
+  /**
+   * 官方 measure+arrange 全体部件（Ht 语义）：
+   * pass1 非 Group 非 Link → pass2 Group → pass3 Link；
+   * 每个部件：ensureBounds（measure + bF 位置同步，仅 measure=true 时；渲染阶段只 arrange，
+   * 对齐官方 render 不重新 measure）→ _arrange(原始 position, measuredBounds)
+   * → syncPositionFromLocation（arrange 后 locationSpot 偏移变化时重推 position）。
+   * position 为 NaN 时按原样传入（ab.x/y 保持 NaN，对齐官方）。
+   */
+  private _measureArrangeAll(measure: boolean = true): void {
+    const pass = (kind: 0 | 1 | 2): void => {
+      for (const layer of this._layers) {
+        if (layer.isTemporary) continue;
+        const partsIt = layer.parts;
+        while (partsIt.next()) {
+          const part = partsIt.value as any;
+          if (!part.visible) continue;
+          const isLink = part instanceof Link;
+          const isGroup = part._className === 'Group';
+          if (kind === 0 && (isLink || isGroup)) continue;
+          if (kind === 1 && !isGroup) continue;
+          if (kind === 2 && !isLink) continue;
+          if (measure) part.ensureBounds();
+          const pos = part.position;
+          const mb = part.measuredBounds;
+          part._arrange(new Rect(pos.x, pos.y, mb.width, mb.height));
+          if (!isLink && typeof part.syncPositionFromLocation === 'function') {
+            part.syncPositionFromLocation();
+          }
+        }
+      }
+    };
+    pass(0);
+    pass(1);
+    pass(2);
+  }
+
+  private _collectGroups(): any[] {
+    const groups: any[] = [];
+    for (const layer of this._layers) {
+      if (layer.isTemporary) continue;
+      const partsIt = layer.parts;
+      while (partsIt.next()) {
+        const part = partsIt.value as any;
+        if (part._className === 'Group') groups.push(part);
+      }
+    }
+    return groups;
+  }
+
   private _performLayout(): void {
     const oldPositions = new Map<Node, Point>();
     if (this._animationManager.isEnabled) {
@@ -1595,34 +1740,70 @@ export class Diagram {
         while (partsIt.next()) {
           const part = partsIt.value;
           if (part instanceof Node && part.isLayoutPositioned && part.visible) {
-            oldPositions.add(part, part.location.copy());
+            const loc = part.location;
+            if (loc && !isNaN(loc.x) && !isNaN(loc.y)) {
+              oldPositions.add(part, loc.copy());
+            }
           }
         }
       }
     }
 
+    // ====== 官方 layoutDiagram(iC) 顺序 ======
+    // 0) 预排：全体 measure+arrange（成员文档 ab 就绪；组内未定位时 placeholder union 为非有限 → 不设 location）
+    this._measureArrangeAll();
+
+    // 1) 递归组布局（子组优先，官方 rD）：Ga = !location.isReal()；布局后 Db = 补测重排 + 位置同步
+    const allGroups = this._collectGroups();
+    const visited = new Set<any>();
+    const nestedGroupsOf = (g: any): any[] => {
+      const out: any[] = [];
+      const walk = (owner: any): void => {
+        const it = owner.memberParts ? owner.memberParts.iterator : null;
+        if (!it) return;
+        while (it.next()) {
+          const d: any = it.value;
+          if (d._className === 'Group') out.push(d);
+        }
+      };
+      walk(g);
+      return out;
+    };
+    const visitGroup = (g: any): void => {
+      if (visited.has(g)) return;
+      visited.add(g);
+      for (const sub of nestedGroupsOf(g)) visitGroup(sub);
+      const gl = g.layout;
+      if (!gl) return;
+      if (gl.isInitial || !gl.isValidLayout) {
+        g.Ga = isNaN(g.location.x) || isNaN(g.location.y);
+        if (gl.diagram !== this) gl.diagram = this;
+        const wasOngoing = gl.isOngoing;
+        gl.isOngoing = true;
+        gl.doLayout(g);
+        gl.isValidLayout = true;
+        gl.isOngoing = wasOngoing;
+        // 官方 Db(group)：measure+arrange 组子树（placeholder 设 location）+ bF 位置同步
+        this._measureArrangeAll();
+      }
+    };
+    for (const g of allGroups) visitGroup(g);
+
+    // 2) Diagram 基础布局（官方 o.doLayout(this)）
     if (this._layout && typeof this._layout.doLayout === 'function') {
       if ((this._layout as any).diagram !== this) {
         (this._layout as any).diagram = this;
       }
-      if ((this._layout as any).isInitial || !(this._layout as any).isValidLayout) {
-        this._layout.doLayout(this);
-      }
+      const dl = this._layout as any;
+      const wasOngoing = dl.isOngoing;
+      dl.isOngoing = true;
+      dl.doLayout(this);
+      dl.isValidLayout = true;
+      dl.isOngoing = wasOngoing;
     }
-    for (const layer of this._layers) {
-      if (layer.isTemporary) continue;
-      const partsIt = layer.parts;
-      while (partsIt.next()) {
-        const part = partsIt.value;
-        if ((part as any)._className === 'Group' && (part as any).layout) {
-          const groupLayout = (part as any).layout;
-          if ((groupLayout as any).isInitial || !(groupLayout as any).isValidLayout) {
-            (groupLayout as any).diagram = this;
-            groupLayout.doLayout(part);
-          }
-        }
-      }
-    }
+
+    // 官方 Db(this)：diagram 布局后全体补测重排 + 位置同步（否则 location 保持 NaN）
+    this._measureArrangeAll();
 
     if (this._animationManager.isEnabled && oldPositions.count > 0) {
       const anim = this._animationManager.defaultAnimation;
@@ -1708,215 +1889,17 @@ export class Diagram {
     this.alignDocument(this._contentAlignment, this._contentAlignment);
   }
 
-  private _findGroupPlaceholder(group: any): { panelX: number; panelY: number; phX: number; phY: number } | null {
-    // Walk the group's panel tree to locate the first Placeholder, tracking the
-    // accumulated actualBounds offset of each nested panel from the group's origin.
-    const walk = (obj: any, px: number, py: number): any => {
-      if (!obj) return null;
-      if (obj._isPlaceholder) {
-        return { panelX: px, panelY: py, phX: obj.actualBounds ? obj.actualBounds.x : 0, phY: obj.actualBounds ? obj.actualBounds.y : 0 };
-      }
-      if (obj instanceof Panel || (obj._elements && obj._elements.length !== undefined)) {
-        const elements = obj._elements;
-        for (const child of elements) {
-          const ab = obj.actualBounds;
-          const dx = (obj === group) ? 0 : (ab ? ab.x : 0);
-          const dy = (obj === group) ? 0 : (ab ? ab.y : 0);
-          const r = walk(child, px + dx, py + dy);
-          if (r) return r;
-        }
-      }
-      return null;
-    };
-    return walk(group, 0, 0);
-  }
-
-  // Compute the (x, y) offset within the group's document coordinate system at
-  // which the member area (the placeholder) begins. This depends only on the
-  // group's header height and the placeholder's margin plus the surrounding
-  // shape's stroke -- NOT on the members' positions -- so it is stable across
-  // layout passes and avoids the placeholder<->member measurement cycle.
-  private _computeGroupMemberOrigin(group: any): { x: number; y: number } {
-    const headerEl = group._elements && group._elements[0];
-    const headerH = headerEl && headerEl.measuredBounds ? headerEl.measuredBounds.height : 0;
-    let insetX = 10;
-    let insetY = 10;
-    const walk = (obj: any): boolean => {
-      if (!obj) return false;
-      if (obj._elements && obj._elements.length !== undefined) {
-        for (const child of obj._elements) {
-          if (child._isPlaceholder) {
-            const m = child.margin;
-            let stroke = 0;
-            if (obj._elements) {
-              for (const sib of obj._elements) {
-                if (sib._strokeWidth) stroke = sib._strokeWidth;
-              }
-            }
-            if (m) {
-              insetX = m.left + stroke;
-              insetY = m.top + stroke;
-            }
-            return true;
-          }
-          if (walk(child)) return true;
-        }
-      }
-      return false;
-    };
-    walk(group);
-    return { x: insetX, y: headerH + insetY };
-  }
-
-  // Lay out a group's member parts inside the group, starting at the top-left
-  // of the member area (below the header). The members are positioned relative
-  // to the group's header (title) so this does not depend on the placeholder's
-  // measured bounds (which in turn depend on the members' positions).
-  private _layoutGroupMembers(group: any, groupInnerWidth: number, hSpacing: number, vSpacing: number): void {
-    const gloc = group.location;
-    const gx = isNaN(gloc.x) ? 0 : gloc.x;
-    const gy = isNaN(gloc.y) ? 0 : gloc.y;
-
-    const origin = this._computeGroupMemberOrigin(group);
-    const baseX = gx + origin.x;
-    const baseY = gy + origin.y;
-    let mx = baseX;
-    let my = baseY;
-    let rowMax = 0;
-    const mIt = group.memberParts.iterator;
-    while (mIt.next()) {
-      const member = mIt.value;
-      const mmb = member.measuredBounds;
-      if (mx + mmb.width > gx + groupInnerWidth && mx > baseX) {
-        mx = baseX;
-        my += rowMax + vSpacing;
-        rowMax = 0;
-      }
-      member.location = new Point(mx, my);
-      mx += mmb.width + hSpacing;
-      rowMax = Math.max(rowMax, mmb.height);
-    }
-  }
-
   private _updateGeometry(): void {
-    const viewSize = this.viewSize;
-    const availW = viewSize.width > 0 ? viewSize.width : 800;
-    const availH = viewSize.height > 0 ? viewSize.height : 600;
-
-    const partsToLayout: Part[] = [];
+    this._measureArrangeAll(false);
     for (const layer of this._layers) {
       if (!layer.visible) continue;
       const partsIt = layer.parts;
       while (partsIt.next()) {
-        const part: Part = partsIt.value;
+        const part = partsIt.value;
+        if (!(part instanceof Link)) continue;
         if (!part.visible) continue;
-
-        part._measure(Infinity, Infinity);
-        partsToLayout.push(part);
+        part.computePoints();
       }
-    }
-
-    if (!this._layout) {
-      const hSpacing = 20;
-      const vSpacing = 36;
-      const pad = 10;
-      const maxWidth = availW - 100;
-      // available width for a group's member grid
-      const groupInnerWidth = Math.max(120, Math.min(400, maxWidth - 80));
-
-      const isGroupPart = (p: Part): boolean => (p as any)._className === 'Group';
-      const isMember = (p: Part): boolean => !!(p as any).containingGroup;
-
-      // Collect the top-level layout units: non-member nodes and groups.
-      const topUnits: Part[] = [];
-      const memberUnits: Part[] = [];
-      for (const part of partsToLayout) {
-        if (part instanceof Link) continue;
-        if (isMember(part)) {
-          memberUnits.push(part);
-          continue;
-        }
-        topUnits.push(part);
-      }
-
-      // Place top-level nodes and groups in a uniform square-ish grid:
-      // every column has the same width and every row the same height, so the
-      // result reads as a neat grid (matching GoJS's default GridLayout look).
-      let cellW = 0;
-      let cellH = 0;
-      for (const part of topUnits) {
-        const mb = part.measuredBounds;
-        cellW = Math.max(cellW, mb.width);
-        cellH = Math.max(cellH, mb.height);
-      }
-      cellW += hSpacing;
-      cellH += vSpacing;
-      const cols = Math.max(1, Math.floor((maxWidth - 50) / cellW));
-      let gridCol = 0;
-      let gridY = 50;
-      for (const part of topUnits) {
-        const loc = part.location;
-        if (!isNaN(loc.x) && !isNaN(loc.y)) continue;
-
-        const mb = part.measuredBounds;
-        // If this unit is wider than the remaining columns, start a new row so
-        // it does not overlap the cells to its right (keeps columns aligned).
-        if (gridCol > 0 && mb.width > (cols - gridCol) * cellW - hSpacing) {
-          gridCol = 0;
-          gridY += cellH;
-        }
-        part.location = new Point(50 + gridCol * cellW, gridY);
-        gridCol++;
-        if (gridCol >= cols) {
-          gridCol = 0;
-          gridY += cellH;
-        }
-      }
-
-      // Place each group's member nodes inside the group's bounds.
-      const memberGroups: any[] = [];
-      for (const part of topUnits) {
-        if (isGroupPart(part) && (part as any).memberParts && (part as any).memberParts.count > 0) {
-          memberGroups.push(part as any);
-        }
-      }
-      for (const group of memberGroups) {
-        this._layoutGroupMembers(group, groupInnerWidth, hSpacing, vSpacing);
-      }
-    }
-
-    for (const part of partsToLayout) {
-      if (part instanceof Link) continue;
-      const loc = part.location;
-      const x = isNaN(loc.x) ? 0 : loc.x;
-      const y = isNaN(loc.y) ? 0 : loc.y;
-      const mb = part.measuredBounds;
-      part._arrange(new Rect(x, y, mb.width, mb.height));
-    }
-
-    for (const part of partsToLayout) {
-      if (!(part instanceof Link)) continue;
-      const loc = part.location;
-      const x = isNaN(loc.x) ? 0 : loc.x;
-      const y = isNaN(loc.y) ? 0 : loc.y;
-      const mb = part.measuredBounds;
-      part._arrange(new Rect(x, y, mb.width, mb.height));
-      (part as Link).computePoints();
-    }
-
-    const groupsToRemeasure: Part[] = [];
-    for (const part of partsToLayout) {
-      if ((part as any)._className === 'Group') {
-        groupsToRemeasure.push(part);
-      }
-    }
-    for (const group of groupsToRemeasure) {
-      group._measure(availW, availH);
-      const loc = group.location;
-      const x = isNaN(loc.x) ? 0 : loc.x;
-      const y = isNaN(loc.y) ? 0 : loc.y;
-      const mb = group.measuredBounds;
-      group._arrange(new Rect(x, y, mb.width, mb.height));
     }
   }
 

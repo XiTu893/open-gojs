@@ -25,7 +25,7 @@ export declare class Link extends Part {
     private _reshapable;
     private _jumpOver;
     private _jumpGap;
-    constructor(type?: EnumValue, init?: Partial<Link>);
+    constructor(type?: any, init?: any);
     get fromNode(): Node | null;
     set fromNode(val: Node | null);
     get toNode(): Node | null;

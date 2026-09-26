@@ -15,6 +15,9 @@ export class Spot {
     this.offsetY = offsetY;
   }
 
+  /** 标记为官方 Spot.Default（NaN 语义）；普通 new Spot(0,0) 是有效 TopLeft */
+  private _defaultMark: boolean = false;
+
   private _isReadOnly: boolean = false;
   get isReadOnly(): boolean {
     return this._isReadOnly;
@@ -31,15 +34,18 @@ export class Spot {
     this.y = y;
     this.offsetX = offsetX;
     this.offsetY = offsetY;
+    this._defaultMark = false;
     return this;
   }
 
   copy(): Spot {
-    return new Spot(this.x, this.y, this.offsetX, this.offsetY);
+    const s = new Spot(this.x, this.y, this.offsetX, this.offsetY);
+    s._defaultMark = this._defaultMark;
+    return s;
   }
 
   equals(s: Spot): boolean {
-    return s instanceof Spot &&
+    return s instanceof Spot && this._defaultMark === s._defaultMark &&
       this.x === s.x && this.y === s.y &&
       this.offsetX === s.offsetX && this.offsetY === s.offsetY;
   }
@@ -51,9 +57,9 @@ export class Spot {
       Math.abs(this.offsetY - s.offsetY) < epsilon;
   }
 
-  /** 是否为默认值 */
+  /** 是否为官方 Spot.Default（未解析的默认值，不是有效定位点） */
   get isDefault(): boolean {
-    return this.x === 0 && this.y === 0 && this.offsetX === 0 && this.offsetY === 0;
+    return this._defaultMark;
   }
 
   /** 是否为无特殊位置 */
@@ -95,7 +101,12 @@ export class Spot {
   static readonly Bottom = Object.freeze(new Spot(0.5, 1)) as Spot;
   static readonly BottomCenter = Object.freeze(new Spot(0.5, 1)) as Spot;
   static readonly BottomRight = Object.freeze(new Spot(1, 1)) as Spot;
-  static readonly Default = Object.freeze(new Spot(0, 0)) as Spot;
+  static readonly Default: Spot = Spot.makeDefault();
+  private static makeDefault(): Spot {
+    const s = new Spot(0, 0);
+    s._defaultMark = true;
+    return Object.freeze(s) as Spot;
+  }
   static readonly None = Object.freeze(new Spot(NaN, NaN)) as Spot;
   static readonly TopSide = Object.freeze(new Spot(0.5, 0, 0, -1)) as Spot;
   static readonly BottomSide = Object.freeze(new Spot(0.5, 1, 0, 1)) as Spot;
@@ -110,6 +121,7 @@ export class Spot {
   static readonly AllSides = Object.freeze(new Spot(0.5, 0.5, 0, 0)) as Spot;
 
   static parse(str: string): Spot {
+    if (str === 'Default') return Spot.Default;
     const parts = str.split(/\s+/);
     const x = parseFloat(parts[0]);
     const y = parseFloat(parts[1]);

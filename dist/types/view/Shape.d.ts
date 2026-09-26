@@ -70,8 +70,13 @@ export declare class Shape extends GraphObject {
     /** 获取几何路径（从图形名称或自定义几何） */
     _getGeometry(): Geometry | null;
     private _getFigureGeometry;
-    /** 测量对象尺寸 */
+    /** 官方 Shape.Yd 的自然尺寸来源：显式 geometry → 其 bounds；figure → 官方 Shape.VN(figure)(null,100,100)；
+     *  与上次测量结果无关（否则 Auto 面板反复测量会让 geometry.spot1/spot2 随几何尺寸收缩，形成级联误差） */
+    private _naturalSize;
+    /** 测量对象尺寸 — 官方 GraphObject.yt + Shape.Yd（holes=0），measuredBounds 含 strokeWidth */
     _measure(widthConstraint: number, heightConstraint: number): void;
+    /** 官方 Shape.yM：geometryStretch 显式值否则 geometry/figure 的 defaultStretch */
+    private _resolvedGeometryStretch;
     /** 绘制图形 */
     _draw(ctx: CanvasRenderingContext2D): void;
     /** 在 canvas 上绘制几何路径 */

@@ -24,7 +24,7 @@ export class Binding {
     conversion?: (value: any, targetObject: any, model: any) => any
   ) {
     this.targetProperty = targetProperty;
-    this.sourceProperty = sourceProperty || targetProperty;
+    this.sourceProperty = sourceProperty !== undefined ? sourceProperty : targetProperty;
     this.conversion = conversion || null;
     this.backConversion = null;
     this.mode = Binding.OneWay;
@@ -75,9 +75,10 @@ export class Binding {
     } else if (this.sourceObject !== null) {
       value = undefined;
     } else {
-      value = data ? data[this.sourceProperty] : undefined;
+      value = data ? (this.sourceProperty === '' ? data : data[this.sourceProperty]) : undefined;
     }
-    if (this.conversion) {
+    // 官方 Binding.updateTarget：源值为 undefined 时整体跳过（不执行 converter、不赋值）
+    if (value !== undefined && this.conversion) {
       value = this.conversion(value, targetObject, model);
     }
     return value;
