@@ -2845,6 +2845,13 @@ declare class Panel extends GraphObject {
     private _resolveAlignment;
     /** 官方：alignmentFocus 默认 → 回退为该元素的 alignment（focus 落在 alignment 同一边） */
     private _resolveAlignmentFocus;
+    /**
+     * 官方 PanelLayoutVertical/Horizontal.arrange 里算元素宽度用的是
+     *   `g = Math.max(union.width - 元素左右 margin - 面板右 padding, 0)`
+     * 那个 `Math.max(…, 0)` 不能省：内容区比元素的 margin 还窄时 available 会是负数，
+     * 直接喂给 `new Rect()` 会抛 `Invalid arguments to Rect constructor`
+     * （实测 spreadsheet `4, 4, -8, 12`、regrouping `0, 0, -18.52, 81.05`）。
+     */
     private _resolveStretchWidth;
     private _resolveStretchHeight;
     /** Compute the uniform scale factor for an element */
@@ -4229,6 +4236,8 @@ declare class Link extends Part {
     private _applyBezierCurve;
     /** 官方 `Link.updateRoute()` */
     updateRoute(): void;
+    /** 官方：把 link 的几何同步给 `path` 以及所有 isPanelMain 的 Shape 元素 */
+    private _syncGeometryToMainShapes;
     /** 官方 `Link.invalidateRoute()`（= `oi()`，本项目无 invalid-route 集合，只做失效标记） */
     invalidateRoute(): void;
     /** 官方 `Link.invalidateGeometry()`（= `ge()`） */
@@ -5526,10 +5535,18 @@ declare class Animation {
     static EaseInOut(t: number): number;
     static EaseIn(t: number): number;
     static EaseOut(t: number): number;
+    static EaseInOutQuad(t: number): number;
+    static EaseInQuad(t: number): number;
+    static EaseOutQuad(t: number): number;
+    static EaseInExpo(t: number): number;
+    static EaseOutExpo(t: number): number;
     private _isRunning;
     private _duration;
     private _easing;
     private _reversible;
+    /** 官方 `Animation.runCount`：跑几遍；Infinity 表示无限循环（belts 的传送带就是它） */
+    private _runCount;
+    private _isViewportUnconstrained;
     private _state;
     private _animations;
     private _startTime;
@@ -5542,15 +5559,24 @@ declare class Animation {
     set easing(val: (t: number) => number);
     get reversible(): boolean;
     set reversible(val: boolean);
+    get runCount(): number;
+    set runCount(val: number);
+    get isViewportUnconstrained(): boolean;
+    set isViewportUnconstrained(val: boolean);
     get state(): string;
     get manager(): any;
     set manager(val: any);
     get finished(): (() => void) | null;
     set finished(val: (() => void) | null);
-    add(targetOrConfig: object | AnimationConfig, property?: string, fromValue?: any, toValue?: any): void;
+    /**
+     * 官方 `Animation.add(obj, effectName, startValue, endValue, cosmetic?): this`
+     * （链式返回）。`from` 为 undefined 时用对象当前值当起点。
+     */
+    add(targetOrConfig: object | AnimationConfig, property?: string, fromValue?: any, toValue?: any): this;
     clear(): void;
-    start(): void;
-    stop(): void;
+    /** 官方 `Animation.start(): this` —— 自己找到目标对象的 Diagram，取它的 animationManager 注册自己 */
+    start(): this;
+    stop(): this;
     finish(): void;
     restart(): void;
     update(now: number): void;
@@ -5597,6 +5623,10 @@ declare class AnimationManager {
     startAnimation(anim?: Animation): void;
     stopAnimation(): void;
     registerAnimation(anim: Animation): void;
+    /** 官方对应 `AnimationManager` 内部把动画从活动列表里摘掉的动作（go.js 里是 `oO` 的反向） */
+    unregisterAnimation(anim: Animation): void;
+    /** 官方 `AnimationManager.activeAnimations: Set<Animation>` */
+    get activeAnimations(): Set<Animation>;
     /** 官方 `AnimationManager.defineAnimationEffect(effectName, animationFunction)`（静态） */
     static defineAnimationEffect(name: string, effect: (obj: object, from: any, to: any, duration: number) => Animation): void;
     static getEffect(name: string): ((obj: object, from: any, to: any, duration: number) => Animation) | undefined;
@@ -5614,14 +5644,36 @@ declare class ThemeManager {
     private _themes;
     private _currentTheme;
     private _defaultTheme;
+    /** 官方 ThemeManager.changesDivBackground —— go.js 里初值是 `UP=!1`，即**默认 false**。
+     *  之前设成 true 会强行用主题 colors.div 覆盖样例 htmlContent 自带的 div 底色，
+     *  arrowheads/orgChartStatic/connectionBoxNode 的 diff 直接从 5%/9%/17% 飙到 98%/63%/94%。 */
+    private _changesDivBackground;
     constructor();
     get diagram(): any;
     set diagram(val: any);
     get currentTheme(): string;
     set currentTheme(val: string);
+    get changesDivBackground(): boolean;
+    set changesDivBackground(val: boolean);
     get defaultTheme(): string;
     set defaultTheme(val: string);
-    set(themeName: string, themeData: any): void;
+    /** 官方 ThemeManager.themeMap: Map<string, Theme> */
+    get themeMap(): Map$1<string, any>;
+    set themeMap(val: Map$1<string, any>);
+    /** 官方 findTheme(themeName): Theme | null */
+    findTheme(themeName: string): any;
+    /**
+     * 官方 `ThemeManager.set(themeName, props): this`
+     * （go.js：`set(t,e){t===""&&(t=this.IP); t==="system"&&(t=this.um); …}`）
+     * - `''` 表示「当前默认主题」，不是新建一个空名主题；
+     * - 已存在的主题按类别（colors/fonts/numbers/…）**浅合并**，只覆盖给出的键；
+     * - 返回 this。
+     * 以前我们是整体替换且不处理 `''`，icons 样例
+     * `themeManager.set('', {colors:{div:'#6495ED',…}})` 之后
+     * `changesDivBackground = true` 取到的还是 light 的 `#fff`，整块底色不对。
+     */
+    set(themeName: string, themeData: any): this;
+    private static _mergeTheme;
     private _applyTheme;
     findColor(colorName: string, themeName?: string): string;
     /**
@@ -5629,6 +5681,13 @@ declare class ThemeManager {
      * 先按目标属性查类别（stroke/fill→colors、font→fonts…），再在 currentTheme → defaultTheme 里取值。
      */
     findValue(sourceKey: string, path: string | null, targetProperty: string): any;
+    /**
+     * 官方 `Diagram.setDivBackground(color)`：把主题的 `colors.div` 写到 div 的
+     * background-color 上。官方 `ThemeManager.changesDivBackground`（默认 true）
+     * 会在 addDiagram / currentTheme 变化时对所有注册图调用它。
+     * 以前本项目没有这一步，于是 icons 样例整块底色是白的（官方是主题的 div 色）。
+     */
+    static applyDivBackground(diagram: any): void;
     /** 官方 ThemeManager.nV：目标属性 → 主题子类别 */
     private static _categoryOf;
 }

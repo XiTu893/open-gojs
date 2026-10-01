@@ -1,4 +1,5 @@
 import { Animation } from './Animation';
+import { Set } from '../core/Set';
 
 export class AnimationManager {
   static readonly className: string = "AnimationManager";
@@ -103,6 +104,19 @@ export class AnimationManager {
     }
   }
 
+  /** 官方对应 `AnimationManager` 内部把动画从活动列表里摘掉的动作（go.js 里是 `oO` 的反向） */
+  unregisterAnimation(anim: Animation): void {
+    const i = this._activeAnimations.indexOf(anim);
+    if (i >= 0) this._activeAnimations.splice(i, 1);
+  }
+
+  /** 官方 `AnimationManager.activeAnimations: Set<Animation>` */
+  get activeAnimations(): Set<Animation> {
+    const s = new Set<Animation>();
+    for (const a of this._activeAnimations) s.add(a);
+    return s;
+  }
+
   /** 官方 `AnimationManager.defineAnimationEffect(effectName, animationFunction)`（静态） */
   static defineAnimationEffect(name: string, effect: (obj: object, from: any, to: any, duration: number) => Animation): void {
     (AnimationManager as any)._effects[name] = effect;
@@ -133,7 +147,10 @@ export class AnimationManager {
   private _startTicking(): void {
     if (this._isTicking) return;
     this._isTicking = true;
-    this._tick();
+    // 官方是 rAF 驱动的；这里原来**同步**先跑一次 updateAnimation()，
+    // 会在 registerAnimation 内部把刚加进来的动画（此刻可能还没置 isRunning）
+    // 当成「已结束」过滤掉，然后立刻停摆。改成排到下一帧。
+    this._frameId = requestAnimationFrame(() => this._tick());
   }
 
   private _stopTicking(): void {

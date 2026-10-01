@@ -228,6 +228,8 @@ export class Diagram {
     this._commandHandler.diagram = this;
     this._animationManager.diagram = this;
     this._themeManager.diagram = this;
+    // 官方 ThemeManager.changesDivBackground 默认 true：构造时就按主题把 div 底色设好
+    ThemeManager.applyDivBackground(this);
 
     this._createDefaultLayers();
 
@@ -272,12 +274,13 @@ export class Diagram {
     for (const listener of this._modelChangeListeners) {
       this._model.addChangedListener(listener);
     }
-    // 官方在替换整个 model 后会走一遍事务，
-    // 于是 `"ModelChanged": e => { if (e.isTransactionFinished) ... }` 立即能拿到新数据
-    if (this._model.undoManager && this._model.undoManager.isEnabled) {
-      this._model.startTransaction('Replace Model');
-      this._model.commitTransaction('Replace Model');
-    }
+    // 官方 `Diagram.model` setter（go.js: set model(t){…}）**不会**走事务，
+    // 只是 `invalidateDocumentBounds()` + 重挂监听者。
+    // 以前这里额外 start/commit 了一个 'Replace Model' 事务，于是
+    // `"ModelChanged": e => { if (e.isTransactionFinished) … }"` 会在
+    // `myDiagram.model = …` 那一刻就触发 —— twoDiagrams 的监听器此时
+    // 还没走到 `myDiagram2 = new go.Diagram(...)`，直接
+    // `myDiagram2 is not defined`（ReferenceError，官方不会）。
   }
 
   get renderer(): CanvasRenderer {
@@ -1400,6 +1403,8 @@ export class Diagram {
 
     const node = template!.copy() as Node;
     node.data = data;
+    // 官方 PartManager._addPartForData：s.sr = e（把数据的 category 落到 part.category 上）
+    node.category = category || '';
 
     const locX = data['loc'] !== undefined ? parseFloat(String(data['loc']).split(' ')[0]) : NaN;
     const locY = data['loc'] !== undefined ? parseFloat(String(data['loc']).split(' ')[1]) : NaN;
@@ -1449,6 +1454,7 @@ export class Diagram {
 
     const link = template!.copy() as Link;
     link.data = data;
+    link.category = category || '';
 
     const fromKey = model.getFromKeyForLinkData(data);
     const toKey = model.getToKeyForLinkData(data);

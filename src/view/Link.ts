@@ -1554,6 +1554,31 @@ export class Link extends Part {
       if (ok) this.commitRoute();
       else this.rollbackRoute();
       if (ok) this._applyBezierCurve();
+      // 官方 `Link.xN()` / `h3()`：算完路线后把 Link 的几何**直接写进主 Shape 的
+      // _geometry 字段**（绕过 Shape.geometry setter，避免每次算路线都触发重新测量）。
+      // 官方是无条件同步的（`this.dt` 初始就是一个空 Geometry），所以哪怕
+      // pointsCount < 2，`link.path.geometry` 也是个 Geometry 而不是 null。
+      // 不做这一步：`pathAnimation` 的 `link.path.geometry.getPointAlongPath(frac)`、
+      // `treeLoadAnimation` 的 `link.elt(0).geometry.copy()` 都会抛
+      // `Cannot read properties of null`。
+      this._syncGeometryToMainShapes();
+    }
+  }
+
+  /** 官方：把 link 的几何同步给 `path` 以及所有 isPanelMain 的 Shape 元素 */
+  private _syncGeometryToMainShapes(): void {
+    const geo = this._geometry;
+    if (!geo) return;
+    const path = this.path;
+    if (path !== null) {
+      (path as any)._geometry = geo;
+    }
+    const els: any = (this as any)._elements;
+    if (!els || !els.length) return;
+    for (const o of els) {
+      if (o !== path && o.isPanelMain === true && o instanceof Shape) {
+        (o as any)._geometry = geo;
+      }
     }
   }
 

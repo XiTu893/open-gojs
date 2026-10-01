@@ -4,10 +4,18 @@ export declare class Animation {
     static EaseInOut(t: number): number;
     static EaseIn(t: number): number;
     static EaseOut(t: number): number;
+    static EaseInOutQuad(t: number): number;
+    static EaseInQuad(t: number): number;
+    static EaseOutQuad(t: number): number;
+    static EaseInExpo(t: number): number;
+    static EaseOutExpo(t: number): number;
     private _isRunning;
     private _duration;
     private _easing;
     private _reversible;
+    /** 官方 `Animation.runCount`：跑几遍；Infinity 表示无限循环（belts 的传送带就是它） */
+    private _runCount;
+    private _isViewportUnconstrained;
     private _state;
     private _animations;
     private _startTime;
@@ -20,15 +28,24 @@ export declare class Animation {
     set easing(val: (t: number) => number);
     get reversible(): boolean;
     set reversible(val: boolean);
+    get runCount(): number;
+    set runCount(val: number);
+    get isViewportUnconstrained(): boolean;
+    set isViewportUnconstrained(val: boolean);
     get state(): string;
     get manager(): any;
     set manager(val: any);
     get finished(): (() => void) | null;
     set finished(val: (() => void) | null);
-    add(targetOrConfig: object | AnimationConfig, property?: string, fromValue?: any, toValue?: any): void;
+    /**
+     * 官方 `Animation.add(obj, effectName, startValue, endValue, cosmetic?): this`
+     * （链式返回）。`from` 为 undefined 时用对象当前值当起点。
+     */
+    add(targetOrConfig: object | AnimationConfig, property?: string, fromValue?: any, toValue?: any): this;
     clear(): void;
-    start(): void;
-    stop(): void;
+    /** 官方 `Animation.start(): this` —— 自己找到目标对象的 Diagram，取它的 animationManager 注册自己 */
+    start(): this;
+    stop(): this;
     finish(): void;
     restart(): void;
     update(now: number): void;

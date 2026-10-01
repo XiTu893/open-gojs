@@ -218,7 +218,20 @@ export class Shape extends GraphObject {
     }
   }
 
-  get geometry(): Geometry | null { return this._geometry; }
+  get geometry(): Geometry | null {
+    if (this._geometry === null) {
+      // 官方 Link 的路线是惰性算的，算完由 Link 把几何同步给主 Shape
+      // （见 src/view/Link.ts 的 _syncGeometryToMainShapes）。
+      // 样例代码常直接读 `link.elt(0).geometry` / `link.path.geometry`，
+      // 若这条 Link 还没算过路线就会拿到 null（treeLoadAnimation 就是这么挂的）。
+      // 这里按需补算一次；updateRoute 内部有 _isComputingRoute 保护，不会递归。
+      const part: any = (this as any).part;
+      if (part && typeof part.updateRoute === 'function' && typeof part.computePoints === 'function') {
+        part.updateRoute();
+      }
+    }
+    return this._geometry;
+  }
   set geometry(val: Geometry | null) {
     if (this._geometry !== val) {
       this._geometry = val;

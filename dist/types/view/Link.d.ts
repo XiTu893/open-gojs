@@ -348,6 +348,8 @@ export declare class Link extends Part {
     private _applyBezierCurve;
     /** 官方 `Link.updateRoute()` */
     updateRoute(): void;
+    /** 官方：把 link 的几何同步给 `path` 以及所有 isPanelMain 的 Shape 元素 */
+    private _syncGeometryToMainShapes;
     /** 官方 `Link.invalidateRoute()`（= `oi()`，本项目无 invalid-route 集合，只做失效标记） */
     invalidateRoute(): void;
     /** 官方 `Link.invalidateGeometry()`（= `ge()`） */

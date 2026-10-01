@@ -272,6 +272,13 @@ export declare class Panel extends GraphObject {
     private _resolveAlignment;
     /** 官方：alignmentFocus 默认 → 回退为该元素的 alignment（focus 落在 alignment 同一边） */
     private _resolveAlignmentFocus;
+    /**
+     * 官方 PanelLayoutVertical/Horizontal.arrange 里算元素宽度用的是
+     *   `g = Math.max(union.width - 元素左右 margin - 面板右 padding, 0)`
+     * 那个 `Math.max(…, 0)` 不能省：内容区比元素的 margin 还窄时 available 会是负数，
+     * 直接喂给 `new Rect()` 会抛 `Invalid arguments to Rect constructor`
+     * （实测 spreadsheet `4, 4, -8, 12`、regrouping `0, 0, -18.52, 81.05`）。
+     */
     private _resolveStretchWidth;
     private _resolveStretchHeight;
     /** Compute the uniform scale factor for an element */

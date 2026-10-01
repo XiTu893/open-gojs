@@ -14509,7 +14509,20 @@ var Shape = /** @class */ (function (_super) {
         configurable: true
     });
     Object.defineProperty(Shape.prototype, "geometry", {
-        get: function () { return this._geometry; },
+        get: function () {
+            if (this._geometry === null) {
+                // 官方 Link 的路线是惰性算的，算完由 Link 把几何同步给主 Shape
+                // （见 src/view/Link.ts 的 _syncGeometryToMainShapes）。
+                // 样例代码常直接读 `link.elt(0).geometry` / `link.path.geometry`，
+                // 若这条 Link 还没算过路线就会拿到 null（treeLoadAnimation 就是这么挂的）。
+                // 这里按需补算一次；updateRoute 内部有 _isComputingRoute 保护，不会递归。
+                var part = this.part;
+                if (part && typeof part.updateRoute === 'function' && typeof part.computePoints === 'function') {
+                    part.updateRoute();
+                }
+            }
+            return this._geometry;
+        },
         set: function (val) {
             if (this._geometry !== val) {
                 this._geometry = val;
@@ -18389,7 +18402,6 @@ var Panel = /** @class */ (function (_super) {
     // ============ PanelHorizontal measure/arrange ============
     Panel.prototype._measureHorizontal = function (availW, availH) {
         var e_24, _a;
-        this._padding;
         var totalW = 0;
         var maxH = 0;
         try {
@@ -18397,7 +18409,12 @@ var Panel = /** @class */ (function (_super) {
                 var elem = _c.value;
                 if (!elem.visible)
                     continue;
-                elem._measure(availW - totalW, availH);
+                // 官方 PanelLayoutHorizontal.measure：一律按 `width = Infinity` 测量
+                // （`u.ct(1/0, i, 0, r)`），子元素自己按 desiredSize/maxSize 决定宽度。
+                // 以前这里传的是 `availW - totalW`，累加超过可用宽度后会变成**负数**，
+                // 传到 TextBlock 就是 `Math.min(naturalWidth, 负数)` = 负数 →
+                // `new Rect(0, 0, -18.52, 81.05)` 抛错（实测 regrouping）。
+                elem._measure(Infinity, availH);
                 var mb = elem.measuredBounds;
                 var m = elem.margin;
                 totalW += mb.width + m.left + m.right;
@@ -20063,10 +20080,17 @@ var Panel = /** @class */ (function (_super) {
             return this._resolveAlignment(elem);
         return af;
     };
+    /**
+     * 官方 PanelLayoutVertical/Horizontal.arrange 里算元素宽度用的是
+     *   `g = Math.max(union.width - 元素左右 margin - 面板右 padding, 0)`
+     * 那个 `Math.max(…, 0)` 不能省：内容区比元素的 margin 还窄时 available 会是负数，
+     * 直接喂给 `new Rect()` 会抛 `Invalid arguments to Rect constructor`
+     * （实测 spreadsheet `4, 4, -8, 12`、regrouping `0, 0, -18.52, 81.05`）。
+     */
     Panel.prototype._resolveStretchWidth = function (elem, available, measured) {
         var stretch = elem.stretch !== StretchDefault ? elem.stretch : this._defaultStretch;
         if (stretch === StretchFill || stretch === StretchHorizontal)
-            return available;
+            return Math.max(available, 0);
         if (stretch === StretchUniform) {
             if (measured <= 0)
                 return measured;
@@ -20078,7 +20102,7 @@ var Panel = /** @class */ (function (_super) {
     Panel.prototype._resolveStretchHeight = function (elem, available, measured) {
         var stretch = elem.stretch !== StretchDefault ? elem.stretch : this._defaultStretch;
         if (stretch === StretchFill || stretch === StretchVertical)
-            return available;
+            return Math.max(available, 0);
         if (stretch === StretchUniform) {
             if (measured <= 0)
                 return measured;
@@ -23203,6 +23227,43 @@ var Link = /** @class */ (function (_super) {
                 this.rollbackRoute();
             if (ok)
                 this._applyBezierCurve();
+            // 官方 `Link.xN()` / `h3()`：算完路线后把 Link 的几何**直接写进主 Shape 的
+            // _geometry 字段**（绕过 Shape.geometry setter，避免每次算路线都触发重新测量）。
+            // 官方是无条件同步的（`this.dt` 初始就是一个空 Geometry），所以哪怕
+            // pointsCount < 2，`link.path.geometry` 也是个 Geometry 而不是 null。
+            // 不做这一步：`pathAnimation` 的 `link.path.geometry.getPointAlongPath(frac)`、
+            // `treeLoadAnimation` 的 `link.elt(0).geometry.copy()` 都会抛
+            // `Cannot read properties of null`。
+            this._syncGeometryToMainShapes();
+        }
+    };
+    /** 官方：把 link 的几何同步给 `path` 以及所有 isPanelMain 的 Shape 元素 */
+    Link.prototype._syncGeometryToMainShapes = function () {
+        var e_3, _a;
+        var geo = this._geometry;
+        if (!geo)
+            return;
+        var path = this.path;
+        if (path !== null) {
+            path._geometry = geo;
+        }
+        var els = this._elements;
+        if (!els || !els.length)
+            return;
+        try {
+            for (var els_2 = __values(els), els_2_1 = els_2.next(); !els_2_1.done; els_2_1 = els_2.next()) {
+                var o = els_2_1.value;
+                if (o !== path && o.isPanelMain === true && o instanceof Shape) {
+                    o._geometry = geo;
+                }
+            }
+        }
+        catch (e_3_1) { e_3 = { error: e_3_1 }; }
+        finally {
+            try {
+                if (els_2_1 && !els_2_1.done && (_a = els_2.return)) _a.call(els_2);
+            }
+            finally { if (e_3) throw e_3.error; }
         }
     };
     /** 官方 `Link.invalidateRoute()`（= `oi()`，本项目无 invalid-route 集合，只做失效标记） */
@@ -34303,9 +34364,12 @@ var CommandHandler = /** @class */ (function () {
 var Animation = /** @class */ (function () {
     function Animation() {
         this._isRunning = false;
-        this._duration = 200;
+        this._duration = NaN;
         this._easing = Animation.EaseInOut;
         this._reversible = false;
+        /** 官方 `Animation.runCount`：跑几遍；Infinity 表示无限循环（belts 的传送带就是它） */
+        this._runCount = 1;
+        this._isViewportUnconstrained = false;
         this._state = AnimationState.Inactive;
         this._animations = [];
         this._startTime = 0;
@@ -34327,6 +34391,12 @@ var Animation = /** @class */ (function () {
     Animation.EaseOut = function (t) {
         return t * (2 - t);
     };
+    // ---- 官方 d.ts 的官方命名（EaseInOut / EaseIn / EaseOut 是本项目原来的别名，保留） ----
+    Animation.EaseInOutQuad = function (t) { return Animation.EaseInOut(t); };
+    Animation.EaseInQuad = function (t) { return Animation.EaseIn(t); };
+    Animation.EaseOutQuad = function (t) { return Animation.EaseOut(t); };
+    Animation.EaseInExpo = function (t) { return t === 0 ? 0 : Math.pow(2, 10 * (t - 1)); };
+    Animation.EaseOutExpo = function (t) { return t === 1 ? 1 : 1 - Math.pow(2, -10 * t); };
     Object.defineProperty(Animation.prototype, "isRunning", {
         get: function () {
             return this._isRunning;
@@ -34364,6 +34434,28 @@ var Animation = /** @class */ (function () {
         enumerable: false,
         configurable: true
     });
+    Object.defineProperty(Animation.prototype, "runCount", {
+        get: function () {
+            return this._runCount;
+        },
+        set: function (val) {
+            if (!(val > 0))
+                throw new Error('Animation.runCount value must be a positive integer.');
+            this._runCount = val;
+        },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(Animation.prototype, "isViewportUnconstrained", {
+        get: function () {
+            return this._isViewportUnconstrained;
+        },
+        set: function (val) {
+            this._isViewportUnconstrained = val;
+        },
+        enumerable: false,
+        configurable: true
+    });
     Object.defineProperty(Animation.prototype, "state", {
         get: function () {
             return this._state;
@@ -34391,42 +34483,106 @@ var Animation = /** @class */ (function () {
         enumerable: false,
         configurable: true
     });
+    /**
+     * 官方 `Animation.add(obj, effectName, startValue, endValue, cosmetic?): this`
+     * （链式返回）。`from` 为 undefined 时用对象当前值当起点。
+     */
     Animation.prototype.add = function (targetOrConfig, property, fromValue, toValue) {
-        if (typeof targetOrConfig === 'object' && property !== undefined) {
+        if (typeof targetOrConfig === 'object' && targetOrConfig !== null && property !== undefined) {
+            var target = targetOrConfig;
             this._animations.push({
                 target: targetOrConfig,
                 property: property,
-                from: fromValue,
+                from: fromValue !== undefined ? fromValue : target[property],
                 to: toValue
             });
         }
         else {
             this._animations.push(targetOrConfig);
         }
+        return this;
     };
     Animation.prototype.clear = function () {
         this._animations.length = 0;
         this._isRunning = false;
         this._state = AnimationState.Inactive;
     };
+    /** 官方 `Animation.start(): this` —— 自己找到目标对象的 Diagram，取它的 animationManager 注册自己 */
     Animation.prototype.start = function () {
+        var e_1, _a;
         if (this._isRunning)
-            return;
+            return this;
+        if (this._animations.length === 0)
+            return this;
+        // 先置 isRunning 再注册：官方 start() 里 `this.Re=!0` 早于 `i.oO(this)`。
+        // 顺序反了的话，registerAnimation 触发的第一次同步 tick 会因为
+        // `isRunning===false` 把这个动画从 activeAnimations 里过滤掉，之后再没人 tick。
         this._isRunning = true;
         this._state = AnimationState.Running;
         this._startTime = performance.now();
-        if (this._manager && typeof this._manager.registerAnimation === 'function') {
+        // 官方 go.js start()：遍历被动画的对象，取第一个能拿到 diagram 的，
+        // 然后 `this.As = t.animationManager` 并注册自己。
+        // 以前本项目只在 `animation.manager` 被显式赋值时注册，而样例从不赋值 ——
+        // 于是 `new go.Animation() ... start()` 根本没人 tick，
+        // belts 的传送带完全不动（`strokeDashOffset` 永远是初值）。
+        var diagram = this._manager ? this._manager.diagram : null;
+        if (diagram === null || diagram === undefined) {
+            try {
+                for (var _b = __values(this._animations), _c = _b.next(); !_c.done; _c = _b.next()) {
+                    var config = _c.value;
+                    var t = config.target;
+                    if (!t)
+                        continue;
+                    if (t.className === 'Diagram') {
+                        diagram = t;
+                        break;
+                    }
+                    if (t.diagram) {
+                        diagram = t.diagram;
+                        break;
+                    }
+                    if (t.part && t.part.diagram) {
+                        diagram = t.part.diagram;
+                        break;
+                    }
+                }
+            }
+            catch (e_1_1) { e_1 = { error: e_1_1 }; }
+            finally {
+                try {
+                    if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
+                }
+                finally { if (e_1) throw e_1.error; }
+            }
+        }
+        if (diagram !== null && diagram !== undefined) {
+            var mgr = diagram.animationManager;
+            if (mgr) {
+                this._manager = mgr;
+                if (typeof mgr.registerAnimation === 'function')
+                    mgr.registerAnimation(this);
+            }
+        }
+        else if (this._manager && typeof this._manager.registerAnimation === 'function') {
             this._manager.registerAnimation(this);
         }
+        if (this._manager && typeof this._manager.startAnimation === 'function') {
+            this._manager.startAnimation();
+        }
+        return this;
     };
     Animation.prototype.stop = function () {
         if (!this._isRunning)
-            return;
+            return this;
         this._isRunning = false;
         this._state = AnimationState.Stopped;
+        if (this._manager && typeof this._manager.unregisterAnimation === 'function') {
+            this._manager.unregisterAnimation(this);
+        }
+        return this;
     };
     Animation.prototype.finish = function () {
-        var e_1, _a;
+        var e_2, _a;
         if (!this._isRunning)
             return;
         try {
@@ -34440,22 +34596,24 @@ var Animation = /** @class */ (function () {
                 }
             }
         }
-        catch (e_1_1) { e_1 = { error: e_1_1 }; }
+        catch (e_2_1) { e_2 = { error: e_2_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_1) throw e_1.error; }
+            finally { if (e_2) throw e_2.error; }
         }
         this._isRunning = false;
         this._state = AnimationState.Finished;
+        if (this._manager && typeof this._manager.unregisterAnimation === 'function') {
+            this._manager.unregisterAnimation(this);
+        }
         if (this._finished) {
             this._finished();
         }
     };
     Animation.prototype.restart = function () {
-        var e_2, _a;
-        this.stop();
+        var e_3, _a;
         try {
             for (var _b = __values(this._animations), _c = _b.next(); !_c.done; _c = _b.next()) {
                 var config = _c.value;
@@ -34464,21 +34622,25 @@ var Animation = /** @class */ (function () {
                 }
             }
         }
-        catch (e_2_1) { e_2 = { error: e_2_1 }; }
+        catch (e_3_1) { e_3 = { error: e_3_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_2) throw e_2.error; }
+            finally { if (e_3) throw e_3.error; }
         }
+        this._isRunning = false;
         this.start();
     };
     Animation.prototype.update = function (now) {
-        var e_3, _a, e_4, _b;
+        var e_4, _a, e_5, _b;
         if (!this._isRunning)
             return;
+        // 官方：`this.Fs = isNaN(this.duration) ? manager.duration : this.duration`
+        var mgrDur = this._manager && typeof this._manager.duration === 'number' ? this._manager.duration : 200;
+        var dur = isNaN(this._duration) ? mgrDur : this._duration;
         var elapsed = now - this._startTime;
-        var progress = Math.min(elapsed / this._duration, 1);
+        var progress = Math.min(elapsed / dur, 1);
         var easedProgress = this._easing(progress);
         try {
             for (var _c = __values(this._animations), _d = _c.next(); !_d.done; _d = _c.next()) {
@@ -34488,14 +34650,23 @@ var Animation = /** @class */ (function () {
                 }
             }
         }
-        catch (e_3_1) { e_3 = { error: e_3_1 }; }
+        catch (e_4_1) { e_4 = { error: e_4_1 }; }
         finally {
             try {
                 if (_d && !_d.done && (_a = _c.return)) _a.call(_c);
             }
-            finally { if (e_3) throw e_3.error; }
+            finally { if (e_4) throw e_4.error; }
         }
         if (progress >= 1) {
+            // 官方 runCount 语义：>1 就再跑一遍（Infinity 无限循环），减到 0 才算 finished
+            if (this._runCount > 1) {
+                if (isFinite(this._runCount))
+                    this._runCount--;
+                // 下一轮从 from 重新开始。注意不能写成 `now - dur`：那样 elapsed 恒等于 dur，
+                // progress 永远是 1，值会卡在 to 上不再动。
+                this._startTime = now;
+                return;
+            }
             this._isRunning = false;
             this._state = AnimationState.Finished;
             try {
@@ -34506,12 +34677,15 @@ var Animation = /** @class */ (function () {
                     }
                 }
             }
-            catch (e_4_1) { e_4 = { error: e_4_1 }; }
+            catch (e_5_1) { e_5 = { error: e_5_1 }; }
             finally {
                 try {
                     if (_f && !_f.done && (_b = _e.return)) _b.call(_e);
                 }
-                finally { if (e_4) throw e_4.error; }
+                finally { if (e_5) throw e_5.error; }
+            }
+            if (this._manager && typeof this._manager.unregisterAnimation === 'function') {
+                this._manager.unregisterAnimation(this);
             }
             if (this._finished) {
                 this._finished();
@@ -34690,6 +34864,35 @@ var AnimationManager = /** @class */ (function () {
             this._startTicking();
         }
     };
+    /** 官方对应 `AnimationManager` 内部把动画从活动列表里摘掉的动作（go.js 里是 `oO` 的反向） */
+    AnimationManager.prototype.unregisterAnimation = function (anim) {
+        var i = this._activeAnimations.indexOf(anim);
+        if (i >= 0)
+            this._activeAnimations.splice(i, 1);
+    };
+    Object.defineProperty(AnimationManager.prototype, "activeAnimations", {
+        /** 官方 `AnimationManager.activeAnimations: Set<Animation>` */
+        get: function () {
+            var e_2, _a;
+            var s = new Set$1();
+            try {
+                for (var _b = __values(this._activeAnimations), _c = _b.next(); !_c.done; _c = _b.next()) {
+                    var a = _c.value;
+                    s.add(a);
+                }
+            }
+            catch (e_2_1) { e_2 = { error: e_2_1 }; }
+            finally {
+                try {
+                    if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
+                }
+                finally { if (e_2) throw e_2.error; }
+            }
+            return s;
+        },
+        enumerable: false,
+        configurable: true
+    });
     /** 官方 `AnimationManager.defineAnimationEffect(effectName, animationFunction)`（静态） */
     AnimationManager.defineAnimationEffect = function (name, effect) {
         AnimationManager._effects[name] = effect;
@@ -34698,7 +34901,7 @@ var AnimationManager = /** @class */ (function () {
         return AnimationManager._effects[name];
     };
     AnimationManager.prototype.updateAnimation = function () {
-        var e_2, _a;
+        var e_3, _a;
         if (!this._isAnimating)
             return;
         var now = performance.now();
@@ -34710,12 +34913,12 @@ var AnimationManager = /** @class */ (function () {
                 }
             }
         }
-        catch (e_2_1) { e_2 = { error: e_2_1 }; }
+        catch (e_3_1) { e_3 = { error: e_3_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_2) throw e_2.error; }
+            finally { if (e_3) throw e_3.error; }
         }
         this._activeAnimations = this._activeAnimations.filter(function (a) { return a.isRunning; });
         if (this._activeAnimations.length === 0) {
@@ -34727,10 +34930,14 @@ var AnimationManager = /** @class */ (function () {
         }
     };
     AnimationManager.prototype._startTicking = function () {
+        var _this = this;
         if (this._isTicking)
             return;
         this._isTicking = true;
-        this._tick();
+        // 官方是 rAF 驱动的；这里原来**同步**先跑一次 updateAnimation()，
+        // 会在 registerAnimation 内部把刚加进来的动画（此刻可能还没置 isRunning）
+        // 当成「已结束」过滤掉，然后立刻停摆。改成排到下一帧。
+        this._frameId = requestAnimationFrame(function () { return _this._tick(); });
     };
     AnimationManager.prototype._stopTicking = function () {
         this._isTicking = false;
@@ -34757,11 +34964,18 @@ var AnimationManager = /** @class */ (function () {
 var ThemeManager = /** @class */ (function () {
     function ThemeManager() {
         this._diagram = null;
-        this._themes = {};
+        // 官方 ThemeManager.themeMap 是 `Map<string, Theme>`（go.d.ts 有 get/set themeMap）。
+        // 以前只存在私有 Record 里，样例 `themeManager.themeMap.get(currentTheme).colors[x]`
+        // 直接 undefined（实测 icons）。
+        this._themes = new Map$1();
         this._currentTheme = 'light';
         this._defaultTheme = 'light';
+        /** 官方 ThemeManager.changesDivBackground —— go.js 里初值是 `UP=!1`，即**默认 false**。
+         *  之前设成 true 会强行用主题 colors.div 覆盖样例 htmlContent 自带的 div 底色，
+         *  arrowheads/orgChartStatic/connectionBoxNode 的 diff 直接从 5%/9%/17% 飙到 98%/63%/94%。 */
+        this._changesDivBackground = false;
         // 官方 ThemeManager 构造：未提供 themeMap 时内置 light/dark 两套
-        this._themes['light'] = {
+        this._themes.set('light', {
             colors: {
                 text: '#0a0a0a',
                 comment: '#ca8a04',
@@ -34783,8 +34997,8 @@ var ThemeManager = /** @class */ (function () {
             numbers: { group: 1, selection: 3 },
             margins: { group: new Margin(5) },
             arrowheads: { toArrow: 'Standard' }
-        };
-        this._themes['dark'] = {
+        });
+        this._themes.set('dark', {
             colors: {
                 text: '#f5f5f5',
                 comment: '#facc15',
@@ -34806,7 +35020,7 @@ var ThemeManager = /** @class */ (function () {
             numbers: { group: 1, selection: 3 },
             margins: { group: new Margin(5) },
             arrowheads: { toArrow: 'Standard' }
-        };
+        });
     }
     Object.defineProperty(ThemeManager.prototype, "diagram", {
         get: function () { return this._diagram; },
@@ -34821,6 +35035,19 @@ var ThemeManager = /** @class */ (function () {
                 return;
             this._currentTheme = val;
             this._applyTheme(val);
+            ThemeManager.applyDivBackground(this._diagram);
+        },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(ThemeManager.prototype, "changesDivBackground", {
+        get: function () { return this._changesDivBackground; },
+        set: function (val) {
+            if (this._changesDivBackground === val)
+                return;
+            this._changesDivBackground = val;
+            if (val)
+                ThemeManager.applyDivBackground(this._diagram);
         },
         enumerable: false,
         configurable: true
@@ -34831,11 +35058,72 @@ var ThemeManager = /** @class */ (function () {
         enumerable: false,
         configurable: true
     });
+    Object.defineProperty(ThemeManager.prototype, "themeMap", {
+        /** 官方 ThemeManager.themeMap: Map<string, Theme> */
+        get: function () { return this._themes; },
+        set: function (val) { this._themes = val || new Map$1(); },
+        enumerable: false,
+        configurable: true
+    });
+    /** 官方 findTheme(themeName): Theme | null */
+    ThemeManager.prototype.findTheme = function (themeName) {
+        var t = this._themes.get(themeName);
+        return t === undefined ? null : t;
+    };
+    /**
+     * 官方 `ThemeManager.set(themeName, props): this`
+     * （go.js：`set(t,e){t===""&&(t=this.IP); t==="system"&&(t=this.um); …}`）
+     * - `''` 表示「当前默认主题」，不是新建一个空名主题；
+     * - 已存在的主题按类别（colors/fonts/numbers/…）**浅合并**，只覆盖给出的键；
+     * - 返回 this。
+     * 以前我们是整体替换且不处理 `''`，icons 样例
+     * `themeManager.set('', {colors:{div:'#6495ED',…}})` 之后
+     * `changesDivBackground = true` 取到的还是 light 的 `#fff`，整块底色不对。
+     */
     ThemeManager.prototype.set = function (themeName, themeData) {
-        this._themes[themeName] = themeData;
+        var name = themeName;
+        if (name === '')
+            name = this._defaultTheme;
+        if (name === 'system')
+            name = 'light';
+        var existing = this._themes.get(name);
+        var merged = existing !== undefined && existing !== null
+            ? ThemeManager._mergeTheme(existing, themeData)
+            : themeData;
+        this._themes.set(name, merged);
+        this._applyTheme(name);
+        ThemeManager.applyDivBackground(this._diagram);
+        return this;
+    };
+    ThemeManager._mergeTheme = function (oldTheme, newProps) {
+        var e_1, _a;
+        if (!newProps || typeof newProps !== 'object')
+            return oldTheme;
+        var out = __assign({}, oldTheme);
+        try {
+            for (var _b = __values(Object.keys(newProps)), _c = _b.next(); !_c.done; _c = _b.next()) {
+                var key = _c.value;
+                var nv = newProps[key];
+                var ov = oldTheme ? oldTheme[key] : undefined;
+                if (nv && typeof nv === 'object' && !Array.isArray(nv) && ov && typeof ov === 'object' && !Array.isArray(ov)) {
+                    out[key] = __assign(__assign({}, ov), nv);
+                }
+                else {
+                    out[key] = nv;
+                }
+            }
+        }
+        catch (e_1_1) { e_1 = { error: e_1_1 }; }
+        finally {
+            try {
+                if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
+            }
+            finally { if (e_1) throw e_1.error; }
+        }
+        return out;
     };
     ThemeManager.prototype._applyTheme = function (themeName) {
-        var theme = this._themes[themeName];
+        var theme = this._themes.get(themeName);
         if (!theme || !this._diagram)
             return;
         if (typeof this._diagram.updateAllThemeBindings === 'function') {
@@ -34844,7 +35132,7 @@ var ThemeManager = /** @class */ (function () {
     };
     ThemeManager.prototype.findColor = function (colorName, themeName) {
         var name = themeName || this._currentTheme;
-        var theme = this._themes[name];
+        var theme = this._themes.get(name);
         if (!theme || !theme.colors)
             return '';
         return theme.colors[colorName] || '';
@@ -34854,7 +35142,7 @@ var ThemeManager = /** @class */ (function () {
      * 先按目标属性查类别（stroke/fill→colors、font→fonts…），再在 currentTheme → defaultTheme 里取值。
      */
     ThemeManager.prototype.findValue = function (sourceKey, path, targetProperty) {
-        var e_1, _a, e_2, _b;
+        var e_2, _a, e_3, _b;
         var cat = ThemeManager._categoryOf(targetProperty);
         var names = this._currentTheme === this._defaultTheme
             ? [this._currentTheme]
@@ -34862,23 +35150,23 @@ var ThemeManager = /** @class */ (function () {
         try {
             for (var names_1 = __values(names), names_1_1 = names_1.next(); !names_1_1.done; names_1_1 = names_1.next()) {
                 var name_1 = names_1_1.value;
-                var theme = this._themes[name_1];
+                var theme = this._themes.get(name_1);
                 if (!theme)
                     continue;
                 var scope = theme;
                 if (path) {
                     try {
-                        for (var _c = (e_2 = void 0, __values(path.split('.'))), _d = _c.next(); !_d.done; _d = _c.next()) {
+                        for (var _c = (e_3 = void 0, __values(path.split('.'))), _d = _c.next(); !_d.done; _d = _c.next()) {
                             var p = _d.value;
                             scope = scope ? scope[p] : undefined;
                         }
                     }
-                    catch (e_2_1) { e_2 = { error: e_2_1 }; }
+                    catch (e_3_1) { e_3 = { error: e_3_1 }; }
                     finally {
                         try {
                             if (_d && !_d.done && (_b = _c.return)) _b.call(_c);
                         }
-                        finally { if (e_2) throw e_2.error; }
+                        finally { if (e_3) throw e_3.error; }
                     }
                     if (scope === undefined || scope === null)
                         continue;
@@ -34893,14 +35181,31 @@ var ThemeManager = /** @class */ (function () {
                 }
             }
         }
-        catch (e_1_1) { e_1 = { error: e_1_1 }; }
+        catch (e_2_1) { e_2 = { error: e_2_1 }; }
         finally {
             try {
                 if (names_1_1 && !names_1_1.done && (_a = names_1.return)) _a.call(names_1);
             }
-            finally { if (e_1) throw e_1.error; }
+            finally { if (e_2) throw e_2.error; }
         }
         return undefined;
+    };
+    /**
+     * 官方 `Diagram.setDivBackground(color)`：把主题的 `colors.div` 写到 div 的
+     * background-color 上。官方 `ThemeManager.changesDivBackground`（默认 true）
+     * 会在 addDiagram / currentTheme 变化时对所有注册图调用它。
+     * 以前本项目没有这一步，于是 icons 样例整块底色是白的（官方是主题的 div 色）。
+     */
+    ThemeManager.applyDivBackground = function (diagram) {
+        if (!diagram || !diagram.themeManager)
+            return;
+        var tm = diagram.themeManager;
+        if (!tm.changesDivBackground)
+            return;
+        var color = tm.findValue('div', '', 'fill');
+        if (typeof color === 'string' && color !== '') {
+            diagram.setDivBackground(color);
+        }
     };
     /** 官方 ThemeManager.nV：目标属性 → 主题子类别 */
     ThemeManager._categoryOf = function (targetProperty) {
@@ -35153,6 +35458,8 @@ var Diagram = /** @class */ (function () {
         this._commandHandler.diagram = this;
         this._animationManager.diagram = this;
         this._themeManager.diagram = this;
+        // 官方 ThemeManager.changesDivBackground 默认 true：构造时就按主题把 div 底色设好
+        ThemeManager.applyDivBackground(this);
         this._createDefaultLayers();
         this._nodeTemplate = this._createDefaultNodeTemplate();
         this._linkTemplate = this._createDefaultLinkTemplate();
@@ -35225,12 +35532,13 @@ var Diagram = /** @class */ (function () {
                 }
                 finally { if (e_3) throw e_3.error; }
             }
-            // 官方在替换整个 model 后会走一遍事务，
-            // 于是 `"ModelChanged": e => { if (e.isTransactionFinished) ... }` 立即能拿到新数据
-            if (this._model.undoManager && this._model.undoManager.isEnabled) {
-                this._model.startTransaction('Replace Model');
-                this._model.commitTransaction('Replace Model');
-            }
+            // 官方 `Diagram.model` setter（go.js: set model(t){…}）**不会**走事务，
+            // 只是 `invalidateDocumentBounds()` + 重挂监听者。
+            // 以前这里额外 start/commit 了一个 'Replace Model' 事务，于是
+            // `"ModelChanged": e => { if (e.isTransactionFinished) … }"` 会在
+            // `myDiagram.model = …` 那一刻就触发 —— twoDiagrams 的监听器此时
+            // 还没走到 `myDiagram2 = new go.Diagram(...)`，直接
+            // `myDiagram2 is not defined`（ReferenceError，官方不会）。
         },
         enumerable: false,
         configurable: true
@@ -36647,6 +36955,8 @@ var Diagram = /** @class */ (function () {
         }
         var node = template.copy();
         node.data = data;
+        // 官方 PartManager._addPartForData：s.sr = e（把数据的 category 落到 part.category 上）
+        node.category = category || '';
         var locX = data['loc'] !== undefined ? parseFloat(String(data['loc']).split(' ')[0]) : NaN;
         var locY = data['loc'] !== undefined ? parseFloat(String(data['loc']).split(' ')[1]) : NaN;
         if (!isNaN(locX) && !isNaN(locY)) {
@@ -36698,6 +37008,7 @@ var Diagram = /** @class */ (function () {
         }
         var link = template.copy();
         link.data = data;
+        link.category = category || '';
         var fromKey = model.getFromKeyForLinkData(data);
         var toKey = model.getToKeyForLinkData(data);
         if (fromKey !== undefined) {

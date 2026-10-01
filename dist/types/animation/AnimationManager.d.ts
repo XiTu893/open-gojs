@@ -1,4 +1,5 @@
 import { Animation } from './Animation';
+import { Set } from '../core/Set';
 export declare class AnimationManager {
     static readonly className: string;
     private _diagram;
@@ -25,6 +26,10 @@ export declare class AnimationManager {
     startAnimation(anim?: Animation): void;
     stopAnimation(): void;
     registerAnimation(anim: Animation): void;
+    /** 官方对应 `AnimationManager` 内部把动画从活动列表里摘掉的动作（go.js 里是 `oO` 的反向） */
+    unregisterAnimation(anim: Animation): void;
+    /** 官方 `AnimationManager.activeAnimations: Set<Animation>` */
+    get activeAnimations(): Set<Animation>;
     /** 官方 `AnimationManager.defineAnimationEffect(effectName, animationFunction)`（静态） */
     static defineAnimationEffect(name: string, effect: (obj: object, from: any, to: any, duration: number) => Animation): void;
     static getEffect(name: string): ((obj: object, from: any, to: any, duration: number) => Animation) | undefined;

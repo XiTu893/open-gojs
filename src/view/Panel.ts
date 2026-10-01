@@ -1296,13 +1296,17 @@ export class Panel extends GraphObject {
   // ============ PanelHorizontal measure/arrange ============
 
   private _measureHorizontal(availW: number, availH: number): void {
-    const pad = this._padding;
     let totalW = 0;
     let maxH = 0;
 
     for (const elem of this._elements) {
       if (!elem.visible) continue;
-      elem._measure(availW - totalW, availH);
+      // 官方 PanelLayoutHorizontal.measure：一律按 `width = Infinity` 测量
+      // （`u.ct(1/0, i, 0, r)`），子元素自己按 desiredSize/maxSize 决定宽度。
+      // 以前这里传的是 `availW - totalW`，累加超过可用宽度后会变成**负数**，
+      // 传到 TextBlock 就是 `Math.min(naturalWidth, 负数)` = 负数 →
+      // `new Rect(0, 0, -18.52, 81.05)` 抛错（实测 regrouping）。
+      elem._measure(Infinity, availH);
       const mb = elem.measuredBounds;
       const m = elem.margin;
       totalW += mb.width + m.left + m.right;
@@ -2589,9 +2593,16 @@ export class Panel extends GraphObject {
     return af;
   }
 
-  private _resolveStretchWidth(elem: GraphObject, available: number, measured: number): number {
+  /**
+   * 官方 PanelLayoutVertical/Horizontal.arrange 里算元素宽度用的是
+   *   `g = Math.max(union.width - 元素左右 margin - 面板右 padding, 0)`
+   * 那个 `Math.max(…, 0)` 不能省：内容区比元素的 margin 还窄时 available 会是负数，
+   * 直接喂给 `new Rect()` 会抛 `Invalid arguments to Rect constructor`
+   * （实测 spreadsheet `4, 4, -8, 12`、regrouping `0, 0, -18.52, 81.05`）。
+   */
+private _resolveStretchWidth(elem: GraphObject, available: number, measured: number): number {
     const stretch = elem.stretch !== StretchDefault ? elem.stretch : this._defaultStretch;
-    if (stretch === StretchFill || stretch === StretchHorizontal) return available;
+    if (stretch === StretchFill || stretch === StretchHorizontal) return Math.max(available, 0);
     if (stretch === StretchUniform) {
       if (measured <= 0) return measured;
       const scale = Math.min(available / measured, this._resolveUniformScale(elem, available, measured));
@@ -2602,7 +2613,7 @@ export class Panel extends GraphObject {
 
   private _resolveStretchHeight(elem: GraphObject, available: number, measured: number): number {
     const stretch = elem.stretch !== StretchDefault ? elem.stretch : this._defaultStretch;
-    if (stretch === StretchFill || stretch === StretchVertical) return available;
+    if (stretch === StretchFill || stretch === StretchVertical) return Math.max(available, 0);
     if (stretch === StretchUniform) {
       if (measured <= 0) return measured;
       const scale = Math.min(available / measured, this._resolveUniformScale(elem, available, measured));
