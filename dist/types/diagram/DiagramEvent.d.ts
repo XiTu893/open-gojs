@@ -2,6 +2,7 @@
  * DiagramEvent - 图表事件
  */
 export declare class DiagramEvent {
+    static readonly className: string;
     /** 事件名称 */
     name: string;
     /** 图表 */

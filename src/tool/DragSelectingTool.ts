@@ -7,6 +7,7 @@ import { Rect } from '../core/Rect';
  * Allows the user to draw a rectangle to select multiple parts.
  */
 export class DragSelectingTool extends Tool {
+  static readonly className: string = "DragSelectingTool";
 
   private _box: Rect | null = null;
   private _startPoint: Point | null = null;
@@ -70,7 +71,7 @@ export class DragSelectingTool extends Tool {
     const diagram = this.diagram;
     if (!diagram || !this.isActive) return;
 
-    if (this._box && !this._box.isEmpty) {
+    if (this._box && !this._box.isEmpty()) {
       this.selectInRect(this._box);
     }
 
@@ -111,7 +112,7 @@ export class DragSelectingTool extends Tool {
           const part = partsIt.value;
           if (!part.selectable || !part.visible) continue;
           const bounds = part.getDocumentBounds();
-          if (r.intersects(bounds)) {
+          if (r.intersectsRect(bounds)) {
             part.isSelected = true;
             selection.add(part);
           }

@@ -6,6 +6,7 @@ import { Adornment } from '../view/Adornment';
  * Displays the context menu for the object under the mouse.
  */
 export declare class ContextMenuTool extends Tool {
+    static readonly className: string;
     private _currentContextMenu;
     private _mouseDownPoint;
     constructor();

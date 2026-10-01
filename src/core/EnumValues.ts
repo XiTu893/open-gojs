@@ -3,6 +3,7 @@
  * 每个枚举值是唯一对象实例，通过名称标识
  */
 export class EnumValue {
+  static readonly className: string = "EnumValue";
   public readonly _name: string;
 
   constructor(name: string) {
@@ -119,10 +120,14 @@ export const CircularDirectionBidirectionalLeft = new EnumValue('CircularDirecti
 export const CircularDirectionBidirectionalRight = new EnumValue('CircularDirectionBidirectionalRight');
 
 // ============ 分层有向图布局方向 ============
-export const LayeredDigraphDirectionDown = new EnumValue('LayeredDigraphDirectionDown');
-export const LayeredDigraphDirectionUp = new EnumValue('LayeredDigraphDirectionUp');
-export const LayeredDigraphDirectionLeft = new EnumValue('LayeredDigraphDirectionLeft');
-export const LayeredDigraphDirectionRight = new EnumValue('LayeredDigraphDirectionRight');
+/**
+ * 官方 4.0 的 LayeredDigraphLayout.direction 是角度（度），
+ * 只接受 0 / 90 / 180 / 270：0=向右，90=向下，180=向左，270=向上。
+ */
+export const LayeredDigraphDirectionRight = 0;
+export const LayeredDigraphDirectionDown = 90;
+export const LayeredDigraphDirectionLeft = 180;
+export const LayeredDigraphDirectionUp = 270;
 
 // ============ 分层有向图对齐 ============
 export const LayeredDigraphAlignTop = new EnumValue('LayeredDigraphAlignTop');
@@ -332,8 +337,19 @@ export const AnimationStyleAnimateLocations = new EnumValue('AnimateLocations');
 export const AnimationStyleNone = new EnumValue('AnimationStyleNone');
 
 // ============ LayoutConditions ============
-export const LayoutConditionsStandard = new EnumValue('Standard');
-export const LayoutConditionsNodeSized = new EnumValue('NodeSized');
+// 官方 go.d.ts:21851 明确 "These values can be combined as flags"，
+// 且 `Part.layoutConditions` 类型就是 LayoutConditions 位掩码，
+// 所以这一组是本文件中唯一用 number（而非 EnumValue）表示的枚举，数值与官方一一对应。
+export const LayoutConditionsNone = 0;
+export const LayoutConditionsAdded = 1;
+export const LayoutConditionsRemoved = 2;
+export const LayoutConditionsShown = 4;
+export const LayoutConditionsHidden = 8;
+export const LayoutConditionsNodeSized = 16;
+export const LayoutConditionsGroupLayout = 32;
+export const LayoutConditionsNodeReplaced = 64;
+export const LayoutConditionsStandard = 127;
+export const LayoutConditionsAll = 0xffffff;
 
 // ============ GeometryStretch ============
 export const GeometryStretchDefault = new EnumValue('Default');
@@ -377,3 +393,115 @@ export const TriggerStartBundled = new EnumValue('Bundled');
 
 // ============ TreeLayerStyle ============
 export const TreeLayerStyleSiblings = new EnumValue('Siblings');
+
+// ============================================================
+// 以下为阶段 3 补齐：官方 go.d.ts `declare enum` 中存在、
+// 但本项目此前缺失的枚举值（成员名与官方 4.0.4 运行时一致）。
+// ============================================================
+
+// ============ TextFormat (go.d.ts) ============
+export const TextFormatTrim = new EnumValue('Trim');
+export const TextFormatNone = new EnumValue('None');
+
+// ============ PortSpreading (go.d.ts) ============
+export const PortSpreadingNone = new EnumValue('None');
+export const PortSpreadingEvenly = new EnumValue('Evenly');
+export const PortSpreadingPacked = new EnumValue('Packed');
+
+// ============ CollapsePolicy (go.d.ts) ============
+export const CollapsePolicyTreeParent = new EnumValue('TreeParent');
+export const CollapsePolicyAllParents = new EnumValue('AllParents');
+export const CollapsePolicyAnyParents = new EnumValue('AnyParents');
+
+// ============ ColorSpace (go.d.ts) ============
+export const ColorSpaceLab = new EnumValue('Lab');
+export const ColorSpaceHSL = new EnumValue('HSL');
+export const ColorSpaceOklch = new EnumValue('Oklch');
+
+// ============ ReshapingBehavior (go.d.ts) ============
+export const ReshapingBehaviorNone = new EnumValue('None');
+export const ReshapingBehaviorHorizontal = new EnumValue('Horizontal');
+export const ReshapingBehaviorVertical = new EnumValue('Vertical');
+export const ReshapingBehaviorAll = new EnumValue('All');
+
+// ============ TextEditingState (go.d.ts) ============
+export const TextEditingStateNone = new EnumValue('None');
+export const TextEditingStateActive = new EnumValue('Active');
+export const TextEditingStateEditing = new EnumValue('Editing');
+export const TextEditingStateValidating = new EnumValue('Validating');
+export const TextEditingStateInvalid = new EnumValue('Invalid');
+export const TextEditingStateValidated = new EnumValue('Validated');
+
+// ============ BrushType (go.d.ts) ============
+export const BrushPattern = new EnumValue('Pattern');
+
+// ============ CycleMode ============
+export const CycleNotDirectedFast = new EnumValue('NotDirectedFast');
+
+// ============ LinkAdjusting ============
+export const LinkAdjustingNone = new EnumValue('None');
+export const LinkAdjustingScale = new EnumValue('Scale');
+
+// ============ Routing ============
+export const RoutingAvoidsNodesStraight = new EnumValue('AvoidsNodesStraight');
+/** 官方 `Link.None = 0`（Link 的 routing 无路由算法；官方数值 0，本项目用独立枚举值） */
+export const RoutingNone = new EnumValue('None');
+
+// ============ Orientation ============
+export const OrientationOpposite = new EnumValue('Opposite');
+export const OrientationUpright = new EnumValue('Upright');
+export const OrientationPlus90Upright = new EnumValue('Plus90Upright');
+export const OrientationMinus90Upright = new EnumValue('Minus90Upright');
+export const OrientationUpright45 = new EnumValue('Upright45');
+
+// ============ Sizing ============
+export const SizingProportionalExtra = new EnumValue('ProportionalExtra');
+
+// ============ TriggerStart ============
+export const TriggerStartDefault = new EnumValue('Default');
+export const TriggerStartImmediate = new EnumValue('Immediate');
+
+// ============ Wrap ============
+export const WrapBreakAll = new EnumValue('BreakAll');
+
+// ============ GeometryType ============
+export const GeometryTypeRectangle = new EnumValue('Rectangle');
+export const GeometryTypeEllipse = new EnumValue('Ellipse');
+
+// ============ SegmentType ============
+export const SegmentTypeMove = new EnumValue('Move');
+export const SegmentTypeBezier = new EnumValue('Bezier');
+export const SegmentTypeSvgArc = new EnumValue('SvgArc');
+
+// ============ CircularArrangement ============
+export const CircularArrangementConstantSpacing = new EnumValue('ConstantSpacing');
+
+// ============ LayeredDigraphAlign ============
+export const LayeredDigraphAlignUpperLeft = new EnumValue('UpperLeft');
+export const LayeredDigraphAlignUpperRight = new EnumValue('UpperRight');
+export const LayeredDigraphAlignLowerLeft = new EnumValue('LowerLeft');
+export const LayeredDigraphAlignLowerRight = new EnumValue('LowerRight');
+export const LayeredDigraphAlignAll = new EnumValue('All');
+
+// ============ LayeredDigraphCycleRemove ============
+export const LayeredDigraphCycleRemoveFromLayers = new EnumValue('FromLayers');
+
+// ============ LayeredDigraphPack ============
+export const LayeredDigraphPackMaybeExpand = new EnumValue('MaybeExpand');
+
+// ============ LinkingDirection ============
+export const LinkingDirectionEither = new EnumValue('Either');
+export const LinkingDirectionBackwardsOnly = new EnumValue('BackwardsOnly');
+
+// ============ TextEditingAccept ============
+export const TextEditingAcceptMouseDown = new EnumValue('MouseDown');
+export const TextEditingAcceptTab = new EnumValue('Tab');
+export const TextEditingAcceptEnter = new EnumValue('Enter');
+
+// ============ TextEditingStarting ============
+export const TextEditingStartingSingleClickSelected = new EnumValue('SingleClickSelected');
+export const TextEditingStartingDoubleClick = new EnumValue('DoubleClick');
+
+// ============ WheelMode ============
+export const WheelModeScroll = new EnumValue('Scroll');
+export const WheelModeNone = new EnumValue('None');

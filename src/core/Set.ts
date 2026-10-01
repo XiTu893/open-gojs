@@ -1,25 +1,28 @@
 import { Iterable, Iterator } from './Iterable';
-import { List, ListIterator } from './List';
+import { List } from './List';
+import { assignHashId, hashIdOf } from './HashId';
 
 /**
  * Set - 无序集合（对齐官方 go.d.ts:1009 class Set<T> implements Iterable<T>）
  *
  * 官方 API:
  *   constructor(coll?: Iterable<T> | globalThis.Iterable<T>)
- *   add(val: T): this
- *   addAll(coll: Iterable<T> | globalThis.Iterable<T>): this
- *   contains(val: T): boolean   / has(val: T): boolean
- *   containsAll(coll): boolean  / containsAny(coll): boolean
- *   remove(val): boolean        / removeAll(coll): this
- *   retainAll(coll): this
- *   each(func): this            / map<S>(func): Set<S> / filter(pred): Set<T>
- *   any(pred) / all(pred) / first() / toArray() / toSet() / copy() / clear()
- *   count / size / iterator / [Symbol.iterator]
+ *   [Symbol.iterator]() / values() / keys() / entries() / toString()
+ *   add(val) / addAll(coll) / has(val) / contains(val)
+ *   containsAll(coll) / containsAny(coll)
+ *   delete(val) / remove(val) / removeAll(coll) / retainAll(coll) / clear()
+ *   first() / any(pred) / all(pred) / each(func) / map<S>(func) / filter(pred)
+ *   copy() / toArray() / toList()
+ *   count / size / iterator / forEach
+ *
+ * 官方对 null 的处理：add(null) 忽略；addAll/removeAll/retainAll(null) 直接返回；
+ * containsAll(null) 与 containsAny(null) 都返回 true。
  */
 export class Set<T> implements Iterable<T> {
-  private _data: T[] = [];
+  protected _data: T[] = [];
 
   constructor(iterable?: Iterable<T> | T[] | globalThis.Iterable<T> | null) {
+    assignHashId(this);
     if (iterable === null || iterable === undefined) return;
     if (Array.isArray(iterable)) {
       for (const item of iterable) this.add(item);
@@ -42,9 +45,11 @@ export class Set<T> implements Iterable<T> {
   }
 
   get iterator(): Iterator<T> {
+    if (this._data.length === 0) return new SetIterator<T>([]);
     return new SetIterator<T>(this._data);
   }
 
+  /** 是否为空（项目扩展，官方无此成员） */
   get isEmpty(): boolean {
     return this._data.length === 0;
   }
@@ -53,13 +58,36 @@ export class Set<T> implements Iterable<T> {
     return this._data.values();
   }
 
+  /** 官方：返回值的 JavaScript 迭代器（不产生旧式 GoJS Iterator）。 */
+  values(): globalThis.IterableIterator<T> {
+    return this._data.values();
+  }
+
+  /** 官方：兼容 JS Set，产生值的 JavaScript 迭代器。 */
+  keys(): globalThis.IterableIterator<T> {
+    return this._data.values();
+  }
+
+  /** 官方：兼容 JS Set，产生 [value, value] 的 JavaScript 迭代器。 */
+  entries(): globalThis.IterableIterator<[T, T]> {
+    const out: [T, T][] = [];
+    for (let i = 0; i < this._data.length; i++) out.push([this._data[i], this._data[i]]);
+    return out.values();
+  }
+
+  /** 官方：`"Set()#" + __gohashid` */
+  toString(): string {
+    return 'Set()#' + hashIdOf(this);
+  }
+
   /** 返回第一个元素（无则 null） */
   first(): T | null {
     return this._data.length > 0 ? this._data[0] : null;
   }
 
-  /** 添加元素 */
+  /** 添加元素；null 被忽略（与官方一致）。 */
   add(item: T): this {
+    if (item === null) return this;
     if (!this.contains(item)) {
       this._data.push(item);
     }
@@ -80,6 +108,8 @@ export class Set<T> implements Iterable<T> {
     if ('iterator' in (coll as Iterable<T>)) {
       const it = (coll as Iterable<T>).iterator;
       while (it.next()) this.add(it.value);
+    } else if (typeof (coll as unknown as { [Symbol.iterator]?: () => globalThis.IterableIterator<T> })[Symbol.iterator] === 'function') {
+      for (const item of coll as unknown as globalThis.Iterable<T>) this.add(item);
     }
     return this;
   }
@@ -91,9 +121,10 @@ export class Set<T> implements Iterable<T> {
 
   /**
    * Returns whether all of the values of a given collection are in this Set.
-   * @param coll - the collection of items to check for.
+   * 官方：coll 为 null 时返回 true。
    */
-  containsAll(coll: Iterable<T> | T[] | globalThis.Iterable<T>): boolean {
+  containsAll(coll: Iterable<T> | T[] | globalThis.Iterable<T> | null): boolean {
+    if (coll === null || coll === undefined) return true;
     if (Array.isArray(coll)) {
       return coll.every(item => this.contains(item));
     }
@@ -110,8 +141,12 @@ export class Set<T> implements Iterable<T> {
     return true;
   }
 
-  /** Returns whether any of the values of a given collection are in this Set. */
-  containsAny(coll: Iterable<T> | T[] | globalThis.Iterable<T>): boolean {
+  /**
+   * Returns whether any of the values of a given collection are in this Set.
+   * 官方：coll 为 null 时返回 true。
+   */
+  containsAny(coll: Iterable<T> | T[] | globalThis.Iterable<T> | null): boolean {
+    if (coll === null || coll === undefined) return true;
     if (Array.isArray(coll)) {
       return coll.some(item => this.contains(item));
     }
@@ -128,8 +163,8 @@ export class Set<T> implements Iterable<T> {
     return false;
   }
 
-  /** Removes all values of a given collection from this Set. */
-  removeAll(coll: Iterable<T> | T[] | globalThis.Iterable<T>): this {
+  /** Removes all values of a given collection from this Set. 官方：null 直接返回。 */
+  removeAll(coll: Iterable<T> | T[] | globalThis.Iterable<T> | null): this {
     if (coll === null || coll === undefined) return this;
     if (Array.isArray(coll)) {
       for (const item of coll) this.remove(item);
@@ -140,25 +175,28 @@ export class Set<T> implements Iterable<T> {
       while (it.next()) {
         this.remove(it.value);
       }
+      return this;
+    }
+    for (const item of coll as unknown as globalThis.Iterable<T>) {
+      this.remove(item as T);
     }
     return this;
   }
 
-  /** Removes all values that are not in the given collection. */
-  retainAll(coll: Iterable<T> | T[] | globalThis.Iterable<T>): this {
-    const keep: T[] = [];
+  /** Removes all values that are not in the given collection. 官方：null 直接返回。 */
+  retainAll(coll: Iterable<T> | T[] | globalThis.Iterable<T> | null): this {
+    if (coll === null || coll === undefined) return this;
+    if (this._data.length === 0) return this;
+    const keep = new Set<T>();
     if (Array.isArray(coll)) {
-      for (const item of this._data) {
-        if (coll.indexOf(item) >= 0) keep.push(item);
-      }
+      for (const item of coll) keep.add(item);
     } else if ('iterator' in (coll as Iterable<T>)) {
-      const set = new Set<T>();
       const it = (coll as Iterable<T>).iterator;
-      while (it.next()) {
-        keep.push(it.value);
-      }
-      this._data = this._data.filter(item => keep.indexOf(item) >= 0);
+      while (it.next()) keep.add(it.value);
+    } else {
+      for (const item of coll as unknown as globalThis.Iterable<T>) keep.add(item as T);
     }
+    this._data = this._data.filter(item => keep.contains(item));
     return this;
   }
 
@@ -196,6 +234,13 @@ export class Set<T> implements Iterable<T> {
   /** 转换为官方 Set */
   toSet(): Set<T> {
     return this.copy();
+  }
+
+  /** 官方：转成 List（顺序未定义）。 */
+  toList(): List<T> {
+    const result = new List<T>();
+    for (let i = 0; i < this._data.length; i++) result.add(this._data[i]);
+    return result;
   }
 
   /** 遍历（官方：@param func a function to call for each value in the Set） */
@@ -292,33 +337,59 @@ export class Set<T> implements Iterable<T> {
 
   private _indexOf(item: T): number {
     for (let i = 0; i < this._data.length; i++) {
-      if (this._data[i] === item) return i;
+      const cur = this._data[i];
+      if (cur === item || (cur !== cur && item !== item)) return i;
     }
     return -1;
   }
+
+  // ============ 官方静态函数 ============
+
+  /** 官方用于调试消息的类名（未在 d.ts 记录，但运行时存在）。 */
+  static readonly className: string = 'Set';
 }
 
 /**
- * SetIterator（对齐官方：first/any/all/each/map/filter/count/hasNext）
+ * SetIterator（对齐官方 `class SetIterator`）
+ *
+ * 官方 next() 里 `key` 与 `value` 都是当前元素；first() 返回首个元素（不改 key/value）。
  */
 export class SetIterator<T> implements Iterator<T> {
+  static readonly className: string = "SetIterator";
   private _data: T[];
   private _index: number = -1;
+  private _current: T | null = null;
 
   constructor(data: T[]) {
     this._data = data;
   }
 
+  [Symbol.iterator](): globalThis.IterableIterator<T> {
+    return this._data.values();
+  }
+
+  /** 官方：iterator 返回自身。 */
+  get iterator(): SetIterator<T> {
+    return this;
+  }
+
+  /** 官方 Set 迭代器的 key 与 value 相同，都是当前元素。 */
+  get key(): T {
+    return this._current as T;
+  }
+
   get value(): T {
-    if (this._index >= 0 && this._index < this._data.length) {
-      return this._data[this._index];
-    }
-    return null as unknown as T;
+    return this._current as T;
   }
 
   next(): boolean {
     this._index++;
-    return this._index < this._data.length;
+    if (this._index < this._data.length) {
+      this._current = this._data[this._index];
+      return true;
+    }
+    this._current = null;
+    return false;
   }
 
   hasNext(): boolean {
@@ -327,15 +398,18 @@ export class SetIterator<T> implements Iterator<T> {
 
   reset(): void {
     this._index = -1;
+    this._current = null;
   }
 
   first(): T | null {
+    if (this._data.length === 0) return null;
     this._index = 0;
-    return this._data.length > 0 ? this._data[0] : null;
+    this._current = this._data[0];
+    return this._current;
   }
 
   any(func: (item: T) => boolean): boolean {
-    this._index = -1;
+    this.reset();
     for (let i = 0; i < this._data.length; i++) {
       if (func(this._data[i])) return true;
     }
@@ -343,39 +417,35 @@ export class SetIterator<T> implements Iterator<T> {
   }
 
   all(func: (item: T) => boolean): boolean {
-    this._index = -1;
+    this.reset();
     for (let i = 0; i < this._data.length; i++) {
       if (!func(this._data[i])) return false;
     }
     return true;
   }
 
-  each(func: (item: T) => void): this {
-    this._index = -1;
+  each(func: (item: T) => void): SetIterator<T> {
+    this.reset();
     for (let i = 0; i < this._data.length; i++) {
       func(this._data[i]);
     }
     return this;
   }
 
-  map<U>(func: (item: T) => U): ListIterator<U> {
-    const out: U[] = [];
-    for (let i = 0; i < this._data.length; i++) {
-      out.push(func(this._data[i]));
-    }
+  /** 官方 Iterator.map 返回 List 的迭代器。 */
+  map<U>(func: (item: T) => U): Iterator<U> {
     const l = new List<U>();
-    (l as any)._data = out;
-    return l.iterator as unknown as ListIterator<U>;
+    for (let i = 0; i < this._data.length; i++) l.add(func(this._data[i]));
+    return l.iterator;
   }
 
-  filter(func: (item: T) => boolean): ListIterator<T> {
-    const out: T[] = [];
-    for (let i = 0; i < this._data.length; i++) {
-      if (func(this._data[i])) out.push(this._data[i]);
-    }
+  /** 官方 Iterator.filter 返回 List 的迭代器。 */
+  filter(func: (item: T) => boolean): Iterator<T> {
     const l = new List<T>();
-    (l as any)._data = out;
-    return l.iterator as unknown as ListIterator<T>;
+    for (let i = 0; i < this._data.length; i++) {
+      if (func(this._data[i])) l.add(this._data[i]);
+    }
+    return l.iterator;
   }
 
   get count(): number {
@@ -384,5 +454,9 @@ export class SetIterator<T> implements Iterator<T> {
 
   toArray(): T[] {
     return [...this._data];
+  }
+
+  toString(): string {
+    return 'SetIterator';
   }
 }

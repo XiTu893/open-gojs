@@ -1,4 +1,5 @@
 export class LayeredDigraphVertex {
+  static readonly className: string = "LayeredDigraphVertex";
 
   /** The key of this vertex. */
   key!: any;

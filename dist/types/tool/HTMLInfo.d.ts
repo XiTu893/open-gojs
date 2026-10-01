@@ -3,6 +3,7 @@
  * Used by TextEditingTool and ContextMenuTool to integrate HTML elements.
  */
 export declare class HTMLInfo {
+    static readonly className: string;
     private _element;
     private _showFunction;
     private _hideFunction;

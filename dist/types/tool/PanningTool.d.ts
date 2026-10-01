@@ -4,6 +4,7 @@ import { Tool } from './Tool';
  * The user drags to scroll the diagram viewport.
  */
 export declare class PanningTool extends Tool {
+    static readonly className: string;
     private _originalPosition;
     private _startPoint;
     constructor();

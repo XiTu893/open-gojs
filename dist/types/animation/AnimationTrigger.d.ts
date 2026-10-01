@@ -3,6 +3,7 @@ import { Animation } from './Animation';
  * AnimationTrigger - defines an animation that should run when a named property changes.
  */
 export declare class AnimationTrigger {
+    static readonly className: string;
     private _propertyName;
     private _animation;
     private _startsOn;

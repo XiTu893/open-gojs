@@ -9,6 +9,7 @@ import { LayoutNetwork } from './LayoutNetwork';
  * LayoutVertex - represents a node in the layout network.
  */
 export class LayoutVertex {
+  static readonly className: string = "LayoutVertex";
   /** The network this vertex belongs to */
   network: LayoutNetwork | null = null;
 
@@ -20,6 +21,15 @@ export class LayoutVertex {
 
   /** Bounding rectangle of the vertex */
   bounds: Rect = new Rect(0, 0, 0, 0);
+
+  /**
+   * 官方 `LayoutVertex.actualAngle`（度）：该 vertex 最终被摆放的角度。
+   * CircularLayout 在环上定位时写入；子类（如 friendWheel 的 WheelLayout）
+   * 覆写 `commitNodes()` / `commitLinks()` 时靠它算节点旋转与连线曲率。
+   * 之前本项目没有这个字段，`v.actualAngle` 恒为 undefined，导致
+   * friendWheel 的旋转与曲率逻辑全部拿到 NaN。
+   */
+  actualAngle: number = 0;
 
   /** Width of the vertex */
   get width(): number {

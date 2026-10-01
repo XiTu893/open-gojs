@@ -37,6 +37,7 @@ import { TreeNetwork } from './TreeNetwork';
  * - 官方 K/kt/gt/mm/pm → relativePosition/subtreeSize/subtreeOffset/mm/pm。
  */
 export class TreeLayout extends Layout {
+  static readonly className: string = "TreeLayout";
 
   // ============ 官方存储（Gi/Ki/Ru/gm/_A/Je/te/vs/U/G/Rk/Ms） ============
   private _roots: Set<TreeVertex> = new Set<TreeVertex>();
@@ -215,7 +216,7 @@ export class TreeLayout extends Layout {
 
   copy(): TreeLayout {
     const copy = new TreeLayout();
-    copy._arrangementOrigin = this._arrangementOrigin.copy();
+    this.cloneProtected(copy);
     copy._path = this._path;
     copy._treeStyle = this._treeStyle;
     copy._layerStyle = this._layerStyle;
@@ -270,9 +271,9 @@ export class TreeLayout extends Layout {
         if (abOK) {
           const fx = (ab.x + ab.width / 2) - lb.x;
           const fy = (ab.y + ab.height / 2) - lb.y;
-          vertex.focus.set(Number.isFinite(fx) ? fx : w / 2, Number.isFinite(fy) ? fy : h / 2);
+          vertex.focus.setTo(Number.isFinite(fx) ? fx : w / 2, Number.isFinite(fy) ? fy : h / 2);
         } else {
-          vertex.focus.set(w / 2, h / 2);
+          vertex.focus.setTo(w / 2, h / 2);
         }
       }
     }
@@ -843,7 +844,7 @@ export class TreeLayout extends Layout {
         const it = n.iterator;
         while (it.next()) {
           const o = it.value;
-          if (o.fromVertex === p && o instanceof TreeEdge) o.relativePoint.set(x, y);
+          if (o.fromVertex === p && o instanceof TreeEdge) o.relativePoint.setTo(x, y);
         }
         break;
       }
@@ -852,7 +853,7 @@ export class TreeLayout extends Layout {
         const it = n.iterator;
         while (it.next()) {
           const o = it.value;
-          if (o.toVertex === p && o instanceof TreeEdge) o.relativePoint.set(x, y);
+          if (o.toVertex === p && o instanceof TreeEdge) o.relativePoint.setTo(x, y);
         }
         break;
       }
@@ -967,13 +968,13 @@ export class TreeLayout extends Layout {
     if (f === null || f.length < 2 || g === null || g.length < 2) return null;
     const s = this._ke(f.length + g.length);
     let n = 0, o = 0, r = 0;
-    while (o < g.length && g[o].x < f[0].x) { const a = g[o++]; s[r++].set(a.x, a.y + e); }
-    while (n < f.length) { const a = f[n++]; s[r++].set(a.x, a.y); }
+    while (o < g.length && g[o].x < f[0].x) { const a = g[o++]; s[r++].setTo(a.x, a.y + e); }
+    while (n < f.length) { const a = f[n++]; s[r++].setTo(a.x, a.y); }
     const l = f[f.length - 1].x;
     while (o < g.length && g[o].x <= l) o++;
-    while (o < g.length && g[o].x > l) { const a = g[o++]; s[r++].set(a.x, a.y + e); }
+    while (o < g.length && g[o].x > l) { const a = g[o++]; s[r++].setTo(a.x, a.y + e); }
     const h = this._ke(r);
-    for (n = 0; n < r; n++) h[n].set(s[n].x, s[n].y);
+    for (n = 0; n < r; n++) h[n].setTo(s[n].x, s[n].y);
     this._bn(s);
     return h;
   }
@@ -983,13 +984,13 @@ export class TreeLayout extends Layout {
     if (f === null || f.length < 2 || g === null || g.length < 2) return null;
     const s = this._ke(f.length + g.length);
     let n = 0, o = 0, r = 0;
-    while (o < g.length && g[o].y < f[0].y) { const a = g[o++]; s[r++].set(a.x + e, a.y); }
-    while (n < f.length) { const a = f[n++]; s[r++].set(a.x, a.y); }
+    while (o < g.length && g[o].y < f[0].y) { const a = g[o++]; s[r++].setTo(a.x + e, a.y); }
+    while (n < f.length) { const a = f[n++]; s[r++].setTo(a.x, a.y); }
     const l = f[f.length - 1].y;
     while (o < g.length && g[o].y <= l) o++;
-    while (o < g.length && g[o].y > l) { const a = g[o++]; s[r++].set(a.x + e, a.y); }
+    while (o < g.length && g[o].y > l) { const a = g[o++]; s[r++].setTo(a.x + e, a.y); }
     const h = this._ke(r);
-    for (n = 0; n < r; n++) h[n].set(s[n].x, s[n].y);
+    for (n = 0; n < r; n++) h[n].setTo(s[n].x, s[n].y);
     this._bn(s);
     return h;
   }
@@ -999,13 +1000,13 @@ export class TreeLayout extends Layout {
     if (t === null || t.length < 2 || g === null || g.length < 2) return null;
     const s = this._ke(t.length + g.length);
     let n = 0, o = 0, r = 0;
-    while (n < t.length && t[n].x < g[0].x) { const a = t[n++]; s[r++].set(a.x, a.y); }
-    while (o < g.length) { const a = g[o++]; s[r++].set(a.x, a.y + e); }
+    while (n < t.length && t[n].x < g[0].x) { const a = t[n++]; s[r++].setTo(a.x, a.y); }
+    while (o < g.length) { const a = g[o++]; s[r++].setTo(a.x, a.y + e); }
     const l = g[g.length - 1].x;
     while (n < t.length && t[n].x <= l) n++;
-    while (n < t.length && t[n].x > l) { const a = t[n++]; s[r++].set(a.x, a.y); }
+    while (n < t.length && t[n].x > l) { const a = t[n++]; s[r++].setTo(a.x, a.y); }
     const h = this._ke(r);
-    for (n = 0; n < r; n++) h[n].set(s[n].x, s[n].y);
+    for (n = 0; n < r; n++) h[n].setTo(s[n].x, s[n].y);
     this._bn(s);
     return h;
   }
@@ -1015,13 +1016,13 @@ export class TreeLayout extends Layout {
     if (t === null || t.length < 2 || g === null || g.length < 2) return null;
     const s = this._ke(t.length + g.length);
     let n = 0, o = 0, r = 0;
-    while (n < t.length && t[n].y < g[0].y) { const a = t[n++]; s[r++].set(a.x, a.y); }
-    while (o < g.length) { const a = g[o++]; s[r++].set(a.x + e, a.y); }
+    while (n < t.length && t[n].y < g[0].y) { const a = t[n++]; s[r++].setTo(a.x, a.y); }
+    while (o < g.length) { const a = g[o++]; s[r++].setTo(a.x + e, a.y); }
     const l = g[g.length - 1].y;
     while (n < t.length && t[n].y <= l) n++;
-    while (n < t.length && t[n].y > l) { const a = t[n++]; s[r++].set(a.x, a.y); }
+    while (n < t.length && t[n].y > l) { const a = t[n++]; s[r++].setTo(a.x, a.y); }
     const h = this._ke(r);
-    for (n = 0; n < r; n++) h[n].set(s[n].x, s[n].y);
+    for (n = 0; n < r; n++) h[n].setTo(s[n].x, s[n].y);
     this._bn(s);
     return h;
   }
@@ -1095,11 +1096,11 @@ export class TreeLayout extends Layout {
       ng = this._ke(2);
       np = this._ke(2);
       if (a) {
-        ng[0].set(0, 0); ng[1].set(0, y.height);
-        np[0].set(y.width, 0); np[1].set(np[0].x, ng[1].y);
+        ng[0].setTo(0, 0); ng[1].setTo(0, y.height);
+        np[0].setTo(y.width, 0); np[1].setTo(np[0].x, ng[1].y);
       } else {
-        ng[0].set(0, 0); ng[1].set(y.width, 0);
-        np[0].set(0, y.height); np[1].set(ng[1].x, np[0].y);
+        ng[0].setTo(0, 0); ng[1].setTo(y.width, 0);
+        np[0].setTo(0, y.height); np[1].setTo(ng[1].x, np[0].y);
       }
     }
     if (a) {
@@ -1112,7 +1113,7 @@ export class TreeLayout extends Layout {
       const o = x;
       this._bn(f); this._bn(ng); this._bn(u); this._bn(np);
       if (r !== undefined) { r[0] = e; r[1] = s; }
-      l.set(S, 0, n, o);
+      l.setTo(S, 0, n, o);
     } else {
       const b = N;
       let S = b - this._minSepX(u, ng, b);
@@ -1123,7 +1124,7 @@ export class TreeLayout extends Layout {
       const o = Math.max(0, S) + y.height;
       this._bn(f); this._bn(ng); this._bn(u); this._bn(np);
       if (r !== undefined) { r[0] = e; r[1] = s; }
-      l.set(S, 0, n, o);
+      l.setTo(S, 0, n, o);
     }
   }
 
@@ -1134,12 +1135,12 @@ export class TreeLayout extends Layout {
     v: TreeVertex, ch: TreeVertex[], e: number, s: number, n: number, o: number, r: Rect
   ): Rect {
     const l = ch.length;
-    if (l === 0) { r.set(e, 0, n, o); return r; }
+    if (l === 0) { r.setTo(e, 0, n, o); return r; }
     if (l === 1) {
       const y = ch[0];
       n = y.subtreeSize.width;
       o = y.subtreeSize.height;
-      r.set(e, 0, n, o);
+      r.setTo(e, 0, n, o);
       return r;
     }
     const h = v.nodeSpacing;
@@ -1151,13 +1152,13 @@ export class TreeLayout extends Layout {
       const x = ch[y], b = x.subtreeSize, S = u === 0 ? 0 : a;
       if (f) {
         const k = this._computeBusNodeSpacing(x) - h;
-        x.relativePosition.set(e - (b.width + k), m + S);
+        x.relativePosition.setTo(e - (b.width + k), m + S);
         n = Math.max(n, b.width + k);
         o = Math.max(o, m + S + b.height);
         m += S + b.height;
       } else {
         const k = this._computeBusNodeSpacing(x) - h;
-        x.relativePosition.set(d + S, e - (b.height + k));
+        x.relativePosition.setTo(d + S, e - (b.height + k));
         o = Math.max(o, b.height + k);
         n = Math.max(n, d + S + b.width);
         d += S + b.width;
@@ -1172,13 +1173,13 @@ export class TreeLayout extends Layout {
       const x = ch[y], b = x.subtreeSize, S = u === 0 ? 0 : a;
       if (f) {
         const k = this._computeBusNodeSpacing(x) - h;
-        x.relativePosition.set(d + k, m + S);
+        x.relativePosition.setTo(d + k, m + S);
         n = Math.max(n, d + b.width + k);
         o = Math.max(o, m + S + b.height);
         m += S + b.height;
       } else {
         const k = this._computeBusNodeSpacing(x) - h;
-        x.relativePosition.set(d + S, m + k);
+        x.relativePosition.setTo(d + S, m + k);
         n = Math.max(n, d + S + b.width);
         o = Math.max(o, m + b.height + k);
         d += S + b.width;
@@ -1190,21 +1191,21 @@ export class TreeLayout extends Layout {
       const b = this._computeBusLastRowSpacing(y, f ? Math.max(Math.abs(p), Math.abs(m)) : Math.max(Math.abs(g), Math.abs(d)));
       if (f) {
         const S = e + h / 2 - y.focus.x - y.subtreeOffset.x;
-        y.relativePosition.set(S, o + b);
+        y.relativePosition.setTo(S, o + b);
         n = Math.max(n, S + x.width);
         if (S < 0) n -= S;
         o = Math.max(o, Math.max(p, m) + b + x.height);
         if (y.relativePosition.x < 0) e = this._fixRelativePositions(v, y.relativePosition.x, false, e, h);
       } else {
         const S = e + h / 2 - y.focus.y - y.subtreeOffset.y;
-        y.relativePosition.set(n + b, S);
+        y.relativePosition.setTo(n + b, S);
         n = Math.max(n, Math.max(g, d) + b + x.width);
         o = Math.max(o, S + x.height);
         if (S < 0) o -= S;
         if (y.relativePosition.y < 0) e = this._fixRelativePositions(v, y.relativePosition.y, true, e, h);
       }
     }
-    r.set(e, 0, n, o);
+    r.setTo(e, 0, n, o);
     return r;
   }
 
@@ -1213,12 +1214,12 @@ export class TreeLayout extends Layout {
     v: TreeVertex, ch: TreeVertex[], e: number, s: number, n: number, o: number, r: Rect
   ): Rect {
     const l = ch.length;
-    if (l === 0) { r.set(e, 0, n, o); return r; }
+    if (l === 0) { r.setTo(e, 0, n, o); return r; }
     if (l === 1) {
       const y = ch[0];
       n = y.subtreeSize.width;
       o = y.subtreeSize.height;
-      r.set(e, 0, n, o);
+      r.setTo(e, 0, n, o);
       return r;
     }
     const h = v.nodeSpacing;
@@ -1231,13 +1232,13 @@ export class TreeLayout extends Layout {
       if (f) {
         const k = this._computeBusNodeSpacing(x) - h;
         m -= S + b.height;
-        x.relativePosition.set(e - (b.width + k), m);
+        x.relativePosition.setTo(e - (b.width + k), m);
         n = Math.max(n, b.width + k);
         o = Math.max(o, Math.abs(m));
       } else {
         const k = this._computeBusNodeSpacing(x) - h;
         d -= S + b.width;
-        x.relativePosition.set(d, e - (b.height + k));
+        x.relativePosition.setTo(d, e - (b.height + k));
         o = Math.max(o, b.height + k);
         n = Math.max(n, Math.abs(d));
       }
@@ -1252,13 +1253,13 @@ export class TreeLayout extends Layout {
       if (f) {
         const k = this._computeBusNodeSpacing(x) - h;
         m -= S + b.height;
-        x.relativePosition.set(d + k, m);
+        x.relativePosition.setTo(d + k, m);
         n = Math.max(n, d + b.width + k);
         o = Math.max(o, Math.abs(m));
       } else {
         const k = this._computeBusNodeSpacing(x) - h;
         d -= S + b.width;
-        x.relativePosition.set(d, m + k);
+        x.relativePosition.setTo(d, m + k);
         o = Math.max(o, m + b.height + k);
         n = Math.max(n, Math.abs(d));
       }
@@ -1269,14 +1270,14 @@ export class TreeLayout extends Layout {
       const b = this._computeBusLastRowSpacing(y, f ? Math.max(Math.abs(p), Math.abs(m)) : Math.max(Math.abs(g), Math.abs(d)));
       if (f) {
         const S = e + h / 2 - y.focus.x - y.subtreeOffset.x;
-        y.relativePosition.set(S, -o - x.height - b);
+        y.relativePosition.setTo(S, -o - x.height - b);
         n = Math.max(n, S + x.width);
         if (S < 0) n -= S;
         o = Math.max(o, Math.abs(Math.min(p, m)) + b + x.height);
         if (y.relativePosition.x < 0) e = this._fixRelativePositions(v, y.relativePosition.x, false, e, h);
       } else {
         const S = e + h / 2 - y.focus.y - y.subtreeOffset.y;
-        y.relativePosition.set(-n - x.width - b, S);
+        y.relativePosition.setTo(-n - x.width - b, S);
         n = Math.max(n, Math.abs(Math.min(g, d)) + b + x.width);
         o = Math.max(o, S + x.height);
         if (S < 0) o -= S;
@@ -1285,10 +1286,10 @@ export class TreeLayout extends Layout {
     }
     for (let y = 0; y < l; y++) {
       const x = ch[y];
-      if (f) x.relativePosition.set(x.relativePosition.x, x.relativePosition.y + o);
-      else x.relativePosition.set(x.relativePosition.x + n, x.relativePosition.y);
+      if (f) x.relativePosition.setTo(x.relativePosition.x, x.relativePosition.y + o);
+      else x.relativePosition.setTo(x.relativePosition.x + n, x.relativePosition.y);
     }
-    r.set(e, 0, n, o);
+    r.setTo(e, 0, n, o);
     return r;
   }
 
@@ -1297,8 +1298,8 @@ export class TreeLayout extends Layout {
     const o = v.children;
     const r = o.length;
     for (let h = 0; h < r; h++) {
-      if (vertical) o[h].relativePosition.set(o[h].relativePosition.x, o[h].relativePosition.y - delta);
-      else o[h].relativePosition.set(o[h].relativePosition.x - delta, o[h].relativePosition.y);
+      if (vertical) o[h].relativePosition.setTo(o[h].relativePosition.x, o[h].relativePosition.y - delta);
+      else o[h].relativePosition.setTo(o[h].relativePosition.x - delta, o[h].relativePosition.y);
     }
     const l = o[r - 1];
     return Math.max(e, vertical ? l.subtreeOffset.y + l.focus.y - spacing / 2 : l.subtreeOffset.x + l.focus.x - spacing / 2);
@@ -1315,14 +1316,14 @@ export class TreeLayout extends Layout {
         R = this.isBusAlignment(O);
       }
       const X = this._isLeftSideBus(v);
-      v.relativePosition.set(0, 0);
-      v.subtreeSize.set(v.width, v.height);
+      v.relativePosition.setTo(0, 0);
+      v.subtreeSize.setTo(v.width, v.height);
       if (v.parent !== null && v.comments !== null) {
         if (((I === 180 || I === 270) && !R) || X) {
-          if ((I === 180 && !R) || ((I === 90 || I === 270) && X)) v.subtreeOffset.set(v.width - v.focus.x * 2, 0);
-          else v.subtreeOffset.set(0, v.height - v.focus.y * 2);
-        } else v.subtreeOffset.set(0, 0);
-      } else v.subtreeOffset.set(0, 0);
+          if ((I === 180 && !R) || ((I === 90 || I === 270) && X)) v.subtreeOffset.setTo(v.width - v.focus.x * 2, 0);
+          else v.subtreeOffset.setTo(0, v.height - v.focus.y * 2);
+        } else v.subtreeOffset.setTo(0, 0);
+      } else v.subtreeOffset.setTo(0, 0);
       return;
     }
     const i = this.orthoAngle(v);
@@ -1373,12 +1374,12 @@ export class TreeLayout extends Layout {
           for (let I = 0; I < o; I++) {
             const O = n[I], X = O.subtreeSize, Y = M === 0 ? 0 : g;
             if (e) {
-              O.relativePosition.set(s - X.width, A + Y);
+              O.relativePosition.setTo(s - X.width, A + Y);
               b = Math.max(b, X.width);
               S = Math.max(S, A + Y + X.height);
               A += Y + X.height;
             } else {
-              O.relativePosition.set(P + Y, s - X.height);
+              O.relativePosition.setTo(P + Y, s - X.height);
               b = Math.max(b, P + Y + X.width);
               S = Math.max(S, X.height);
               P += Y + X.width;
@@ -1390,12 +1391,12 @@ export class TreeLayout extends Layout {
           for (let I = 0; I < o; I++) {
             const O = n[I], X = O.subtreeSize, Y = M === 0 ? 0 : g;
             if (e) {
-              O.relativePosition.set(u / 2 + v.focus.x, A + Y);
+              O.relativePosition.setTo(u / 2 + v.focus.x, A + Y);
               b = Math.max(b, X.width);
               S = Math.max(S, A + Y + X.height);
               A += Y + X.height;
             } else {
-              O.relativePosition.set(P + Y, u / 2 + v.focus.y);
+              O.relativePosition.setTo(P + Y, u / 2 + v.focus.y);
               b = Math.max(b, P + Y + X.width);
               S = Math.max(S, X.height);
               P += Y + X.width;
@@ -1415,7 +1416,7 @@ export class TreeLayout extends Layout {
           }
           const X = M === 0 ? m : u;
           this._recordMidPoints(I, 0, A);
-          I.relativePosition.set(P + X, A);
+          I.relativePosition.setTo(P + X, A);
           b = Math.max(b, P + X + O.width);
           S = Math.max(S, k + (N === 0 ? 0 : g) + O.height);
           P += X + O.width;
@@ -1427,7 +1428,7 @@ export class TreeLayout extends Layout {
           }
           const X = M === 0 ? m : u;
           this._recordMidPoints(I, P, 0);
-          I.relativePosition.set(P, A + X);
+          I.relativePosition.setTo(P, A + X);
           S = Math.max(S, A + X + O.height);
           b = Math.max(b, k + (N === 0 ? 0 : g) + O.width);
           A += X + O.height;
@@ -1507,12 +1508,12 @@ export class TreeLayout extends Layout {
     for (let R = 0; R < o; R++) {
       const I = n[R];
       if (e) {
-        I.relativePosition.set(
+        I.relativePosition.setTo(
           I.relativePosition.x + I.subtreeOffset.x - D,
           I.relativePosition.y + (i > 135 ? (a ? -S : -I.subtreeSize.height) + I.subtreeOffset.y - f : x + f + I.subtreeOffset.y)
         );
       } else {
-        I.relativePosition.set(
+        I.relativePosition.setTo(
           I.relativePosition.x + (i > 135 ? (a ? -b : -I.subtreeSize.width) + I.subtreeOffset.x - f : y + f + I.subtreeOffset.x),
           I.relativePosition.y + I.subtreeOffset.y - F
         );
@@ -1529,8 +1530,8 @@ export class TreeLayout extends Layout {
       S = this._calculateSubheight(v, S, F);
       if (F < 0) F = 0;
     }
-    v.subtreeOffset.set(D, F);
-    v.subtreeSize.set(b, S);
+    v.subtreeOffset.setTo(D, F);
+    v.subtreeSize.setTo(b, S);
   }
 
   // ============ 官方 JB — layoutTreeBlock（compaction = Block） ============
@@ -1547,17 +1548,17 @@ export class TreeLayout extends Layout {
         pb = this.isBusAlignment(pr);
       }
       const left = this._isLeftSideBus(v);
-      v.relativePosition.set(0, 0);
-      v.subtreeSize.set(v.width, v.height);
+      v.relativePosition.setTo(0, 0);
+      v.subtreeSize.setTo(v.width, v.height);
       if (v.parent !== null && v.comments !== null &&
           (((pa === 180 || pa === 270) && !pb) || left)) {
         if ((pa === 180 && !pb) || ((pa === 90 || pa === 270) && left)) {
-          v.subtreeOffset.set(v.width - v.focus.x * 2, 0);
+          v.subtreeOffset.setTo(v.width - v.focus.x * 2, 0);
         } else {
-          v.subtreeOffset.set(0, v.height - v.focus.y * 2);
+          v.subtreeOffset.setTo(0, v.height - v.focus.y * 2);
         }
       } else {
-        v.subtreeOffset.set(0, 0);
+        v.subtreeOffset.setTo(0, 0);
       }
       v.mm = null;
       v.pm = null;
@@ -1617,12 +1618,12 @@ export class TreeLayout extends Layout {
           for (let z = 0; z < o; z++) {
             const ch = n[z], size = ch.subtreeSize, gap = L === 0 ? 0 : m;
             if (e) {
-              ch.relativePosition.set(s - size.width, C + gap);
+              ch.relativePosition.setTo(s - size.width, C + gap);
               x = Math.max(x, size.width);
               b = Math.max(b, C + gap + size.height);
               C += gap + size.height;
             } else {
-              ch.relativePosition.set(M + gap, s - size.height);
+              ch.relativePosition.setTo(M + gap, s - size.height);
               x = Math.max(x, M + gap + size.width);
               b = Math.max(b, size.height);
               M += gap + size.width;
@@ -1634,12 +1635,12 @@ export class TreeLayout extends Layout {
           for (let z = 0; z < o; z++) {
             const ch = n[z], size = ch.subtreeSize, gap = L === 0 ? 0 : m;
             if (e) {
-              ch.relativePosition.set(u / 2 + v.focus.x, C + gap);
+              ch.relativePosition.setTo(u / 2 + v.focus.x, C + gap);
               x = Math.max(x, size.width);
               b = Math.max(b, C + gap + size.height);
               C += gap + size.height;
             } else {
-              ch.relativePosition.set(M + gap, u / 2 + v.focus.y);
+              ch.relativePosition.setTo(M + gap, u / 2 + v.focus.y);
               x = Math.max(x, M + gap + size.width);
               b = Math.max(b, size.height);
               M += gap + size.width;
@@ -1650,11 +1651,11 @@ export class TreeLayout extends Layout {
       }
       k = this._ke(2); P = this._ke(2);
       if (e) {
-        k[0].set(0, 0); k[1].set(0, b);
-        P[0].set(x, 0); P[1].set(x, b);
+        k[0].setTo(0, 0); k[1].setTo(0, b);
+        P[0].setTo(x, 0); P[1].setTo(x, b);
       } else {
-        k[0].set(0, 0); k[1].set(x, 0);
-        P[0].set(0, b); P[1].set(x, b);
+        k[0].setTo(0, 0); k[1].setTo(x, 0);
+        P[0].setTo(0, b); P[1].setTo(x, b);
       }
     } else {
       for (let z = 0; z < o; z++) {
@@ -1671,8 +1672,8 @@ export class TreeLayout extends Layout {
             k = H.mm; P = H.pm; A = size.width; N = size.height;
             if (k === null || P === null || i !== this.orthoAngle(H)) {
               k = this._ke(2); P = this._ke(2);
-              k[0].set(0, 0); k[1].set(0, N);
-              P[0].set(A, 0); P[1].set(A, N);
+              k[0].setTo(0, 0); k[1].setTo(0, N);
+              P[0].setTo(A, 0); P[1].setTo(A, N);
             }
           } else {
             const tmp: (Point[] | null)[] = [null, null];
@@ -1686,7 +1687,7 @@ export class TreeLayout extends Layout {
               j = 0;
             }
           }
-          H.relativePosition.set(j, C);
+          H.relativePosition.setTo(j, C);
           x = Math.max(x, A);
           b = Math.max(b, S + (T === 0 ? 0 : m) + size.height);
           M = A;
@@ -1702,8 +1703,8 @@ export class TreeLayout extends Layout {
             k = H.mm; P = H.pm; A = size.width; N = size.height;
             if (k === null || P === null || i !== this.orthoAngle(H)) {
               k = this._ke(2); P = this._ke(2);
-              k[0].set(0, 0); k[1].set(A, 0);
-              P[0].set(0, N); P[1].set(A, N);
+              k[0].setTo(0, 0); k[1].setTo(A, 0);
+              P[0].setTo(0, N); P[1].setTo(A, N);
             }
           } else {
             const tmp: (Point[] | null)[] = [null, null];
@@ -1717,7 +1718,7 @@ export class TreeLayout extends Layout {
               j = 0;
             }
           }
-          H.relativePosition.set(M, j);
+          H.relativePosition.setTo(M, j);
           b = Math.max(b, N);
           x = Math.max(x, S + (T === 0 ? 0 : m) + size.width);
           C = N;
@@ -1796,14 +1797,14 @@ export class TreeLayout extends Layout {
     for (let z = 0; z < o; z++) {
       const H = n[z];
       if (e) {
-        H.relativePosition.set(
+        H.relativePosition.setTo(
           H.relativePosition.x + H.subtreeOffset.x - I,
           H.relativePosition.y + (i > 135
             ? (a ? -b : -H.subtreeSize.height) + H.subtreeOffset.y - f
             : y + f + H.subtreeOffset.y)
         );
       } else {
-        H.relativePosition.set(
+        H.relativePosition.setTo(
           H.relativePosition.x + (i > 135
             ? (a ? -x : -H.subtreeSize.width) + H.subtreeOffset.x - f
             : p + f + H.subtreeOffset.x),
@@ -1859,43 +1860,43 @@ export class TreeLayout extends Layout {
     if (T > 0) {
       B = this._ke(4); K = this._ke(4);
       if (e) {
-        B[2].set(0, y + f); B[3].set(B[2].x, b);
-        K[2].set(x, B[2].y); K[3].set(K[2].x, B[3].y);
+        B[2].setTo(0, y + f); B[3].setTo(B[2].x, b);
+        K[2].setTo(x, B[2].y); K[3].setTo(K[2].x, B[3].y);
       } else {
-        B[2].set(p + f, 0); B[3].set(x, B[2].y);
-        K[2].set(B[2].x, b); K[3].set(B[3].x, K[2].y);
+        B[2].setTo(p + f, 0); B[3].setTo(x, B[2].y);
+        K[2].setTo(B[2].x, b); K[3].setTo(B[3].x, K[2].y);
       }
     } else {
       const kk = k !== null ? k : [];
       const pp = P !== null ? P : [];
       B = this._ke(kk.length + 2);
       K = this._ke(pp.length + 2);
-      for (let z = 0; z < kk.length; z++) B[z + 2].set(kk[z].x + X, kk[z].y + Y);
-      for (let z = 0; z < pp.length; z++) K[z + 2].set(pp[z].x + X, pp[z].y + Y);
+      for (let z = 0; z < kk.length; z++) B[z + 2].setTo(kk[z].x + X, kk[z].y + Y);
+      for (let z = 0; z < pp.length; z++) K[z + 2].setTo(pp[z].x + X, pp[z].y + Y);
     }
     if (e) {
-      B[0].set(I, 0); B[1].set(B[0].x, y);
-      if (B[2].y < B[1].y) { if (B[2].x > B[0].x) B[2].set(B[1].x, B[1].y); else B[1].set(B[2].x, B[2].y); }
-      if (B[3].y < B[2].y) { if (B[3].x > B[0].x) B[3].set(B[2].x, B[2].y); else B[2].set(B[3].x, B[3].y); }
-      K[0].set(I + p, 0); K[1].set(K[0].x, y);
-      if (K[2].y < K[1].y) { if (K[2].x < K[0].x) K[2].set(K[1].x, K[1].y); else K[1].set(K[2].x, K[2].y); }
-      if (K[3].y < K[2].y) { if (K[3].x < K[0].x) K[3].set(K[2].x, K[2].y); else K[2].set(K[3].x, K[3].y); }
+      B[0].setTo(I, 0); B[1].setTo(B[0].x, y);
+      if (B[2].y < B[1].y) { if (B[2].x > B[0].x) B[2].setTo(B[1].x, B[1].y); else B[1].setTo(B[2].x, B[2].y); }
+      if (B[3].y < B[2].y) { if (B[3].x > B[0].x) B[3].setTo(B[2].x, B[2].y); else B[2].setTo(B[3].x, B[3].y); }
+      K[0].setTo(I + p, 0); K[1].setTo(K[0].x, y);
+      if (K[2].y < K[1].y) { if (K[2].x < K[0].x) K[2].setTo(K[1].x, K[1].y); else K[1].setTo(K[2].x, K[2].y); }
+      if (K[3].y < K[2].y) { if (K[3].x < K[0].x) K[3].setTo(K[2].x, K[2].y); else K[2].setTo(K[3].x, K[3].y); }
       B[2].y -= f / 2; K[2].y -= f / 2;
     } else {
-      B[0].set(0, O); B[1].set(p, B[0].y);
-      if (B[2].x < B[1].x) { if (B[2].y > B[0].y) B[2].set(B[1].x, B[1].y); else B[1].set(B[2].x, B[2].y); }
-      if (B[3].x < B[2].x) { if (B[3].y > B[0].y) B[3].set(B[2].x, B[2].y); else B[2].set(B[3].x, B[3].y); }
-      K[0].set(0, O + y); K[1].set(p, K[0].y);
-      if (K[2].x < K[1].x) { if (K[2].y < K[0].y) K[2].set(K[1].x, K[1].y); else K[1].set(K[2].x, K[2].y); }
-      if (K[3].x < K[2].x) { if (K[3].y < K[0].y) K[3].set(K[2].x, K[2].y); else K[2].set(K[3].x, K[3].y); }
+      B[0].setTo(0, O); B[1].setTo(p, B[0].y);
+      if (B[2].x < B[1].x) { if (B[2].y > B[0].y) B[2].setTo(B[1].x, B[1].y); else B[1].setTo(B[2].x, B[2].y); }
+      if (B[3].x < B[2].x) { if (B[3].y > B[0].y) B[3].setTo(B[2].x, B[2].y); else B[2].setTo(B[3].x, B[3].y); }
+      K[0].setTo(0, O + y); K[1].setTo(p, K[0].y);
+      if (K[2].x < K[1].x) { if (K[2].y < K[0].y) K[2].setTo(K[1].x, K[1].y); else K[1].setTo(K[2].x, K[2].y); }
+      if (K[3].x < K[2].x) { if (K[3].y < K[0].y) K[3].setTo(K[2].x, K[2].y); else K[2].setTo(K[3].x, K[3].y); }
       B[2].x -= f / 2; K[2].x -= f / 2;
     }
     this._bn(k);
     this._bn(P);
     v.mm = B;
     v.pm = K;
-    v.subtreeOffset.set(I, O);
-    v.subtreeSize.set(x, b);
+    v.subtreeOffset.setTo(I, O);
+    v.subtreeSize.setTo(x, b);
   }
 
   // ============ 官方 arrangeTrees / oT — 绝对坐标 ============
@@ -2012,7 +2013,7 @@ export class TreeLayout extends Layout {
         const x0 = Math.min(total.x, b.x), y0 = Math.min(total.y, b.y);
         const x1 = Math.max(total.x + total.width, b.x + b.width);
         const y1 = Math.max(total.y + total.height, b.y + b.height);
-        total.set(x0, y0, x1 - x0, y1 - y0);
+        total.setTo(x0, y0, x1 - x0, y1 - y0);
       }
       let sp = spacings[v.level];
       const cs = this.computeLayerSpacing(v);
@@ -2082,10 +2083,10 @@ export class TreeLayout extends Layout {
       const fromSpot = childFirst ? 'fromSpot' : 'toSpot';
       const toSpot = childFirst ? 'toSpot' : 'fromSpot';
       if (v.setsPortSpot) {
-        link[fromSpot] = v.portSpot.isDefault ? this._defaultPortSpot(ang) : v.portSpot;
+        link[fromSpot] = v.portSpot.isDefault() ? this._defaultPortSpot(ang) : v.portSpot;
       }
       if (v.setsChildPortSpot) {
-        link[toSpot] = v.childPortSpot.isDefault ? this._defaultChildPortSpot(ang) : v.childPortSpot;
+        link[toSpot] = v.childPortSpot.isDefault() ? this._defaultChildPortSpot(ang) : v.childPortSpot;
       }
     }
   }
@@ -2271,6 +2272,65 @@ export class TreeLayout extends Layout {
       if (link === null || link === undefined) continue;
       link.fromSpot = from;
       link.toSpot = to;
+    }
+  }
+
+  // ============ 官方 TreeLayout 公开成员（阶段 7） ============
+
+  get alternateChildPortSpot(): Spot { return this._alternateDefaults.childPortSpot; }
+  set alternateChildPortSpot(val: Spot) { this._alternateDefaults.childPortSpot = val; this.invalidateLayout(); }
+
+  get alternatePortSpot(): Spot { return this._alternateDefaults.portSpot; }
+  set alternatePortSpot(val: Spot) { this._alternateDefaults.portSpot = val; this.invalidateLayout(); }
+
+  get alternateSetsChildPortSpot(): boolean { return this._alternateDefaults.setsChildPortSpot; }
+  set alternateSetsChildPortSpot(val: boolean) { this._alternateDefaults.setsChildPortSpot = val; this.invalidateLayout(); }
+
+  get alternateSetsPortSpot(): boolean { return this._alternateDefaults.setsPortSpot; }
+  set alternateSetsPortSpot(val: boolean) { this._alternateDefaults.setsPortSpot = val; this.invalidateLayout(); }
+
+  get alternateComparer(): (a: TreeVertex, b: TreeVertex) => number { return this._alternateDefaults.comparer; }
+  set alternateComparer(val: (a: TreeVertex, b: TreeVertex) => number) { this._alternateDefaults.comparer = val; this.invalidateLayout(); }
+
+  get alternateCommentMargin(): number { return this._alternateDefaults.commentMargin; }
+  set alternateCommentMargin(val: number) { this._alternateDefaults.commentMargin = val; this.invalidateLayout(); }
+
+  get alternateCommentSpacing(): number { return this._alternateDefaults.commentSpacing; }
+  set alternateCommentSpacing(val: number) { this._alternateDefaults.commentSpacing = val; this.invalidateLayout(); }
+
+  findRoots(): void { this._findRoots(); }
+
+  initializeTreeVertexValues(v: TreeVertex): void { this._initializeTreeVertexValues(v); }
+
+  assignTreeVertexValues(v: TreeVertex): void { }
+
+  sortTreeVertexChildren(v: TreeVertex): void { this._sortTreeChildren(v); }
+
+  layoutTree(v: TreeVertex): void { this._layoutTree(v); }
+
+  addComments(v: TreeVertex): void { this._addComments(v); }
+
+  computeBusNodeSpacing(c: TreeVertex): number { return this._computeBusNodeSpacing(c); }
+
+  computeBusLastRowSpacing(c: TreeVertex, dir: number): number { return this._computeBusLastRowSpacing(c, dir); }
+
+  commitNodes(): void {
+    if (this.network !== null) {
+      const it = this.network.vertexes.iterator;
+      while (it.next()) {
+        const v = it.value;
+        if (v.node) v.node.move(new Point(v.x, v.y));
+      }
+    }
+  }
+
+  commitLinks(): void {
+    if (this.network !== null) {
+      const it = this.network.edges.iterator;
+      while (it.next()) {
+        const e = it.value;
+        if (e.link) e.link.updateRoute();
+      }
     }
   }
 }

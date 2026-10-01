@@ -1,4 +1,4 @@
-﻿﻿
+﻿
 <!DOCTYPE html>
 <html lang="en">
   <head>
@@ -154,12 +154,13 @@
           layerName: 'ViewportBackground',
           alignment: go.Spot.Center,
           isShadowed: true,
+          shadowBlur: 3,
           padding: 1
         })
         .add(
           new go.Panel('Auto')
             .add(
-              new go.Shape({strokeWidth: 0}),
+              new go.Shape({strokeWidth: 0, fill: '#333'}),
               new go.Shape({
                 fill: new go.Brush('Linear', {
                   0: go.Brush.lightenBy('oldlace', 0.5),
@@ -221,13 +222,20 @@
         .bindObject('layerName', 'isSelected', s => s ? 'Foreground' : '') // temporarily put selected nodes in Foreground layer
         .add(
           new go.Shape('Rectangle', {
-              strokeWidth: 1
+              strokeWidth: 0,
+              stroke: 'transparent'
             }) // avoid extra thickness from the stroke
-            .bind('fill', 'color')
-            .bind('stroke', 'color', value => go.Brush.darken(value)),
+            .bind('fill', 'color'),
           new go.TextBlock()
-            .bind('text', 'color')
+            .bind('text', 'key')
         );
+
+    myDiagram.linkTemplate =
+      new go.Link()
+        .add(
+          new go.Shape({stroke: '#333'}),
+          new go.Shape({toArrow: 'standard', strokeWidth: 0, fill: '#333'})
+        )
 
     myDiagram.model = new go.GraphLinksModel(
       [

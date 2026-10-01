@@ -1,4 +1,5 @@
 export declare class Animation {
+    static readonly className: string;
     static EaseLinear(t: number): number;
     static EaseInOut(t: number): number;
     static EaseIn(t: number): number;

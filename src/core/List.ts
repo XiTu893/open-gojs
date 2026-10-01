@@ -1,5 +1,6 @@
 import { Iterable, Iterator } from './Iterable';
 import { Set } from './Set';
+import { assignHashId, hashIdOf } from './HashId';
 
 /**
  * List - 有序列表（对齐官方 go.d.ts:672 class List<T> implements Iterable<T>）
@@ -19,6 +20,7 @@ export class List<T> implements Iterable<T> {
   private _data: T[] = [];
 
   constructor(iterable?: Iterable<T> | T[] | globalThis.Iterable<T> | null) {
+    assignHashId(this);
     if (iterable === null || iterable === undefined) return;
     if (Array.isArray(iterable)) {
       this._data = [...iterable];
@@ -39,8 +41,52 @@ export class List<T> implements Iterable<T> {
     return this._data.values();
   }
 
+  // ============ 官方 Iterator 协议 ============
+  //
+  // 官方 `Node.findLinksInto()` / `findNodesOutOf()` / `findTreeChildrenNodes()` 等
+  // 返回的是 `go.Iterator`，样例普遍写成：
+  //     let it = node.findLinksInto();
+  //     while (it.next()) { ... it.value ... }
+  // 而本项目这些方法返回 `List`。为避免逐个改签名（`List` 还要被内部当集合用），
+  // 这里让 `List` 同时具备迭代器协议 —— 光标状态是**额外**的，
+  // `each/any/all/filter/elt/count/...` 这些集合方法完全不受影响。
+  private _cursor: number = -1;
+
+  /** 推进到下一项；调用后才读 value。 */
+  next(): boolean {
+    if (this._cursor + 1 < this._data.length) {
+      this._cursor += 1;
+      return true;
+    }
+    this._cursor = this._data.length;
+    return false;
+  }
+
+  /** next() 的同义词。 */
+  hasNext(): boolean {
+    return this._cursor + 1 < this._data.length;
+  }
+
+  /** 假定刚调用过 next() 且返回 true，取当前项。 */
+  get value(): T {
+    return this._cursor >= 0 && this._cursor < this._data.length
+      ? this._data[this._cursor]
+      : (null as unknown as T);
+  }
+
+  /** 当前下标；官方类型是 any。 */
+  get key(): any {
+    return this._cursor;
+  }
+
+  /** 重置光标，让这个 List 可以重新被当迭代器走一遍。 */
+  reset(): void {
+    this._cursor = -1;
+  }
+
+  /** 官方：`"List()#" + __gohashid` */
   toString(): string {
-    return 'List()';
+    return 'List()#' + hashIdOf(this);
   }
 
   /** Adds a given value to the end of the List. */
@@ -252,6 +298,37 @@ export class List<T> implements Iterable<T> {
     return this;
   }
 
+  /**
+   * 官方（未在主文档中记录）：对 `[from, to)` 区间排序。
+   * @param sortfunc 比较函数
+   * @param from 起始下标（含），默认 0
+   * @param to 结束下标（**不含**），默认列表长度
+   */
+  sortRange(sortfunc: (a: T, b: T) => number, from?: number, to?: number): this {
+    const n = this._data.length;
+    let i = from === undefined ? 0 : from;
+    let e = to === undefined ? n : to;
+    if (i < 0) i = 0;
+    if (i > n) i = n;
+    if (e < 0) e = 0;
+    if (e > n) e = n;
+    const count = e - i;
+    if (count <= 1) return this;
+    if (count === 2) {
+      const r = this._data[i];
+      const l = this._data[i + 1];
+      if (sortfunc(r, l) > 0) {
+        this._data[i] = l;
+        this._data[i + 1] = r;
+      }
+      return this;
+    }
+    const slice = this._data.slice(i, e);
+    slice.sort(sortfunc);
+    for (let k = 0; k < slice.length; k++) this._data[i + k] = slice[k];
+    return this;
+  }
+
   /** 反转 */
   reverse(): this {
     this._data.reverse();
@@ -284,12 +361,18 @@ export class List<T> implements Iterable<T> {
   get iteratorBackwards(): Iterator<T> {
     return new ListIteratorBackwards<T>(this._data);
   }
+
+  // ============ 官方静态函数 ============
+
+  /** 官方用于调试消息的类名（未在 d.ts 记录，但运行时存在）。 */
+  static readonly className: string = 'List';
 }
 
 /**
  * ListIterator - List 的迭代器（对齐官方 ListIterator：first/any/all/each/map/filter/count/hasNext/key）
  */
 export class ListIterator<T> implements Iterator<T> {
+  static readonly className: string = "ListIterator";
   private _data: T[];
   private _index: number = -1;
 
@@ -393,6 +476,7 @@ export class ListIterator<T> implements Iterator<T> {
  * ListIteratorBackwards - 反向迭代器（官方 iteratorBackwards）
  */
 export class ListIteratorBackwards<T> implements Iterator<T> {
+  static readonly className: string = "ListIteratorBackwards";
   private _data: T[];
   private _index: number;
 

@@ -8,6 +8,7 @@ import { LayoutNetwork } from './LayoutNetwork';
  * Subclasses must override doLayout() to implement specific layout algorithms.
  */
 export declare class Layout {
+    static readonly className: string;
     protected _arrangementOrigin: Point;
     protected _isInitial: boolean;
     protected _isOngoing: boolean;
@@ -15,10 +16,13 @@ export declare class Layout {
     protected _isRouting: boolean;
     protected _isValidLayout: boolean;
     protected _isViewportSized: boolean;
-    protected _boundsComputation: ((layout: Layout, part: Part, bounds: Rect) => Rect) | null;
+    /** 官方签名 `(part, lay, rect) => rect` */
+    protected _boundsComputation: ((part: Part, layout: Layout, bounds: Rect) => Rect) | null;
     protected _network: LayoutNetwork | null;
     protected _diagram: any;
     protected _group: any;
+    /** 官方 `Layout.constructor(init?)`：`t && Object.assign(this, t)` */
+    constructor(init?: any);
     get arrangementOrigin(): Point;
     set arrangementOrigin(val: Point);
     get isInitial(): boolean;
@@ -33,8 +37,8 @@ export declare class Layout {
     set isValidLayout(val: boolean);
     get isViewportSized(): boolean;
     set isViewportSized(val: boolean);
-    get boundsComputation(): ((layout: Layout, part: Part, bounds: Rect) => Rect) | null;
-    set boundsComputation(val: ((layout: Layout, part: Part, bounds: Rect) => Rect) | null);
+    get boundsComputation(): ((part: Part, layout: Layout, bounds: Rect) => Rect) | null;
+    set boundsComputation(val: ((part: Part, layout: Layout, bounds: Rect) => Rect) | null);
     get network(): LayoutNetwork | null;
     set network(val: LayoutNetwork | null);
     get diagram(): any;
@@ -74,9 +78,21 @@ export declare class Layout {
      */
     commitLayout(): void;
     /**
+     * 官方 `Layout.cloneProtected`：把受保护字段复制到一个已构造好的新实例。
+     * 官方实现：`t.Tg=this.Tg, t.Kr=this.Kr, t.Lg=this.Lg, t.Dg.f(this.Dg), t.vo=this.vo, t.Il=this.Il, t.Fg=this.Fg, t.Rg=!0`
+     * （字段名对应 isInitial/isOngoing/isRealtime/arrangementOrigin/isRouting/isViewportSized/boundsComputation/isValidLayout）
+     */
+    protected cloneProtected(copy: Layout): void;
+    /**
      * Create a copy of this layout.
+     * 官方：`const t = new this.constructor; return this.cloneProtected(t), t`
      */
     copy(): Layout;
+    /**
+     * 官方 `Layout.toString()`：
+     * `U.to(this.constructor) + "()"`，若 `group !== null` 追加 `" in " + group`，若 `diagram !== null` 追加 `" for " + diagram`。
+     */
+    toString(): string;
     /**
      * Create a new LayoutNetwork for this layout.
      */

@@ -1,4 +1,5 @@
 export class LayeredDigraphEdge {
+  static readonly className: string = "LayeredDigraphEdge";
 
   /** The from vertex of this edge. */
   fromVertex!: any;

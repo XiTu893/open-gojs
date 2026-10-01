@@ -1,4 +1,5 @@
 export declare class ForceDirectedEdge {
+    static readonly className: string;
     /** The from node of this edge. */
     from: any;
     /** The to node of this edge. */

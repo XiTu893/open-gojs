@@ -1,4 +1,5 @@
 export class ImageRendererOptions {
+  static readonly className: string = "ImageRendererOptions";
 
   /** The width of the rendered image in pixels */
   width: number;

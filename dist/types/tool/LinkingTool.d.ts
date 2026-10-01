@@ -6,6 +6,7 @@ import { Link } from '../view/Link';
  * The user drags from an outgoing port to an incoming port to create a new link.
  */
 export declare class LinkingTool extends LinkingBaseTool {
+    static readonly className: string;
     private _originalFromPort;
     constructor();
     /** Can start if the user clicks on a fromLinkable port. */

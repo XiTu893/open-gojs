@@ -8,6 +8,7 @@ import type { Placeholder } from './Placeholder';
  * 用于选择手柄、工具提示、上下文菜单等
  */
 export class Adornment extends Part {
+  static readonly className: string = "Adornment";
   /** 被装饰的 GraphObject */
   private _adornedObject: GraphObject | null = null;
   /** 装饰类别 */
@@ -54,17 +55,31 @@ export class Adornment extends Part {
     return false;
   }
 
-  hasPlaceholder(): boolean {
-    const checkForPlaceholder = (obj: GraphObject): boolean => {
-      if ((obj as any)._isPlaceholder) return true;
-      if ((obj as any)._elements) {
-        for (const child of (obj as any)._elements) {
-          if (checkForPlaceholder(child)) return true;
-        }
+  /**
+   * 官方 `Adornment.placeholder`：本 Adornment 面板树中第一个 Placeholder。
+   * 官方缓存在内部字段（`vt`），本项目按需递归查找。
+   */
+  get placeholder(): Placeholder | null {
+    return Adornment._findPlaceholder(this);
+  }
+
+  private static _findPlaceholder(panel: Panel): Placeholder | null {
+    const elements = panel._elements;
+    for (let i = 0; i < elements.length; i++) {
+      const el = elements[i];
+      if ((el as unknown as { _isPlaceholder?: boolean })._isPlaceholder) {
+        return el as unknown as Placeholder;
       }
-      return false;
-    };
-    return checkForPlaceholder(this);
+      if (el instanceof Panel) {
+        const found = Adornment._findPlaceholder(el);
+        if (found !== null) return found;
+      }
+    }
+    return null;
+  }
+
+  hasPlaceholder(): boolean {
+    return this.placeholder !== null;
   }
 
   copy(): Adornment {

@@ -3,6 +3,7 @@ import { Point } from '../core/Point';
 import { Size } from '../core/Size';
 import { GraphObject } from '../view/GraphObject';
 export declare class ResizingTool extends Tool {
+    static readonly className: string;
     private _handle;
     private _adornedElement;
     private _minSize;

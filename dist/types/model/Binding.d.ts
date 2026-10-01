@@ -1,5 +1,6 @@
 import { EnumValue } from '../core/EnumValues';
 export declare class Binding {
+    static readonly className: string;
     static OneWay: EnumValue;
     static TwoWay: EnumValue;
     targetProperty: string;
@@ -9,7 +10,9 @@ export declare class Binding {
     mode: EnumValue;
     sourceObject: string | null;
     name: string;
-    constructor(targetProperty: string, sourceProperty?: string, conversion?: (value: any, targetObject: any, model: any) => any);
+    /** 官方 ThemeBinding.themeConverter：主题取值后的转换（在普通 converter 之前） */
+    themeConverter: ((value: any, targetObject: any, model?: any) => any) | null;
+    constructor(targetProperty?: string, sourceProperty?: string, conversion?: (value: any, targetObject: any, model: any) => any);
     get isTwoWay(): boolean;
     get isFromModel(): boolean;
     get isToData(): boolean;
@@ -20,4 +23,47 @@ export declare class Binding {
     getValueFromSource(data: any, targetObject: any, model: any): any;
     getValueFromTarget(targetValue: any, data: any, model: any): any;
     toString(): string;
+    private _targetId;
+    /** 官方 Binding.targetId：绑定目标在同名对象中的序号 */
+    get targetId(): number;
+    set targetId(value: number);
+    /** 官方 Binding.sourceName（本项目内部字段叫 sourceObject） */
+    get sourceName(): string | null;
+    set sourceName(value: string | null);
+    /** 官方 Binding.converter（本项目内部字段叫 conversion） */
+    get converter(): ((value: any, targetObject: any, model?: any) => any) | null;
+    set converter(value: ((value: any, targetObject: any, model?: any) => any) | null);
+    /** 官方 Binding.backConverter（本项目内部字段叫 backConversion） */
+    get backConverter(): ((value: any, sourceData: any, model?: any) => any) | null;
+    set backConverter(value: ((value: any, sourceData: any, model?: any) => any) | null);
+    /** 官方 Binding.isToModel：源是 Model.modelData */
+    get isToModel(): boolean;
+    /** 官方 Binding.isToObject：源是某个 GraphObject（theme 绑定不算） */
+    get isToObject(): boolean;
+    /** 官方 Binding.isToTheme：theme() 建立的主题绑定（sourceObject === 'theme'） */
+    get isToTheme(): boolean;
+    /** 官方 Binding.cloneProtected */
+    cloneProtected(copy: Binding): void;
+    /**
+     * 官方 Binding.check：绑定建立前的静态校验。
+     * 官方只在 Debug 下向控制台告警，这里保持无副作用（不产生任何输出）。
+     */
+    check(target: any): void;
+    /**
+     * 官方 Binding.updateTarget：把源数据写到目标对象上。
+     * 官方签名 updateTarget(target, srcData, srcPropName, themeContext)，
+     * 第 4 参在官方是 ThemeManager，本项目用作"设置目标属性的写入器"。
+     */
+    updateTarget(target: any, srcData: any, srcPropName?: string, targetSetter?: any): void;
+    /**
+     * 官方 Binding.updateSource：TwoWay 绑定时把目标属性写回数据。
+     * 第 4 参在官方是目标 Part/Panel，本项目用作"承载数据的对象"。
+     */
+    updateSource(target: any, srcData: any, srcPropName?: string, targetContext?: any): void;
+    private static _setTargetProperty;
+    private static _setSourceProperty;
+    /** 官方 Binding.parseEnum：把字符串解析成 ctor 上定义的枚举值 */
+    static parseEnum(ctor: any, defval: any): (name: string) => any;
+    /** 官方 Binding.toString：把任意值转成可读字符串 */
+    static toString(val?: any): string;
 }

@@ -1,4 +1,5 @@
 export class SGradient {
+  static readonly className: string = "SGradient";
   private _type: string;
   private _color1: string;
   private _color2: string;

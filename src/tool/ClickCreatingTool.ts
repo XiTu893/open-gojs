@@ -7,6 +7,7 @@ import { Part } from '../view/Part';
  * Used for quick node creation by clicking on empty diagram space.
  */
 export class ClickCreatingTool extends Tool {
+  static readonly className: string = "ClickCreatingTool";
 
   private _archetypePartData: any = null;
   private _isDoubleClick: boolean = false;

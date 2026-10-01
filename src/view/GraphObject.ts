@@ -6,7 +6,8 @@ import {
   SegmentOrientationNone,
   PanelAuto, PanelVertical, PanelHorizontal, PanelSpot, PanelTable, PanelPosition, PanelLink,
   PanelViewbox, PanelGraduated, PanelGrid, PanelTableRow, PanelTableColumn,
-  BrushSolid, BrushLinear, BrushRadial
+  BrushSolid, BrushLinear, BrushRadial,
+  ChangedEventProperty
 } from '../core/EnumValues';
 import { Point } from '../core/Point';
 import { Rect } from '../core/Rect';
@@ -15,6 +16,7 @@ import { Spot } from '../core/Spot';
 import { Margin, MarginLike } from '../core/Margin';
 import { BrushLike, Brush } from '../core/Brush';
 import { Geometry } from '../core/Geometry';
+import { ensureHashId } from '../core/HashId';
 import { Binding } from '../model/Binding';
 import { RowColumnDefinition } from './RowColumnDefinition';
 import type { Panel } from './Panel';
@@ -31,6 +33,7 @@ type Layer = any;
  * This includes shapes, text blocks, pictures, panels, and parts.
  */
 export class GraphObject {
+  static readonly className: string = "GraphObject";
 
   // ============ Protected fields ============
   protected _panel: Panel | null = null;
@@ -62,9 +65,13 @@ export class GraphObject {
   private _rowSpan: number = 1;
   private _scale: number = 1;
   private _interval: number = 1;
+  private _graduatedStart: number = 0;
+  private _graduatedEnd: number = 1;
+  private _graduatedSkip: ((val: number, obj: GraphObject) => boolean) | null = null;
+  private _graduatedFunction: ((val: number, obj: GraphObject) => any) | null = null;
   private _flip: EnumValue = FlipNone;
   private _shadowVisible: boolean | null = null;
-  private _background: BrushLike = '';
+  private _background: BrushLike = null;
   private _pickable: boolean = true;
   private _isActionable: boolean = false;
   private _isPanelMain: boolean = false;
@@ -259,6 +266,35 @@ export class GraphObject {
 
   get interval(): number { return this._interval; }
   set interval(val: number) { this._interval = val; }
+
+  /**
+   * 官方 GraphObject 的 graduated* 系列（Graduated 面板子元素用）：
+   * graduatedStart/graduatedEnd 限定该元素参与的范围（0~1 比例），
+   * graduatedSkip 决定某个刻度值是否跳过，graduatedFunction 自定义刻度文字。
+   */
+  get graduatedStart(): number { return this._graduatedStart; }
+  set graduatedStart(val: number) {
+    // 官方默认 0，setter 夹到 [0, 1]
+    const v = val < 0 ? 0 : (val > 1 ? 1 : val);
+    if (this._graduatedStart === v) return;
+    this._graduatedStart = v;
+    this._invalidateMeasure();
+  }
+
+  get graduatedEnd(): number { return this._graduatedEnd; }
+  set graduatedEnd(val: number) {
+    // 官方默认 1，setter 夹到 [0, 1]
+    const v = val < 0 ? 0 : (val > 1 ? 1 : val);
+    if (this._graduatedEnd === v) return;
+    this._graduatedEnd = v;
+    this._invalidateMeasure();
+  }
+
+  get graduatedSkip(): ((val: number, obj: GraphObject) => boolean) | null { return this._graduatedSkip; }
+  set graduatedSkip(val: ((val: number, obj: GraphObject) => boolean) | null) { this._graduatedSkip = val; }
+
+  get graduatedFunction(): ((val: number, obj: GraphObject) => any) | null { return this._graduatedFunction; }
+  set graduatedFunction(val: ((val: number, obj: GraphObject) => any) | null) { this._graduatedFunction = val; }
 
   get scale(): number { return this._scale; }
   set scale(val: number) {
@@ -485,10 +521,13 @@ export class GraphObject {
   // ============ Public methods ============
 
   /** Add a data binding to this object */
-  bind(bindingOrTargetProp: Binding | string, sourceProperty?: string, conversion?: (value: any, targetObject: any, model: any) => any): this {
+  bind(bindingOrTargetProp: Binding | string, sourceProperty?: string, conversion?: (value: any, targetObject: any, model: any) => any, backConversion?: (value: any, sourceData: any, model: any) => any): this {
     if (typeof bindingOrTargetProp === 'string') {
       // Shorthand: .bind("fill", "color") or .bind("text")
-      this._bindings.push(new Binding(bindingOrTargetProp, sourceProperty, conversion));
+      const binding = new Binding(bindingOrTargetProp, sourceProperty, conversion || undefined);
+      // 官方：给出第 4 参 backconv 即视为双向绑定
+      if (backConversion) binding.makeTwoWay(backConversion);
+      this._bindings.push(binding);
     } else {
       this._bindings.push(bindingOrTargetProp);
     }
@@ -505,16 +544,26 @@ export class GraphObject {
     return this;
   }
 
-  bindTwoWay(targetProperty: string, sourceProperty?: string, backConversion?: (value: any, sourceData: any, model: any) => any, conversion?: (value: any, targetObject: any, model: any) => any): this {
+  /** 官方 `GraphObject.bindTwoWay(targetprop, sourceprop?, conv?, backconv?)`：第 3 参为 source→target 转换 */
+  bindTwoWay(targetProperty: string, sourceProperty?: string, conversion?: (value: any, targetObject: any, model: any) => any, backConversion?: (value: any, sourceData: any, model: any) => any): this {
     const binding = new Binding(targetProperty, sourceProperty || targetProperty, conversion || undefined);
     binding.makeTwoWay(backConversion || undefined);
     this._bindings.push(binding);
     return this;
   }
 
-  theme(targetProperty: string, sourceProperty: string, conversion?: (value: any, targetObject: any, model: any) => any): this {
-    const binding = new Binding(targetProperty, sourceProperty, conversion);
-    binding.sourceObject = '';
+  /** 官方 GraphObject.theme(targetprop, sourceprop?, conv?, backconv?, themeconv?)：主题绑定（ThemeBinding） */
+  theme(
+    targetProperty: string,
+    sourceProperty?: string,
+    conversion?: (value: any, targetObject: any, model: any) => any,
+    backConversion?: (value: any, sourceData: any, model: any) => any,
+    themeConverter?: (value: any, targetObject: any, model?: any) => any,
+  ): this {
+    const binding = new Binding(targetProperty, sourceProperty || targetProperty, conversion);
+    binding.sourceObject = 'theme';
+    binding.themeConverter = themeConverter || null;
+    void backConversion;
     this._bindings.push(binding);
     return this;
   }
@@ -528,7 +577,7 @@ export class GraphObject {
 
   themeModel(targetProperty: string, sourceProperty?: string, conversion?: (value: any, targetObject: any, model: any) => any): this {
     const binding = new Binding(targetProperty, sourceProperty || targetProperty, conversion);
-    binding.sourceObject = 'theme';
+    binding.sourceObject = 'themeModel';
     this._bindings.push(binding);
     return this;
   }
@@ -580,6 +629,287 @@ export class GraphObject {
     const copy = new GraphObject();
     this._copyPropertiesTo(copy);
     return copy;
+  }
+
+  // ============ 阶段 4：官方 GraphObject.prototype 缺口 ============
+
+  /** 官方未文档化的 SVG 过滤器名（官方注释：May not work in Safari） */
+  private _filter: string = '';
+  /** 官方未文档化的行列跨度分配回调 */
+  private _spanAllocation: ((a: GraphObject, b: RowColumnDefinition, c: number) => number) | null = null;
+  /** 官方运行时存在的 svg 访问器（本项目为 Canvas 渲染，默认 null） */
+  private _svg: any = null;
+  /** 官方 `GraphObject.ao`：`addCopyProperty()` 登记的、clone 时额外复制的属性名 */
+  private _copyProperties: string[] | null = null;
+
+  /**
+   * 官方 `GraphObject.toString()` = `"U.Jn(构造器) # hashId"`，
+   * 其中 `U.Jn(constructor)` 就是该类的 `static className`。
+   * Panel / Shape / TextBlock / Picture / Part / Adornment 等子类按官方各自覆盖。
+   */
+  toString(): string {
+    const ctor = this.constructor as { className?: string };
+    return `${ctor.className || 'GraphObject'}#${ensureHashId(this)}`;
+  }
+
+  /**
+   * 官方 `GraphObject.clone()`：`new this.constructor()` → `cloneProtected` → 复制 `addCopyProperty` 登记项。
+   * 官方所有子类的 `copy()` 都等于 `clone()`（本项目子类暂时保留各自的 `copy()` 覆盖）。
+   */
+  clone(): this {
+    const copy = new (this.constructor as new () => this)();
+    this.cloneProtected(copy);
+    this._applyExtraCopyProperties(copy);
+    return copy;
+  }
+
+  /**
+   * 官方 `GraphObject.cloneProtected(copy)`（d.ts 标为 protected）。
+   * 官方在 Panel / Shape / TextBlock / Picture / Part / Node / Link / Group / Placeholder / 各 Layout
+   * 上都有覆盖；本项目基类实现等价于把 GraphObject 层状态写入 copy。
+   */
+  protected cloneProtected(copy: this): void {
+    this._copyPropertiesTo(copy as GraphObject);
+  }
+
+  /** 官方 `GraphObject.MD(copy)`：把 `addCopyProperty` 登记的属性逐个拷过去 */
+  private _applyExtraCopyProperties(copy: this): void {
+    const names = this._copyProperties;
+    if (names === null) return;
+    for (let i = 0; i < names.length; i++) {
+      (copy as any)[names[i]] = (this as any)[names[i]];
+    }
+  }
+
+  /** 官方 `GraphObject.addCopyProperty(propName)`：登记 clone 时需要额外复制的属性名（重复登记被忽略） */
+  addCopyProperty(propName: string): void {
+    if (this._copyProperties === null) {
+      this._copyProperties = [propName];
+      return;
+    }
+    if (this._copyProperties.indexOf(propName) >= 0) return;
+    this._copyProperties.push(propName);
+  }
+
+  /** 官方 `GraphObject.raiseChanged(propertyName, oldValue, newValue)` */
+  raiseChanged(propertyname: string, oldval: any, newval: any): void {
+    this.raiseChangedEvent(ChangedEventProperty, propertyname, this, oldval, newval);
+  }
+
+  /**
+   * 官方 `GraphObject.raiseChangedEvent(change, propertyname, obj, oldval, newval, oldparam?, newparam?)`。
+   * 官方实现：先交给 `part.Df(...)`（Part 层处理 elements 插删、再转发 `diagram.raiseChangedEvent`），
+   * 无 Part 时直接转发给 `diagram.raiseChangedEvent`。
+   * 注意：Part 自身的 `_part` 指向自己，因此这里必须走 Part 的专用管道（`raiseChangedEventFromObject`），
+   * 不能递归调用 `raiseChangedEvent`，否则属性变更会无限递归（栈溢出）。
+   */
+  raiseChangedEvent(
+    change: any, propertyname: string, obj: any,
+    oldval: any, newval: any, oldparam?: any, newparam?: any
+  ): void {
+    const part = this._part;
+    if (part !== null) {
+      const partHandler = (part as any).raiseChangedEventFromObject;
+      if (typeof partHandler === 'function') {
+        partHandler.call(part, change, propertyname, obj, oldval, newval, oldparam, newparam);
+        return;
+      }
+    }
+    const diagram = this.diagram as any;
+    if (diagram !== null && typeof diagram.raiseChangedEvent === 'function') {
+      diagram.raiseChangedEvent(change, propertyname, obj, oldval, newval, oldparam, newparam);
+    }
+  }
+
+  /**
+   * 官方 `GraphObject.containsPoint(p)`。
+   *
+   * 偏差：官方靠内部 Transform 矩阵把输入点在「本对象局部坐标」与「所在 Panel 坐标」之间换算；
+   * 本项目没有 Transform 矩阵，统一以**文档坐标**计算（与 `Diagram.findObjectAt(docPoint)` 一致）。
+   */
+  containsPoint(p: Point): boolean {
+    const b = this.getDocumentBounds();
+    if (!b.isReal()) return false;
+    const cn = (this.constructor as { className?: string }).className;
+    // 官方对 Shape/Adornment 额外放宽 5 个单位（便于点选）
+    const wide = cn === 'Shape' || cn === 'Adornment';
+    const rect = wide ? new Rect(b.x - 5, b.y - 5, b.width + 10, b.height + 10) : b;
+    if (!rect.containsPoint(p)) return false;
+    const nb = this._naturalBounds;
+    const local = this.getLocalPoint(p);
+    return Rect.contains(nb.x, nb.y, nb.width, nb.height, local.x, local.y);
+  }
+
+  /**
+   * 官方 `GraphObject.containsRect(r)`：本对象是否包含给定矩形。
+   * 偏差同 `containsPoint`：统一按文档坐标计算。
+   */
+  containsRect(r: Rect): boolean {
+    const b = this.getDocumentBounds();
+    if (this._angle === 0) return b.containsRect(r);
+    const nb = this._naturalBounds;
+    const c = [
+      this.getDocumentPoint(new Point(nb.x, nb.y)),
+      this.getDocumentPoint(new Point(nb.x + nb.width, nb.y)),
+      this.getDocumentPoint(new Point(nb.x + nb.width, nb.y + nb.height)),
+      this.getDocumentPoint(new Point(nb.x, nb.y + nb.height)),
+    ];
+    const r2 = new Rect(r.x, r.y, r.width, r.height);
+    for (const p of c) {
+      if (!r2.containsPoint(p)) return false;
+    }
+    return true;
+  }
+
+  /** 官方 `GraphObject.containedInRect(r, transform?)`：本对象是否被给定矩形包含 */
+  containedInRect(r: Rect, transform?: any): boolean {
+    if (transform === undefined) return r.containsRect(this.getDocumentBounds());
+    const nb = this._naturalBounds;
+    const c = [
+      this.getDocumentPoint(new Point(nb.x, nb.y)),
+      this.getDocumentPoint(new Point(nb.x + nb.width, nb.y)),
+      this.getDocumentPoint(new Point(nb.x + nb.width, nb.y + nb.height)),
+      this.getDocumentPoint(new Point(nb.x, nb.y + nb.height)),
+    ];
+    for (const p of c) {
+      if (!r.containsPoint(p)) return false;
+    }
+    return true;
+  }
+
+  /** 官方 `GraphObject.intersectsRect(r, transform?)`：本对象是否与给定矩形相交 */
+  intersectsRect(r: Rect, transform?: any): boolean {
+    const b = this.getDocumentBounds();
+    if (transform === undefined && this._angle === 0) return r.intersectsRect(b);
+    const nb = this._naturalBounds;
+    const c = [
+      this.getDocumentPoint(new Point(nb.x, nb.y)),
+      this.getDocumentPoint(new Point(nb.x + nb.width, nb.y)),
+      this.getDocumentPoint(new Point(nb.x + nb.width, nb.y + nb.height)),
+      this.getDocumentPoint(new Point(nb.x, nb.y + nb.height)),
+    ];
+    for (const p of c) {
+      if (r.containsPoint(p)) return true;
+    }
+    const rc = [
+      new Point(r.x, r.y),
+      new Point(r.right, r.y),
+      new Point(r.right, r.bottom),
+      new Point(r.x, r.bottom),
+    ];
+    for (const p of rc) {
+      if (this.containsPoint(p)) return true;
+    }
+    const edges: [Point, Point][] = [
+      [c[0], c[1]], [c[1], c[2]], [c[2], c[3]], [c[3], c[0]],
+    ];
+    for (const e of edges) {
+      if (Rect.intersectsLineSegment(r.x, r.y, r.width, r.height, e[0].x, e[0].y, e[1].x, e[1].y)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * 官方 `GraphObject.getNearestIntersectionPoint(p, q, result)`：
+   * 把线段 pq 与本对象边界的**最近交点**写入 result；返回是否找到交点。
+   * 官方实现走 `G.Bl`（四条边各做一次线段求交，取离 p 最近的那个），返回值是 boolean。
+   * 偏差同 `containsPoint`：统一按文档坐标计算。
+   */
+  getNearestIntersectionPoint(p: Point, q: Point, result: Point): boolean {
+    const b = this.getDocumentBounds();
+    if (!b.isReal()) {
+      result.set(q);
+      return false;
+    }
+    return GraphObject._nearestIntersection(
+      b.x, b.y, b.width, b.height, p.x, p.y, q.x, q.y, result
+    );
+  }
+
+  /**
+   * 官方 `G.Bl(x, y, w, h, x1, y1, x2, y2, result)` 的等价实现：
+   * 线段 (x1,y1)→(x2,y2) 与矩形四条边的交点里，取离 (x1,y1) 最近的一个写入 result。
+   * 找不到交点时 result 置为矩形左上角并返回 false（与官方一致）。
+   */
+  private static _nearestIntersection(
+    x: number, y: number, w: number, h: number,
+    x1: number, y1: number, x2: number, y2: number,
+    result: Point
+  ): boolean {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    let t0 = 0;
+    let t1 = 1;
+    const clip = (p: number, q: number): boolean => {
+      if (p === 0) return q >= 0;
+      const r = q / p;
+      if (p < 0) {
+        if (r > t1) return false;
+        if (r > t0) t0 = r;
+      } else {
+        if (r < t0) return false;
+        if (r < t1) t1 = r;
+      }
+      return true;
+    };
+    const inside =
+      clip(-dx, x1 - x) && clip(dx, x + w - x1) &&
+      clip(-dy, y1 - y) && clip(dy, y + h - y1);
+    if (!inside || t0 > t1) {
+      result.setTo(x, y);
+      return false;
+    }
+    // Liang-Barsky 里 t0 恒从 0 起算：起点在矩形【内】时 t0 仍为 0，
+    // 若先取 t0 就会把起点本身当成交点（连线端点落在节点中心）。
+    // 正确语义：起点在外 → 取进入点 t0；起点在内 → 取离开点 t1；
+    // 整段都在矩形内 → 官方四条边都求不到交点，返回 false。
+    let t: number;
+    if (t0 > 1e-9 && t0 <= 1) t = t0;
+    else if (t1 > 1e-9 && t1 <= 1) t = t1;
+    else {
+      result.setTo(x, y);
+      return false;
+    }
+    result.setTo(x1 + t * dx, y1 + t * dy);
+    return true;
+  }
+
+  /**
+   * 官方 `GraphObject.commonArrange(x, y, w, h)`：把本对象排布到给定矩形。
+   * 官方实现会先写 actualBounds 再按 desiredSize/stretch 精简；
+   * 本项目等价地落到 `_arrange()`（子类按各自 stretch 逻辑覆写）。
+   */
+  commonArrange(x: number, y: number, w: number, h: number): void {
+    this._arrange(new Rect(x, y, w, h));
+  }
+
+  /** 官方 `GraphObject.filter`（未文档化的 SVG 过滤器名） */
+  get filter(): string { return this._filter; }
+  set filter(value: string) {
+    if (value === this._filter) return;
+    const old = this._filter;
+    this._filter = value;
+    this.raiseChanged('filter', old, value);
+  }
+
+  /** 官方 `GraphObject.spanAllocation`（未文档化的行列跨度分配回调） */
+  get spanAllocation(): ((a: GraphObject, b: RowColumnDefinition, c: number) => number) | null {
+    return this._spanAllocation;
+  }
+  set spanAllocation(value: ((a: GraphObject, b: RowColumnDefinition, c: number) => number) | null) {
+    if (value === this._spanAllocation) return;
+    const old = this._spanAllocation;
+    this._spanAllocation = value;
+    this.raiseChanged('spanAllocation', old, value);
+  }
+
+  /** 官方 `GraphObject.svg`（本项目为 Canvas 渲染，恒为 null） */
+  get svg(): any { return this._svg; }
+  set svg(value: any) {
+    if (value === this._svg) return;
+    const old = this._svg;
+    this._svg = value;
+    this.raiseChanged('svg', old, value);
   }
 
   /** Apply a function to this object and return it */
@@ -639,13 +969,10 @@ export class GraphObject {
   getDocumentBounds(): Rect {
     const bounds = this._actualBounds.copy();
     let panel: Panel | null = this._panel;
-    let obj: GraphObject = this;
     while (panel !== null) {
       const panelBounds = (panel as any)._actualBounds;
-      const margin = (obj as any)._margin as Margin;
-      bounds.x += panelBounds.x + margin.left;
-      bounds.y += panelBounds.y + margin.top;
-      obj = panel as any;
+      bounds.x += panelBounds.x;
+      bounds.y += panelBounds.y;
       panel = (panel as any)._panel;
     }
     return bounds;
@@ -706,7 +1033,8 @@ export class GraphObject {
   }
 
   /** Trigger a property change notification */
-  trigger(propname: string, value?: any): void {
+  /** 官方 `GraphObject.trigger(propname, value?): this`：触发动画并返回自身（可链式 .add） */
+  trigger(propname: string, value?: any): this {
     const panel = this._panel;
     if (panel && typeof (panel as any)._handleObjectPropertyChanged === 'function') {
       (panel as any)._handleObjectPropertyChanged(this, propname, value);
@@ -715,6 +1043,7 @@ export class GraphObject {
     if (part && typeof (part as any)._handleObjectPropertyChanged === 'function') {
       (part as any)._handleObjectPropertyChanged(this, propname, value);
     }
+    return this;
   }
 
   // ============ Internal methods ============
@@ -953,6 +1282,13 @@ export class GraphObject {
     copy._segmentFraction = this._segmentFraction;
     copy._segmentOffset = this._segmentOffset.copy();
     copy._segmentOrientation = this._segmentOrientation;
+    // Graduated 面板相关：模板克隆时必须保留，否则 interval 回退到 1，
+    // 导致刻度/标签在每个刻度值上都画一遍（thermometer 数字重叠成一片）
+    copy._interval = this._interval;
+    copy._graduatedStart = this._graduatedStart;
+    copy._graduatedEnd = this._graduatedEnd;
+    copy._graduatedSkip = this._graduatedSkip;
+    copy._graduatedFunction = this._graduatedFunction;
     // Copy bindings
     copy._bindings = this._bindings.map(b => b.copy());
     // Copy event handlers
@@ -983,31 +1319,71 @@ export class GraphObject {
   static None = StretchNone;
   static Uniform = StretchUniform;
   static UniformToFill = StretchUniformToFill;
+  // 阶段 3: 官方 go.GraphObject 上除了 Stretch 成员外，还挂了 Flip 的四个成员
+  // （go.d.ts:15927 `enum Flip`，官方运行时 GraphObject.FlipVertical/FlipHorizontal/FlipBoth 均存在）。
+  static FlipVertical = FlipVertical;
+  static FlipHorizontal = FlipHorizontal;
+  static FlipBoth = FlipBoth;
 
   // ============ Static methods ============
 
   /** Factory method for creating GraphObjects - stub */
   static _classRegistry: Record<string, any> = {};
 
-  static build: typeof GraphObject.make = GraphObject.make;
-
   static defineBuilder(name: string, func: Function): void {
     GraphObject._classRegistry[name] = func;
   }
 
-  static takeBuilderArgument(obj: any, arg: any, def?: any): any {
+  /** 官方 `GraphObject.isBuilderDefined(name)` */
+  static isBuilderDefined(name: string): boolean {
+    return Object.prototype.hasOwnProperty.call(GraphObject._classRegistry, name);
+  }
+
+  /**
+   * 官方 `GraphObject.takeBuilderArgument(args, default?, pred?)`：取出 args[1]。
+   * 默认谓词为 `typeof === 'string'`；命中则从数组移除并返回，未命中且有默认值返回默认值，否则抛错。
+   */
+  static takeBuilderArgument(obj: any, defaultVal?: any, pred?: (v: any) => boolean): any {
     if (Array.isArray(obj)) {
       const s = obj[1];
-      if (typeof s === 'string') {
+      const ok = typeof pred === 'function' ? s !== undefined && pred(s) : typeof s === 'string';
+      if (ok) {
         obj.splice(1, 1);
         return s;
       }
-      return arg;
+      if (defaultVal !== undefined) return defaultVal;
+      throw new Error(
+        'no ' + (typeof pred === 'function' ? 'satisfactory' : 'string') +
+        ' argument for GraphObject builder ' + obj[0]);
     }
-    return arg !== undefined ? arg : def;
+    if (defaultVal !== undefined) return defaultVal;
+    return undefined;
+  }
+
+  /**
+   * 官方 `GraphObject.build(type, init?, ...args)`：init 不传给 builder（builder 收 [type, ...args]），
+   * 返回后再 setProperties(init)。
+   */
+  static build(type: any, init?: any, ...args: any[]): any {
+    if (typeof type === 'string') {
+      const reg = GraphObject._classRegistry;
+      const builderFunc = reg[type];
+      if (typeof builderFunc === 'function') {
+        const builderArgs: any[] = [type].concat(args);
+        const obj = builderFunc(builderArgs);
+        if (obj instanceof GraphObject) {
+          if (init !== null && init !== undefined) obj.setProperties(init);
+          return obj;
+        }
+        throw new Error('GraphObject.build invoked object builder "' + type + '", but it did not return an Object');
+      }
+    }
+    return GraphObject.make(type, init, ...args);
   }
 
   static make(type: any, ...args: any[]): any {
+    // builder 消费掉的参数（takeBuilderArgument splice）不再参与后续属性应用
+    let applyArgs: any[] = args;
     const panelTypeMap: Record<string, EnumValue> = {
       'Auto': PanelAuto,
       'Vertical': PanelVertical,
@@ -1087,8 +1463,11 @@ export class GraphObject {
         default: {
           const builderFunc = reg[type];
           if (typeof builderFunc === 'function') {
-            obj = builderFunc(args);
+            // 官方 make/build 给 builder 的数组是 [type, ...args]，builder 可 splice 消费参数
+            const builderArgs: any[] = [type].concat(args);
+            obj = builderFunc(builderArgs);
             isPanelLike = obj && typeof obj.add === 'function';
+            applyArgs = builderArgs.slice(1);
           } else {
             throw new Error('GraphObject.make: unknown type string: ' + type);
           }
@@ -1117,7 +1496,7 @@ export class GraphObject {
       throw new Error('GraphObject.make: first argument must be a string or a constructor function');
     }
 
-    for (const arg of args) {
+    for (const arg of applyArgs) {
       if (arg === null || arg === undefined) continue;
       if (Array.isArray(arg)) {
         for (const item of arg) {

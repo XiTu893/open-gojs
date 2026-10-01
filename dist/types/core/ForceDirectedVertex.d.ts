@@ -1,4 +1,5 @@
 export declare class ForceDirectedVertex {
+    static readonly className: string;
     /** The name/key of this vertex. */
     key: any;
     /** The position of this vertex. */

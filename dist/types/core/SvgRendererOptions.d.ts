@@ -1,4 +1,5 @@
 export declare class SvgRendererOptions {
+    static readonly className: string;
     /** The width of the rendered SVG in pixels */
     width: number;
     /** The height of the rendered SVG in pixels */

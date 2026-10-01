@@ -1,5 +1,5 @@
 /**
- * 官方对齐的集合迭代接口（go.d.ts 331-500 行）
+ * 官方对齐的集合迭代接口（go.d.ts 331-533 行）
  *
  * 官方 Iterable:
  *   iterator: Iterator<T>
@@ -21,7 +21,12 @@
  *   readonly value: T
  *   readonly key: any            (官方 key 就是 any)
  *   readonly count: number
+ *
+ * 官方 IMapIterator<K, T>（独立接口，**不**继承 Iterator）:
+ *   first()/any/all/each/map/filter 的参数是 IKeyValuePair<K, T>，不是 T
  */
+import { IKeyValuePair } from './IKeyValuePair';
+
 
 /** 官方 Iterable<T>（go.d.ts:331） */
 export interface Iterable<T> {
@@ -73,23 +78,49 @@ export interface Iterator<T> extends Iterable<T> {
 /**
  * 官方 IMapIterator<K, T>（go.d.ts:489）
  * Iterating over a Map provides key and value, where value's type is T (not IKeyValuePair).
+ *
+ * 注意它**不继承** Iterator —— 谓词/回调收到的是 IKeyValuePair<K, T>，
+ * first() 返回的也是 IKeyValuePair<K, T> | null。
  */
 export interface IMapIterator<K, T> {
+  /** {@inheritDoc Iterator.iterator} */
   iterator: IMapIterator<K, T>;
+  /** {@inheritDoc Iterator.next} */
   next(): boolean;
+  /** {@inheritDoc Iterator.hasNext} */
   hasNext(): boolean;
-  /** Advance to first item and return it, or null. */
-  first(): T | null;
+  /**
+   * Advance if needed to the first item in the collection and return it, or return null if there is none.
+   * Returns a *key/value pair*, not a *value*.
+   */
+  first(): IKeyValuePair<K, T> | null;
+  /** {@inheritDoc Iterator.reset} */
   reset(): void;
-  any(pred: (x: T) => boolean): boolean;
-  all(pred: (x: T) => boolean): boolean;
-  each(func: (x: T) => void): void;
-  map<S>(func: (x: T) => S): IMapIterator<K, S>;
-  filter(pred: (x: T) => boolean): IMapIterator<K, T>;
-  /** Gets the current value. */
+  /** {@inheritDoc Iterator.any} */
+  any(pred: (x: IKeyValuePair<K, T>) => boolean): boolean;
+  /** {@inheritDoc Iterator.all} */
+  all(pred: (x: IKeyValuePair<K, T>) => boolean): boolean;
+  /** {@inheritDoc Iterator.each} */
+  each(func: (x: IKeyValuePair<K, T>) => void): IMapIterator<K, T>;
+  /** {@inheritDoc Iterator.map} */
+  map<S>(func: (x: IKeyValuePair<K, T>) => S): Iterator<S>;
+  /** {@inheritDoc Iterator.filter} */
+  filter(pred: (x: IKeyValuePair<K, T>) => boolean): Iterator<IKeyValuePair<K, T>>;
+  /** Gets the current value in the collection, assuming next() has just returned true. */
   readonly value: T;
-  /** Gets the current key. */
+  /** Gets the current key in the collection, assuming next() has just returned true. */
   readonly key: K;
-  /** The total number of items in the iterated collection. */
+  /** {@inheritDoc Iterator.count} */
   readonly count: number;
 }
+
+/**
+ * 内部工具（非官方 API）：把一个 GoJS Iterator 收集成数组。
+ * 官方 Iterator 没有 toArray() 方法，只能这样循环。
+ */
+export function iteratorToArray<T>(it: Iterator<T>): T[] {
+  const out: T[] = [];
+  while (it.next()) out.push(it.value);
+  return out;
+}
+

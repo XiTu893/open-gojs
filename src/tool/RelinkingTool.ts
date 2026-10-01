@@ -9,6 +9,7 @@ import { Adornment } from '../view/Adornment';
 import { Link } from '../view/Link';
 
 export class RelinkingTool extends LinkingBaseTool {
+  static readonly className: string = "RelinkingTool";
 
   private _originalLink: Link | null = null;
   private _originalFromPort: GraphObject | null = null;

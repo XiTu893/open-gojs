@@ -7,6 +7,7 @@ import { GraphObject } from '../view/GraphObject';
  * Dispatches mouse events to GraphObjects that have isActionable set to true.
  */
 export class ActionTool extends Tool {
+  static readonly className: string = "ActionTool";
 
   private _actionableObject: GraphObject | null = null;
 

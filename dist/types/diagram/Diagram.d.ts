@@ -1,4 +1,5 @@
 import { Model, ObjectData } from '../model/Model';
+import { ChangedEvent } from '../model/ChangedEvent';
 import { EnumValue } from '../core/EnumValues';
 import { GraphObject } from '../view/GraphObject';
 import { Part } from '../view/Part';
@@ -20,7 +21,30 @@ import { CommandHandler } from '../command/CommandHandler';
 import { AnimationManager } from '../animation/AnimationManager';
 import { InputEvent } from './InputEvent';
 import { ThemeManager } from './ThemeManager';
+/** 官方 `Diagram.qL(name)`：是否是合法的 Diagram 事件名（大小写不敏感） */
+export declare function isDiagramEventName(name: string): boolean;
 export declare class Diagram {
+    static readonly className: string;
+    static readonly version: string;
+    static licenseKey: string;
+    static img: string;
+    static readonly None = 1;
+    static readonly Uniform = 2;
+    static readonly UniformToFill = 3;
+    static readonly CycleAll = 1;
+    static readonly CycleNotDirected = 2;
+    static readonly CycleNotDirectedFast = 3;
+    static readonly CycleNotUndirected = 4;
+    static readonly CycleDestinationTree = 5;
+    static readonly CycleSourceTree = 6;
+    static readonly DocumentScroll = 1;
+    static readonly InfiniteScroll = 2;
+    static readonly TreeParentCollapsed = 1;
+    static readonly AllParentsCollapsed = 2;
+    static readonly AnyParentsCollapsed = 3;
+    static isUsingDOM(): boolean;
+    static setDocument(d: any): void;
+    static useDOM(value: boolean): void;
     private _div;
     private _model;
     private _modelChangeListener;
@@ -34,6 +58,15 @@ export declare class Diagram {
     private _minScale;
     private _maxScale;
     private _padding;
+    /**
+     * 上一次 raise `DocumentBoundsChanged` 时的文档包围盒。
+     * 官方是「包围盒**变了**才 raise」，而本项目以前只在 `invalidateDocumentBounds()`
+     * 里无条件 raise —— 初始建模阶段那批 invalidate 全都发生在样例注册监听器**之前**，
+     * 于是 gantt 的 `DocumentBoundsChanged` 监听器（给 `myTimeline` 的 `MAIN` 形状
+     * 赋 `width = graduatedMax`）永远不触发，`MAIN.width` 停在 NaN，
+     * 画 graduated 时间轴时报 `Invalid arguments to Rect constructor: 0, Infinity, 0, -Infinity`。
+     */
+    private _lastRaisedDocBounds;
     protected _allowSelect: boolean;
     protected _allowMove: boolean;
     protected _allowCopy: boolean;
@@ -69,6 +102,9 @@ export declare class Diagram {
     _layoutInvalid: boolean;
     private _contextMenu;
     _layers: Layer[];
+    /** 官方 Diagram.ms（grid Panel）与其宿主 Part（XL 创建的常驻 Part） */
+    private _gridPart;
+    private _gridPanel;
     _parts: Map<any, Part>;
     _nodeKeyMap: Map<any, Node>;
     _treeLinkDataByChildKey: Map<any, ObjectData>;
@@ -203,7 +239,8 @@ export declare class Diagram {
     addLayer(layer: Layer): void;
     removeLayer(layer: Layer): void;
     findLayer(name: string): Layer | null;
-    add(part: Part): void;
+    /** 官方 `Diagram.add(part): this`：加入默认层，invalidateDocumentBounds + part.invalidateLayout(1)，返回 this */
+    add(part: Part): this;
     remove(part: Part): void;
     findNodeForKey(key: any): Node | null;
     findLinkForData(data: ObjectData): Link | null;
@@ -213,13 +250,14 @@ export declare class Diagram {
     findPartAt(point: Point, selectableOnly?: boolean): Part | null;
     findObjectAt(point: Point): GraphObject | null;
     findNodeAt(point: Point): Node | null;
-    select(part: Part): void;
+    select(part: Part | null): void;
     clearSelection(): void;
     selectCollection(parts: GojsIterable<Part>): void;
     startTransaction(tname?: string): boolean;
     commitTransaction(tname?: string): boolean;
     rollbackTransaction(): boolean;
-    commit(func: () => any, tname?: string): any;
+    /** 官方 `Diagram.commit(commitFunc, tname?)`：func 收到 diagram 本体；事务交给 model 处理 */
+    commit(func: (d?: any) => any, tname?: string): any;
     addDiagramListener(name: string, listener: Function): void;
     removeDiagramListener(name: string, listener: Function): void;
     addChangedListener(listener: Function): void;
@@ -229,6 +267,10 @@ export declare class Diagram {
     requestUpdate(invalidate?: boolean): void;
     layoutDiagram(invalidate?: boolean): void;
     updateAllTargetBindings(propname?: string): void;
+    /**
+     * 官方 zoomToFit → Td(2)：min(view/doc)，**不超过 defaultScale（通常 1.0）**，
+     * 再 alignDocument(Center, Center) 居中。
+     */
     zoomToFit(): void;
     centerRect(r: Rect): void;
     scrollToRect(r: Rect): void;
@@ -241,9 +283,16 @@ export declare class Diagram {
     set(props: Partial<Diagram>): this;
     focus(): void;
     private _createDefaultLayers;
+    /** 官方 Diagram.XL()：默认 6 根网格线（1/5/10 间隔），面板默认不可见、Part 可见 */
     private _createDefaultGrid;
     get grid(): any;
     set grid(val: any);
+    /**
+     * 官方 Diagram.eC(t?)：按视口重设 grid 面板尺寸并把 GRID Part 吸附到网格。
+     * Cf（lcm 周期 × cellSize）来自 Panel._updateGridSettings；
+     * 面板尺寸 = 视口 + 2×Cf（四周留出一整个周期，平移视口时线相位保持不变）。
+     */
+    private _updateGridBounds;
     private _createDefaultNodeTemplate;
     private _createDefaultLinkTemplate;
     private _clearAllParts;
@@ -254,17 +303,38 @@ export declare class Diagram {
     private _removeNodeForData;
     private _removeLinksForNode;
     private _removeLinkForData;
+    /**
+     * 官方 `Binding.updateTarget`（`node_modules/gojs/release/go.js` 840959）把
+     * 「取源值 + 调 converter + 写目标属性」整段包在 `try { ... } catch {}` 里，
+     * 任何求值异常都被**静默吞掉**（既不中断布局，也不传播到 init）。
+     * 之前本项目不 catch，样例里 `Brush.lightenBy(color)` 这类未定义全局
+     * 直接把整个 init 打断（实测 industrialDiagram 只渲染出 1/19 个节点）。
+     */
     private _resolveBindingValue;
+    private _resolveBindingValueCore;
     private _applyBindings;
+    /**
+     * 官方 Model.ft：把目标属性写入包 try/catch，失败仅 console.log（U.et），
+     * 例如数据 width: null → Size(null, NaN) 抛错时保持原值。
+     */
+    private _setBoundProperty;
     private _applyBindingsToObject;
     private _updateBindingsForPart;
+    /** 官方 GraphObject.Zo：只应用 isToTheme 绑定，递归子对象 */
+    private _applyThemeBindingsOnly;
     private _updateBindingsForObject;
     _handlePartPropertyChanged(part: Part, obj: GraphObject, propname: string, value?: any): void;
     private _onModelChanged;
     private _rebuildTreeLinks;
+    /**
+     * 官方 `Diagram.raiseChangedEvent(change, propertyName, object, oldValue, newValue, oldParam?, newParam?)`。
+     * 构造一个 ChangedEvent 并分发给 diagram 的 changed 监听者。
+     */
+    raiseChangedEvent(change: any, propertyName: string, object: any, oldValue: any, newValue: any, oldParam?: any, newParam?: any): ChangedEvent;
     private _raiseChangedEvent;
+    /** 官方 DiagramEvent：监听器收到 `{ diagram, type, subject, subjectData, args }`；官方事件名为 ViewportBoundsChanged */
     private _raiseDiagramEvent;
-    raiseDiagramEvent(name: string, ...args: any[]): void;
+    raiseDiagramEvent(name: string, subject?: any, subjectData?: any, ...rest: any[]): void;
     private _findObjectInPanel;
     private _renderLoop;
     /**
@@ -276,9 +346,17 @@ export declare class Diagram {
      * position 为 NaN 时按原样传入（ab.x/y 保持 NaN，对齐官方）。
      */
     private _measureArrangeAll;
+    /** 官方在节点布局定稿后让所有 link 重算路线 */
+    private _invalidateLinkRoutes;
     private _collectGroups;
     private _performLayout;
+    /**
+     * 官方 tE（首次布局完成）+ on(t=true)：先定初始 scale，
+     * 再按 initialDocumentSpot/initialViewportSpot 计算 position，最后用 Z2 首次夹取修正。
+     */
     private _applyInitialViewport;
+    /** 官方 Z2(n=true/scrollMode)：夹取 position；视口宽于文档时按对齐 spot 摆放 */
+    private _clampViewportPosition;
     private _applyAutoScale;
     private _applyContentAlignment;
     private _updateGeometry;
@@ -286,4 +364,256 @@ export declare class Diagram {
     private _checkResize;
     private _setupMouseEvents;
     private _setupKeyboardEvents;
+    private _currentCursor;
+    private _defaultCursor;
+    private _skipsUndoManager;
+    private _mouseOver;
+    private _mouseEnter;
+    private _mouseLeave;
+    private _mouseHold;
+    private _mouseHover;
+    private _toolTip;
+    get currentCursor(): string;
+    set currentCursor(val: string);
+    get defaultCursor(): string;
+    set defaultCursor(val: string);
+    get skipsUndoManager(): boolean;
+    set skipsUndoManager(val: boolean);
+    get mouseOver(): ((e: InputEvent, diagram: Diagram) => void) | null;
+    set mouseOver(val: ((e: InputEvent, diagram: Diagram) => void) | null);
+    get mouseEnter(): ((e: InputEvent, diagram: Diagram) => void) | null;
+    set mouseEnter(val: ((e: InputEvent, diagram: Diagram) => void) | null);
+    get mouseLeave(): ((e: InputEvent, diagram: Diagram) => void) | null;
+    set mouseLeave(val: ((e: InputEvent, diagram: Diagram) => void) | null);
+    get mouseHold(): ((e: InputEvent, diagram: Diagram) => void) | null;
+    set mouseHold(val: ((e: InputEvent, diagram: Diagram) => void) | null);
+    get mouseHover(): ((e: InputEvent, diagram: Diagram) => void) | null;
+    set mouseHover(val: ((e: InputEvent, diagram: Diagram) => void) | null);
+    get toolTip(): GraphObject | string | null;
+    set toolTip(val: GraphObject | string | null);
+    private _firstInput;
+    private _previousInput;
+    private _mouseIsCaptured;
+    private _opacity;
+    private _fixedBounds;
+    private _defaultScale;
+    private _initialDocumentSpot;
+    private _initialViewportSpot;
+    private _positionComputation;
+    private _scrollMode;
+    private _scrollMargin;
+    private _scrollsPageOnFocus;
+    private _hasHorizontalScrollbar;
+    private _hasVerticalScrollbar;
+    private _scrollWidth;
+    private _autoScrollInterval;
+    private _autoScrollRegion;
+    private _isVirtualized;
+    private _isTreePathToChildren;
+    private _treeCollapsePolicy;
+    private _highlighteds;
+    private _isCollapsingExpanding;
+    private _delaysLayout;
+    private _isModelReadOnly;
+    private _isModified;
+    private _draggedLink;
+    private _modelChangeListeners;
+    get firstInput(): InputEvent;
+    get previousInput(): InputEvent;
+    get isMouseCaptured(): boolean;
+    get opacity(): number;
+    set opacity(val: number);
+    get fixedBounds(): Rect | null;
+    set fixedBounds(val: Rect | null);
+    get defaultScale(): number;
+    set defaultScale(val: number);
+    get initialDocumentSpot(): Spot;
+    set initialDocumentSpot(val: Spot);
+    get initialViewportSpot(): Spot;
+    set initialViewportSpot(val: Spot);
+    get positionComputation(): ((part: Part, pt: Point, gridPt: Point) => Point) | null;
+    set positionComputation(val: ((part: Part, pt: Point, gridPt: Point) => Point) | null);
+    get scrollMode(): any;
+    set scrollMode(val: any);
+    get scrollMargin(): Margin;
+    set scrollMargin(val: Margin);
+    get scrollsPageOnFocus(): boolean;
+    set scrollsPageOnFocus(val: boolean);
+    get hasHorizontalScrollbar(): boolean;
+    set hasHorizontalScrollbar(val: boolean);
+    get hasVerticalScrollbar(): boolean;
+    set hasVerticalScrollbar(val: boolean);
+    get autoScrollInterval(): number;
+    set autoScrollInterval(val: number);
+    get autoScrollRegion(): number;
+    set autoScrollRegion(val: number);
+    get isVirtualized(): boolean;
+    set isVirtualized(val: boolean);
+    get isTreePathToChildren(): boolean;
+    set isTreePathToChildren(val: boolean);
+    get treeCollapsePolicy(): any;
+    set treeCollapsePolicy(val: any);
+    get highlighteds(): Set<Part>;
+    get isCollapsingExpanding(): boolean;
+    get delaysLayout(): boolean;
+    set delaysLayout(val: boolean);
+    get isModelReadOnly(): boolean;
+    set isModelReadOnly(val: boolean);
+    get isModified(): boolean;
+    set isModified(val: boolean);
+    get draggedLink(): any;
+    set draggedLink(val: any);
+    addModelChangedListener(listener: (e: any) => void): void;
+    removeModelChangedListener(listener: (e: any) => void): void;
+    addEventListener(type: string, listener: (e: any) => void): void;
+    removeEventListener(type: string, listener: (e: any) => void): void;
+    doMouseDown(): void;
+    doMouseMove(): void;
+    doMouseUp(): void;
+    doMouseWheel(): void;
+    doKeyDown(): void;
+    doKeyUp(): void;
+    emitMouseDown(e: InputEvent): void;
+    emitMouseMove(e: InputEvent): void;
+    emitMouseUp(e: InputEvent): void;
+    emitMouseWheel(e: InputEvent): void;
+    emitKeyDown(e: InputEvent): void;
+    emitKeyUp(e: InputEvent): void;
+    doFocus(): void;
+    acceptEvent(e: InputEvent): boolean;
+    click(e: InputEvent): void;
+    doubleClick(e: InputEvent): void;
+    contextClick(e: InputEvent): void;
+    getMouse(): Point;
+    mouseDragOver(e: InputEvent): void;
+    mouseDrop(e: InputEvent): void;
+    findPartForData(data: any): Part | null;
+    findNodeForData(data: any): Node | null;
+    findLinkForKey(key: any): Link | null;
+    findPartsAt(point: Point): any;
+    findObjectsAt(point: Point): any;
+    findPartsIn(rect: Rect, partial?: boolean): any;
+    findObjectsIn(rect: Rect, partial?: boolean): any;
+    findPartsNear(center: Point, dist: number, partial?: boolean): any;
+    findObjectsNear(center: Point, dist: number): any;
+    findTopLevelNodesAndLinks(): any;
+    findTopLevelGroups(): any;
+    findTreeRoots(): any;
+    computePartsBounds(parts: any): Rect;
+    computeBounds(): Rect;
+    ensureBounds(): void;
+    invalidateDocumentBounds(): void;
+    /** 官方语义：文档包围盒发生变化时（且仅此时）raise `DocumentBoundsChanged` */
+    private _checkDocumentBoundsChanged;
+    invalidateViewport(): void;
+    zoomToRect(rect: Rect): void;
+    zoomPoint(factor: number): void;
+    isUnoccupied(rect: Rect): boolean;
+    computeOccupiedArea(place: Rect): Rect;
+    scrollHorizontalLineChange(value: number): void;
+    scrollVerticalLineChange(value: number): void;
+    scroll(): void;
+    setScrollWidth(width: number): void;
+    computeAutoScrollPosition(): Point;
+    doAutoScroll(): void;
+    stopAutoScroll(): void;
+    addLayerBefore(layer: Layer, existingLayer: Layer): void;
+    addLayerAfter(layer: Layer, existingLayer: Layer): void;
+    partAdded(part: Part): void;
+    partRemoved(part: Part): void;
+    clear(): void;
+    removeParts(coll: any, ensureBounds?: boolean): void;
+    /**
+     * 官方这几个方法都接受 Iterable（List/Set/图元集合）或者普通数组。
+     * 本项目的 `List.iterator` 是**属性**（一个 Iterator 对象）而不是方法，
+     * 所以不能无脑 `coll.iterator()`。
+     */
+    private _iterateParts;
+    moveParts(coll: any, delta: Point, check?: boolean): void;
+    copyParts(coll: any, targetDiagram?: any, check?: boolean): any;
+    private _nodeSelectionAdornmentTemplate;
+    private _linkSelectionAdornmentTemplate;
+    private _groupSelectionAdornmentTemplate;
+    get nodeSelectionAdornmentTemplate(): any;
+    set nodeSelectionAdornmentTemplate(val: any);
+    get linkSelectionAdornmentTemplate(): any;
+    set linkSelectionAdornmentTemplate(val: any);
+    get groupSelectionAdornmentTemplate(): any;
+    set groupSelectionAdornmentTemplate(val: any);
+    highlightCollection(parts: any): void;
+    highlight(part: Part): void;
+    clearHighlighteds(): void;
+    private _renderingHints;
+    private _divBackground;
+    private _pixelRatio;
+    private _attached;
+    setRenderingHint(name: string, val: any): void;
+    getRenderingHint(name: string): any;
+    resetRenderingHints(): void;
+    setDivBackground(value: string): void;
+    computePixelRatio(): number;
+    attach(): void;
+    get isAttached(): boolean;
+    maybeUpdate(): void;
+    get isUpdateRequested(): boolean;
+    private _isUpdateRequestedFlag;
+    makeSVG(opts?: any): any;
+    makeSvg(opts?: any): any;
+    makeImageData(opts?: any): string;
+    makeImage(opts?: any): any;
+    private _routers;
+    get routers(): List<any>;
+    set routers(val: List<any> | any[] | Iterable<any>);
+    findRouter(part: any): any;
+    addRenderer(renderer: any): void;
+    removeRenderer(renderer: any): void;
+    setupRouters(): void;
+    addInvalidRoute(part: any): void;
+    computeMove(part: any, pt: Point): void;
+    getPositions(part: any, t: any): any;
+    validCycle(): boolean;
+    getInputOption(prop: string): any;
+    setInputOption(prop: string, val: any): void;
+    setProperties(obj: any): void;
+    setRTL(isRTL: boolean): void;
+    /**
+     * 对齐官方 `Diagram.delayInitialization(func)`（见 `node_modules/gojs/release/go.js`）：
+     *   `t !== null && U.yn(() => { ...; t(this) }, 1)`
+     * 即延迟到下一次 macrotask 再调用，并且**把 Diagram 自己作为参数传进去**。
+     * 之前这里写成 `callback()`，既没延迟也没传参，
+     * `myDiagram.delayInitialization(loadTree)` 这类样例直接
+     * `Cannot read properties of undefined (reading 'model')`（实测 DragZooming）。
+     */
+    delayInitialization(callback?: ((d: Diagram) => void) | null): void;
+    toggleKeyboardControl(shown: boolean): void;
+    onViewportBoundsChanged(): void;
+    updateAllRelationshipsFromData(): void;
+    /** 官方 Diagram.updateAllThemeBindings：对所有部件应用 theme 绑定（PartManager.updateAllThemeBindings） */
+    updateAllThemeBindings(): void;
+    isTreePathToChildrenFn(): boolean;
+    toString(): string;
+    private _avoidanceCellSize;
+    private _avoidanceLimit;
+    private _scaleComputation;
+    private _handlesDragDropForTopLevelParts;
+    private _partManager;
+    get avoidanceCellSize(): Size;
+    set avoidanceCellSize(val: Size);
+    get avoidanceLimit(): number;
+    set avoidanceLimit(val: number);
+    get scaleComputation(): ((thisDiagram: Diagram, newScale: number) => number) | null;
+    set scaleComputation(val: ((thisDiagram: Diagram, newScale: number) => number) | null);
+    get handlesDragDropForTopLevelParts(): boolean;
+    set handlesDragDropForTopLevelParts(val: boolean);
+    get partManager(): any;
+    set partManager(val: any);
+    initializePartManager(partManager: any): void;
+    diagramScroll(scrollbar: any): void;
+    /** 官方 `Diagram.doLinkRouting(container)`：遍历 routers，canRoute 过滤后 routeLinks(本图 links 集合, container) */
+    doLinkRouting(container?: any): void;
+    cacheGroupExternalLinks(start: boolean): void;
+    focusObject(obj: any): void;
+    raiseChanged(flag: any, details: any): void;
+    redraw(): void;
+    reset(): void;
 }

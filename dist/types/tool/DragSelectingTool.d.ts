@@ -5,6 +5,7 @@ import { Rect } from '../core/Rect';
  * Allows the user to draw a rectangle to select multiple parts.
  */
 export declare class DragSelectingTool extends Tool {
+    static readonly className: string;
     private _box;
     private _startPoint;
     constructor();

@@ -1,7 +1,9 @@
 import { Tool } from './Tool';
 import { Point } from '../core/Point';
+import { Size } from '../core/Size';
 import { GraphObject } from '../view/GraphObject';
 import { Link } from '../view/Link';
+import { Node } from '../view/Node';
 import { Shape } from '../view/Shape';
 import { PanelAuto } from '../core/EnumValues';
 
@@ -11,6 +13,7 @@ import { PanelAuto } from '../core/EnumValues';
  * and creating temporary link visuals.
  */
 export class LinkingBaseTool extends Tool {
+  static readonly className: string = "LinkingBaseTool";
 
   private _portProperty: string = 'portId';
   private _targetPort: GraphObject | null = null;
@@ -19,19 +22,61 @@ export class LinkingBaseTool extends Tool {
   private _linkValidation: ((fromNode: any, fromPort: GraphObject, toNode: any, toPort: GraphObject, link: Link | null) => boolean) | null = null;
   private _portValidation: ((fromNode: any, fromPort: GraphObject, toNode: any, toPort: GraphObject) => boolean) | null = null;
   private _temporaryLink: Link | null = null;
+  private _temporaryFromNode: Node | null = null;
   private _temporaryFromPort: GraphObject | null = null;
+  private _temporaryToNode: Node | null = null;
   private _temporaryToPort: GraphObject | null = null;
+  private _portGravity: number = 100;
+  private _isUnconnectedLinkValid: boolean = false;
+  private _linkingCursor: string = 'pointer';
 
+  /**
+   * 对齐官方 `LinkingBaseTool` 构造（go.js 里 `this.zS=new Link({layerName:"Tool"})…`）。
+   * 本项目以前只在构造函数里造了一个灰线 `temporaryLink`，
+   * `temporaryFromPort` / `temporaryToPort` 一直是 `null`，
+   * 于是样例里 `linkingTool.temporaryFromPort.opacity = 0` 直接
+   * `Cannot set properties of null (setting 'opacity')`（实测 leaflet）。
+   */
   constructor() {
     super();
-    const tempLink = new Link();
-    const tempShape = new Shape();
-    tempShape.stroke = 'gray';
-    tempLink.add(tempShape);
+    const tempLink = new Link({ layerName: 'Tool' });
+    tempLink.add(
+      new Shape({ isPanelMain: true, stroke: 'blue' }).theme('stroke', 'tempLink'),
+      new Shape({ toArrow: 'Standard', fill: 'blue', stroke: 'blue' })
+        .theme('fill', 'tempLink')
+        .theme('stroke', 'tempLink')
+    );
     this._temporaryLink = tempLink;
+
+    const fromPort = new Shape('Rectangle', {
+      portId: '', fill: null, stroke: 'magenta', strokeWidth: 2, desiredSize: new Size(10, 10)
+    }).theme('stroke', 'tempPort');
+    this._temporaryFromPort = fromPort;
+    const fromNode = new Node({ selectable: false, layerName: 'Tool' });
+    fromNode.add(fromPort);
+    this._temporaryFromNode = fromNode;
+
+    const toPort = new Shape('Rectangle', {
+      portId: '', fill: null, stroke: 'magenta', strokeWidth: 2, desiredSize: new Size(10, 10)
+    }).theme('stroke', 'tempPort');
+    this._temporaryToPort = toPort;
+    const toNode = new Node({ selectable: false, layerName: 'Tool' });
+    toNode.add(toPort);
+    this._temporaryToNode = toNode;
   }
 
   // ============ Properties ============
+
+  get portGravity(): number { return this._portGravity; }
+  set portGravity(val: number) {
+    if (val >= 0) this._portGravity = val;
+  }
+
+  get isUnconnectedLinkValid(): boolean { return this._isUnconnectedLinkValid; }
+  set isUnconnectedLinkValid(val: boolean) { this._isUnconnectedLinkValid = val; }
+
+  get linkingCursor(): string { return this._linkingCursor; }
+  set linkingCursor(val: string) { this._linkingCursor = val; }
 
   get portProperty(): string { return this._portProperty; }
   set portProperty(val: string) { this._portProperty = val; }
@@ -65,8 +110,20 @@ export class LinkingBaseTool extends Tool {
   get temporaryFromPort(): GraphObject | null { return this._temporaryFromPort; }
   set temporaryFromPort(val: GraphObject | null) { this._temporaryFromPort = val; }
 
+  get temporaryFromNode(): Node | null { return this._temporaryFromNode; }
+  set temporaryFromNode(val: Node | null) {
+    this._temporaryFromNode = val;
+    if (val) this._temporaryFromPort = val.port;
+  }
+
   get temporaryToPort(): GraphObject | null { return this._temporaryToPort; }
   set temporaryToPort(val: GraphObject | null) { this._temporaryToPort = val; }
+
+  get temporaryToNode(): Node | null { return this._temporaryToNode; }
+  set temporaryToNode(val: Node | null) {
+    this._temporaryToNode = val;
+    if (val) this._temporaryToPort = val.port;
+  }
 
   // ============ Methods ============
 

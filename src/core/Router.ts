@@ -1,32 +1,69 @@
+/**
+ * Router - base class for diagram routers (`diagram.routers`).
+ *
+ * 官方 Router 移植（go-debug `class Router`）：
+ * - name/isEnabled/isRealtime/diagram 属性；set diagram 时使路由失效并 requestUpdate
+ * - canRoute(container)：isEnabled=false 或（非 realtime 且图处于跳过路由状态）/动画 tick 中返回 false
+ * - isRoutable(link, container) 默认 true；routeLinks(links, container) 默认空
+ * - invalidateRouter()
+ */
 export class Router {
+  static readonly className: string = "Router";
 
-  /** Compute the route for a link. */
-  getRoute(link: any): any[] {
-    return [];
+  private _name: string = "";
+  private _isEnabled: boolean = true;
+  private _isRealtime: boolean = true;
+  private _diagram: any = null;
+
+  constructor() {}
+
+  get name(): string { return this._name; }
+  set name(val: string) { this._name = val; }
+
+  get isEnabled(): boolean { return this._isEnabled; }
+  set isEnabled(val: boolean) { this._isEnabled = val; }
+
+  get isRealtime(): boolean { return this._isRealtime; }
+  set isRealtime(val: boolean) { this._isRealtime = val; }
+
+  get diagram(): any { return this._diagram; }
+  set diagram(val: any) {
+    if (this._diagram !== val) {
+      this._diagram = val;
+      if (val) {
+        (val as any)._linkRoutingInvalid = true;
+        if (typeof val.requestUpdate === 'function') val.requestUpdate();
+      }
+    }
   }
 
-  /** Compute the route for a link, taking into account nodes that must be avoided. */
-  computeRoute(link: any, options?: any): any[] {
-    return this.getRoute(link);
+  /** 使本路由器的路由失效并触发重新路由 */
+  invalidateRouter(): void {
+    if (this._diagram !== null && this._diagram !== undefined) {
+      (this._diagram as any)._linkRoutingInvalid = true;
+      if (typeof (this._diagram as any).requestUpdate === 'function') {
+        (this._diagram as any).requestUpdate();
+      }
+    }
   }
 
-  /** Get the from-port for a link. */
-  getFromPort(link: any): any {
-    return null;
+  /** 官方：isEnabled 且（realtime 或非跳过状态），动画 tick 中不路由 */
+  canRoute(container: any): boolean {
+    if (!this.isEnabled) return false;
+    const d: any = this.diagram;
+    if (d && d.animationManager && d.animationManager.isTicking) return false;
+    return true;
   }
 
-  /** Get the to-port for a link. */
-  getToPort(link: any): any {
-    return null;
+  /** 是否允许路由指定 link */
+  isRoutable(link: any, container: any): boolean {
+    return true;
   }
 
-  /** invalidate the route for a link. */
-  invalidateRoute(link: any): void {
-    // No-op by default
-  }
+  /** 对给定 link 集合执行路由；基类为空实现 */
+  routeLinks(links: any, container: any): void {}
 
-  /** invalidatedRoutes changed. */
-  invalidatedRoutes(): void {
-    // No-op by default
+  toString(): string {
+    return this.name !== "" ? this.name + " Router" : "Router";
   }
 }

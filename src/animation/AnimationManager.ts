@@ -1,6 +1,7 @@
 import { Animation } from './Animation';
 
 export class AnimationManager {
+  static readonly className: string = "AnimationManager";
 
   private _diagram: any = null;
   private _isEnabled: boolean = true;
@@ -102,7 +103,8 @@ export class AnimationManager {
     }
   }
 
-  defineAnimationEffect(name: string, effect: (obj: object, from: any, to: any, duration: number) => Animation): void {
+  /** 官方 `AnimationManager.defineAnimationEffect(effectName, animationFunction)`（静态） */
+  static defineAnimationEffect(name: string, effect: (obj: object, from: any, to: any, duration: number) => Animation): void {
     (AnimationManager as any)._effects[name] = effect;
   }
 

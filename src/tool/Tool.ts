@@ -2,8 +2,10 @@ import { Diagram } from '../diagram/Diagram';
 import { InputEvent } from '../diagram/InputEvent';
 import { Point } from '../core/Point';
 import { Rect } from '../core/Rect';
+import { iteratorToArray } from '../core/Iterable';
 import type { GraphObject } from '../view/GraphObject';
 import type { Adornment } from '../view/Adornment';
+import type { ToolManager } from './ToolManager';
 
 /**
  * Tool - base class for all interactive tools in the diagram.
@@ -11,19 +13,38 @@ import type { Adornment } from '../view/Adornment';
  * transaction management, and standard interaction patterns.
  */
 export class Tool {
+  static readonly className: string = "Tool";
 
   protected _diagram: Diagram | null = null;
   protected _isActive: boolean = false;
   private _isEnabled: boolean = true;
   private _name: string = '';
   private _transactionResult: string | null = null;
+  /**
+   * 所属 ToolManager。样例经常在 Diagram 构建完成之后才
+   * `toolManager.mouseDownTools.add(new MyTool())`，此时新 Tool 的
+   * `_diagram` 还是 null —— 若只靠 ToolManager 构造时的一次性赋值，
+   * 后加的 Tool 在 `canStart/updateAdornments` 里取 `this.diagram`
+   * 就会得到 null（实测 SectorReshaping / LinkShifting 直接抛
+   * `Cannot read properties of null (reading 'isReadOnly')`）。
+   * 因此这里保留 toolManager 引用，让 `diagram` 能回落到
+   * `toolManager.diagram`。
+   */
+  private _toolManager: ToolManager | null = null;
 
   constructor() { }
 
   // ============ Properties ============
 
-  get diagram(): Diagram | null { return this._diagram; }
+  get diagram(): Diagram | null {
+    if (this._diagram !== null) return this._diagram;
+    const tm = this._toolManager;
+    return tm ? tm.diagram : null;
+  }
   set diagram(val: Diagram | null) { this._diagram = val; }
+
+  get toolManager(): ToolManager | null { return this._toolManager; }
+  set toolManager(val: ToolManager | null) { this._toolManager = val; }
 
   get isActive(): boolean { return this._isActive; }
   set isActive(val: boolean) { this._isActive = val; }
@@ -102,7 +123,7 @@ export class Tool {
 
     const toolName = this._name;
     const partsIt = adornmentLayer.parts;
-    const partsArray = partsIt.toArray();
+    const partsArray = iteratorToArray<any>(partsIt);
     for (let i = partsArray.length - 1; i >= 0; i--) {
       const ad: Adornment = partsArray[i];
       if (!ad.visible) continue;
@@ -201,4 +222,100 @@ export class Tool {
 
   /** Update adornments for relevant parts. */
   updateAdornments(part: any): void { }
+
+  // ============ 官方 Tool API 对齐（阶段 6） ============
+
+  /** 上一次鼠标悬停的对象（用于 mouseEnter/mouseLeave/mouseOver 追踪）。 */
+  private _overObject: GraphObject | null = null;
+
+  toString(): string {
+    if (this.name !== '') return this.name + ' Tool';
+    const ctor = this.constructor as any;
+    if (ctor && typeof ctor.className === 'string') return ctor.className + ' Tool';
+    const n = this.constructor && (this.constructor as any).name;
+    return (typeof n === 'string' && n.length > 0) ? n : 'Tool';
+  }
+
+  /**
+   * 官方 Tool.canStartButton
+   * 当前工具是否可因主键（左键）按下而启动。
+   * 官方使用 lastInput.left；本项目 InputEvent 提供 leftButton。
+   */
+  canStartButton(): boolean {
+    const d = this.diagram;
+    if (!d) return false;
+    return d.lastInput.leftButton;
+  }
+
+  /** 官方 Tool.doUpdateCursor —— 将图表面板光标重置为空。 */
+  doUpdateCursor(t: any): void {
+    const d = this.diagram;
+    if (d) d.currentCursor = '';
+  }
+
+  /**
+   * 官方 Tool.doWheelChange
+   * 若滚轮位置改变（或存在水平滚轮偏移），则标记事件不再继续向外传播。
+   * 注：本项目未接入该调用，属于 API 对齐的惰性实现。
+   */
+  doWheelChange(oldPoint: Point, newPoint: Point, input: InputEvent): void {
+    if (!oldPoint.equals(newPoint)) {
+      input.bubbles = false;
+      return;
+    }
+    const ne = input.nativeEvent as WheelEvent | null;
+    if (ne !== null && typeof (ne as any).wheelDeltaX === 'number' && (ne as any).wheelDeltaX !== 0) {
+      input.bubbles = false;
+    }
+  }
+
+  /**
+   * 官方 Tool.standardMouseOver
+   * 标准鼠标悬停处理：计算目标对象，派发 mouseLeave/mouseEnter/mouseOver，
+   * 并设置 currentCursor。本项目未接入调用，属于 API 对齐的惰性实现。
+   */
+  standardMouseOver(): void {
+    const d = this.diagram;
+    if (!d) return;
+    const input = d.lastInput;
+    const am: any = d.animationManager;
+    if (am && typeof am.isProcessing === 'boolean' && am.isProcessing === true) return;
+
+    const savesSkips = d.skipsUndoManager;
+    d.skipsUndoManager = true;
+    try {
+      const dp = new Point(input.documentPoint.x, input.documentPoint.y);
+      let targ: GraphObject | null =
+        d.viewportBounds.containsPoint(dp) ? d.findObjectAt(dp) : null;
+      input.targetObject = targ;
+
+      // 沿 panel 链向上找第一个带 cursor 的对象
+      while (targ && !targ.cursor) { targ = targ.panel; }
+      if (targ) d.currentCursor = targ.cursor;
+
+      const evType = input.nativeEvent ? input.nativeEvent.type : '';
+      const isOver = evType === 'mouseover';
+      const isMove = evType === 'mousemove';
+      if (!isOver && !isMove) return;
+
+      const prevObj = this._overObject;
+      const newObj = input.targetObject as GraphObject | null;
+
+      // mouseLeave：离开旧对象
+      if (prevObj && prevObj !== newObj && prevObj.mouseLeave) {
+        prevObj.mouseLeave(input, prevObj);
+      }
+      // mouseEnter / mouseOver：进入新对象
+      if (newObj) {
+        if (newObj !== prevObj && newObj.mouseEnter) newObj.mouseEnter(input, newObj);
+        if (newObj.mouseOver) newObj.mouseOver(input, newObj);
+      }
+      // 无具体对象时派发 Diagram 级别的 mouseOver
+      if (!newObj && d.mouseOver) d.mouseOver(input, d);
+
+      this._overObject = newObj;
+    } finally {
+      d.skipsUndoManager = savesSkips;
+    }
+  }
 }

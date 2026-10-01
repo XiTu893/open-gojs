@@ -1,4 +1,5 @@
 export class TreeNetwork {
+  static readonly className: string = "TreeNetwork";
 
   /** The name of this network. */
   name: string;

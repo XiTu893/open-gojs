@@ -10,6 +10,7 @@ import { Adornment } from '../view/Adornment';
 import { PanelAuto, StretchFill } from '../core/EnumValues';
 
 export class ResizingTool extends Tool {
+  static readonly className: string = "ResizingTool";
 
   private _handle: GraphObject | null = null;
   private _adornedElement: GraphObject | null = null;

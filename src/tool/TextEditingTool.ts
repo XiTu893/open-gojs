@@ -4,6 +4,7 @@ import { TextBlock } from '../view/TextBlock';
 import { Brush } from '../core/Brush';
 
 export class TextEditingTool extends Tool {
+  static readonly className: string = "TextEditingTool";
 
   private _textBlock: TextBlock | null = null;
   private _defaultText: string = '';

@@ -1,4 +1,5 @@
 export class TreeEdge {
+  static readonly className: string = "TreeEdge";
 
   /** The from node of this edge. */
   from!: any;

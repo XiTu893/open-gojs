@@ -16,6 +16,7 @@ import { Spot } from '../core/Spot';
 import { Margin } from '../core/Margin';
 import { Brush, BrushLike, Color } from '../core/Brush';
 import { Geometry } from '../core/Geometry';
+import { computePathPoints, interpolatePath } from '../core/PathSampling';
 import { getFigureGeometry } from '../figures/Figures';
 import {
   PanelAuto, PanelVertical, PanelHorizontal, PanelSpot, PanelTable,
@@ -33,6 +34,7 @@ import {
  * Draws GraphObject hierarchies onto an HTML5 Canvas.
  */
 export class CanvasRenderer {
+  static readonly className: string = "CanvasRenderer";
 
   canvas: HTMLCanvasElement | null = null;
   ctx: CanvasRenderingContext2D | null = null;
@@ -193,7 +195,7 @@ export class CanvasRenderer {
     if (!currentTool || !(currentTool as any)._box) return;
 
     const box: Rect = (currentTool as any)._box;
-    if (!box || box.isEmpty) return;
+    if (!box || box.isEmpty()) return;
 
     ctx.save();
     ctx.fillStyle = 'rgba(30, 144, 255, 0.15)';
@@ -343,7 +345,13 @@ export class CanvasRenderer {
       ctx.beginPath();
       ctx.moveTo(arr[0].x, arr[0].y);
       if (arr.length === 2) {
-        const curviness = (link as any)._curviness;
+        // 用 computeCurviness()（NaN 时回落到官方默认 Link.RF = 16），
+        // 直接读 _curviness 拿到的是 NaN，会走 lineTo 画成直线 ——
+        // friendWheel 官方是曲线、我们全是直线就是这么来的。
+        const curviness =
+          typeof (link as any).computeCurviness === 'function'
+            ? (link as any).computeCurviness()
+            : (link as any)._curviness;
         if (curviness && isFinite(curviness) && curviness !== 0) {
           const dx = arr[1].x - arr[0].x;
           const dy = arr[1].y - arr[0].y;
@@ -611,9 +619,13 @@ export class CanvasRenderer {
     if (!points || points.count < 2) return;
 
     const arr = points.toArray();
-    const isToArrow = !!(shape as any)._toArrow;
-    const arrowType = isToArrow ? (shape as any)._toArrow : (shape as any)._fromArrow;
-    if (arrowType === 'None') return;
+    // 注意：Shape._toArrow 默认值是字符串 'None'（真值！），不能用 !! 判断，
+    // 否则 fromArrow 的 Shape 会被当成 toArrow 画在链路末端，导致 fromArrow 不可见。
+    const toArrowName = (shape as any)._toArrow;
+    const fromArrowName = (shape as any)._fromArrow;
+    const isToArrow = !!(toArrowName && toArrowName !== 'None');
+    const arrowType = isToArrow ? toArrowName : fromArrowName;
+    if (!arrowType || arrowType === 'None') return;
 
     let tipX: number, tipY: number, dirX: number, dirY: number;
     if (isToArrow) {
@@ -637,8 +649,12 @@ export class CanvasRenderer {
     dirX /= len;
     dirY /= len;
 
-    const arrowW = (shape as any).width || 10;
-    const arrowH = (shape as any).height || 10;
+    // 官方把箭头 Shape 当普通子图元画：几何按 `Shape.scale` 放大，描边按 scale 加粗，
+    // 且 measuredBounds 把描边算进盒子 → 几何相对实际盒子内缩半个描边。
+    // （原先用 `width || 10` 会把 8×8 的几何画成 10×10，官方是 8×3=24。）
+    const arrowScale = (shape as any).scale || 1;
+    const arrowW = (shape as any).width;
+    const arrowH = (shape as any).height;
 
     const geo = (Shape as any)._getArrowheadGeometry(arrowType || 'Standard');
     if (!geo) return;
@@ -655,9 +671,15 @@ export class CanvasRenderer {
     const gbounds = geo.bounds;
     if (gbounds.width > 0 && gbounds.height > 0) {
       const dir = isToArrow ? 1 : -1;
-      const sx = dir * arrowW / gbounds.width;
-      const sy = arrowH / gbounds.height;
-      ctx.transform(sx, 0, 0, sy, -(gbounds.x + gbounds.width) * sx, -(gbounds.y + gbounds.height / 2) * sy);
+      // 显式指定 width/height 时按官方以它为准，否则按 scale 放大自然几何
+      const sx = gbounds.width > 0 && typeof arrowW === 'number' && !isNaN(arrowW) && arrowW > 0
+        ? dir * arrowW / gbounds.width : dir * arrowScale;
+      const sy = typeof arrowH === 'number' && !isNaN(arrowH) && arrowH > 0
+        ? arrowH / gbounds.height : arrowScale;
+      const inset = (strokeWidth * arrowScale) / 2;
+      const tx = -(gbounds.x + gbounds.width) * sx + (isToArrow ? -inset : inset);
+      const ty = -(gbounds.y + gbounds.height / 2) * sy;
+      ctx.transform(sx, 0, 0, sy, tx, ty);
     }
 
     ctx.beginPath();
@@ -693,7 +715,7 @@ export class CanvasRenderer {
     }
     if (stroke) {
       ctx.strokeStyle = typeof stroke === 'string' ? stroke : 'black';
-      ctx.lineWidth = strokeWidth;
+      ctx.lineWidth = strokeWidth * arrowScale;
       ctx.stroke();
     }
     if (!fill && !stroke) {
@@ -799,8 +821,21 @@ export class CanvasRenderer {
     const ab = obj.actualBounds;
     const cx = offsetX + ab.x + ab.width / 2;
     const cy = offsetY + ab.y + ab.height / 2;
+    const hasTransform = obj.angle !== 0 || obj.scale !== 1;
 
-    if (obj.angle !== 0 || obj.scale !== 1) {
+    // 官方 GraphObject.tS/op：scale/angle 由对象矩阵 about naturalBounds 中心施加，
+    // 而 measuredBounds/actualBounds 已含 scale/angle 后的包围盒。因此变换对象需先在
+    // actualBounds 中心处按 naturalBounds(+stroke) 尺寸作画，再经矩阵变换到位。
+    let paintBox: Rect | null = null;
+    if (hasTransform) {
+      const nb = obj.naturalBounds;
+      const lp = obj instanceof Shape ? (obj as Shape).strokeWidth : 0;
+      const bw = nb.width + lp;
+      const bh = nb.height + lp;
+      paintBox = new Rect(cx - bw / 2, cy - bh / 2, bw, bh);
+    }
+
+    if (hasTransform) {
       ctx.save();
       ctx.translate(cx, cy);
       if (obj.angle !== 0) {
@@ -812,9 +847,20 @@ export class CanvasRenderer {
       ctx.translate(-cx, -cy);
     }
 
+    // 官方 GraphObject.background（GraphObject.iS）：非 Panel 对象先在自身边界内铺底色
+    //（官方 rect = naturalBounds ± strokeWidth/2 = paintBox），再画对象本体；
+    // Panel 的 background 在 renderPanel 中处理。
+    if (obj.background && !(obj instanceof Panel)) {
+      const bgRect = paintBox ? paintBox : new Rect(offsetX + ab.x, offsetY + ab.y, ab.width, ab.height);
+      ctx.save();
+      ctx.fillStyle = this._applyBrush(ctx, obj.background, bgRect);
+      ctx.fillRect(bgRect.x, bgRect.y, bgRect.width, bgRect.height);
+      ctx.restore();
+    }
+
     // Dispatch by type
     if (obj instanceof Shape) {
-      this.renderShape(obj as Shape, offsetX, offsetY);
+      this.renderShape(obj as Shape, offsetX, offsetY, paintBox);
     } else if (obj instanceof TextBlock) {
       this.renderTextBlock(obj as TextBlock, offsetX, offsetY);
     } else if (obj instanceof Picture) {
@@ -849,6 +895,14 @@ export class CanvasRenderer {
     const panelW = ab.width;
     const panelH = ab.height;
 
+    // Apply clipping if isClipping is true（官方：先 clip 再画 background）
+    if (panel.isClipping) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(panelX, panelY, panelW, panelH);
+      ctx.clip();
+    }
+
     // Render panel background
     if (panel.background) {
       ctx.save();
@@ -857,19 +911,13 @@ export class CanvasRenderer {
       ctx.restore();
     }
 
-    // Apply clipping if isClipping is true
-    if (panel.isClipping) {
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(panelX, panelY, panelW, panelH);
-      ctx.clip();
-    }
-
     const panelType = panel.type;
 
-    // Render grid background for Grid panels
+    // Grid 面板：官方 PanelLayoutGrid.$i 只画网格线，不再按普通子元素渲染
     if (panelType === PanelGrid) {
-      this.renderGrid(panel);
+      this.renderGrid(panel, panelX, panelY);
+      if (panel.isClipping) ctx.restore();
+      return;
     }
 
     // Row/col panels do not offset their children (official Bn() == false):
@@ -961,17 +1009,24 @@ export class CanvasRenderer {
   }
 
   /** Render a Shape */
-  renderShape(shape: Shape, offsetX: number, offsetY: number): void {
+  renderShape(shape: Shape, offsetX: number, offsetY: number, paintBox?: Rect | null): void {
     if (!shape.visible) return;
 
     const ctx = this.ctx;
     if (!ctx) return;
 
-    const ab = shape.actualBounds;
-    const shapeX = offsetX + ab.x;
-    const shapeY = offsetY + ab.y;
-    const shapeW = ab.width;
-    const shapeH = ab.height;
+    // GoJS measures a Shape's naturalBounds as (0,0,aW,aH) and its measuredBounds as
+    // (-sw/2,-sw/2,aW+sw,aH+sw), so the geometry is painted inset by strokeWidth/2
+    // within actualBounds (the stroke, drawn with lineWidth=sw, then covers exactly
+    // actualBounds). Paint at that same inset so that adjacent shapes whose actual
+    // bounds touch keep a visible stroke-width gap instead of merging together.
+    // paintBox（scale/angle 对象）：已含 offsetX/offsetY 的 naturalBounds+stroke 盒。
+    const rawSW = shape.strokeWidth;
+    const sw = typeof rawSW === 'number' && isFinite(rawSW) && rawSW > 0 ? rawSW : 0;
+    const shapeX = (paintBox ? paintBox.x : offsetX + shape.actualBounds.x) + sw / 2;
+    const shapeY = (paintBox ? paintBox.y : offsetY + shape.actualBounds.y) + sw / 2;
+    const shapeW = Math.max((paintBox ? paintBox.width : shape.actualBounds.width) - sw, 0);
+    const shapeH = Math.max((paintBox ? paintBox.height : shape.actualBounds.height) - sw, 0);
 
     // Get geometry
     let geo = shape._getGeometry();
@@ -1020,6 +1075,12 @@ export class CanvasRenderer {
     if (scaleX !== 1 || scaleY !== 1) {
       ctx.scale(scaleX, scaleY);
     }
+    // isGeometryPositioned 的 Shape 把几何画在【父面板】坐标系里（原始几何坐标，
+    // 例如 pieCharts 的扇形），不能归一化；其余 Shape 要把几何平移到自身包围盒，
+    // 否则像 sparklineGraphs 那种 y 为负的 geometryString 会整体画到盒子外面。
+    if (!(shape as any).isGeometryPositioned && (geoBounds.x !== 0 || geoBounds.y !== 0)) {
+      ctx.translate(-geoBounds.x, -geoBounds.y);
+    }
 
     // Fill
     if (shape.fill) {
@@ -1060,7 +1121,10 @@ export class CanvasRenderer {
     ctx.save();
 
     ctx.font = tb.font;
-    ctx.textAlign = tb.textAlign as CanvasTextAlign;
+    // 对齐换算成锚点 x（fillText 的 x 语义是文本左边缘）。
+    // 若保留 ctx.textAlign='center' 却把 x 传成文本框左边缘，文本会以左边缘为中心绘制，
+    // 一半溢出到框外并被下面的 clip 裁掉（多行居中文本会左右各缺一段）。
+    ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
 
     // Set text color
@@ -1080,14 +1144,22 @@ export class CanvasRenderer {
     const fontSize = this._getFontSize(tb.font);
     const lineHeight = fontSize * 1.2;
 
+    // 官方 TextBlock 语义：textAlign 决定文本在自身 actualBounds 内的水平位置
+    const alignX = (textWidth: number): number => {
+      const a = tb.textAlign;
+      if (a === 'center') return tbX + (tbW - textWidth) / 2;
+      if (a === 'right' || a === 'end') return tbX + tbW - textWidth;
+      return tbX;
+    };
+
     if (!tb.isMultiline || (tb as any)._wrap === StretchNone) {
       // Single line
-      ctx.fillText(tb.text, tbX, tbY);
+      ctx.fillText(tb.text, alignX(ctx.measureText(tb.text).width), tbY);
     } else {
       // Multiline: split by \n and wrap
       const lines = this._wrapText(ctx, tb.text, tbW > 0 ? tbW : Infinity);
       for (let i = 0; i < lines.length; i++) {
-        ctx.fillText(lines[i], tbX, tbY + i * lineHeight);
+        ctx.fillText(lines[i], alignX(ctx.measureText(lines[i]).width), tbY + i * lineHeight);
       }
     }
 
@@ -1162,96 +1234,136 @@ export class CanvasRenderer {
     }
   }
 
-  renderGrid(panel: Panel): void {
+  /**
+   * 官方 PanelLayoutGrid.$i/g3：在 panel 自然边界内裁剪，逐元素按 interval 画网格线。
+   * 坐标为文档坐标（panelX/panelY = 面板左上角文档位置），线位置 = panelX + F·cell + origin。
+   */
+  renderGrid(panel: Panel, panelX: number, panelY: number): void {
     const ctx = this.ctx;
     if (!ctx) return;
 
-    const ab = panel.actualBounds;
-    const cellSize = (panel as any)._gridCellSize as Size;
-    const gridOrigin = (panel as any)._gridOrigin as Point;
+    const cell = panel.gridCellSize;
+    if (!cell || !(cell.width > 0) || !(cell.height > 0)) return;
+    const nb = panel.naturalBounds;
+    const a = nb.width;
+    const c = nb.height;
+    if (!(a > 0) || !(c > 0)) return;
+    if (panel._gridExclusions === null) panel._updateGridSettings();
+    const ys = panel._gridExclusions as number[][];
 
-    if (!cellSize || cellSize.width <= 0 || cellSize.height <= 0) return;
-
-    const part = panel.part;
-    if (!part) return;
-
-    const docBounds = part.getDocumentBounds();
-    const startX = docBounds.x + gridOrigin.x;
-    const startY = docBounds.y + gridOrigin.y;
+    const origin = panel.gridOrigin;
+    const m = origin.x;
+    const g = origin.y;
+    const o = cell.width;
+    const r = cell.height;
 
     const diagram = this.diagram;
-    const vb = diagram ? (diagram as any).viewportBounds : ab;
-    const clipX = vb.x;
-    const clipY = vb.y;
-    const clipX2 = vb.x + vb.width;
-    const clipY2 = vb.y + vb.height;
+    let s = panel.getDocumentScale() * (diagram ? diagram.scale : 1);
+    if (!(s > 0)) s = 1;
+
+    const f = Math.ceil(a / o);
+    const u = Math.ceil(c / r);
 
     const elements = (panel as any)._elements as GraphObject[];
-    if (elements.length === 0) {
-      ctx.save();
-      ctx.strokeStyle = 'rgba(0,0,0,0.1)';
-      ctx.lineWidth = 0.5;
-      for (let x = Math.floor((clipX - startX) / cellSize.width) * cellSize.width + startX; x <= clipX2; x += cellSize.width) {
-        ctx.beginPath();
-        ctx.moveTo(x, clipY);
-        ctx.lineTo(x, clipY2);
-        ctx.stroke();
-      }
-      for (let y = Math.floor((clipY - startY) / cellSize.height) * cellSize.height + startY; y <= clipY2; y += cellSize.height) {
-        ctx.beginPath();
-        ctx.moveTo(clipX, y);
-        ctx.lineTo(clipX2, y);
-        ctx.stroke();
-      }
-      ctx.restore();
-      return;
-    }
 
     ctx.save();
-    for (const elem of elements) {
-      if (!elem.visible) continue;
-      const shape = elem as any;
-      const figure = shape._figure || shape.figure || '';
-      const interval = shape._interval || 1;
-      const stroke = shape._stroke || shape.stroke || 'rgba(0,0,0,0.1)';
-      const strokeWidth = shape._strokeWidth || shape.strokeWidth || 0.5;
+    ctx.beginPath();
+    ctx.rect(panelX, panelY, a, c);
+    ctx.clip();
 
-      if (stroke === 'transparent' || stroke === 'rgba(0,0,0,0)') continue;
-
-      ctx.strokeStyle = stroke;
-      ctx.lineWidth = strokeWidth;
-
-      if (figure === 'LineH' || figure === 'BarH') {
-        const step = cellSize.height * interval;
-        if (step <= 0) continue;
-        const height = shape._height || shape.height || 0;
-        for (let y = Math.floor((clipY - startY) / step) * step + startY; y <= clipY2; y += step) {
-          ctx.beginPath();
-          ctx.moveTo(clipX, y);
-          ctx.lineTo(clipX2, y);
-          ctx.stroke();
-          if (height > 0 && shape._fill) {
-            ctx.fillStyle = shape._fill;
-            ctx.fillRect(clipX, y, clipX2 - clipX, Math.min(height, step));
+    for (let b = 0; b < elements.length; b++) {
+      const S: any = elements[b];
+      if (!S.visible) continue;
+      const k = S.interval || 1;
+      const P = Math.abs(k);
+      if (o * P * s < 2) continue;
+      let A: number = S.segmentIndex;
+      if (!isFinite(A) || isNaN(A)) A = 0;
+      if (A < 0) A = P - Math.min(-A, P);
+      A = Math.round(A % P);
+      const N: number = S.opacity;
+      let M = 1;
+      if (N !== 1) {
+        if (N === 0) continue;
+        M = ctx.globalAlpha;
+        ctx.globalAlpha = M * N;
+      }
+      const C = ys[b] || [];
+      let T = false;
+      const L: number[] | null = S.strokeDashArray;
+      if (L !== null && L !== undefined) {
+        T = true;
+        ctx.setLineDash(L);
+        ctx.lineDashOffset = S.strokeDashOffset || 0;
+      }
+      const stroke = S.stroke;
+      if (stroke !== null && stroke !== undefined && stroke !== '' && S.strokeWidth > 0 &&
+          (S.figure === 'LineV' || S.figure === 'LineH')) {
+        ctx.lineWidth = S.strokeWidth;
+        ctx.strokeStyle = this._applyBrush(ctx, stroke, new Rect(panelX, panelY, a, c));
+        ctx.beginPath();
+        if (S.figure === 'LineV') {
+          const D = Math.floor((m - o) / o);
+          for (let F = D; F <= D + f; F++) {
+            const R = F * o + m;
+            if (R >= 0 && R <= a && this._gridLinePass(F, k, A, C)) {
+              ctx.moveTo(panelX + R, panelY);
+              ctx.lineTo(panelX + R, panelY + c);
+            }
+          }
+        } else {
+          const D = Math.floor((g - r) / r);
+          for (let F = D; F <= D + u; F++) {
+            const R = F * r + g;
+            if (R >= 0 && R <= c && this._gridLinePass(F, k, A, C)) {
+              ctx.moveTo(panelX, panelY + R);
+              ctx.lineTo(panelX + a, panelY + R);
+            }
           }
         }
-      } else if (figure === 'LineV' || figure === 'BarV') {
-        const step = cellSize.width * interval;
-        if (step <= 0) continue;
-        const width = shape._width || shape.width || 0;
-        for (let x = Math.floor((clipX - startX) / step) * step + startX; x <= clipX2; x += step) {
-          ctx.beginPath();
-          ctx.moveTo(x, clipY);
-          ctx.lineTo(x, clipY2);
-          ctx.stroke();
-          if (width > 0 && shape._fill) {
-            ctx.fillStyle = shape._fill;
-            ctx.fillRect(x, clipY, Math.min(width, step), clipY2 - clipY);
+        ctx.stroke();
+      } else if (S.fill !== null && S.fill !== undefined && S.fill !== '') {
+        ctx.fillStyle = this._applyBrush(ctx, S.fill, new Rect(panelX, panelY, a, c));
+        if (S.figure === 'BarV') {
+          let D: number = S.width;
+          if (isNaN(D)) D = o;
+          const D0 = Math.floor((m - o) / o);
+          for (let F = D0; F <= D0 + f; F++) {
+            const I = F * o + m;
+            if (I + D >= 0 && I <= a && this._gridLinePass(F, k, A, C)) {
+              ctx.fillRect(panelX + I, panelY, D, c);
+            }
+          }
+        } else if (S.figure === 'BarH') {
+          let D: number = S.height;
+          if (isNaN(D)) D = r;
+          const D0 = Math.floor((g - r) / r);
+          for (let F = D0; F <= D0 + u; F++) {
+            const I = F * r + g;
+            if (I + D >= 0 && I <= c && this._gridLinePass(F, k, A, C)) {
+              ctx.fillRect(panelX, panelY + I, a, D);
+            }
           }
         }
       }
+      if (T) {
+        ctx.setLineDash([]);
+        ctx.lineDashOffset = 0;
+      }
+      if (N !== 1) ctx.globalAlpha = M;
     }
+
     ctx.restore();
+  }
+
+  /** 官方 PanelLayoutGrid.pS：interval/segmentIndex 判定 + 同向更大 interval 覆盖时跳过 */
+  private _gridLinePass(F: number, interval: number, segmentIndex: number, exclusions: number[]): boolean {
+    if (interval < 0) return F % interval === segmentIndex;
+    if (F % interval !== segmentIndex) return false;
+    for (let i = 0; i < exclusions.length; i++) {
+      if (F % exclusions[i] === segmentIndex) return false;
+    }
+    return true;
   }
 
   /** Render a Viewbox panel - scales its child to fit while maintaining aspect ratio */
@@ -1320,6 +1432,11 @@ export class CanvasRenderer {
 
     const geo = this._getShapeGeometry(mainElement);
     const pathPoints = geo ? this._computePathPoints(geo, mainW, mainH) : null;
+    // 主元素的几何在渲染时会平移 -geoBounds.origin 后再绘制，
+    // 刻度定位必须用同一套坐标，否则 graduatedMin 会落到形状顶端（刻度倒置）。
+    const mainGeoBounds = geo ? geo.bounds : null;
+    const mainOffX = mainGeoBounds ? mainGeoBounds.x : 0;
+    const mainOffY = mainGeoBounds ? mainGeoBounds.y : 0;
 
     const templates = elements.filter(e => e !== mainElement && e.visible);
 
@@ -1331,8 +1448,8 @@ export class CanvasRenderer {
       if (pathPoints && pathPoints.length >= 2) {
         const pathFraction = effectiveStart + fraction * (effectiveEnd - effectiveStart);
         const pt = this._interpolatePath(pathPoints, pathFraction);
-        px = mainX + pt.x;
-        py = mainY + pt.y;
+        px = mainX + pt.x - mainOffX;
+        py = mainY + pt.y - mainOffY;
         angle = pt.angle;
       } else {
         const pathFraction = effectiveStart + fraction * (effectiveEnd - effectiveStart);
@@ -1345,6 +1462,9 @@ export class CanvasRenderer {
         const interval = (tmpl as any)._interval || 1;
         const tickIndex = Math.round((val - gradMin) / tickUnit);
         if (tickIndex % interval !== 0) continue;
+        // 官方 graduatedSkip(elem, value)：返回 true 表示跳过该刻度
+        const skipFn = (tmpl as any)._graduatedSkip;
+        if (typeof skipFn === 'function' && skipFn(val, tmpl)) continue;
 
         const focus = (tmpl as any)._alignmentFocus || Spot.Default;
         const mb = tmpl.measuredBounds;
@@ -1376,8 +1496,14 @@ export class CanvasRenderer {
     if (!geo) return;
 
     ctx.save();
-    ctx.translate(x, y);
-
+    // 官方：刻度元素以「自身盒子底边中心」为锚点落在路径点上，再按路径切线角旋转。
+    // 锚点取错（例如用盒子左上角）会让竖直标尺上的刻度线朝反方向延伸，
+    // 被管道/节点盖住而看不见（thermometer 刻度只在顶部露出一小段）。
+    ctx.translate(x + w / 2, y + h);
+    if (angle) {
+      ctx.rotate((angle * Math.PI) / 180);
+    }
+    ctx.translate(-w / 2, -h);
     const stroke = (shape as any)._stroke;
     if (stroke) {
       ctx.strokeStyle = typeof stroke === 'string' ? stroke : 'black';
@@ -1396,7 +1522,17 @@ export class CanvasRenderer {
     const ctx = this.ctx;
     if (!ctx) return;
 
-    const text = String(Math.round(val + tickBase));
+    // 官方：优先用 graduatedFunction 自定义刻度文字，否则用刻度值本身
+    const gf = (textBlock as any)._graduatedFunction;
+    let text: string;
+    if (typeof gf === 'function') {
+      const v = gf(val, textBlock);
+      text = v === null || v === undefined ? '' : v.toString();
+    } else {
+      text = (+val.toFixed(2)).toString();
+    }
+    if (text === '') return;
+
     const font = (textBlock as any)._font || '13px sans-serif';
     const stroke = (textBlock as any)._stroke || 'black';
 
@@ -1416,7 +1552,11 @@ export class CanvasRenderer {
     const geo = (shape as any)._geometry as Geometry | null;
     if (geo) return geo;
     const figName = (shape as any)._figure as string;
-    if (figName) {
+    // figure 为空或 'None' 时必须继续走 geometryString 分支：
+    // Shape._figure 默认就是 'None'，若在此提前返回 'None' 图形（一个矩形），
+    // 只设了 geometryString 的形状就会拿到错误几何
+    // （thermometer 的 graduated 主元素/刻度线会变成矩形，导致刻度倒置、刻度线不可见）。
+    if (figName && figName !== 'None') {
       const w = shape.desiredSize.width > 0 ? shape.desiredSize.width : shape.measuredBounds.width;
       const h = shape.desiredSize.height > 0 ? shape.desiredSize.height : shape.measuredBounds.height;
       return getFigureGeometry(figName, w, h) || null;
@@ -1429,59 +1569,11 @@ export class CanvasRenderer {
   }
 
   private _computePathPoints(geo: Geometry, width: number, height: number): Array<{x: number, y: number, angle: number}> {
-    const points: Array<{x: number, y: number, angle: number}> = [];
-    const it = geo.figures.iterator;
-    while (it.next()) {
-      const fig = it.value;
-      let prevX = fig.startX;
-      let prevY = fig.startY;
-      points.push({ x: prevX, y: prevY, angle: 0 });
-
-      const segIt = fig.segments.iterator;
-      while (segIt.next()) {
-        const seg = segIt.value;
-        const segName = seg.type._name;
-        if (segName === 'Close') continue;
-        const endX = seg.endX;
-        const endY = seg.endY;
-        const angle = Math.atan2(endY - prevY, endX - prevX) * 180 / Math.PI;
-        points.push({ x: endX, y: endY, angle: angle });
-        prevX = endX;
-        prevY = endY;
-      }
-    }
-    return points;
+    return computePathPoints(geo);
   }
 
   private _interpolatePath(points: Array<{x: number, y: number, angle: number}>, fraction: number): {x: number, y: number, angle: number} {
-    if (points.length === 0) return { x: 0, y: 0, angle: 0 };
-    if (points.length === 1) return { x: points[0].x, y: points[0].y, angle: 0 };
-
-    let totalLen = 0;
-    const segLens: number[] = [];
-    for (let i = 1; i < points.length; i++) {
-      const dx = points[i].x - points[i - 1].x;
-      const dy = points[i].y - points[i - 1].y;
-      const len = Math.sqrt(dx * dx + dy * dy);
-      segLens.push(len);
-      totalLen += len;
-    }
-    if (totalLen === 0) return { x: points[0].x, y: points[0].y, angle: 0 };
-
-    const targetLen = fraction * totalLen;
-    let accum = 0;
-    for (let i = 0; i < segLens.length; i++) {
-      if (accum + segLens[i] >= targetLen || i === segLens.length - 1) {
-        const segFrac = segLens[i] > 0 ? (targetLen - accum) / segLens[i] : 0;
-        const clampedFrac = Math.max(0, Math.min(1, segFrac));
-        const x = points[i].x + (points[i + 1].x - points[i].x) * clampedFrac;
-        const y = points[i].y + (points[i + 1].y - points[i].y) * clampedFrac;
-        const angle = points[i + 1].angle;
-        return { x, y, angle };
-      }
-      accum += segLens[i];
-    }
-    return { x: points[points.length - 1].x, y: points[points.length - 1].y, angle: points[points.length - 1].angle };
+    return interpolatePath(points, fraction);
   }
 
   private _drawGeometryPath(ctx: CanvasRenderingContext2D, geo: Geometry, w: number, h: number): void {
@@ -1518,6 +1610,9 @@ export class CanvasRenderer {
           ctx.bezierCurveTo(seg.x1, seg.y1, seg.x2, seg.y2, seg.endX, seg.endY);
         } else {
           ctx.lineTo(seg.endX, seg.endY);
+        }
+        if (seg.isClosed && segName !== 'Close') {
+          ctx.closePath();
         }
       }
     }
@@ -1618,6 +1713,11 @@ export class CanvasRenderer {
             curY = fig.startY;
             break;
         }
+        if (seg.isClosed && seg.type._name !== 'Close') {
+          ctx.closePath();
+          curX = fig.startX;
+          curY = fig.startY;
+        }
       }
     }
   }
@@ -1628,6 +1728,21 @@ export class CanvasRenderer {
     const ry = seg.radiusY;
     const endX = seg.endX;
     const endY = seg.endY;
+
+    // 官方「按角度」圆弧：new PathSegment(SegmentType.Arc, startAngle, sweepAngle, cx, cy, rx, ry)
+    if (!isNaN(seg.startAngle) && !isNaN(seg.centerX)) {
+      const rX = Math.abs(rx);
+      const rY = Math.abs(ry === 0 ? rx : ry);
+      if (rX <= 0 || rY <= 0) {
+        ctx.lineTo(endX, endY);
+        return;
+      }
+      const a0 = (seg.startAngle * Math.PI) / 180;
+      const sweepAng = seg.sweepAngle || 0;
+      const a1 = ((seg.startAngle + sweepAng) * Math.PI) / 180;
+      ctx.ellipse(seg.centerX, seg.centerY, rX, rY, 0, a0, a1, sweepAng < 0);
+      return;
+    }
 
     if (rx <= 0 || ry <= 0) {
       ctx.lineTo(endX, endY);
@@ -1723,6 +1838,13 @@ export class CanvasRenderer {
         const y1 = bounds.y + brush.start.y * bounds.height;
         const x2 = bounds.x + brush.end.x * bounds.width;
         const y2 = bounds.y + brush.end.y * bounds.height;
+        if (!isFinite(x1) || !isFinite(y1) || !isFinite(x2) || !isFinite(y2)) {
+          if (typeof console !== 'undefined' && console.log) {
+            console.log('brush NaN: bounds=' + bounds.x + ',' + bounds.y + ',' + bounds.width + ',' + bounds.height +
+              ' start=' + brush.start + ' end=' + brush.end);
+          }
+          return brush.color || 'transparent';
+        }
         const gradient = ctx.createLinearGradient(x1, y1, x2, y2);
         for (const stop of brush.stops) {
           gradient.addColorStop(stop.offset, stop.color);
@@ -1736,6 +1858,12 @@ export class CanvasRenderer {
         const r = brush.radius * Math.max(bounds.width, bounds.height);
         const fx = bounds.x + brush.focus.x * bounds.width;
         const fy = bounds.y + brush.focus.y * bounds.height;
+        if (!isFinite(cx) || !isFinite(cy) || !isFinite(r) || !isFinite(fx) || !isFinite(fy)) {
+          if (typeof console !== 'undefined' && console.log) {
+            console.log('brush NaN radial: bounds=' + bounds.x + ',' + bounds.y + ',' + bounds.width + ',' + bounds.height);
+          }
+          return brush.color || 'transparent';
+        }
         const gradient = ctx.createRadialGradient(fx, fy, 0, cx, cy, r);
         for (const stop of brush.stops) {
           gradient.addColorStop(stop.offset, stop.color);
@@ -1751,9 +1879,21 @@ export class CanvasRenderer {
 
   /** Extract font size from a CSS font string */
   private _getFontSize(font: string): number {
-    const match = font.match(/(\d+(?:\.\d+)?)px/);
-    if (match) {
-      return parseFloat(match[1]);
+    const px = font.match(/(\d+(?:\.\d+)?)px/);
+    if (px) {
+      return parseFloat(px[1]);
+    }
+    const pt = font.match(/(\d+(?:\.\d+)?)pt\b/);
+    if (pt) {
+      return parseFloat(pt[1]) * 4 / 3;
+    }
+    const em = font.match(/(\d+(?:\.\d+)?)em\b/);
+    if (em) {
+      return parseFloat(em[1]) * 16;
+    }
+    const pct = font.match(/(\d+(?:\.\d+)?)%/);
+    if (pct) {
+      return parseFloat(pct[1]) * 0.16;
     }
     return 10;
   }
@@ -1826,6 +1966,6 @@ export class CanvasRenderer {
 
   /** Check if a rectangle in document coordinates is within the viewport */
   isInViewport(r: Rect): boolean {
-    return this.viewportBounds.intersects(r);
+    return this.viewportBounds.intersectsRect(r);
   }
 }

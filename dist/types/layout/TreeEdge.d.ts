@@ -6,6 +6,7 @@ import { LayoutEdge } from './LayoutEdge';
  * 供 TreeEdge.commit 的链接路由修正使用。
  */
 export declare class TreeEdge extends LayoutEdge {
+    static readonly className: string;
     /** 官方 Uk — 相对父顶点的中途点 */
     relativePoint: Point;
 }

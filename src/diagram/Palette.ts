@@ -2,6 +2,7 @@ import { Diagram } from './Diagram';
 import { EnumValue, AutoScaleUniform } from '../core/EnumValues';
 
 export class Palette extends Diagram {
+  static readonly className: string = "Palette";
 
   constructor(divId: string | HTMLDivElement) {
     super(divId);

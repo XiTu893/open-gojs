@@ -20,14 +20,17 @@ import { TreeLayout } from './TreeLayout';
  * left/right.
  */
 export class DoubleTreeLayout extends Layout {
+  static readonly className: string = "DoubleTreeLayout";
 
   protected _vertical: boolean = false;
   protected _directionFunction: (node: Node) => boolean = (_node) => true;
   protected _bottomRightOptions: Record<string, any> | null = null;
   protected _topLeftOptions: Record<string, any> | null = null;
 
-  constructor() {
+  /** 官方 `DoubleTreeLayout.constructor(init?)`：`t && Object.assign(this, t)` */
+  constructor(init?: any) {
     super();
+    if (init) Object.assign(this, init);
   }
 
   // ============ Properties ============
@@ -89,7 +92,7 @@ export class DoubleTreeLayout extends Layout {
 
   copy(): DoubleTreeLayout {
     const copy = new DoubleTreeLayout();
-    copy._arrangementOrigin = this._arrangementOrigin.copy();
+    this.cloneProtected(copy);
     copy._vertical = this._vertical;
     copy._directionFunction = this._directionFunction;
     copy._bottomRightOptions = this._bottomRightOptions;

@@ -3,8 +3,19 @@
  * Provides canXxx() and doXxx() methods for each supported command.
  */
 import { Point } from '../core/Point';
+import { Rect } from '../core/Rect';
+import { Size } from '../core/Size';
+import { Set } from '../core/Set';
+import { List } from '../core/List';
+import { Map } from '../core/Map';
+import type { GraphObject } from '../view/GraphObject';
+import type { Part } from '../view/Part';
+import { Diagram } from '../diagram/Diagram';
+import { InputEvent } from '../diagram/InputEvent';
+import { Adornment } from '../view/Adornment';
 
 export class CommandHandler {
+  static readonly className: string = "CommandHandler";
 
   private _diagram: any = null;
   private _isEnabled: boolean = true;
@@ -555,6 +566,741 @@ export class CommandHandler {
       if (this.canMoveSelection()) this.moveSelection(0, shift ? -10 : -1);
     } else if (key === 'ArrowDown') {
       if (this.canMoveSelection()) this.moveSelection(0, shift ? 10 : 1);
+    }
+  }
+
+  // ============ 官方 CommandHandler.memberValidation / isValidMember ============
+
+  private _memberValidation: ((group: any, part: any) => boolean) | null = null;
+
+  /** 官方 `CommandHandler.memberValidation`（默认 null） */
+  get memberValidation(): ((group: any, part: any) => boolean) | null {
+    return this._memberValidation;
+  }
+  set memberValidation(val: ((group: any, part: any) => boolean) | null) {
+    const old = this._memberValidation;
+    if (old === val) return;
+    this._memberValidation = val;
+  }
+
+  /**
+   * 官方 `CommandHandler.isValidMember(group, part)`。
+   * group 为 null 时跳过 group 侧校验（Node.isValidMember/GraphLinksModel.isValidLink 同源语义）。
+   */
+  isValidMember(group: any, part: any): boolean {
+    if (part === null || part === undefined || group === part || (part as any)._className === 'Link') return false;
+    let e: any;
+    if (group !== null && group !== undefined) {
+      const gd = group.data === undefined ? null : group.data;
+      const pd = part.data === undefined ? null : part.data;
+      if (group === part ||
+        (typeof group.isMemberOf === 'function' && group.isMemberOf(part)) ||
+        ((e = group.memberValidation) !== null && e !== undefined && !e(group, part)) ||
+        (gd === null && pd !== null) ||
+        (gd !== null && pd === null)) {
+        return false;
+      }
+    }
+    e = this._memberValidation;
+    return e !== null ? e(group, part) : true;
+  }
+
+  // ============ 官方 CommandHandler API 对齐（阶段 6） ============
+
+  // ---- 静态成员 ----
+  private static _modifierNames: Array<string> = ['Ctrl', 'Shft', 'Alt', 'Meta'];
+
+  static getModifierNames(): Array<string> {
+    return CommandHandler._modifierNames;
+  }
+  static setModifierNames(names: Array<string>): void {
+    CommandHandler._modifierNames = names;
+  }
+
+  // ---- 复制/删除 相关属性 ----
+  private _copiesConnectedLinks: boolean = true;
+  private _deletesConnectedLinks: boolean = true;
+  private _copiesTree: boolean = false;
+  private _deletesTree: boolean = false;
+  private _copiesParentKey: boolean = false;
+  private _copiesGroupKey: boolean = false;
+  private _copiesClipboardData: boolean = true;
+  private _storageLocation: 'memory' | 'sessionStorage' | 'localStorage' | 'systemClipboard' = 'memory';
+  private _archetypeGroupData: any = null;
+  private _zoomFactor: number = 1.05;
+  private _isZoomToFitRestoreEnabled: boolean = false;
+  private _defaultScale: number = NaN;
+
+  get copiesConnectedLinks(): boolean { return this._copiesConnectedLinks; }
+  set copiesConnectedLinks(val: boolean) { this._copiesConnectedLinks = val; }
+  get deletesConnectedLinks(): boolean { return this._deletesConnectedLinks; }
+  set deletesConnectedLinks(val: boolean) { this._deletesConnectedLinks = val; }
+  get copiesTree(): boolean { return this._copiesTree; }
+  set copiesTree(val: boolean) { this._copiesTree = val; }
+  get deletesTree(): boolean { return this._deletesTree; }
+  set deletesTree(val: boolean) { this._deletesTree = val; }
+  get copiesParentKey(): boolean { return this._copiesParentKey; }
+  set copiesParentKey(val: boolean) { this._copiesParentKey = val; }
+  get copiesGroupKey(): boolean { return this._copiesGroupKey; }
+  set copiesGroupKey(val: boolean) { this._copiesGroupKey = val; }
+  get copiesClipboardData(): boolean { return this._copiesClipboardData; }
+  set copiesClipboardData(val: boolean) { this._copiesClipboardData = val; }
+  get storageLocation(): 'memory' | 'sessionStorage' | 'localStorage' | 'systemClipboard' { return this._storageLocation; }
+  set storageLocation(val: 'memory' | 'sessionStorage' | 'localStorage' | 'systemClipboard') { this._storageLocation = val; }
+  get archetypeGroupData(): any { return this._archetypeGroupData; }
+  set archetypeGroupData(val: any) { this._archetypeGroupData = val; }
+  get zoomFactor(): number { return this._zoomFactor; }
+  set zoomFactor(val: number) { this._zoomFactor = val; }
+  get isZoomToFitRestoreEnabled(): boolean { return this._isZoomToFitRestoreEnabled; }
+  set isZoomToFitRestoreEnabled(val: boolean) { this._isZoomToFitRestoreEnabled = val; }
+  get defaultScale(): number {
+    const d = this._diagram;
+    return (d && typeof d.defaultScale === 'number') ? d.defaultScale : this._defaultScale;
+  }
+  set defaultScale(val: number) {
+    const d = this._diagram;
+    if (d && 'defaultScale' in d) d.defaultScale = val;
+    else this._defaultScale = val;
+  }
+
+  // ---- 生命周期 ----
+  doStart(): void { }
+  doStop(): void { }
+
+  // ---- 拷贝/粘贴（官方命名入口，复用已有内存剪贴板实现） ----
+  canCopySelection(): boolean {
+    const d = this._diagram;
+    if (!this._isEnabled || !d) return false;
+    if (d.isReadOnly || (d as any).isModelReadOnly) return false;
+    if (!d.allowCopy || !d.allowClipboard) return false;
+    return d.selection.count > 0;
+  }
+
+  canCutSelection(): boolean {
+    const d = this._diagram;
+    if (!this._isEnabled || !d) return false;
+    if (d.isReadOnly || (d as any).isModelReadOnly) return false;
+    if (!d.allowCopy || !d.allowDelete || !d.allowClipboard) return false;
+    return d.selection.count > 0;
+  }
+
+  canPasteSelection(pos?: Point): boolean {
+    const d = this._diagram;
+    if (!this._isEnabled || !d) return false;
+    if (d.isReadOnly || (d as any).isModelReadOnly) return false;
+    if (!d.allowInsert || !d.allowClipboard) return false;
+    return true;
+  }
+
+pasteSelectionAsync(pos?: Point): void {
+    this.pasteSelection();
+  }
+
+  /**
+   * 计算给定 Part 集合中实际要移动/拷贝的集合。
+   * 返回 Map<Part, {point}>。这里复用 Diagram 的连通/组内/树扩展能力（若存在），否则退化为原集合。
+   */
+  computeEffectiveCollection(parts: Iterable<any>, options?: any): Map<any, any> {
+    const result = new Map<any, any>();
+    const d: any = this._diagram;
+    if (typeof d.findPartsConnected === 'function') {
+      const connected = d.findPartsConnected(parts);
+      const it = connected.iterator;
+      while (it.next()) {
+        const p = it.value;
+        result.add(p, { point: new Point(p.position.x, p.position.y) });
+      }
+      return result;
+    }
+    const iter: any = (parts as any) && (parts as any).iterator ? (parts as any).iterator() : parts;
+    if (iter && iter.next) {
+      while (iter.next()) {
+        const p = iter.value;
+        if (p && !result.has(p)) {
+          result.add(p, { point: new Point(p.position.x, p.position.y) });
+        }
+      }
+    }
+    return result;
+  }
+
+  copyToClipboard(coll: any): void {
+    if (coll === null) {
+      CommandHandler._clipboard = [];
+      return;
+    }
+    CommandHandler._clipboard = [];
+    const iter: any = coll && coll.iterator ? coll.iterator() : coll;
+    if (iter && iter.next) {
+      while (iter.next()) {
+        const part = iter.value;
+        if (part && part.data) {
+          const dataCopy = JSON.parse(JSON.stringify(part.data));
+          const isLink = (part as any)._className === 'Link';
+          CommandHandler._clipboard.push({ data: dataCopy, isLink: isLink });
+        }
+      }
+    }
+    if (this._diagram) this._diagram.raiseDiagramEvent('ClipboardChanged');
+  }
+
+  pasteFromClipboard(): any {
+    const pasted = new (Set as any)();
+    if (!this._diagram || CommandHandler._clipboard.length === 0) return pasted;
+    const d = this._diagram;
+    const offset = 20;
+    const model = d.model;
+    const keyMap = new Map<any, any>();
+    for (const item of CommandHandler._clipboard) {
+      if (item.isLink) continue;
+      const newData = JSON.parse(JSON.stringify(item.data));
+      const oldKey = model.getKeyForNodeData(newData);
+      if (newData.key !== undefined) {
+        newData.key = model.makeKey ? model.makeKey() : (model.makeUniqueKeyString ? model.makeUniqueKeyString() : (newData.key + '_copy'));
+      }
+      if (newData.loc !== undefined) {
+        const parts = String(newData.loc).split(' ');
+        newData.loc = ((parseFloat(parts[0]) || 0) + offset) + ' ' + ((parseFloat(parts[1]) || 0) + offset);
+      }
+      model.addNodeData(newData);
+      if (oldKey !== undefined) keyMap.add(oldKey, model.getKeyForNodeData(newData));
+    }
+    if (model.nodeDataArray !== undefined && typeof model.addLinkData === 'function') {
+      for (const item of CommandHandler._clipboard) {
+        if (!item.isLink) continue;
+        const newData = JSON.parse(JSON.stringify(item.data));
+        const fromProp = model.linkFromKeyProperty || 'from';
+        const toProp = model.linkToKeyProperty || 'to';
+        if (keyMap.has(newData[fromProp])) newData[fromProp] = keyMap.get(newData[fromProp]);
+        if (keyMap.has(newData[toProp])) newData[toProp] = keyMap.get(newData[toProp]);
+        if (newData.loc !== undefined) {
+          const parts = String(newData.loc).split(' ');
+          newData.loc = ((parseFloat(parts[0]) || 0) + offset) + ' ' + ((parseFloat(parts[1]) || 0) + offset);
+        }
+        model.addLinkData(newData);
+      }
+    }
+    return pasted;
+  }
+
+  // ---- 缩放进位 ----
+  canDecreaseZoom(factor?: number): boolean {
+    const d = this._diagram;
+    if (!this._isEnabled || !d) return false;
+    if (!d.allowZoom) return false;
+    const f = (typeof factor === 'number') ? factor : (1 / this._zoomFactor);
+    const newScale = d.scale * f;
+    return newScale >= d.minScale && newScale <= d.maxScale;
+  }
+
+  decreaseZoom(factor?: number): void {
+    if (!this.canDecreaseZoom(factor)) return;
+    const f = (typeof factor === 'number') ? factor : (1 / this._zoomFactor);
+    this._diagram.scale = this._diagram.scale * f;
+  }
+
+  canIncreaseZoom(factor?: number): boolean {
+    const d = this._diagram;
+    if (!this._isEnabled || !d) return false;
+    if (!d.allowZoom) return false;
+    const f = (typeof factor === 'number') ? factor : this._zoomFactor;
+    const newScale = d.scale * f;
+    return newScale >= d.minScale && newScale <= d.maxScale;
+  }
+
+  increaseZoom(factor?: number): void {
+    if (!this.canIncreaseZoom(factor)) return;
+    const f = (typeof factor === 'number') ? factor : this._zoomFactor;
+    this._diagram.scale = this._diagram.scale * f;
+  }
+
+  canResetZoom(newscale?: number): boolean {
+    const d = this._diagram;
+    if (!this._isEnabled || !d) return false;
+    if (!d.allowZoom) return false;
+    const s = (typeof newscale === 'number') ? newscale : this.defaultScale;
+    return s >= d.minScale && s <= d.maxScale;
+  }
+
+  resetZoom(newscale?: number): void {
+    if (!this.canResetZoom(newscale)) return;
+    const s = (typeof newscale === 'number') ? newscale : this.defaultScale;
+    this._diagram.scale = s;
+  }
+
+  // ---- 滚动到部件 ----
+  canScrollToPart(part?: any): boolean {
+    const d = this._diagram;
+    if (!this._isEnabled || !d) return false;
+    if (!d.allowHorizontalScroll || !d.allowVerticalScroll) return false;
+    if (part) return true;
+    return d.selection.count > 0;
+  }
+
+  private _scrollToPartPause: number = 200;
+
+  get scrollToPartPause(): number { return this._scrollToPartPause; }
+  set scrollToPartPause(val: number) { this._scrollToPartPause = val; }
+
+  scrollToPart(part?: any): void {
+    if (!this.canScrollToPart(part)) return;
+    const d = this._diagram;
+    let p = part;
+    if (!p) {
+      const it = d.selection.iterator;
+      if (it.next()) p = it.value;
+    }
+    if (!p) return;
+    const r = (typeof d.computePartsBounds === 'function') ? d.computePartsBounds(p) : p.actualBounds;
+    if (r) d.centerRect(r);
+  }
+
+  // ---- 文本编辑 ----
+  canEditTextBlock(textblock?: any): boolean {
+    const d = this._diagram;
+    if (!this._isEnabled || !d) return false;
+    if (d.isReadOnly) return false;
+    if (!d.allowTextEdit) return false;
+    return d.selection.count > 0;
+  }
+
+  editTextBlock(textblock?: any): void {
+    if (!this.canEditTextBlock(textblock)) return;
+    const d: any = this._diagram;
+    const tm: any = d.toolManager;
+    if (!tm || typeof tm.startTransaction !== 'function') return;
+    tm.startTransaction('editTextBlock');
+    tm.currentTool = tm.textEditingTool;
+    if (tm.textEditingTool) tm.textEditingTool.doActivate();
+    tm.commitTransaction('editTextBlock');
+  }
+
+  // ---- 上下文菜单 ----
+  canShowContextMenu(obj?: any): boolean {
+    const d = this._diagram;
+    if (!this._isEnabled || !d) return false;
+    return true;
+  }
+
+  showContextMenu(obj?: any): void {
+    if (!this.canShowContextMenu(obj)) return;
+    const d: any = this._diagram;
+    const tm: any = d.toolManager;
+    if (!tm || !tm.contextMenuTool) return;
+    const cmt = tm.contextMenuTool;
+    if (obj && typeof obj.contextMenu !== 'undefined') {
+      cmt.currentObject = obj;
+      if (cmt.currentContextMenu === null) cmt.currentContextMenu = obj.contextMenu;
+      cmt.showMenu(obj.contextMenu);
+    } else {
+      let first: any = null;
+      const it = d.selection.iterator;
+      if (it.next()) first = it.value;
+      const target = first || d;
+      cmt.currentObject = target;
+      cmt.currentContextMenu = target.contextMenu;
+      cmt.showMenu(target.contextMenu);
+    }
+  }
+
+  // ---- 停止命令 ----
+  canStopCommand(): boolean { return true; }
+
+  stopCommand(): void {
+    if (!this.canStopCommand()) return;
+    const d: any = this._diagram;
+    if (!d) return;
+    const tm = d.toolManager;
+    if (tm && tm.currentTool && tm.currentTool !== tm && typeof tm.currentTool.doCancel === 'function') {
+      tm.currentTool.doCancel();
+    }
+  }
+
+  // ---- SVG 下载 ----
+  canDownloadSvg(options?: any): boolean {
+    const d = this._diagram;
+    return !!(this._isEnabled && d);
+  }
+
+  downloadSVG(options?: any): void { this.downloadSvg(options); }
+
+  downloadSvg(options?: any): void {
+    if (!this.canDownloadSvg(options)) return;
+    const d: any = this._diagram;
+    const name = (options && typeof options.name === 'string') ? options.name : 'diagram.svg';
+    if (typeof d.makeSVG !== 'function') {
+      if (d.div) {
+        const data = '<svg xmlns="http://www.w3.org/2000/svg"></svg>';
+        this._downloadData(name, data, 'image/svg+xml');
+      }
+      return;
+    }
+    try {
+      const svg = d.makeSVG(options);
+      const xml = new XMLSerializer().serializeToString(svg);
+      this._downloadData(name, xml, 'image/svg+xml');
+    } catch {
+      /* ignore */
+    }
+  }
+
+  private _downloadData(name: string, data: string, type: string): void {
+    const blob = new Blob([data], { type });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  // ---- 顶层部件 ----
+  addTopLevelParts(coll: any, check?: boolean): boolean {
+    const d: any = this._diagram;
+    if (!d) return false;
+    let ok = true;
+    const iter: any = coll && coll.iterator ? coll.iterator() : coll;
+    const toRemove: any[] = [];
+    if (iter && iter.next) {
+      while (iter.next()) {
+        const part = iter.value;
+        if (!part || (part as any)._className === 'Link') continue;
+        if (check && !this.isValidMember(null, part)) { ok = false; continue; }
+        toRemove.push(part);
+      }
+    }
+    for (const p of toRemove) {
+      p.containingGroup = null;
+    }
+    return ok;
+  }
+
+  // ---- toString ----
+  toString(): string {
+    return (this as any).className || 'CommandHandler';
+  }
+
+  // ============ 焦点（Focus）与虚拟指针（Virtual Pointer）子系统 ============
+  private _isFocusEnabled: boolean = false;
+  private _focusBox: any = null;
+  private _focus: any = null;
+  private _focusChanged: ((oldobj: any, newobj: any, cmd: any) => void) | null = null;
+  private _liveElementId: string = '';
+  private _isUsingAriaLive: boolean = false;
+  private _isVirtualPointerEnabled: boolean = false;
+  private _isVirtualPointerShown: boolean = false;
+  private _virtualPointerBox: any = null;
+  private _virtualPointerChanged: ((box: any, cmd: any) => void) | null = null;
+  private _virtualPointerLocation: Point = new Point(NaN, NaN);
+  private _isVirtualPointerDown: boolean = false;
+  private _virtualPointerShiftMove: number = 10;
+  private _virtualPointerControlMove: number = 1;
+  private _nextFocusFormula: string = 'distance';
+
+  get isFocusEnabled(): boolean { return this._isFocusEnabled; }
+  set isFocusEnabled(enabled: boolean) {
+    if (this._isFocusEnabled === enabled) return;
+    this._isFocusEnabled = enabled;
+    if (!enabled) this._focus = null;
+  }
+
+  get focusBox(): any { return this._focusBox; }
+  set focusBox(adornment: any) {
+    this._focusBox = adornment;
+    this.updateFocusBox();
+  }
+
+  get focus(): any { return this._focus; }
+  set focus(obj: any) {
+    if (!this._isFocusEnabled) return;
+    const old = this._focus;
+    if (old === obj) return;
+    this._focus = obj;
+    this.isVirtualPointerDown = false;
+    this.onFocusChanged(old, obj);
+    this.updateFocusBox();
+  }
+
+  get focusChanged(): ((oldobj: any, newobj: any, cmd: any) => void) | null { return this._focusChanged; }
+  set focusChanged(value: ((oldobj: any, newobj: any, cmd: any) => void) | null) { this._focusChanged = value; }
+
+  get liveElementId(): string { return this._liveElementId; }
+  set liveElementId(val: string) { this._liveElementId = val; }
+
+  get isUsingAriaLive(): boolean { return this._isUsingAriaLive; }
+  set isUsingAriaLive(val: boolean) { this._isUsingAriaLive = val; }
+
+  onFocusChanged(oldobj: any, newobj: any): void {
+    if (this._focusChanged) {
+      this._focusChanged(oldobj, newobj, this);
+      return;
+    }
+    if (this._diagram && this._diagram.div) {
+      let el = this._liveElementId ? document.getElementById(this._liveElementId) : null;
+      if (!el) {
+        el = document.createElement('output');
+        (this._diagram.div as HTMLElement).appendChild(el);
+        this._liveElementId = el.id || ('go_focus_' + CommandHandler._liveCounter++);
+        el.id = this._liveElementId;
+      }
+      el.textContent = this.describe(oldobj, newobj);
+    }
+  }
+
+  private static _liveCounter: number = 0;
+
+  describe(oldobj: any, newobj: any): string {
+    if (!newobj) return '';
+    const part = newobj.part;
+    const data = part && part.data;
+    if (data) {
+      const k = data.key;
+      if (k !== undefined) return String(k);
+      const text = data.text;
+      if (text !== undefined) return String(text);
+    }
+    if (newobj instanceof (Adornment as any)) return '';
+    const text2 = newobj.text;
+    if (typeof text2 === 'string' && text2.length > 0) return text2;
+    return 'object';
+  }
+
+  updateFocusBox(): void {
+    const d: any = this._diagram;
+    if (!d) return;
+    if (this._focusBox && this._focus) {
+      this._focusBox.adornedObject = this._focus;
+      if (typeof d.add === 'function') d.add(this._focusBox);
+    }
+  }
+
+  findFirstFocus(): any {
+    const d: any = this._diagram;
+    if (!d) return null;
+    const it = d.selection.iterator;
+    if (it.next()) return it.value;
+    const layers = d._layers;
+    if (layers) {
+      for (const layer of layers) {
+        if (layer.isTemporary) continue;
+        const lit = layer.parts;
+        while (lit.next()) {
+          const p = lit.value;
+          if (p && p.selectable) return p;
+        }
+      }
+    }
+    return null;
+  }
+
+  findNextFocus(dir: number): any {
+    if (!this._focus) return null;
+    const d: any = this._diagram;
+    if (!d) return this._focus;
+    const current = this._focus;
+    const parts: any[] = [];
+    const layers = d._layers;
+    if (layers) {
+      for (const layer of layers) {
+        if (layer.isTemporary) continue;
+        const lit = layer.parts;
+        while (lit.next()) parts.push(lit.value);
+      }
+    }
+    const cx = current.actualBounds ? current.actualBounds.centerX : current.position.x;
+    const cy = current.actualBounds ? current.actualBounds.centerY : current.position.y;
+    const dx = dir === 0 ? 0 : dir === 1 ? 1 : dir === 2 ? 0 : -1;
+    const dy = dir === 0 ? -1 : dir === 1 ? 0 : dir === 2 ? 1 : 0;
+    let best: any = current;
+    let bestScore = Infinity;
+    for (const p of parts) {
+      if (p === current) continue;
+      const px = p.actualBounds ? p.actualBounds.centerX : p.position.x;
+      const py = p.actualBounds ? p.actualBounds.centerY : p.position.y;
+      const vx = px - cx, vy = py - cy;
+      const dot = vx * dx + vy * dy;
+      if (dot <= 0) continue;
+      const dist = Math.sqrt(vx * vx + vy * vy);
+      let score = dist;
+      if (this._nextFocusFormula === 'linear') {
+        const cross = Math.abs(vx * dy - vy * dx);
+        score = cross;
+      }
+      if (score < bestScore) { bestScore = score; best = p; }
+    }
+    return best;
+  }
+
+  get nextFocusFormula(): string { return this._nextFocusFormula; }
+  set nextFocusFormula(val: string) { this._nextFocusFormula = val; }
+
+  // ---- 虚拟指针 ----
+  get isVirtualPointerEnabled(): boolean { return this._isVirtualPointerEnabled; }
+  set isVirtualPointerEnabled(enabled: boolean) {
+    if (this._isVirtualPointerEnabled === enabled) return;
+    this._isVirtualPointerEnabled = enabled;
+    if (!enabled) { this._isVirtualPointerShown = false; this._isVirtualPointerDown = false; }
+  }
+
+  get isVirtualPointerShown(): boolean { return this._isVirtualPointerShown; }
+  set isVirtualPointerShown(value: boolean) {
+    if (this._isVirtualPointerShown === value) return;
+    this._isVirtualPointerShown = value;
+    if (!value) { this._isVirtualPointerDown = false; }
+    this.updateVirtualPointer();
+  }
+
+  get isVirtualPointerDown(): boolean { return this._isVirtualPointerDown; }
+  set isVirtualPointerDown(value: boolean) {
+    if (this._isVirtualPointerDown === value) return;
+    this._isVirtualPointerDown = value;
+    this.updateVirtualPointer();
+  }
+
+  get virtualPointerLocation(): Point { return this._virtualPointerLocation; }
+  set virtualPointerLocation(pt: Point) {
+    if (this._virtualPointerLocation.equals(pt)) return;
+    this._virtualPointerLocation = pt;
+    this.updateVirtualPointer();
+  }
+
+  get virtualPointerBox(): any { return this._virtualPointerBox; }
+  set virtualPointerBox(part: any) {
+    if (this._virtualPointerBox === part) return;
+    this._virtualPointerBox = part;
+    if (this._virtualPointerChanged) this._virtualPointerChanged(part, this);
+  }
+
+  get virtualPointerChanged(): ((box: any, cmd: any) => void) | null { return this._virtualPointerChanged; }
+  set virtualPointerChanged(value: ((box: any, cmd: any) => void) | null) { this._virtualPointerChanged = value; }
+
+  get virtualPointerShiftMove(): number { return this._virtualPointerShiftMove; }
+  set virtualPointerShiftMove(value: number) { this._virtualPointerShiftMove = value; }
+
+  get virtualPointerControlMove(): number { return this._virtualPointerControlMove; }
+  set virtualPointerControlMove(value: number) { this._virtualPointerControlMove = value; }
+
+  cancelVirtualPointer(): void {
+    this._isVirtualPointerShown = false;
+    this._isVirtualPointerDown = false;
+    const d: any = this._diagram;
+    if (d && d.toolManager && d.toolManager.currentTool && typeof d.toolManager.currentTool.doCancel === 'function') {
+      d.toolManager.currentTool.doCancel();
+    }
+    this.updateVirtualPointer();
+  }
+
+  updateVirtualPointer(): void {
+    const d: any = this._diagram;
+    if (!d) return;
+    if (this._isVirtualPointerShown && this._virtualPointerBox) {
+      this._virtualPointerBox.location = this._virtualPointerLocation;
+      if (typeof d.add === 'function') d.add(this._virtualPointerBox);
+    } else if (this._virtualPointerBox && typeof d.remove === 'function') {
+      d.remove(this._virtualPointerBox);
+    }
+  }
+
+  doVirtualPointerEvent(e: InputEvent, act: boolean): void {
+    const d: any = this._diagram;
+    if (!d) return;
+    if (act) {
+      if (e.down) d.doMouseDown(e);
+      else if (e.up) d.doMouseUp(e);
+      else d.doMouseMove(e);
+    }
+    this.onVirtualPointerEvent(e, act);
+  }
+
+  protected onVirtualPointerEvent(e: InputEvent, act: boolean): void { }
+
+  doVirtualFocusKeyDown(): boolean {
+    const d: any = this._diagram;
+    if (!d) return false;
+    const e: any = d.lastInput;
+    if (!e) return false;
+    const key = e.key;
+    const shift = e.shift;
+    const ctrl = e.control;
+    if (key === 'Enter') {
+      if (this._isVirtualPointerShown) {
+        this.isVirtualPointerDown = !this.isVirtualPointerDown;
+        const docPoint = this._virtualPointerLocation;
+        const ie = new InputEvent();
+        ie.eventType = 'mousedown';
+        ie.documentPoint = { x: docPoint.x, y: docPoint.y };
+        ie.button = this.isVirtualPointerDown ? 0 : -1;
+        ie.shift = shift; ie.control = ctrl;
+        ie.down = this.isVirtualPointerDown;
+        ie.up = !this.isVirtualPointerDown;
+        this.doVirtualPointerEvent(ie, true);
+      }
+      return true;
+    }
+    if (key === 'ArrowLeft' || key === 'ArrowRight' || key === 'ArrowUp' || key === 'ArrowDown') {
+      if (this._isVirtualPointerShown) {
+        const step = ctrl ? this._virtualPointerControlMove : this._virtualPointerShiftMove;
+        let nx = this._virtualPointerLocation.x, ny = this._virtualPointerLocation.y;
+        if (key === 'ArrowLeft') nx -= step;
+        else if (key === 'ArrowRight') nx += step;
+        else if (key === 'ArrowUp') ny -= step;
+        else if (key === 'ArrowDown') ny += step;
+        this._virtualPointerLocation = new Point(nx, ny);
+        const ie = new InputEvent();
+        ie.eventType = 'mousemove';
+        ie.documentPoint = { x: nx, y: ny };
+        ie.shift = shift; ie.control = ctrl;
+        this.doVirtualPointerEvent(ie, true);
+        return true;
+      }
+      if (this._isFocusEnabled) {
+        const dir = key === 'ArrowUp' ? 0 : key === 'ArrowRight' ? 1 : key === 'ArrowDown' ? 2 : 3;
+        this.focus = this.findNextFocus(dir);
+        return true;
+      }
+    }
+    if (key === 'Escape') {
+      if (this._isVirtualPointerShown) { this.cancelVirtualPointer(); return true; }
+      return false;
+    }
+    if (key === ' ' && !shift) {
+      if (this._isFocusEnabled) this.scrollToPart();
+      return true;
+    }
+    return false;
+  }
+
+  doVirtualFocusKeyUp(): boolean {
+    const d: any = this._diagram;
+    if (!d) return false;
+    const e: any = d.lastInput;
+    if (!e) return false;
+    const key = e.key;
+    if (key === 'Shift') {
+      if (this._isVirtualPointerShown) this._isVirtualPointerShown = false;
+      return this._isVirtualPointerEnabled;
+    }
+    if (this._isVirtualPointerShown && this.isVirtualPointerDown && (key === 'Enter')) {
+      const docPoint = this._virtualPointerLocation;
+      const ie = new InputEvent();
+      ie.eventType = 'mouseup';
+      ie.documentPoint = { x: docPoint.x, y: docPoint.y };
+      ie.button = -1;
+      ie.down = false; ie.up = true;
+      this.isVirtualPointerDown = false;
+      this.doVirtualPointerEvent(ie, true);
+      return true;
+    }
+    return false;
+  }
+
+  doKeyUp(): void {
+    if (!this._isEnabled || !this._diagram) return;
+    const d: any = this._diagram;
+    if (this._isFocusEnabled || this._isVirtualPointerEnabled) {
+      this.doVirtualFocusKeyUp();
     }
   }
 }

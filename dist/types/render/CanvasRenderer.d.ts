@@ -15,6 +15,7 @@ import { Geometry } from '../core/Geometry';
  * Draws GraphObject hierarchies onto an HTML5 Canvas.
  */
 export declare class CanvasRenderer {
+    static readonly className: string;
     canvas: HTMLCanvasElement | null;
     ctx: CanvasRenderingContext2D | null;
     diagram: any;
@@ -51,12 +52,18 @@ export declare class CanvasRenderer {
     /** Render a Panel and its children */
     renderPanel(panel: Panel, offsetX: number, offsetY: number): void;
     /** Render a Shape */
-    renderShape(shape: Shape, offsetX: number, offsetY: number): void;
+    renderShape(shape: Shape, offsetX: number, offsetY: number, paintBox?: Rect | null): void;
     /** Render a TextBlock */
     renderTextBlock(tb: TextBlock, offsetX: number, offsetY: number): void;
     /** Render a Picture (stub - image loading not yet implemented) */
     renderPicture(pic: Picture, offsetX: number, offsetY: number): void;
-    renderGrid(panel: Panel): void;
+    /**
+     * 官方 PanelLayoutGrid.$i/g3：在 panel 自然边界内裁剪，逐元素按 interval 画网格线。
+     * 坐标为文档坐标（panelX/panelY = 面板左上角文档位置），线位置 = panelX + F·cell + origin。
+     */
+    renderGrid(panel: Panel, panelX: number, panelY: number): void;
+    /** 官方 PanelLayoutGrid.pS：interval/segmentIndex 判定 + 同向更大 interval 覆盖时跳过 */
+    private _gridLinePass;
     /** Render a Viewbox panel - scales its child to fit while maintaining aspect ratio */
     private _renderViewbox;
     private _renderGraduated;

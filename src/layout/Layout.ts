@@ -14,6 +14,7 @@ import { LayoutVertex } from './LayoutVertex';
  * Subclasses must override doLayout() to implement specific layout algorithms.
  */
 export class Layout {
+  static readonly className: string = "Layout";
 
   // ============ Protected property storage ============
   protected _arrangementOrigin: Point = new Point(0, 0);
@@ -23,10 +24,16 @@ export class Layout {
   protected _isRouting: boolean = true;
   protected _isValidLayout: boolean = true;
   protected _isViewportSized: boolean = false;
-  protected _boundsComputation: ((layout: Layout, part: Part, bounds: Rect) => Rect) | null = null;
+  /** 官方签名 `(part, lay, rect) => rect` */
+  protected _boundsComputation: ((part: Part, layout: Layout, bounds: Rect) => Rect) | null = null;
   protected _network: LayoutNetwork | null = null;
   protected _diagram: any = null;
   protected _group: any = null;
+
+  /** 官方 `Layout.constructor(init?)`：`t && Object.assign(this, t)` */
+  constructor(init?: any) {
+    if (init) Object.assign(this, init);
+  }
 
   // ============ Properties ============
 
@@ -51,10 +58,10 @@ export class Layout {
   get isViewportSized(): boolean { return this._isViewportSized; }
   set isViewportSized(val: boolean) { this._isViewportSized = val; }
 
-  get boundsComputation(): ((layout: Layout, part: Part, bounds: Rect) => Rect) | null {
+  get boundsComputation(): ((part: Part, layout: Layout, bounds: Rect) => Rect) | null {
     return this._boundsComputation;
   }
-  set boundsComputation(val: ((layout: Layout, part: Part, bounds: Rect) => Rect) | null) {
+  set boundsComputation(val: ((part: Part, layout: Layout, bounds: Rect) => Rect) | null) {
     this._boundsComputation = val;
   }
 
@@ -265,10 +272,11 @@ export class Layout {
   }
 
   /**
-   * Create a copy of this layout.
+   * 官方 `Layout.cloneProtected`：把受保护字段复制到一个已构造好的新实例。
+   * 官方实现：`t.Tg=this.Tg, t.Kr=this.Kr, t.Lg=this.Lg, t.Dg.f(this.Dg), t.vo=this.vo, t.Il=this.Il, t.Fg=this.Fg, t.Rg=!0`
+   * （字段名对应 isInitial/isOngoing/isRealtime/arrangementOrigin/isRouting/isViewportSized/boundsComputation/isValidLayout）
    */
-  copy(): Layout {
-    const copy = new Layout();
+  protected cloneProtected(copy: Layout): void {
     copy._arrangementOrigin = this._arrangementOrigin.copy();
     copy._isInitial = this._isInitial;
     copy._isOngoing = this._isOngoing;
@@ -277,7 +285,29 @@ export class Layout {
     copy._isValidLayout = this._isValidLayout;
     copy._isViewportSized = this._isViewportSized;
     copy._boundsComputation = this._boundsComputation;
+  }
+
+  /**
+   * Create a copy of this layout.
+   * 官方：`const t = new this.constructor; return this.cloneProtected(t), t`
+   */
+  copy(): Layout {
+    const copy = new Layout();
+    this.cloneProtected(copy);
     return copy;
+  }
+
+  /**
+   * 官方 `Layout.toString()`：
+   * `U.to(this.constructor) + "()"`，若 `group !== null` 追加 `" in " + group`，若 `diagram !== null` 追加 `" for " + diagram`。
+   */
+  toString(): string {
+    const ctor = this.constructor as { className?: string };
+    let s = (ctor.className || 'Layout') + '(';
+    if (this.group !== null && this.group !== undefined) s += ' in ' + this.group;
+    if (this.diagram !== null && this.diagram !== undefined) s += ' for ' + this.diagram;
+    s += ')';
+    return s;
   }
 
   /**
@@ -296,7 +326,7 @@ export class Layout {
   getLayoutBounds(part: Part): Rect {
     const bounds = part.getDocumentBounds();
     if (this._boundsComputation) {
-      return this._boundsComputation(this, part, bounds);
+      return this._boundsComputation(part, this, bounds);
     }
     return bounds;
   }

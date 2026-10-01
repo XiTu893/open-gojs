@@ -3,6 +3,7 @@
  * Used by TextEditingTool and ContextMenuTool to integrate HTML elements.
  */
 export class HTMLInfo {
+  static readonly className: string = "HTMLInfo";
 
   private _element: HTMLElement | null = null;
   private _showFunction: ((htmlInfo: HTMLInfo, tool: any, ...args: any[]) => void) | null = null;

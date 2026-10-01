@@ -1,4 +1,5 @@
 export declare class LayeredDigraphNetwork {
+    static readonly className: string;
     /** The name of this network. */
     name: string;
     /** The vertices in this network. */

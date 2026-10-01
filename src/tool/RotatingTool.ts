@@ -10,6 +10,7 @@ import { Spot } from '../core/Spot';
 import { PanelVertical } from '../core/EnumValues';
 
 export class RotatingTool extends Tool {
+  static readonly className: string = "RotatingTool";
 
   private _handle: GraphObject | null = null;
   private _adornedElement: GraphObject | null = null;

@@ -2,6 +2,7 @@ import { Point } from '../core/Point';
 import { Rect } from '../core/Rect';
 
 export class Animation {
+  static readonly className: string = "Animation";
 
   static EaseLinear(t: number): number {
     return t;

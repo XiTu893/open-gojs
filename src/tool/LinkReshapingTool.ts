@@ -9,6 +9,7 @@ import { Adornment } from '../view/Adornment';
 import { Link } from '../view/Link';
 
 export class LinkReshapingTool extends Tool {
+  static readonly className: string = "LinkReshapingTool";
 
   private _handle: any = null;
   private _adornedLink: any = null;

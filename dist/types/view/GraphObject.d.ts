@@ -16,6 +16,7 @@ type Layer = any;
  * This includes shapes, text blocks, pictures, panels, and parts.
  */
 export declare class GraphObject {
+    static readonly className: string;
     protected _panel: Panel | null;
     protected _part: Part | null;
     protected _actualBounds: Rect;
@@ -43,6 +44,10 @@ export declare class GraphObject {
     private _rowSpan;
     private _scale;
     private _interval;
+    private _graduatedStart;
+    private _graduatedEnd;
+    private _graduatedSkip;
+    private _graduatedFunction;
     private _flip;
     private _shadowVisible;
     private _background;
@@ -130,6 +135,19 @@ export declare class GraphObject {
     set rowSpan(val: number);
     get interval(): number;
     set interval(val: number);
+    /**
+     * 官方 GraphObject 的 graduated* 系列（Graduated 面板子元素用）：
+     * graduatedStart/graduatedEnd 限定该元素参与的范围（0~1 比例），
+     * graduatedSkip 决定某个刻度值是否跳过，graduatedFunction 自定义刻度文字。
+     */
+    get graduatedStart(): number;
+    set graduatedStart(val: number);
+    get graduatedEnd(): number;
+    set graduatedEnd(val: number);
+    get graduatedSkip(): ((val: number, obj: GraphObject) => boolean) | null;
+    set graduatedSkip(val: ((val: number, obj: GraphObject) => boolean) | null);
+    get graduatedFunction(): ((val: number, obj: GraphObject) => any) | null;
+    set graduatedFunction(val: ((val: number, obj: GraphObject) => any) | null);
     get scale(): number;
     set scale(val: number);
     get flip(): EnumValue;
@@ -226,10 +244,12 @@ export declare class GraphObject {
     get enabledChanged(): ((obj: GraphObject) => void) | null;
     set enabledChanged(val: ((obj: GraphObject) => void) | null);
     /** Add a data binding to this object */
-    bind(bindingOrTargetProp: Binding | string, sourceProperty?: string, conversion?: (value: any, targetObject: any, model: any) => any): this;
+    bind(bindingOrTargetProp: Binding | string, sourceProperty?: string, conversion?: (value: any, targetObject: any, model: any) => any, backConversion?: (value: any, sourceData: any, model: any) => any): this;
     bindObject(targetProperty: string, sourceProperty: string, conversion?: (value: any, targetObject: any, model: any) => any, backConversion?: (value: any, sourceData: any, model: any) => any, sourceObject?: string): this;
-    bindTwoWay(targetProperty: string, sourceProperty?: string, backConversion?: (value: any, sourceData: any, model: any) => any, conversion?: (value: any, targetObject: any, model: any) => any): this;
-    theme(targetProperty: string, sourceProperty: string, conversion?: (value: any, targetObject: any, model: any) => any): this;
+    /** 官方 `GraphObject.bindTwoWay(targetprop, sourceprop?, conv?, backconv?)`：第 3 参为 source→target 转换 */
+    bindTwoWay(targetProperty: string, sourceProperty?: string, conversion?: (value: any, targetObject: any, model: any) => any, backConversion?: (value: any, sourceData: any, model: any) => any): this;
+    /** 官方 GraphObject.theme(targetprop, sourceprop?, conv?, backconv?, themeconv?)：主题绑定（ThemeBinding） */
+    theme(targetProperty: string, sourceProperty?: string, conversion?: (value: any, targetObject: any, model: any) => any, backConversion?: (value: any, sourceData: any, model: any) => any, themeConverter?: (value: any, targetObject: any, model?: any) => any): this;
     themeData(targetProperty: string, sourceProperty?: string, conversion?: (value: any, targetObject: any, model: any) => any): this;
     themeModel(targetProperty: string, sourceProperty?: string, conversion?: (value: any, targetObject: any, model: any) => any): this;
     themeObject(targetProperty: string, sourceProperty?: string, conversion?: (value: any, targetObject: any, model: any) => any, objectname?: string): this;
@@ -239,6 +259,89 @@ export declare class GraphObject {
     set(props: Partial<GraphObject>): this;
     /** Virtual copy - creates a shallow copy of this GraphObject */
     copy(): GraphObject;
+    /** 官方未文档化的 SVG 过滤器名（官方注释：May not work in Safari） */
+    private _filter;
+    /** 官方未文档化的行列跨度分配回调 */
+    private _spanAllocation;
+    /** 官方运行时存在的 svg 访问器（本项目为 Canvas 渲染，默认 null） */
+    private _svg;
+    /** 官方 `GraphObject.ao`：`addCopyProperty()` 登记的、clone 时额外复制的属性名 */
+    private _copyProperties;
+    /**
+     * 官方 `GraphObject.toString()` = `"U.Jn(构造器) # hashId"`，
+     * 其中 `U.Jn(constructor)` 就是该类的 `static className`。
+     * Panel / Shape / TextBlock / Picture / Part / Adornment 等子类按官方各自覆盖。
+     */
+    toString(): string;
+    /**
+     * 官方 `GraphObject.clone()`：`new this.constructor()` → `cloneProtected` → 复制 `addCopyProperty` 登记项。
+     * 官方所有子类的 `copy()` 都等于 `clone()`（本项目子类暂时保留各自的 `copy()` 覆盖）。
+     */
+    clone(): this;
+    /**
+     * 官方 `GraphObject.cloneProtected(copy)`（d.ts 标为 protected）。
+     * 官方在 Panel / Shape / TextBlock / Picture / Part / Node / Link / Group / Placeholder / 各 Layout
+     * 上都有覆盖；本项目基类实现等价于把 GraphObject 层状态写入 copy。
+     */
+    protected cloneProtected(copy: this): void;
+    /** 官方 `GraphObject.MD(copy)`：把 `addCopyProperty` 登记的属性逐个拷过去 */
+    private _applyExtraCopyProperties;
+    /** 官方 `GraphObject.addCopyProperty(propName)`：登记 clone 时需要额外复制的属性名（重复登记被忽略） */
+    addCopyProperty(propName: string): void;
+    /** 官方 `GraphObject.raiseChanged(propertyName, oldValue, newValue)` */
+    raiseChanged(propertyname: string, oldval: any, newval: any): void;
+    /**
+     * 官方 `GraphObject.raiseChangedEvent(change, propertyname, obj, oldval, newval, oldparam?, newparam?)`。
+     * 官方实现：先交给 `part.Df(...)`（Part 层处理 elements 插删、再转发 `diagram.raiseChangedEvent`），
+     * 无 Part 时直接转发给 `diagram.raiseChangedEvent`。
+     * 注意：Part 自身的 `_part` 指向自己，因此这里必须走 Part 的专用管道（`raiseChangedEventFromObject`），
+     * 不能递归调用 `raiseChangedEvent`，否则属性变更会无限递归（栈溢出）。
+     */
+    raiseChangedEvent(change: any, propertyname: string, obj: any, oldval: any, newval: any, oldparam?: any, newparam?: any): void;
+    /**
+     * 官方 `GraphObject.containsPoint(p)`。
+     *
+     * 偏差：官方靠内部 Transform 矩阵把输入点在「本对象局部坐标」与「所在 Panel 坐标」之间换算；
+     * 本项目没有 Transform 矩阵，统一以**文档坐标**计算（与 `Diagram.findObjectAt(docPoint)` 一致）。
+     */
+    containsPoint(p: Point): boolean;
+    /**
+     * 官方 `GraphObject.containsRect(r)`：本对象是否包含给定矩形。
+     * 偏差同 `containsPoint`：统一按文档坐标计算。
+     */
+    containsRect(r: Rect): boolean;
+    /** 官方 `GraphObject.containedInRect(r, transform?)`：本对象是否被给定矩形包含 */
+    containedInRect(r: Rect, transform?: any): boolean;
+    /** 官方 `GraphObject.intersectsRect(r, transform?)`：本对象是否与给定矩形相交 */
+    intersectsRect(r: Rect, transform?: any): boolean;
+    /**
+     * 官方 `GraphObject.getNearestIntersectionPoint(p, q, result)`：
+     * 把线段 pq 与本对象边界的**最近交点**写入 result；返回是否找到交点。
+     * 官方实现走 `G.Bl`（四条边各做一次线段求交，取离 p 最近的那个），返回值是 boolean。
+     * 偏差同 `containsPoint`：统一按文档坐标计算。
+     */
+    getNearestIntersectionPoint(p: Point, q: Point, result: Point): boolean;
+    /**
+     * 官方 `G.Bl(x, y, w, h, x1, y1, x2, y2, result)` 的等价实现：
+     * 线段 (x1,y1)→(x2,y2) 与矩形四条边的交点里，取离 (x1,y1) 最近的一个写入 result。
+     * 找不到交点时 result 置为矩形左上角并返回 false（与官方一致）。
+     */
+    private static _nearestIntersection;
+    /**
+     * 官方 `GraphObject.commonArrange(x, y, w, h)`：把本对象排布到给定矩形。
+     * 官方实现会先写 actualBounds 再按 desiredSize/stretch 精简；
+     * 本项目等价地落到 `_arrange()`（子类按各自 stretch 逻辑覆写）。
+     */
+    commonArrange(x: number, y: number, w: number, h: number): void;
+    /** 官方 `GraphObject.filter`（未文档化的 SVG 过滤器名） */
+    get filter(): string;
+    set filter(value: string);
+    /** 官方 `GraphObject.spanAllocation`（未文档化的行列跨度分配回调） */
+    get spanAllocation(): ((a: GraphObject, b: RowColumnDefinition, c: number) => number) | null;
+    set spanAllocation(value: ((a: GraphObject, b: RowColumnDefinition, c: number) => number) | null);
+    /** 官方 `GraphObject.svg`（本项目为 Canvas 渲染，恒为 null） */
+    get svg(): any;
+    set svg(value: any);
     /** Apply a function to this object and return it */
     apply(func: (obj: GraphObject, data?: any) => void, data?: any): GraphObject;
     /** 官方 findBindingPanel：从自身（若为 Panel）起向上找带绑定的面板 */
@@ -261,7 +364,8 @@ export declare class GraphObject {
     /** Check if this object is effectively visible */
     isVisibleObject(): boolean;
     /** Trigger a property change notification */
-    trigger(propname: string, value?: any): void;
+    /** 官方 `GraphObject.trigger(propname, value?): this`：触发动画并返回自身（可链式 .add） */
+    trigger(propname: string, value?: any): this;
     /** Invalidate the measurement of this object and its ancestors */
     _invalidateMeasure(): void;
     /** Invalidate the arrangement of this object and its ancestors */
@@ -297,11 +401,24 @@ export declare class GraphObject {
     static None: EnumValue;
     static Uniform: EnumValue;
     static UniformToFill: EnumValue;
+    static FlipVertical: EnumValue;
+    static FlipHorizontal: EnumValue;
+    static FlipBoth: EnumValue;
     /** Factory method for creating GraphObjects - stub */
     static _classRegistry: Record<string, any>;
-    static build: typeof GraphObject.make;
     static defineBuilder(name: string, func: Function): void;
-    static takeBuilderArgument(obj: any, arg: any, def?: any): any;
+    /** 官方 `GraphObject.isBuilderDefined(name)` */
+    static isBuilderDefined(name: string): boolean;
+    /**
+     * 官方 `GraphObject.takeBuilderArgument(args, default?, pred?)`：取出 args[1]。
+     * 默认谓词为 `typeof === 'string'`；命中则从数组移除并返回，未命中且有默认值返回默认值，否则抛错。
+     */
+    static takeBuilderArgument(obj: any, defaultVal?: any, pred?: (v: any) => boolean): any;
+    /**
+     * 官方 `GraphObject.build(type, init?, ...args)`：init 不传给 builder（builder 收 [type, ...args]），
+     * 返回后再 setProperties(init)。
+     */
+    static build(type: any, init?: any, ...args: any[]): any;
     static make(type: any, ...args: any[]): any;
 }
 export {};

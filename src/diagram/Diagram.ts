@@ -3,7 +3,7 @@ import { GraphLinksModel } from '../model/GraphLinksModel';
 import { TreeModel } from '../model/TreeModel';
 import { ChangedEvent } from '../model/ChangedEvent';
 import { Binding } from '../model/Binding';
-import { EnumValue, AutoScaleUniform, AutoScaleUniformToFill } from '../core/EnumValues';
+import { EnumValue, AutoScaleUniform, AutoScaleUniformToFill, DiagramEventModelChanged, DiagramEventChanged } from '../core/EnumValues';
 import { GraphObject } from '../view/GraphObject';
 import { Panel } from '../view/Panel';
 import { Part } from '../view/Part';
@@ -22,7 +22,7 @@ import { Margin } from '../core/Margin';
 import { List } from '../core/List';
 import { Map } from '../core/Map';
 import { Set } from '../core/Set';
-import { Iterator, Iterable as GojsIterable } from '../core/Iterable';
+import { Iterator, Iterable as GojsIterable, iteratorToArray } from '../core/Iterable';
 import {
   ChangedEventProperty, ChangedEventInsert, ChangedEventRemove, ChangedEventTransaction,
   PanelAuto, PanelVertical, PanelLink, PanelGrid
@@ -35,10 +35,74 @@ import { InputEvent } from './InputEvent';
 import { ThemeManager } from './ThemeManager';
 import { Layout } from '../layout/Layout';
 
+/** 官方滚动条槽位宽/高（屏幕 px，实测恒为 11，与 viewSize、scale 无关） */
+const SCROLLBAR_SIZE = 11;
+
+/**
+ * 官方 Diagram 的事件名清单（官方 `Diagram.RO()` 建立的 `S2`/`k2` 表）。
+ * `set(options)` 遇到这些名字时不会当普通属性赋值，而是转成 addDiagramListener。
+ */
+const DIAGRAM_EVENT_NAMES = [
+  'InitialAnimationStarting', 'AnimationStarting', 'AnimationFinished',
+  'BackgroundSingleClicked', 'BackgroundDoubleClicked', 'BackgroundContextClicked',
+  'ClipboardChanged', 'ClipboardPasted', 'DocumentBoundsChanged', 'ExternalObjectsDropped',
+  'FocusOrVirtualPointerEnabledChanged', 'GainedFocus', 'InitialLayoutCompleted',
+  'LayoutCompleted', 'LinkDrawn', 'LinkRelinked', 'LinkReshaped', 'LostFocus',
+  'Modified', 'ObjectSingleClicked', 'ObjectDoubleClicked', 'ObjectContextClicked',
+  'PartCreated', 'PartResized', 'PartRotated', 'SelectionMoved', 'SelectionCopied',
+  'SelectionDeleting', 'SelectionDeleted', 'SelectionGrouped', 'SelectionUngrouped',
+  'ChangingSelection', 'ChangedSelection', 'SubGraphCollapsed', 'SubGraphExpanded',
+  'TextEdited', 'ThemeChanged', 'TreeCollapsed', 'TreeExpanded', 'ViewportBoundsChanged',
+  'InvalidateDraw'
+];
+const DIAGRAM_EVENT_NAME_SET = new Set<string>(DIAGRAM_EVENT_NAMES);
+for (const n of DIAGRAM_EVENT_NAMES) DIAGRAM_EVENT_NAME_SET.add(n.toLowerCase());
+
+/** 官方 `Diagram.qL(name)`：是否是合法的 Diagram 事件名（大小写不敏感） */
+export function isDiagramEventName(name: string): boolean {
+  return DIAGRAM_EVENT_NAME_SET.has(name);
+}
+
 export class Diagram {
+  static readonly className: string = "Diagram";
+
+  // ============ 官方 Diagram 静态常量（阶段 6，对齐 go.d.ts） ============
+  static readonly version: string = '4.0.4';
+  static licenseKey: string = '';
+  static img: string = 'image';
+
+  static readonly None = 1;
+  static readonly Uniform = 2;
+  static readonly UniformToFill = 3;
+
+  static readonly CycleAll = 1;
+  static readonly CycleNotDirected = 2;
+  static readonly CycleNotDirectedFast = 3;
+  static readonly CycleNotUndirected = 4;
+  static readonly CycleDestinationTree = 5;
+  static readonly CycleSourceTree = 6;
+
+  static readonly DocumentScroll = 1;
+  static readonly InfiniteScroll = 2;
+
+  static readonly TreeParentCollapsed = 1;
+  static readonly AllParentsCollapsed = 2;
+  static readonly AnyParentsCollapsed = 3;
+
+  static isUsingDOM(): boolean {
+    return typeof document !== 'undefined';
+  }
+  static setDocument(d: any): void {
+    (globalThis as any).document = d;
+  }
+  static useDOM(value: boolean): void {
+    // 无实际操作，保留 API 对齐
+  }
 
   private _div: HTMLDivElement | null = null;
-  private _model: Model = new Model();
+  // 官方 new Diagram(div) 的默认 model 就是 GraphLinksModel，
+  // 所以 myDiagram.model.addLinkData(...) 这类调用在没设 model 时也能用
+  private _model: Model = new GraphLinksModel();
   private _modelChangeListener: ((e: any) => void) | null = null;
   private _renderer: CanvasRenderer;
   private _toolManager: ToolManager;
@@ -50,7 +114,16 @@ export class Diagram {
   private _scale: number = 1;
   private _minScale: number = 0;
   private _maxScale: number = Infinity;
-  private _padding: Margin = new Margin(0);
+  private _padding: Margin = new Margin(5);
+  /**
+   * 上一次 raise `DocumentBoundsChanged` 时的文档包围盒。
+   * 官方是「包围盒**变了**才 raise」，而本项目以前只在 `invalidateDocumentBounds()`
+   * 里无条件 raise —— 初始建模阶段那批 invalidate 全都发生在样例注册监听器**之前**，
+   * 于是 gantt 的 `DocumentBoundsChanged` 监听器（给 `myTimeline` 的 `MAIN` 形状
+   * 赋 `width = graduatedMax`）永远不触发，`MAIN.width` 停在 NaN，
+   * 画 graduated 时间轴时报 `Invalid arguments to Rect constructor: 0, Infinity, 0, -Infinity`。
+   */
+  private _lastRaisedDocBounds: Rect | null = null;
 
   protected _allowSelect: boolean = true;
   protected _allowMove: boolean = true;
@@ -92,6 +165,10 @@ export class Diagram {
 
   _layers: Layer[] = [];
 
+  /** 官方 Diagram.ms（grid Panel）与其宿主 Part（XL 创建的常驻 Part） */
+  private _gridPart: Part | null = null;
+  private _gridPanel: Panel | null = null;
+
   _parts: Map<any, Part> = new Map<any, Part>();
   _nodeKeyMap: Map<any, Node> = new Map<any, Node>();
   _treeLinkDataByChildKey: Map<any, ObjectData> = new Map<any, ObjectData>();
@@ -132,8 +209,10 @@ export class Diagram {
     this._layout.diagram = this;
 
     if (div) {
-      div.style.position = 'relative';
-      div.style.overflow = 'hidden';
+      if (window.getComputedStyle(div, null).position === 'static') {
+        div.style.position = 'relative';
+      }
+      (div.style as any)['-webkit-tap-highlight-color'] = 'rgba(255, 255, 255, 0)';
       div.setAttribute('tabindex', '0');
       (div as any)._goDiagram = this;
       this._renderer = new CanvasRenderer(div);
@@ -175,14 +254,30 @@ export class Diagram {
 
   set model(val: Model) {
     if (this._model === val) return;
-    if (this._modelChangeListener) {
-      this._model.removeChangedListener(this._modelChangeListener);
+    const oldModel = this._model;
+    if (this._modelChangeListener && oldModel) {
+      oldModel.removeChangedListener(this._modelChangeListener);
+    }
+    if (oldModel) {
+      for (const listener of this._modelChangeListeners) {
+        oldModel.removeChangedListener(listener);
+      }
     }
     this._model = val;
     if (this._modelChangeListener) {
       this._model.addChangedListener(this._modelChangeListener);
     }
     this.rebuildParts();
+    // 官方会把 model-changed 监听者重新挂到新 model 上
+    for (const listener of this._modelChangeListeners) {
+      this._model.addChangedListener(listener);
+    }
+    // 官方在替换整个 model 后会走一遍事务，
+    // 于是 `"ModelChanged": e => { if (e.isTransactionFinished) ... }` 立即能拿到新数据
+    if (this._model.undoManager && this._model.undoManager.isEnabled) {
+      this._model.startTransaction('Replace Model');
+      this._model.commitTransaction('Replace Model');
+    }
   }
 
   get renderer(): CanvasRenderer {
@@ -285,11 +380,23 @@ export class Diagram {
 
   get viewportBounds(): Rect {
     const vs = this.viewSize;
-    return new Rect(this._position.x, this._position.y, vs.width / this._scale, vs.height / this._scale);
+    const s = this._scale;
+    // 官方（实测 syn_none/syn_vonly/syn_honly/syn_both @scale1 与 scale2）：
+    // 某一轴的**文档屏幕尺寸**溢出 viewSize 时，另一轴预留 11px 滚动条槽位。
+    // 两条判定互相独立、都只跟原始 viewSize 比；预留值是固定 11 屏幕 px（= 11/scale 文档单位）。
+    // 官方占了位却**不绘制**滚动条（unit_official.png 底部 11 行全白）。
+    let w = vs.width;
+    let h = vs.height;
+    const db = this.documentBounds;
+    // 官方自身也兜底 `Math.max(St - Ht, 1)`，否则未布局的 div（clientWidth=0）会算出负尺寸。
+    if (db.width * s > vs.width) h = Math.max(h - SCROLLBAR_SIZE, 1);
+    if (db.height * s > vs.height) w = Math.max(w - SCROLLBAR_SIZE, 1);
+    return new Rect(this._position.x, this._position.y, w / s, h / s);
   }
 
   get documentBounds(): Rect {
-    let bounds = new Rect();
+    // 官方 KL：仅并入 isReal 的 part bounds；全无则 (0,0,0,0)，再 addMargin(padding)
+    let bounds: Rect | null = null;
     const layers = this._layers;
     for (const layer of layers) {
       if (layer.isTemporary) continue;
@@ -299,17 +406,15 @@ export class Diagram {
         if (!part.visible) continue;
         if (!(part as any).isInDocumentBounds) continue;
         const partBounds = part.getDocumentBounds();
-        bounds = bounds.union(partBounds);
+        if (!partBounds.isReal()) continue;
+        bounds = bounds === null ? partBounds.copy() : bounds.unionRect(partBounds);
       }
     }
-    if (bounds.isReal) {
-      bounds = new Rect(
-        bounds.x - this._padding.left,
-        bounds.y - this._padding.top,
-        bounds.width + this._padding.left + this._padding.right,
-        bounds.height + this._padding.top + this._padding.bottom
-      );
-    }
+    if (bounds === null) bounds = new Rect(0, 0, 0, 0);
+    bounds.x -= this._padding.left;
+    bounds.y -= this._padding.top;
+    bounds.width += this._padding.left + this._padding.right;
+    bounds.height += this._padding.top + this._padding.bottom;
     return bounds;
   }
 
@@ -465,7 +570,7 @@ export class Diagram {
 
   get parts(): Iterator<Part> {
     const result = new List<Part>();
-    const it = this._parts.values;
+    const it = this._parts.iteratorValues;
     while (it.next()) {
       result.add(it.value);
     }
@@ -474,7 +579,7 @@ export class Diagram {
 
   get nodes(): Iterator<Node> {
     const result = new List<Node>();
-    const it = this._parts.values;
+    const it = this._parts.iteratorValues;
     while (it.next()) {
       const part = it.value;
       if (part instanceof Node) result.add(part);
@@ -484,7 +589,7 @@ export class Diagram {
 
   get links(): Iterator<Link> {
     const result = new List<Link>();
-    const it = this._parts.values;
+    const it = this._parts.iteratorValues;
     while (it.next()) {
       const part = it.value;
       if (part instanceof Link) result.add(part);
@@ -536,7 +641,7 @@ export class Diagram {
     this._isInitial = val;
   }
 
-  private _initialContentAlignment: Spot | null = null;
+  private _initialContentAlignment: Spot | null = Spot.Default;
   private _initialAutoScale: EnumValue | null = null;
   private _initialPosition: Point | null = null;
   private _initialScale: number = NaN;
@@ -592,9 +697,11 @@ export class Diagram {
 
   // ============ Part Management ============
 
-  add(part: Part): void {
+  /** 官方 `Diagram.add(part): this`：加入默认层，invalidateDocumentBounds + part.invalidateLayout(1)，返回 this */
+  add(part: Part): this {
     const layerName = part.layerName || '';
     let layer = this.findLayer(layerName);
+    if (!layer) layer = this.findLayer('');
     if (!layer) {
       for (const l of this._layers) {
         if (!l.isTemporary && l.name !== 'Background') {
@@ -610,7 +717,19 @@ export class Diagram {
       layer.add(part);
     }
     (part as any)._diagram = this;
+    // 无数据部件也进入 _parts（官方 parts/nodes/links 含手动 add 的部件）；键用部件自身避免 null 键冲突
+    if (part.data !== null && part.data !== undefined) {
+      this._parts.set(part.data, part);
+    } else {
+      this._parts.set(part, part);
+    }
+    // 官方 Layer.Na：无数据部件在 add 时应用绑定（t.data || t.Zo()，Zo 只处理 theme 绑定）
+    if (part.data === null || part.data === undefined) {
+      part.updateTargetBindings();
+    }
+    this._layoutInvalid = true;
     this.requestUpdate();
+    return this;
   }
 
   remove(part: Part): void {
@@ -618,6 +737,11 @@ export class Diagram {
       if (layer.contains(part)) {
         layer.remove(part);
         (part as any)._diagram = null;
+        if (part.data !== null && part.data !== undefined) {
+          if (this._parts.get(part.data) === part) this._parts.delete(part.data);
+        } else {
+          this._parts.delete(part);
+        }
         if (part.isSelected) {
           this._selection.remove(part);
         }
@@ -654,7 +778,7 @@ export class Diagram {
     const result = new List<Node>();
     if (!data) return result;
     const keys = Object.keys(data);
-    const it = this._parts.values;
+    const it = this._parts.iteratorValues;
     while (it.next()) {
       const part = it.value;
       if (!(part instanceof Node)) continue;
@@ -677,7 +801,7 @@ export class Diagram {
     const result = new List<Link>();
     if (!data) return result;
     const keys = Object.keys(data);
-    const it = this._parts.values;
+    const it = this._parts.iteratorValues;
     while (it.next()) {
       const part = it.value;
       if (!(part instanceof Link)) continue;
@@ -702,7 +826,7 @@ export class Diagram {
       if (!layer.visible) continue;
       if (layer.isTemporary) continue;
       const partsIt = layer.parts;
-      const partsArray = partsIt.toArray();
+      const partsArray = iteratorToArray(partsIt);
       for (let j = partsArray.length - 1; j >= 0; j--) {
         const part: Part = partsArray[j];
         if (!part.visible) continue;
@@ -734,9 +858,9 @@ export class Diagram {
 
   // ============ Selection Methods ============
 
-  select(part: Part): void {
+  select(part: Part | null): void {
     this.clearSelection();
-    if (this._allowSelect && part.selectable) {
+    if (part && this._allowSelect && part.selectable) {
       part.isSelected = true;
       this._selection.add(part);
     }
@@ -807,8 +931,9 @@ export class Diagram {
     return this._model.rollbackTransaction();
   }
 
-  commit(func: () => any, tname: string = 'commit'): any {
-    return this._model.commit(func, tname);
+  /** 官方 `Diagram.commit(commitFunc, tname?)`：func 收到 diagram 本体；事务交给 model 处理 */
+  commit(func: (d?: any) => any, tname: string = 'commit'): any {
+    return this._model.commit(() => func(this), tname);
   }
 
   // ============ Event Methods ============
@@ -874,7 +999,7 @@ export class Diagram {
   }
 
   updateAllTargetBindings(propname?: string): void {
-    const it = this._parts.values;
+    const it = this._parts.iteratorValues;
     while (it.next()) {
       const part = it.value;
       if (part instanceof Part) {
@@ -884,17 +1009,22 @@ export class Diagram {
     this.requestUpdate();
   }
 
+  /**
+   * 官方 zoomToFit → Td(2)：min(view/doc)，**不超过 defaultScale（通常 1.0）**，
+   * 再 alignDocument(Center, Center) 居中。
+   */
   zoomToFit(): void {
     const db = this.documentBounds;
     const vs = this.viewSize;
     if (db.width <= 0 || db.height <= 0 || vs.width <= 0 || vs.height <= 0) return;
 
-    const scaleX = vs.width / db.width;
-    const scaleY = vs.height / db.height;
-    const newScale = Math.min(scaleX, scaleY);
-
-    this._scale = Math.max(this._minScale, Math.min(this._maxScale, newScale));
-    this._position = new Point(db.x, db.y);
+    let newScale = Math.min(vs.width / db.width, vs.height / db.height);
+    const def = this.defaultScale;
+    if (newScale > def) newScale = def;
+    if (newScale < this._minScale) newScale = this._minScale;
+    if (newScale > this._maxScale) newScale = this._maxScale;
+    this._scale = newScale;
+    this.alignDocument(Spot.Center, Spot.Center);
     this._raiseDiagramEvent('ViewportChanged');
     this.requestUpdate();
   }
@@ -926,12 +1056,13 @@ export class Diagram {
   }
 
   alignDocument(docSpot: Spot, viewSpot: Spot): void {
+    // 实测：官方 alignDocument 源码虽然写的是 viewportBounds，但它的调用点之后
+    // 紧跟着再跑一次 H2（zoomToFit 等），我们没有那一步；直接照抄官方公式会让
+    // animatedFocus 92.7→97.3、grouping 2.43→4.34。这里保持 viewSize 口径。
     const db = this.documentBounds;
     const vs = this.viewSize;
     const docPoint = docSpot.positionInRect(db);
     const viewPoint = viewSpot.positionInRect(new Rect(0, 0, vs.width, vs.height));
-    const docW = vs.width / this._scale;
-    const docH = vs.height / this._scale;
     this._position = new Point(
       docPoint.x - viewPoint.x / this._scale,
       docPoint.y - viewPoint.y / this._scale
@@ -1024,6 +1155,19 @@ export class Diagram {
         if (target) {
           target[parts[parts.length - 1]] = (props as any)[key];
         }
+      } else if (key === DiagramEventModelChanged) {
+        // 官方 setProperties：`{ ModelChanged: fn }` 等价于 addModelChangedListener(fn)
+        const fn = (props as any)[key];
+        if (typeof fn === 'function') this.addModelChangedListener(fn);
+      } else if (key === DiagramEventChanged) {
+        // 官方 setProperties：`{ Changed: fn }` 等价于 addChangedListener(fn)
+        const fn = (props as any)[key];
+        if (typeof fn === 'function') this.addChangedListener(fn);
+      } else if (isDiagramEventName(key)) {
+        // 官方 G0：`new Diagram(div, { LayoutCompleted: fn, ... })` 这类事件名
+        // 不是普通属性，而是转成 addDiagramListener 注册（官方 setProperties 同款）
+        const fn = (props as any)[key];
+        if (typeof fn === 'function') this.addDiagramListener(key, fn);
       } else if ((this as any)[key] !== undefined) {
         (this as any)[key] = (props as any)[key];
       }
@@ -1040,13 +1184,28 @@ export class Diagram {
   // ============ Internal Methods ============
 
   private _createDefaultLayers(): void {
-    const names = ['Background', 'Grid', '', 'Foreground', 'Adornment', 'Tool'];
-    for (const name of names) {
+    // 官方 FL()：Grid 最先（网格画在最底层），Grid/Viewport*/Adornment 为 temporary
+    const specs: Array<[string, boolean, boolean, boolean]> = [
+      // [name, isTemporary, isViewportAligned, isInDocumentBounds]
+      ['Grid', true, false, false],
+      ['ViewportBackground', true, true, false],
+      ['Background', false, false, true],
+      ['', false, false, true],
+      ['Foreground', false, false, true],
+      ['ViewportForeground', true, true, false],
+      ['Adornment', true, false, false],
+      ['Tool', true, false, true],
+    ];
+    for (const [name, isTemporary, isViewportAligned, inDoc] of specs) {
       const layer = new Layer();
       layer.name = name;
       layer.diagram = this;
-      if (name === 'Adornment' || name === 'Tool') {
-        layer.isTemporary = true;
+      layer.isTemporary = isTemporary;
+      layer.isViewportAligned = isViewportAligned;
+      layer.isInDocumentBounds = inDoc;
+      if (name === 'Grid') {
+        layer.allowSelect = false;
+        layer.pickable = false;
       }
       this._layers.push(layer);
     }
@@ -1054,63 +1213,111 @@ export class Diagram {
     this._createDefaultGrid();
   }
 
+  /** 官方 Diagram.XL()：默认 6 根网格线（1/5/10 间隔），面板默认不可见、Part 可见 */
   private _createDefaultGrid(): void {
+    const mkLine = (figure: string, stroke: string, strokeWidth: number, interval: number, themeKey?: string): Shape => {
+      const s = new Shape();
+      s.figure = figure;
+      s.stroke = stroke;
+      s.strokeWidth = strokeWidth;
+      s.interval = interval;
+      if (themeKey) s.theme('stroke', themeKey);
+      return s;
+    };
     const gridPanel = new Panel(PanelGrid);
-    (gridPanel as any)._gridCellSize = new Size(50, 50);
-
-    const lineH = new Shape();
-    (lineH as any).figure = 'LineH';
-    lineH.stroke = 'lightgray';
-    lineH.strokeWidth = 0.5;
-    gridPanel.add(lineH);
-
-    const lineV = new Shape();
-    (lineV as any).figure = 'LineV';
-    lineV.stroke = 'lightgray';
-    lineV.strokeWidth = 0.5;
-    gridPanel.add(lineV);
+    gridPanel.name = 'GRID';
+    gridPanel.add(
+      mkLine('LineH', 'lightgray', 0.5, 1, 'gridMinor'),
+      mkLine('LineV', 'lightgray', 0.5, 1, 'gridMinor'),
+      mkLine('LineH', 'gray', 0.5, 5, 'gridMajor'),
+      mkLine('LineV', 'gray', 0.5, 5, 'gridMajor'),
+      mkLine('LineH', 'gray', 1, 10, 'gridMajor'),
+      mkLine('LineV', 'gray', 1, 10, 'gridMajor'),
+    );
+    gridPanel.visible = false;
 
     const gridPart = new Part();
-    gridPart.add(gridPanel);
-    (gridPart as any).isInDocumentBounds = false;
     gridPart.layerName = 'Grid';
-    gridPart.visible = false;
+    gridPart.zOrder = 0;
+    gridPart.isInDocumentBounds = false;
+    gridPart.isAnimated = false;
+    gridPart.pickable = false;
+    gridPart.locationObjectName = 'GRID';
+    gridPart.add(gridPanel);
 
-    const gridLayer = this.findLayer('Grid');
-    if (gridLayer) {
-      gridLayer.add(gridPart);
-    }
+    // 官方 XL：this.add(part) 再从 parts 集合里删除（diagram.parts 不含网格部件）
+    this.add(gridPart);
+    this._parts.delete(gridPart);
 
-    (this as any)._gridPart = gridPart;
+    this._gridPart = gridPart;
+    this._gridPanel = gridPanel;
   }
 
   get grid(): any {
-    const gridLayer = this.findLayer('Grid');
-    if (!gridLayer) return null;
-    const it = gridLayer.parts;
-    while (it.next()) {
-      const part = it.value;
-      const panel = (part as any)._elements && (part as any)._elements.length > 0 ? (part as any)._elements[0] : null;
-      if (panel && (panel as any)._type === PanelGrid) {
-        return panel;
-      }
-    }
-    return null;
+    if (this._gridPanel === null) this._createDefaultGrid();
+    return this._gridPanel;
   }
 
   set grid(val: any) {
-    const gridLayer = this.findLayer('Grid');
-    if (!gridLayer) return;
-
-    gridLayer.clear();
-
-    if (val) {
-      const gridPart = new Part();
-      gridPart.add(val);
-      (gridPart as any).isInDocumentBounds = false;
-      gridPart.layerName = 'Grid';
-      gridLayer.add(gridPart);
+    // 官方 set grid：同一个 GRID Part 换面板（不重建 Part），panel.name = "GRID"
+    if (!(val instanceof Panel) || val.type !== (Panel as any).Grid) {
+      console.warn('Diagram.grid must be a Panel of type Panel.Grid');
+      return;
     }
+    const part = this._gridPart;
+    if (part === null) {
+      this._createDefaultGrid();
+    }
+    const p = this._gridPart as Part;
+    const old = this._gridPanel;
+    if (old === val) return;
+    if (old !== null) p.remove(old);
+    this._gridPanel = val;
+    val.name = 'GRID';
+    p.add(val);
+    this.requestUpdate();
+    this.raiseChangedEvent(ChangedEventProperty, 'grid', this, old, val);
+  }
+
+  /**
+   * 官方 Diagram.eC(t?)：按视口重设 grid 面板尺寸并把 GRID Part 吸附到网格。
+   * Cf（lcm 周期 × cellSize）来自 Panel._updateGridSettings；
+   * 面板尺寸 = 视口 + 2×Cf（四周留出一整个周期，平移视口时线相位保持不变）。
+   */
+  private _updateGridBounds(): void {
+    const panel = this._gridPanel;
+    if (panel === null || !panel.visible) return;
+    const part: any = panel.part;
+    if (part === null || part === undefined || part.layer === null) return;
+    const vp = this.viewportBounds;
+    if (!vp.isReal()) return;
+    panel._updateGridSettings();
+    const cf = panel._gridCf;
+    if (cf === null || !cf.isReal()) return;
+
+    if (part.layer.isViewportAligned) {
+      panel.width = vp.width * this._scale;
+      panel.height = vp.height * this._scale;
+      part.alignment = Spot.TopLeft;
+    } else {
+      const w = vp.width + cf.width * 2;
+      const h = vp.height + cf.height * 2;
+      if (panel.desiredSize.width !== w || panel.desiredSize.height !== h) {
+        // 直接写 desiredSize：官方 width setter 的失效冒泡到我们这里会触发整图 layout，
+        // 而 eC 随后立即 ensureBounds 重测，语义等价且无副作用
+        (panel as any)._desiredSize = new Size(w, h);
+      }
+      const loc = new Point(vp.x, vp.y);
+      loc.snapToGrid(0, 0, cf.width, cf.height);
+      loc.x -= cf.width;
+      loc.y -= cf.height;
+      part.location = loc;
+    }
+    part.ensureBounds();
+    const pos = part.position;
+    const mb = part.measuredBounds;
+    part._arrange(new Rect(pos.x, pos.y, mb.width, mb.height));
+    if (typeof part.syncPositionFromLocation === 'function') part.syncPositionFromLocation();
   }
 
   private _createDefaultNodeTemplate(): Part {
@@ -1132,7 +1339,7 @@ export class Diagram {
     shape.strokeWidth = 1;
     shape.isPanelMain = true;
     link.add(shape);
-    const arrow = new Shape('Standard');
+    const arrow = new Shape();
     arrow.toArrow = 'Standard';
     arrow.fill = 'black';
     arrow.stroke = null;
@@ -1141,10 +1348,27 @@ export class Diagram {
   }
 
   private _clearAllParts(): void {
+    // 官方 PartManager.rebuildParts 只移除有 data 的部件；无数据部件（如 diagram.grid 的 Part）保留
     for (const layer of this._layers) {
-      layer.clear();
+      const toRemove: Part[] = [];
+      const it = layer.parts;
+      while (it.next()) {
+        const part = it.value;
+        if (part && part.data !== null && part.data !== undefined) toRemove.push(part);
+      }
+      for (const part of toRemove) layer.remove(part);
     }
-    this._parts.clear();
+    const dataKeys: Part[] = [];
+    const pit = this._parts.iterator;
+    while (pit.next()) {
+      const k = pit.key, v = pit.value;
+      if (k !== v) dataKeys.push(v);
+    }
+    for (const part of dataKeys) {
+      this._parts.remove(part.data);
+      (part as any)._diagram = null;
+      if (part.isSelected) this._selection.remove(part);
+    }
     this._nodeKeyMap.clear();
     this._treeLinkDataByChildKey.clear();
     this._selection.clear();
@@ -1239,6 +1463,8 @@ export class Diagram {
 
     this.add(link);
 
+    this._propagatePartToChildren(link);
+
     this._applyBindings(link, data);
 
     const fn = link.fromNode;
@@ -1280,6 +1506,8 @@ export class Diagram {
     this._parts.set(linkData, link);
 
     this.add(link);
+
+    this._propagatePartToChildren(link);
 
     this._applyBindings(link, linkData);
 
@@ -1346,8 +1574,26 @@ export class Diagram {
     }
   }
 
+  /**
+   * 官方 `Binding.updateTarget`（`node_modules/gojs/release/go.js` 840959）把
+   * 「取源值 + 调 converter + 写目标属性」整段包在 `try { ... } catch {}` 里，
+   * 任何求值异常都被**静默吞掉**（既不中断布局，也不传播到 init）。
+   * 之前本项目不 catch，样例里 `Brush.lightenBy(color)` 这类未定义全局
+   * 直接把整个 init 打断（实测 industrialDiagram 只渲染出 1/19 个节点）。
+   */
   private _resolveBindingValue(binding: Binding, obj: GraphObject, data: ObjectData, part: Part): any {
-    if (binding.isFromModel) {
+    try {
+      return this._resolveBindingValueCore(binding, obj, data, part);
+    } catch {
+      return undefined;
+    }
+  }
+
+  private _resolveBindingValueCore(binding: Binding, obj: GraphObject, data: ObjectData, part: Part): any {
+    if (binding.isToTheme) {
+      // 官方 ThemeBinding：不走 data/ofObject，直接主题取值
+      return binding.getValueFromSource(data, obj, this._model);
+    } else if (binding.isFromModel) {
       let val = this._model ? this._model.modelData[binding.sourceProperty] : undefined;
       // 官方：源值 undefined → 跳过（不 convert、不赋值）
       if (val !== undefined && binding.conversion) val = binding.conversion(val, obj, this._model);
@@ -1377,13 +1623,27 @@ export class Diagram {
     this._applyBindingsToObject(part, data, part);
   }
 
+  /**
+   * 官方 Model.ft：把目标属性写入包 try/catch，失败仅 console.log（U.et），
+   * 例如数据 width: null → Size(null, NaN) 抛错时保持原值。
+   */
+  private _setBoundProperty(obj: GraphObject, prop: string, val: any): void {
+    try {
+      (obj as any)[prop] = val;
+    } catch (err: any) {
+      if (typeof console !== 'undefined' && console.log) {
+        console.log('property set error: ' + (err && err.toString ? err.toString() : String(err)));
+      }
+    }
+  }
+
   private _applyBindingsToObject(obj: GraphObject, data: ObjectData, part: Part): void {
     const bindings: Binding[] = (obj as any)._bindings;
     if (bindings && bindings.length > 0) {
       for (const binding of bindings) {
         const val = this._resolveBindingValue(binding, obj, data, part);
         if (val !== undefined) {
-          (obj as any)[binding.targetProperty] = val;
+          this._setBoundProperty(obj, binding.targetProperty, val);
         }
       }
     }
@@ -1402,8 +1662,32 @@ export class Diagram {
 
   private _updateBindingsForPart(part: Part, propname?: string): void {
     const data = (part as any).data;
-    if (!data) return;
+    if (!data) {
+      // 官方 Layer.Na：无数据部件仅应用 theme 绑定（t.data || t.Zo()）
+      this._applyThemeBindingsOnly(part, part);
+      return;
+    }
     this._updateBindingsForObject(part, data, propname, part);
+  }
+
+  /** 官方 GraphObject.Zo：只应用 isToTheme 绑定，递归子对象 */
+  private _applyThemeBindingsOnly(obj: GraphObject, part: Part): void {
+    const bindings: Binding[] = (obj as any)._bindings;
+    if (bindings && bindings.length > 0) {
+      for (const binding of bindings) {
+        if (!binding.isToTheme) continue;
+        const val = this._resolveBindingValue(binding, obj, null as any, part);
+        if (val !== undefined) {
+          this._setBoundProperty(obj, binding.targetProperty, val);
+        }
+      }
+    }
+    if (obj instanceof Panel) {
+      const elements = (obj as Panel)._elements;
+      for (const child of elements) {
+        this._applyThemeBindingsOnly(child, part);
+      }
+    }
   }
 
   private _updateBindingsForObject(obj: GraphObject, data: ObjectData, propname?: string, part?: Part): void {
@@ -1413,7 +1697,7 @@ export class Diagram {
         if (binding.sourceObject !== null || propname === undefined || propname === binding.sourceProperty) {
           const val = this._resolveBindingValue(binding, obj, data, part!);
           if (val !== undefined) {
-            (obj as any)[binding.targetProperty] = val;
+            this._setBoundProperty(obj, binding.targetProperty, val);
           }
         }
       }
@@ -1622,23 +1906,47 @@ export class Diagram {
     }
   }
 
+  /**
+   * 官方 `Diagram.raiseChangedEvent(change, propertyName, object, oldValue, newValue, oldParam?, newParam?)`。
+   * 构造一个 ChangedEvent 并分发给 diagram 的 changed 监听者。
+   */
+  raiseChangedEvent(
+    change: any, propertyName: string, object: any,
+    oldValue: any, newValue: any, oldParam?: any, newParam?: any
+  ): ChangedEvent {
+    const e = new ChangedEvent(change, object, propertyName, oldValue, newValue);
+    e.diagram = this;
+    e.oldParam = oldParam === undefined ? null : oldParam;
+    e.newParam = newParam === undefined ? null : newParam;
+    this._raiseChangedEvent(e);
+    return e;
+  }
+
   private _raiseChangedEvent(e: ChangedEvent): void {
+    // 官方语义：model 非空时 diagram 为空
+    if (!e.model) e.model = this._model;
+    if (!e.model) e.diagram = this;
     for (const listener of this._changedListeners) {
       listener(e);
     }
   }
 
-  private _raiseDiagramEvent(name: string, ...args: any[]): void {
-    const listeners = this._diagramListeners.get(name);
-    if (listeners) {
-      for (const listener of listeners) {
-        listener(...args);
+  /** 官方 DiagramEvent：监听器收到 `{ diagram, type, subject, subjectData, args }`；官方事件名为 ViewportBoundsChanged */
+  private _raiseDiagramEvent(name: string, subject?: any, subjectData?: any, ...rest: any[]): void {
+    const names = name === 'ViewportChanged' ? ['ViewportChanged', 'ViewportBoundsChanged'] : [name];
+    for (const n of names) {
+      const listeners = this._diagramListeners.get(n);
+      if (listeners) {
+        const event = { diagram: this, type: n, subject, subjectData, args: rest };
+        for (const listener of listeners) {
+          listener(event);
+        }
       }
     }
   }
 
-  raiseDiagramEvent(name: string, ...args: any[]): void {
-    this._raiseDiagramEvent(name, ...args);
+  raiseDiagramEvent(name: string, subject?: any, subjectData?: any, ...rest: any[]): void {
+    this._raiseDiagramEvent(name, subject, subjectData, ...rest);
   }
 
   private _findObjectInPanel(panel: Panel, localPoint: Point): GraphObject | null {
@@ -1673,6 +1981,12 @@ export class Diagram {
 
     this._updateGeometry();
 
+    // 官方：documentBounds 真的变了才 raise DocumentBoundsChanged（见 _lastRaisedDocBounds 注释）
+    this._checkDocumentBoundsChanged();
+
+    // 官方：Or() 更新循环末尾调用 eC()（grid 面板按视口重定位）
+    this._updateGridBounds();
+
     if (this._renderer) {
       this._renderer.render();
     }
@@ -1693,7 +2007,12 @@ export class Diagram {
   private _measureArrangeAll(measure: boolean = true): void {
     const pass = (kind: 0 | 1 | 2): void => {
       for (const layer of this._layers) {
-        if (layer.isTemporary) continue;
+        // 这里**不能**跳过临时层（Adornment / ViewportForeground 等）。
+        // 官方只在算 documentBounds 时排除临时层（见 documentBounds getter），
+        // measure/arrange 照做。之前这里 `if (layer.isTemporary) continue`，
+        // 于是 Adornment 层里的 Part 从来没被测量/排列，
+        // gantt 的 `myTimeline`（Graduated 面板，Adornment 层）actualBounds 一直是 NaN，
+        // 画 graduated 时间轴时报 `Invalid arguments to Rect constructor: 0, Infinity, 0, -Infinity`。
         const partsIt = layer.parts;
         while (partsIt.next()) {
           const part = partsIt.value as any;
@@ -1706,7 +2025,13 @@ export class Diagram {
           if (measure) part.ensureBounds();
           const pos = part.position;
           const mb = part.measuredBounds;
-          part._arrange(new Rect(pos.x, pos.y, mb.width, mb.height));
+          // 节点的 actualBounds 以 position 为左上角；链接的以路线中点 position
+          // 为中心（官方 link actualBounds 关于链路中线对称）。统一按左上角排
+          // 会让 link 的包围盒整体偏移半个自身尺寸。
+          const arr = isLink
+            ? new Rect(pos.x - mb.width / 2, pos.y - mb.height / 2, mb.width, mb.height)
+            : new Rect(pos.x, pos.y, mb.width, mb.height);
+          part._arrange(arr);
           if (!isLink && typeof part.syncPositionFromLocation === 'function') {
             part.syncPositionFromLocation();
           }
@@ -1715,7 +2040,26 @@ export class Diagram {
     };
     pass(0);
     pass(1);
+    // 节点/组排好后端口 actualBounds 才定型。首次算路线时它们还是 null，
+    // 算出的路线被标记 _isRouteValid=true 后 updateRoute() 一直短路，
+    // 于是 link 永远拿着那条「陈旧路线」（实测 basic：端口最终在 x=0 / 78.16，
+    // 而路线长度仍停在第一次的 3.226）。这里统一失效一次再排链接。
+    this._invalidateLinkRoutes();
     pass(2);
+  }
+
+  /** 官方在节点布局定稿后让所有 link 重算路线 */
+  private _invalidateLinkRoutes(): void {
+    for (const layer of this._layers) {
+      if (layer.isTemporary) continue;
+      const it = layer.parts;
+      while (it.next()) {
+        const part = it.value as any;
+        if (part instanceof Link && typeof part.invalidateRoute === 'function') {
+          part.invalidateRoute();
+        }
+      }
+    }
   }
 
   private _collectGroups(): any[] {
@@ -1836,28 +2180,107 @@ export class Diagram {
 
     this._applyAutoScale();
     this._applyContentAlignment();
+    // 官方 layoutDiagram 收尾：o.doLayout(t) 后 this.doLinkRouting(t)
+    this.doLinkRouting(this);
   }
 
+  /**
+   * 官方 tE（首次布局完成）+ on(t=true)：先定初始 scale，
+   * 再按 initialDocumentSpot/initialViewportSpot 计算 position，最后用 Z2 首次夹取修正。
+   */
   private _applyInitialViewport(): void {
     if (this._initialAutoScale === AutoScaleUniform) {
       this.zoomToFit();
     } else if (this._initialAutoScale === AutoScaleUniformToFill) {
-      const db = this.documentBounds;
+      const db0 = this.documentBounds;
       const vs = this.viewSize;
-      if (db.width > 0 && db.height > 0 && vs.width > 0 && vs.height > 0) {
-        const newScale = Math.max(vs.width / db.width, vs.height / db.height);
+      if (db0.width > 0 && db0.height > 0 && vs.width > 0 && vs.height > 0) {
+        const newScale = Math.max(vs.width / db0.width, vs.height / db0.height);
         this._scale = Math.max(this._minScale, Math.min(this._maxScale, newScale));
-        this._position = new Point(db.x, db.y);
+        this._position = new Point(db0.x, db0.y);
       }
-    } else if (!isNaN(this._initialScale)) {
-      this._scale = Math.max(this._minScale, Math.min(this._maxScale, this._initialScale));
+    } else {
+      const c = this._initialScale;
+      if (isFinite(c) && c > 0) {
+        this._scale = Math.max(this._minScale, Math.min(this._maxScale, c));
+      }
     }
 
-    if (this._initialPosition) {
+    // on(t)：initialPosition 优先
+    if (this._initialPosition && isFinite(this._initialPosition.x) && isFinite(this._initialPosition.y)) {
       this._position = this._initialPosition.copy();
-    } else if (this._initialContentAlignment) {
-      this.alignDocument(this._initialContentAlignment, Spot.Center);
+      return;
     }
+
+    // 官方：doc spot 对齐 viewport spot（NoSpot → TopLeft）
+    let u = this._initialDocumentSpot;
+    let d = this._initialViewportSpot;
+    if (u.isNoSpot()) u = Spot.TopLeft;
+    if (d.isNoSpot()) d = Spot.TopLeft;
+    const db = this.documentBounds;
+    const mx = db.x + u.x * db.width + u.offsetX;
+    const my = db.y + u.y * db.height + u.offsetY;
+    // 官方 `on(t)` 这里用的是**原始 viewSize**，不是带滚动条预留的 viewportBounds：
+    // orgChartStatic 上 initialDocumentSpot=TopCenter，官方 position.x = 1182.907
+    // = docCentre - 900/2；若用 viewportBounds(889) 会得 1188.407。
+    const vs = this.viewSize;
+    const p = new Rect(0, 0, vs.width / this._scale, vs.height / this._scale);
+    const yx = p.x + d.x * p.width + d.offsetX;
+    const yy = p.y + d.y * p.height + d.offsetY;
+    this._position = new Point(mx - yx, my - yy);
+
+    // 官方 on()：contentAlignment 解析（l 非 spot 且 initialContentAlignment 是 spot/default 时用后者）
+    let l: Spot = this._contentAlignment;
+    const h: Spot | null = this._initialContentAlignment;
+    if (!l.isSpot() && h !== null && (h.isSpot() || h.isDefault())) {
+      const f = this._initialDocumentSpot.isSpot() && this._initialViewportSpot.isSpot();
+      l = h.isDefault() && !f ? Spot.Center : h;
+    }
+    // H2 的夹取走**带滚动条预留**的 viewportBounds（arrow_unit 上实测官方 St=3509，
+    // 才让 `i > documentBounds.height` 不成立、position.y 稳在 4 而不是 0.5）
+    const vb = this.viewportBounds;
+    this._clampViewportPosition(db, vb.width, vb.height, l);
+  }
+
+  /** 官方 Z2(n=true/scrollMode)：夹取 position；视口宽于文档时按对齐 spot 摆放 */
+  private _clampViewportPosition(t: Rect, i: number, e: number, alignSpot: Spot): void {
+    let r = this._position.x;
+    let l = this._position.y;
+    // 官方 H2 源码写的是 `const a = this.kh`（Diagram.padding），且 documentBounds 本身
+    // 也已含 padding（实测 pad=50 → doc 从 [0,0,77,14] 变 [-50,-50,177,114]，两边一致），
+    // 即官方在这里是**双重计入** padding。但我们照抄会变差：
+    // animatedFocus 92.7→97.3、grouping 2.43→3.06、conceptMap 3.13→3.47，故保持 0。
+    const ml = 0;
+    const mr = 0;
+    const mt = 0;
+    const mb = 0;
+    if (alignSpot.isSpot()) {
+      if (i > t.width) r = t.x + (alignSpot.x * t.width + alignSpot.offsetX) - (alignSpot.x * i - alignSpot.offsetX);
+      if (e > t.height) l = t.y + (alignSpot.y * t.height + alignSpot.offsetY) - (alignSpot.y * e - alignSpot.offsetY);
+    }
+    const a = i - t.width;
+    if (i < t.width + ml + mr) {
+      let f = r + i / 2;
+      f = Math.min(f, t.right + Math.max(a, mr) - i / 2);
+      f = Math.max(f, t.left - Math.max(a, ml) + i / 2);
+      r = f - i / 2;
+    } else if (r > t.x) {
+      r = t.x;
+    } else if (r < t.right - i) {
+      r = t.right - i;
+    }
+    const c = e - t.height;
+    if (e < t.height + mt + mb) {
+      let f = l + e / 2;
+      f = Math.min(f, t.bottom + Math.max(c, mb) - e / 2);
+      f = Math.max(f, t.top - Math.max(c, mt) + e / 2);
+      l = f - e / 2;
+    } else if (l > t.y) {
+      l = t.y;
+    } else if (l < t.bottom - e) {
+      l = t.bottom - e;
+    }
+    if (isFinite(r) && isFinite(l)) this._position = new Point(r, l);
   }
 
   private _applyAutoScale(): void {
@@ -2055,5 +2478,804 @@ export class Diagram {
       this._toolManager.lastInput = inputEvent;
       this._toolManager.doKeyUp();
     });
+  }
+
+  // ============ 官方 Diagram API 对齐（阶段 6，增量字段） ============
+
+  private _currentCursor: string = '';
+  private _defaultCursor: string = '';
+  private _skipsUndoManager: boolean = false;
+  private _mouseOver: ((e: InputEvent, diagram: Diagram) => void) | null = null;
+  private _mouseEnter: ((e: InputEvent, diagram: Diagram) => void) | null = null;
+  private _mouseLeave: ((e: InputEvent, diagram: Diagram) => void) | null = null;
+  private _mouseHold: ((e: InputEvent, diagram: Diagram) => void) | null = null;
+  private _mouseHover: ((e: InputEvent, diagram: Diagram) => void) | null = null;
+  private _toolTip: GraphObject | string | null = null;
+
+  get currentCursor(): string { return this._currentCursor; }
+  set currentCursor(val: string) { this._currentCursor = val; }
+
+  get defaultCursor(): string { return this._defaultCursor; }
+  set defaultCursor(val: string) { this._defaultCursor = val; }
+
+  get skipsUndoManager(): boolean { return this._skipsUndoManager; }
+  set skipsUndoManager(val: boolean) { this._skipsUndoManager = val; }
+
+  get mouseOver(): ((e: InputEvent, diagram: Diagram) => void) | null { return this._mouseOver; }
+  set mouseOver(val: ((e: InputEvent, diagram: Diagram) => void) | null) { this._mouseOver = val; }
+
+  get mouseEnter(): ((e: InputEvent, diagram: Diagram) => void) | null { return this._mouseEnter; }
+  set mouseEnter(val: ((e: InputEvent, diagram: Diagram) => void) | null) { this._mouseEnter = val; }
+
+  get mouseLeave(): ((e: InputEvent, diagram: Diagram) => void) | null { return this._mouseLeave; }
+  set mouseLeave(val: ((e: InputEvent, diagram: Diagram) => void) | null) { this._mouseLeave = val; }
+
+  get mouseHold(): ((e: InputEvent, diagram: Diagram) => void) | null { return this._mouseHold; }
+  set mouseHold(val: ((e: InputEvent, diagram: Diagram) => void) | null) { this._mouseHold = val; }
+
+  get mouseHover(): ((e: InputEvent, diagram: Diagram) => void) | null { return this._mouseHover; }
+  set mouseHover(val: ((e: InputEvent, diagram: Diagram) => void) | null) { this._mouseHover = val; }
+
+  get toolTip(): GraphObject | string | null { return this._toolTip; }
+  set toolTip(val: GraphObject | string | null) { this._toolTip = val; }
+
+  // ============ 官方 Diagram API 对齐（阶段 6，实例成员） ============
+
+  // ---- 输入/事件状态字段 ----
+  private _firstInput: InputEvent = new InputEvent();
+  private _previousInput: InputEvent = new InputEvent();
+  private _mouseIsCaptured: boolean = false;
+  private _opacity: number = 1;
+  private _fixedBounds: Rect | null = null;
+  private _defaultScale: number = NaN;
+  private _initialDocumentSpot: Spot = Spot.None;
+  private _initialViewportSpot: Spot = Spot.None;
+  private _positionComputation: ((part: Part, pt: Point, gridPt: Point) => Point) | null = null;
+  private _scrollMode: any = null;
+  private _scrollMargin: Margin = new Margin(0);
+  private _scrollsPageOnFocus: boolean = false;
+  private _hasHorizontalScrollbar: boolean = false;
+  private _hasVerticalScrollbar: boolean = false;
+  private _scrollWidth: number = 20;
+  private _autoScrollInterval: number = 14;
+  private _autoScrollRegion: number = 28;
+  private _isVirtualized: boolean = false;
+  private _isTreePathToChildren: boolean = true;
+  private _treeCollapsePolicy: any = null;
+  private _highlighteds: Set<Part> = new Set<Part>();
+  private _isCollapsingExpanding: boolean = false;
+  private _delaysLayout: boolean = false;
+  private _isModelReadOnly: boolean = false;
+  private _isModified: boolean = false;
+  private _draggedLink: any = null;
+  private _modelChangeListeners: Array<(e: any) => void> = [];
+
+  get firstInput(): InputEvent { return this._firstInput; }
+  get previousInput(): InputEvent { return this._previousInput; }
+  get isMouseCaptured(): boolean { return this._mouseIsCaptured; }
+  get opacity(): number { return this._opacity; }
+  set opacity(val: number) {
+    if (this._opacity === val) return;
+    this._opacity = val;
+    this.requestUpdate();
+  }
+  get fixedBounds(): Rect | null { return this._fixedBounds; }
+  set fixedBounds(val: Rect | null) {
+    if (this._fixedBounds === val) return;
+    this._fixedBounds = val ? val.copy() : null;
+    this.requestUpdate();
+  }
+  get defaultScale(): number { return isNaN(this._defaultScale) ? 1 : this._defaultScale; }
+  set defaultScale(val: number) { this._defaultScale = val; }
+  get initialDocumentSpot(): Spot { return this._initialDocumentSpot; }
+  set initialDocumentSpot(val: Spot) { this._initialDocumentSpot = val; }
+  get initialViewportSpot(): Spot { return this._initialViewportSpot; }
+  set initialViewportSpot(val: Spot) { this._initialViewportSpot = val; }
+  get positionComputation(): ((part: Part, pt: Point, gridPt: Point) => Point) | null { return this._positionComputation; }
+  set positionComputation(val: ((part: Part, pt: Point, gridPt: Point) => Point) | null) { this._positionComputation = val; }
+  get scrollMode(): any { return this._scrollMode; }
+  set scrollMode(val: any) { this._scrollMode = val; }
+  get scrollMargin(): Margin { return this._scrollMargin; }
+  set scrollMargin(val: Margin) { this._scrollMargin = val; }
+  get scrollsPageOnFocus(): boolean { return this._scrollsPageOnFocus; }
+  set scrollsPageOnFocus(val: boolean) { this._scrollsPageOnFocus = val; }
+  get hasHorizontalScrollbar(): boolean { return this._hasHorizontalScrollbar; }
+  set hasHorizontalScrollbar(val: boolean) { this._hasHorizontalScrollbar = val; }
+  get hasVerticalScrollbar(): boolean { return this._hasVerticalScrollbar; }
+  set hasVerticalScrollbar(val: boolean) { this._hasVerticalScrollbar = val; }
+  get autoScrollInterval(): number { return this._autoScrollInterval; }
+  set autoScrollInterval(val: number) { this._autoScrollInterval = val; }
+  get autoScrollRegion(): number { return this._autoScrollRegion; }
+  set autoScrollRegion(val: number) { this._autoScrollRegion = val; }
+  get isVirtualized(): boolean { return this._isVirtualized; }
+  set isVirtualized(val: boolean) { this._isVirtualized = val; }
+  get isTreePathToChildren(): boolean { return this._isTreePathToChildren; }
+  set isTreePathToChildren(val: boolean) { this._isTreePathToChildren = val; }
+  get treeCollapsePolicy(): any { return this._treeCollapsePolicy; }
+  set treeCollapsePolicy(val: any) { this._treeCollapsePolicy = val; }
+  get highlighteds(): Set<Part> { return this._highlighteds; }
+  get isCollapsingExpanding(): boolean { return this._isCollapsingExpanding; }
+  get delaysLayout(): boolean { return this._delaysLayout; }
+  set delaysLayout(val: boolean) { this._delaysLayout = val; }
+  get isModelReadOnly(): boolean { return this._isModelReadOnly; }
+  set isModelReadOnly(val: boolean) { this._isModelReadOnly = val; }
+  get isModified(): boolean { return this._isModified; }
+  set isModified(val: boolean) { this._isModified = val; }
+  get draggedLink(): any { return this._draggedLink; }
+  set draggedLink(val: any) { this._draggedLink = val; }
+
+  addModelChangedListener(listener: (e: any) => void): void {
+    if (typeof listener !== 'function') throw new Error('addModelChangedListener: listener must be a function');
+    if (this._modelChangeListeners.indexOf(listener) >= 0) return;
+    this._modelChangeListeners.push(listener);
+    // 官方 addModelChangedListener 会立刻挂到当前 model 上
+    if (this._model) this._model.addChangedListener(listener);
+  }
+  removeModelChangedListener(listener: (e: any) => void): void {
+    const idx = this._modelChangeListeners.indexOf(listener);
+    if (idx >= 0) this._modelChangeListeners.splice(idx, 1);
+    if (this._model) this._model.removeChangedListener(listener);
+  }
+
+  addEventListener(type: string, listener: (e: any) => void): void {
+    this._raiseDiagramEvent(type);
+  }
+  removeEventListener(type: string, listener: (e: any) => void): void { }
+
+  // ---- 鼠标/键盘事件分发 ----
+  doMouseDown(): void { this._toolManager.doMouseDown(); }
+  doMouseMove(): void { this._toolManager.doMouseMove(); }
+  doMouseUp(): void { this._toolManager.doMouseUp(); }
+  doMouseWheel(): void { this._toolManager.doMouseWheel(); }
+  doKeyDown(): void { this._toolManager.doKeyDown(); }
+  doKeyUp(): void { this._toolManager.doKeyUp(); }
+
+  emitMouseDown(e: InputEvent): void {
+    this.lastInput = e;
+    this._toolManager.doMouseDown();
+  }
+  emitMouseMove(e: InputEvent): void {
+    this.lastInput = e;
+    this._toolManager.doMouseMove();
+  }
+  emitMouseUp(e: InputEvent): void {
+    this.lastInput = e;
+    this._toolManager.doMouseUp();
+  }
+  emitMouseWheel(e: InputEvent): void {
+    this.lastInput = e;
+    this._toolManager.doMouseWheel();
+  }
+  emitKeyDown(e: InputEvent): void {
+    this.lastInput = e;
+    this._toolManager.doKeyDown();
+  }
+  emitKeyUp(e: InputEvent): void {
+    this.lastInput = e;
+    this._toolManager.doKeyUp();
+  }
+
+  doFocus(): void {
+    if (this._div && this._div.focus) this._div.focus();
+  }
+
+  acceptEvent(e: InputEvent): boolean {
+    return e.bubbles;
+  }
+
+  click(e: InputEvent): void { this.emitMouseDown(e); }
+  doubleClick(e: InputEvent): void { this.emitMouseDown(e); }
+  contextClick(e: InputEvent): void { this.emitMouseDown(e); }
+
+  getMouse(): Point {
+    return this.lastInput.documentPoint ? new Point(this.lastInput.documentPoint.x, this.lastInput.documentPoint.y) : Point.Zero.copy();
+  }
+
+  mouseDragOver(e: InputEvent): void { }
+  mouseDrop(e: InputEvent): void { }
+
+  // ---- 部件查找 ----
+  findPartForData(data: any): Part | null {
+    const model: any = this._model;
+    if (!model || !model.getKeyForNodeData) return null;
+    const key = model.getKeyForNodeData(data);
+    return this.findNodeForKey(key);
+  }
+  findNodeForData(data: any): Node | null {
+    return this.findPartForData(data) as Node | null;
+  }
+  findLinkForKey(key: any): Link | null {
+    const model: any = this._model;
+    if (!model || typeof model.getLinkDataForKey !== 'function') return null;
+    const linkData = model.getLinkDataForKey(key);
+    if (!linkData) return null;
+    for (const layer of this._layers) {
+      if (layer.isTemporary) continue;
+      const it = layer.parts;
+      while (it.next()) {
+        const p = it.value;
+        if ((p as any)._className === 'Link' && (p as any).data === linkData) return p as Link;
+      }
+    }
+    return null;
+  }
+
+  findPartsAt(point: Point): any {
+    const result = new List<any>();
+    const p = this.findPartAt(point, true);
+    if (p) result.add(p);
+    return result;
+  }
+  findObjectsAt(point: Point): any {
+    const result = new List<any>();
+    const o = this.findObjectAt(point);
+    if (o) result.add(o);
+    return result;
+  }
+  findPartsIn(rect: Rect, partial: boolean = false): any {
+    const result = new List<any>();
+    const layers = this._layers;
+    for (const layer of layers) {
+      if (layer.isTemporary) continue;
+      const it = layer.parts;
+      while (it.next()) {
+        const p = it.value;
+        const pb = p.actualBounds;
+        if (pb && (partial ? rect.intersectsRect(pb) : rect.containsRect(pb))) result.add(p);
+      }
+    }
+    return result;
+  }
+  findObjectsIn(rect: Rect, partial: boolean = false): any {
+    const result = new List<any>();
+    const parts = this.findPartsIn(rect, partial);
+    const it = parts.iterator;
+    while (it.next()) result.add(it.value);
+    return result;
+  }
+  findPartsNear(center: Point, dist: number, partial: boolean = true): any {
+    const result = new List<any>();
+    const layers = this._layers;
+    for (const layer of layers) {
+      if (layer.isTemporary) continue;
+      const it = layer.parts;
+      while (it.next()) {
+        const p = it.value;
+        const pb = p.actualBounds;
+        if (!pb) continue;
+        const rect = pb.copy();
+        rect.inflate(dist, dist);
+        if (rect.containsPoint(center)) result.add(p);
+      }
+    }
+    return result;
+  }
+  findObjectsNear(center: Point, dist: number): any {
+    const result = new List<any>();
+    const parts = this.findPartsNear(center, dist);
+    const it = parts.iterator;
+    while (it.next()) result.add(it.value);
+    return result;
+  }
+
+  findTopLevelNodesAndLinks(): any {
+    const result = new List<any>();
+    const layers = this._layers;
+    for (const layer of layers) {
+      if (layer.isTemporary) continue;
+      const it = layer.parts;
+      while (it.next()) {
+        const p = it.value;
+        if ((p as any)._className === 'Node' || (p as any)._className === 'Link') result.add(p);
+      }
+    }
+    return result;
+  }
+  findTopLevelGroups(): any {
+    const result = new List<any>();
+    const layers = this._layers;
+    for (const layer of layers) {
+      if (layer.isTemporary) continue;
+      const it = layer.parts;
+      while (it.next()) {
+        const p = it.value;
+        if ((p as any)._className === 'Group' && !(p as any).containingGroup) result.add(p);
+      }
+    }
+    return result;
+  }
+  findTreeRoots(): any {
+    const result = new List<any>();
+    const nodes = this.findTopLevelNodesAndLinks();
+    const it = nodes.iterator;
+    while (it.next()) {
+      const p = it.value;
+      if ((p as any)._className === 'Node' && !(p as any).findTreeParentNode()) result.add(p);
+    }
+    return result;
+  }
+
+  // ---- 边界/几何 ----
+  computePartsBounds(parts: any): Rect {
+    const result = new Rect();
+    if (parts === null || parts === undefined) return result;
+    const items: any[] = [];
+    if (Array.isArray(parts)) {
+      for (const p of parts) items.push(p);
+    } else {
+      // 官方 `iterator` 是**属性**（返回 go.Iterator），不是方法。
+      // 之前写成 `parts.iterator ? parts.iterator() : parts` 会去调用那个
+      // 迭代器对象本身，直接抛 `xxx.iterator is not a function`
+      // （实测 Arranging / classHierarchy）。
+      let it: any = null;
+      const raw = (parts as any).iterator;
+      if (raw !== undefined && raw !== null) {
+        it = typeof raw === 'function' ? raw.call(parts) : raw;
+      } else if (typeof (parts as any).next === 'function') {
+        it = parts;
+      }
+      if (it && typeof it.next === 'function') {
+        while (it.next()) items.push(it.value);
+      } else if (typeof (parts as any).each === 'function') {
+        (parts as any).each((p: any) => items.push(p));
+      } else if (typeof (parts as any)[Symbol.iterator] === 'function') {
+        for (const p of parts as any) items.push(p);
+      }
+    }
+    for (const p of items) {
+      const b = p ? p.actualBounds : null;
+      if (b && (b as any).isReal()) result.unionRect(b);
+    }
+    return result;
+  }
+  computeBounds(): Rect { return this.documentBounds; }
+
+  ensureBounds(): void { this.invalidateDocumentBounds(); }
+
+  invalidateDocumentBounds(): void {
+    this._raiseDiagramEvent('DocumentBoundsChanged');
+    this.requestUpdate();
+  }
+
+  /** 官方语义：文档包围盒发生变化时（且仅此时）raise `DocumentBoundsChanged` */
+  private _checkDocumentBoundsChanged(): void {
+    const b = this.documentBounds;
+    const prev = this._lastRaisedDocBounds;
+    if (prev !== null && prev.x === b.x && prev.y === b.y &&
+        prev.width === b.width && prev.height === b.height) {
+      return;
+    }
+    this._lastRaisedDocBounds = new Rect(b.x, b.y, b.width, b.height);
+    this._raiseDiagramEvent('DocumentBoundsChanged');
+  }
+  invalidateViewport(): void {
+    this._raiseDiagramEvent('ViewportChanged');
+    this.requestUpdate();
+  }
+
+  zoomToRect(rect: Rect): void {
+    const r = rect.copy();
+    const vs = this.viewSize;
+    const scale = Math.min(vs.width / r.width, vs.height / r.height);
+    const pos = new Point(r.x + (r.width - vs.width / scale) / 2, r.y + (r.height - vs.height / scale) / 2);
+    this._scale = Math.max(this._minScale, Math.min(this._maxScale, scale));
+    this._position = pos;
+    this.requestUpdate();
+  }
+
+  zoomPoint(factor: number): void {
+    const vs = this.viewSize;
+    const center = this.transformViewToDoc(new Point(vs.width / 2, vs.height / 2));
+    const oldScale = this._scale;
+    this.scale = this._scale * factor;
+    const newScale = this._scale;
+    const pos = new Point(
+      center.x - (center.x - this._position.x) * (newScale / oldScale),
+      center.y - (center.y - this._position.y) * (newScale / oldScale)
+    );
+    this._position = pos;
+    this.requestUpdate();
+  }
+
+  isUnoccupied(rect: Rect): boolean {
+    const parts = this.findPartsIn(rect, false);
+    return parts.count === 0;
+  }
+  computeOccupiedArea(place: Rect): Rect {
+    const vs = this.viewSize;
+    const newb = new Rect(place.x, place.y, vs.width / this._scale, vs.height / this._scale);
+    return newb;
+  }
+
+  // ---- 滚动/自动滚动 ----
+  scrollHorizontalLineChange(value: number): void {
+    this.position = new Point(this._position.x + value, this._position.y);
+  }
+  scrollVerticalLineChange(value: number): void {
+    this.position = new Point(this._position.x, this._position.y + value);
+  }
+  scroll(): void {
+    const d = this.documentBounds;
+    const vb = this.viewportBounds;
+    if (!vb.containsRect(d)) {
+      this.position = new Point(Math.min(this._position.x, d.x), Math.min(this._position.y, d.y));
+    }
+    this.requestUpdate();
+  }
+  setScrollWidth(width: number): void {
+    this._scrollWidth = width;
+    this.requestUpdate();
+  }
+
+  computeAutoScrollPosition(): Point {
+    const docPoint = this.lastInput.documentPoint;
+    const vb = this.viewportBounds;
+    const region = this._autoScrollRegion;
+    const dx = vb.width / 2 - region;
+    const dy = vb.height / 2 - region;
+    let x = this._position.x, y = this._position.y;
+    if (docPoint.x < vb.x + region) x -= (vb.x + region - docPoint.x) * (this._scale);
+    else if (docPoint.x > vb.x + vb.width - region) x += (docPoint.x - (vb.x + vb.width - region)) * this._scale;
+    if (docPoint.y < vb.y + region) y -= (vb.y + region - docPoint.y) * this._scale;
+    else if (docPoint.y > vb.y + vb.height - region) y += (docPoint.y - (vb.y + vb.height - region)) * this._scale;
+    return new Point(x, y);
+  }
+  doAutoScroll(): void {
+    if (!this._mouseIsCaptured) return;
+    const pt = this.computeAutoScrollPosition();
+    if (pt.isReal()) this.position = pt;
+  }
+  stopAutoScroll(): void { }
+
+  // ---- 模型/图层 ----
+  addLayerBefore(layer: Layer, existingLayer: Layer): void {
+    const idx = this._layers.indexOf(existingLayer);
+    if (idx < 0) { this.addLayer(layer); return; }
+    this._layers.splice(idx, 0, layer);
+    layer.diagram = this;
+  }
+  addLayerAfter(layer: Layer, existingLayer: Layer): void {
+    const idx = this._layers.indexOf(existingLayer);
+    if (idx < 0) { this.addLayer(layer); return; }
+    this._layers.splice(idx + 1, 0, layer);
+    layer.diagram = this;
+  }
+
+  partAdded(part: Part): void {
+    (part as any)._diagram = this;
+  }
+  partRemoved(part: Part): void {
+    (part as any)._diagram = null;
+  }
+
+  clear(): void {
+    this.clearSelection();
+    for (const layer of this._layers) {
+      if (layer.isTemporary) continue;
+      const parts = iteratorToArray(layer.parts);
+      for (const p of parts) {
+        if ((p as any)._className !== 'Node' && (p as any)._className !== 'Link' && (p as any)._className !== 'Group') continue;
+        layer.remove(p);
+      }
+    }
+    this.requestUpdate();
+  }
+
+  removeParts(coll: any, ensureBounds: boolean = true): void {
+    const model: any = this._model;
+    const iter: any = this._iterateParts(coll);
+    const nodes: any[] = [];
+    const links: any[] = [];
+    if (iter && iter.next) {
+      while (iter.next()) {
+        const p = iter.value;
+        if (!p || !p.data) continue;
+        if ((p as any)._className === 'Link') links.push(p.data);
+        else nodes.push(p.data);
+      }
+    }
+    for (const ld of links) if (typeof model.removeLinkData === 'function') model.removeLinkData(ld);
+    for (const nd of nodes) model.removeNodeData(nd);
+    if (ensureBounds) this.invalidateDocumentBounds();
+    this.requestUpdate();
+  }
+
+  /**
+   * 官方这几个方法都接受 Iterable（List/Set/图元集合）或者普通数组。
+   * 本项目的 `List.iterator` 是**属性**（一个 Iterator 对象）而不是方法，
+   * 所以不能无脑 `coll.iterator()`。
+   */
+  private _iterateParts(coll: any): any {
+    if (coll == null) return null;
+    if (typeof coll.iterator === 'function') return coll.iterator();
+    if (coll.iterator && typeof coll.iterator.next === 'function') return coll.iterator;
+    if (typeof coll.next === 'function') return coll;
+    if (Array.isArray(coll)) {
+      let i = 0;
+      return {
+        value: undefined as any,
+        next: function (): boolean {
+          if (i < coll.length) {
+            (this as any).value = coll[i++];
+            return true;
+          }
+          return false;
+        }
+      };
+    }
+    return null;
+  }
+
+  moveParts(coll: any, delta: Point, check: boolean = true): void {
+    const iter: any = this._iterateParts(coll);
+    if (iter && iter.next) {
+      while (iter.next()) {
+        const p = iter.value;
+        if (!p || (p as any)._className === 'Link') continue;
+        const np = p.position.copy();
+        np.x += delta.x; np.y += delta.y;
+        p.position = np;
+      }
+    }
+    this.requestUpdate();
+  }
+
+  copyParts(coll: any, targetDiagram?: any, check: boolean = false): any {
+    const result = new Map<any, any>();
+    const srcModel: any = this._model;
+    const dstModel: any = targetDiagram ? targetDiagram.model : srcModel;
+    const iter: any = this._iterateParts(coll);
+    const dataMap = new Map<any, any>();
+    const items: any[] = [];
+    if (iter && iter.next) {
+      while (iter.next()) {
+        const p = iter.value;
+        if (p && p.data) items.push(p);
+      }
+    }
+    for (const p of items) {
+      const d = JSON.parse(JSON.stringify(p.data));
+      const oldKey = srcModel.getKeyForNodeData(p.data);
+      if (d.key !== undefined) d.key = dstModel.makeKey ? dstModel.makeKey() : (dstModel.makeUniqueKeyString ? dstModel.makeUniqueKeyString() : (d.key + '_copy'));
+      const isLink = (p as any)._className === 'Link';
+      if (isLink) { if (typeof dstModel.addLinkData === 'function') dstModel.addLinkData(d); }
+      else dstModel.addNodeData(d);
+      if (oldKey !== undefined) dataMap.add(oldKey, dstModel.getKeyForNodeData(d));
+    }
+    if (targetDiagram) targetDiagram.rebuildParts();
+    else this.rebuildParts();
+    for (const p of items) {
+      const srcKey = srcModel.getKeyForNodeData(p.data);
+      const dstPart = targetDiagram ? targetDiagram.findPartForData(dataMap.get(srcKey)) : this.findPartForData(dataMap.get(srcKey));
+      result.add(p, dstPart);
+    }
+    return result;
+  }
+
+  // ---- 选择/高亮 ----
+  private _nodeSelectionAdornmentTemplate: any = null;
+  private _linkSelectionAdornmentTemplate: any = null;
+  private _groupSelectionAdornmentTemplate: any = null;
+
+  get nodeSelectionAdornmentTemplate(): any { return this._nodeSelectionAdornmentTemplate; }
+  set nodeSelectionAdornmentTemplate(val: any) { this._nodeSelectionAdornmentTemplate = val; }
+  get linkSelectionAdornmentTemplate(): any { return this._linkSelectionAdornmentTemplate; }
+  set linkSelectionAdornmentTemplate(val: any) { this._linkSelectionAdornmentTemplate = val; }
+  get groupSelectionAdornmentTemplate(): any { return this._groupSelectionAdornmentTemplate; }
+  set groupSelectionAdornmentTemplate(val: any) { this._groupSelectionAdornmentTemplate = val; }
+
+  highlightCollection(parts: any): void {
+    const iter: any = parts && parts.iterator ? parts.iterator() : parts;
+    if (iter && iter.next) {
+      while (iter.next()) {
+        const p = iter.value;
+        if (p && !this._highlighteds.has(p)) this._highlighteds.add(p);
+      }
+    }
+  }
+  highlight(part: Part): void {
+    if (part && !this._highlighteds.has(part)) this._highlighteds.add(part);
+  }
+  clearHighlighteds(): void {
+    this._highlighteds.clear();
+  }
+
+  // ---- 渲染/导出 ----
+  private _renderingHints: any = null;
+  private _divBackground: string = '';
+  private _pixelRatio: number = 1;
+  private _attached: boolean = false;
+
+  setRenderingHint(name: string, val: any): void {
+    if (!this._renderingHints) this._renderingHints = {};
+    this._renderingHints[name] = val;
+  }
+  getRenderingHint(name: string): any {
+    return this._renderingHints ? this._renderingHints[name] : undefined;
+  }
+  resetRenderingHints(): void {
+    this._renderingHints = {};
+  }
+  setDivBackground(value: string): void {
+    this._divBackground = value;
+    if (this._div) this._div.style.background = value;
+  }
+  computePixelRatio(): number {
+    if (typeof window !== 'undefined' && typeof window.devicePixelRatio === 'number') return window.devicePixelRatio;
+    return 1;
+  }
+  attach(): void {
+    this._attached = true;
+  }
+  get isAttached(): boolean { return this._attached; }
+
+  maybeUpdate(): void {
+    if (this._attached) this.requestUpdate();
+  }
+  get isUpdateRequested(): boolean { return this._isUpdateRequestedFlag; }
+
+  private _isUpdateRequestedFlag: boolean = false;
+
+  makeSVG(opts?: any): any {
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    const db = this.documentBounds;
+    svg.setAttribute('width', String(db.width));
+    svg.setAttribute('height', String(db.height));
+    svg.setAttribute('viewBox', db.x + ' ' + db.y + ' ' + db.width + ' ' + db.height);
+    return svg;
+  }
+  makeSvg(opts?: any): any { return this.makeSVG(opts); }
+  makeImageData(opts?: any): string { return ''; }
+  makeImage(opts?: any): any {
+    const data = this.makeImageData(opts);
+    if (!data) return null;
+    const img = new Image();
+    img.src = data;
+    return img;
+  }
+
+  // ---- 路由/布局（占位/惰性） ----
+  // 官方 go.d.ts:13868 `get routers(): List<Router>` —— 是 List 不是 Set。
+  // 之前用原生 `Set`，样例写 `myDiagram.routers.push(...)` 直接
+  // `push is not a function`（实测 AvoidsLinksRouter）。
+  private _routers: List<any> = new List<any>();
+  get routers(): List<any> { return this._routers; }
+  set routers(val: List<any> | any[] | Iterable<any>) {
+    this._routers = val instanceof List ? val : new List<any>(val);
+  }
+  findRouter(part: any): any { return null; }
+  addRenderer(renderer: any): void {
+    if (!this._renderer) this._renderer = renderer;
+  }
+  removeRenderer(renderer: any): void {
+    if (this._renderer === renderer) (this._renderer as any) = null;
+  }
+  setupRouters(): void { }
+  addInvalidRoute(part: any): void { }
+  computeMove(part: any, pt: Point): void { }
+  getPositions(part: any, t: any): any { return null; }
+  validCycle(): boolean { return true; }
+  getInputOption(prop: string): any { return undefined; }
+  setInputOption(prop: string, val: any): void { }
+  setProperties(obj: any): void { }
+  setRTL(isRTL: boolean): void { }
+  /**
+   * 对齐官方 `Diagram.delayInitialization(func)`（见 `node_modules/gojs/release/go.js`）：
+   *   `t !== null && U.yn(() => { ...; t(this) }, 1)`
+   * 即延迟到下一次 macrotask 再调用，并且**把 Diagram 自己作为参数传进去**。
+   * 之前这里写成 `callback()`，既没延迟也没传参，
+   * `myDiagram.delayInitialization(loadTree)` 这类样例直接
+   * `Cannot read properties of undefined (reading 'model')`（实测 DragZooming）。
+   */
+  delayInitialization(callback?: ((d: Diagram) => void) | null): void {
+    const fn = callback === undefined ? null : callback;
+    if (fn !== null) {
+      setTimeout(() => { fn(this); }, 1);
+    }
+  }
+  toggleKeyboardControl(shown: boolean): void { }
+  onViewportBoundsChanged(): void { this.requestUpdate(); }
+  updateAllRelationshipsFromData(): void { }
+  /** 官方 Diagram.updateAllThemeBindings：对所有部件应用 theme 绑定（PartManager.updateAllThemeBindings） */
+  updateAllThemeBindings(): void {
+    this._parts.each(pair => {
+      const part = pair.value;
+      if (part) this._applyThemeBindingsOnly(part, part);
+    });
+  }
+  isTreePathToChildrenFn(): boolean { return this._isTreePathToChildren; }
+
+  toString(): string {
+    return 'Diagram';
+  }
+
+  // ============ 官方 Diagram API 对齐（阶段 6，收尾成员） ============
+
+  private _avoidanceCellSize: Size = new Size(1, 1);
+  private _avoidanceLimit: number = 1000;
+  private _scaleComputation: ((thisDiagram: Diagram, newScale: number) => number) | null = null;
+  private _handlesDragDropForTopLevelParts: boolean = false;
+  private _partManager: any = null;
+
+  get avoidanceCellSize(): Size { return this._avoidanceCellSize; }
+  set avoidanceCellSize(val: Size) { this._avoidanceCellSize = new Size(val.width, val.height); }
+  get avoidanceLimit(): number { return this._avoidanceLimit; }
+  set avoidanceLimit(val: number) { this._avoidanceLimit = val; }
+  get scaleComputation(): ((thisDiagram: Diagram, newScale: number) => number) | null { return this._scaleComputation; }
+  set scaleComputation(val: ((thisDiagram: Diagram, newScale: number) => number) | null) { this._scaleComputation = val; }
+  get handlesDragDropForTopLevelParts(): boolean { return this._handlesDragDropForTopLevelParts; }
+  set handlesDragDropForTopLevelParts(val: boolean) { this._handlesDragDropForTopLevelParts = val; }
+  get partManager(): any { return this._partManager; }
+  set partManager(val: any) { this._partManager = val; }
+
+  initializePartManager(partManager: any): void { }
+
+  diagramScroll(scrollbar: any): void {
+    if (scrollbar) {
+      const sp = this.documentBounds.position;
+      const scale = this._scale;
+      this._position = new Point(-scrollbar.scrollLeft / scale + sp.x, -scrollbar.scrollTop / scale + sp.y);
+    }
+    this.requestUpdate();
+  }
+
+  /** 官方 `Diagram.doLinkRouting(container)`：遍历 routers，canRoute 过滤后 routeLinks(本图 links 集合, container) */
+  doLinkRouting(container?: any): void {
+    const c: any = container !== undefined && container !== null ? container : this;
+    const routers: any = this._routers;
+    if (!routers) return;
+    // 官方传的是 `go.Set<Link>`（官方 `Diagram.Kr = new GSet`，见 go.js doLinkRouting），
+    // 扩展 LinkLabelRouter 会 `this.layout.activeSet = links` 再 `activeSet.has(part)`。
+    // 我们以前直接传 `this.links`（一个 Iterator，没有 `has`）→
+    // `_a.has is not a function`（实测 LinkLabelRouter）。
+    const linkSet = new Set<Link>();
+    const partsIt = this._parts.iteratorValues;
+    while (partsIt.next()) {
+      const p = partsIt.value;
+      if (p instanceof Link) linkSet.add(p);
+    }
+    const visit = (r: any): void => {
+      if (!r || typeof r.canRoute !== 'function') return;
+      if (!r.canRoute(c)) return;
+      if (typeof r.routeLinks === 'function') r.routeLinks(linkSet, c);
+    };
+    if (typeof routers.each === 'function') {
+      routers.each((r: any) => visit(r));
+    } else if (Array.isArray(routers)) {
+      for (const r of routers) visit(r);
+    }
+  }
+
+  cacheGroupExternalLinks(start: boolean): void { }
+
+  focusObject(obj: any): void {
+    if (!obj) { if (this._div) this._div.focus(); return; }
+    const part = obj.part;
+    if (part && typeof part.pick === 'function') {
+      const r = part.actualBounds;
+      if (r) this.centerRect(r);
+    }
+    this.requestUpdate();
+  }
+
+  raiseChanged(flag: any, details: any): void {
+    this.requestUpdate();
+  }
+
+  redraw(): void {
+    if (this._renderer && typeof this._renderer.render === 'function') {
+      this._renderer.render();
+    } else {
+      this.requestUpdate();
+    }
+  }
+
+  reset(): void {
+    this.clearSelection();
+    this._highlighteds.clear();
+    this._position = Point.Zero.copy();
+    this._scale = 1;
+    this.requestUpdate();
   }
 }

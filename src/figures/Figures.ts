@@ -7,7 +7,9 @@ import { Spot } from '../core/Spot';
 /** 官方 GoJS 圆角贝塞尔控制点比例：4*((√2-1)/3) */
 const EO = 4 * ((Math.sqrt(2) - 1) / 3);
 
-export const figures: Map<string, (shape: any, w: number, h: number) => Geometry> = new Map();
+export type FigureGenerator = (shape: any, w: number, h: number) => Geometry;
+// 值为生成函数，或另一个已注册图形名的字符串别名（官方 defineFigureGenerator(name, 'Other')）。
+export const figures: Map<string, FigureGenerator | string> = new Map();
 
 /** 官方 go.js 内置图形名（Shape.getFigureGenerators 返回的 30 个），顺序与官方一致 */
 export const CORE_FIGURE_NAMES: string[] = [
@@ -34,9 +36,19 @@ export function isExtensionFigure(name: string): boolean {
 }
 
 export function getFigureGeometry(name: string, w: number, h: number, p1: number = NaN, p2: number = NaN, shape?: any): Geometry | null {
+  return resolveFigureGeometry(name, w, h, p1, p2, shape, new Set<string>());
+}
+
+function resolveFigureGeometry(name: string, w: number, h: number, p1: number, p2: number, shape: any, visited: Set<string>): Geometry | null {
   const func = figures.get(name);
-  if (!func) return null;
-  return func(shape || null, w, h);
+  if (func === undefined) return null;
+  if (typeof func === 'string') {
+    if (visited.has(func)) return null; // 循环别名保护
+    visited.add(func);
+    return resolveFigureGeometry(func, w, h, p1, p2, shape, visited);
+  }
+  if (typeof func !== 'function') return null;
+  return (func as FigureGenerator)(shape || null, w, h);
 }
 
 function getP1(shape: any, defaultVal: number): number {
@@ -805,6 +817,8 @@ defineFigure('Square', (shape, w, h) => {
   fig.add(PathSegment.Line(x, y + side));
   fig.add(PathSegment.Close());
   geo.add(fig);
+  // 官方 Square geometry.defaultStretch = 6（Uniform）
+  geo.defaultStretch = 6;
   return geo;
 });
 
@@ -1053,8 +1067,14 @@ defineFigure('LineUp', (shape, w, h) => {
 });
 
 defineFigure('None', (shape, w, h) => {
+  // 官方：figure='None' 的 Shape 仍按矩形渲染（fill/stroke 画在 actualBounds 上）。
+  // 若返回空几何，渲染器会跳过矩形回退路径导致画不出（barCharts 无 bar 的根因）。
   const geo = new Geometry();
-  const fig = new PathFigure(0, 0, false);
+  const fig = new PathFigure(0, 0);
+  fig.add(PathSegment.Line(w, 0));
+  fig.add(PathSegment.Line(w, h));
+  fig.add(PathSegment.Line(0, h));
+  fig.add(PathSegment.Close());
   geo.add(fig);
   return geo;
 });

@@ -4,6 +4,7 @@ import { Point } from '../core/Point';
 import type { Group } from './Group';
 
 export class Placeholder extends GraphObject {
+  static readonly className: string = "Placeholder";
   private _padding: number = 0;
 
   constructor(init?: Placeholder) {
@@ -30,6 +31,77 @@ export class Placeholder extends GraphObject {
   }
 
   /**
+   * 官方 `Placeholder.computeMemberBounds(result)`：把所属 Group 的可见成员并集写入 `result`（原地修改并返回）。
+   * - 跳过不可见成员；Link 仅在 `Group.computesBoundsIncludingLinks` 时计入，且端点为本 Group 的 Link 不计入；
+   * - 无有效成员 → `result = (group.location.x, group.location.y, 0, 0)`。
+   */
+  computeMemberBounds(result: Rect): Rect {
+    const group = this._findGroup();
+    if (group === null) {
+      result.setTo(0, 0, 0, 0);
+      return result;
+    }
+    let left = Infinity;
+    let top = Infinity;
+    let right = -Infinity;
+    let bottom = -Infinity;
+    let any = false;
+    const it = group.memberParts.iterator;
+    while (it.next()) {
+      const member = it.value;
+      if (!member.isVisible()) continue;
+      if ((member as unknown as { _className: string })._className === 'Link') {
+        if (!group.computesBoundsIncludingLinks) continue;
+        const ends = member as unknown as { fromNode: unknown; toNode: unknown };
+        if (ends.fromNode === group || ends.toNode === group) continue;
+      }
+      const b = member.actualBounds;
+      if (!Number.isFinite(b.x) || !Number.isFinite(b.y)) continue;
+      any = true;
+      if (b.x < left) left = b.x;
+      if (b.y < top) top = b.y;
+      if (b.right > right) right = b.right;
+      if (b.bottom > bottom) bottom = b.bottom;
+    }
+    if (any && Number.isFinite(left) && Number.isFinite(top)) {
+      result.setTo(left, top, right - left, bottom - top);
+    } else {
+      const loc = group.location;
+      result.setTo(loc.x, loc.y, 0, 0);
+    }
+    return result;
+  }
+
+  /**
+   * 官方 `Placeholder.computeBorder(result)`：成员并集再按 `margin` 外扩，写入 `result`（原地修改并返回）。
+   * - 子图折叠（`!isSubGraphExpanded`）时宽高为 0；
+   * - `Group.computesBoundsIncludingLocation` 且 group.location 有效时，把 location 并入边界。
+   */
+  computeBorder(result: Rect): Rect {
+    const d = this.diagram;
+    if (d !== null && d.animationManager.isAnimating) return result;
+    const group = this._findGroup();
+    if (group === null) return result;
+    const union = new Rect();
+    this.computeMemberBounds(union);
+    const m = this.margin;
+    if (!group.isSubGraphExpanded) {
+      result.setTo(union.x - m.left, union.y - m.top, 0, 0);
+    } else {
+      result.setTo(
+        union.x - m.left,
+        union.y - m.top,
+        Math.max(union.width + m.left + m.right, 0),
+        Math.max(union.height + m.top + m.bottom, 0)
+      );
+    }
+    if (group.computesBoundsIncludingLocation && group.location.isReal()) {
+      result.unionPoint(group.location);
+    }
+    return result;
+  }
+
+  /**
    * 官方 Placeholder.measure（computeBorder）：
    * 1) union 可见成员的 actualBounds（文档坐标，成员 ab 实值才计入；跳过 Link）；
    * 2) 无成员 union → border = group.location 实值点 (0×0)，否则 (0,0)；
@@ -49,7 +121,7 @@ export class Placeholder extends GraphObject {
         const ab = part.actualBounds;
         if (!ab || isNaN(ab.x) || isNaN(ab.y)) continue;
         if (union) {
-          union = union.union(ab);
+          union = union.unionRect(ab);
         } else {
           union = ab.copy();
         }

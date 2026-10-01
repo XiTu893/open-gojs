@@ -12,6 +12,7 @@ import { LayoutVertex } from './LayoutVertex';
  * - 携带可继承的布局属性（sorting/angle/alignment/nodeSpacing/layerSpacing/...）
  */
 export declare class TreeVertex extends LayoutVertex {
+    static readonly className: string;
     initialized: boolean;
     parent: TreeVertex | null;
     children: TreeVertex[];

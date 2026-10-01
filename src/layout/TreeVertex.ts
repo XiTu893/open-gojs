@@ -16,6 +16,7 @@ import { LayoutVertex } from './LayoutVertex';
  * - 携带可继承的布局属性（sorting/angle/alignment/nodeSpacing/layerSpacing/...）
  */
 export class TreeVertex extends LayoutVertex {
+  static readonly className: string = "TreeVertex";
 
   // ============ 树结构（官方 Bk/Vk/zk/Ar/Xk/Yk/Kk/Je） ============
   initialized: boolean = false;

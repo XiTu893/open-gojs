@@ -1,6 +1,8 @@
 import { EnumValue, PanelTable, SizingDefault, SizingNone, SizingProp, StretchDefault } from '../core/EnumValues';
 import { Margin, MarginLike } from '../core/Margin';
 import { Spot } from '../core/Spot';
+import { Binding } from '../model/Binding';
+import { ensureHashId } from '../core/HashId';
 import type { Panel } from './Panel';
 
 /**
@@ -14,7 +16,9 @@ import type { Panel } from './Panel';
  * - computeEffectiveSpacing/Top: 分隔线 + separatorPadding 的间距贡献
  */
 export class RowColumnDefinition {
-  private _row: number = NaN;
+  static readonly className: string = "RowColumnDefinition";
+  /** 官方 RowColumnDefinition 默认 isRow=true、index=0，因此默认行号为 0 */
+  private _row: number = 0;
   private _column: number = NaN;
   private _height: number = NaN;
   private _width: number = NaN;
@@ -244,6 +248,124 @@ export class RowColumnDefinition {
     return stroke + (isRow ? pad.top + pad.bottom : pad.left + pad.right);
   }
 
+  /** 官方 RowColumnDefinition.ek(other)：把 other 上已设置的值合并进本定义（供 Panel.addRowColumnDefinition 使用） */
+  _setValuesFrom(other: RowColumnDefinition): void {
+    if (!other) return;
+    if (other.isRow) this._height = other._height;
+    else this._width = other._width;
+    this._minimum = other._minimum;
+    this._maximum = other._maximum;
+    this._alignment = other._alignment.copy();
+    this._stretch = other._stretch;
+    this._sizing = other._sizing;
+    this._separatorPadding = other._separatorPadding ? other._separatorPadding.copy() : null;
+    this._separatorStroke = other._separatorStroke;
+    this._separatorStrokeWidth = other._separatorStrokeWidth;
+    this._separatorDashArray = other._separatorDashArray ? [...other._separatorDashArray] : null;
+    this._background = other._background;
+    this._coversSeparators = other._coversSeparators;
+    this._spanAllocation = other._spanAllocation;
+  }
+
+  /** 官方 Us：登记在本定义上的 Binding 列表 */
+  private _bindings: Binding[] = [];
+
+  /**
+   * 官方 `RowColumnDefinition.bind(targetprop, sourceprop?, conv?, backconv?)`
+   * 以及 `bind(binding)` 重载。
+   * 官方 `Of(t,e,i,s)`：首参为 Binding 实例则直接登记，否则新建 Binding；
+   * 指定 `backconv` 时自动切换为 TwoWay。
+   */
+  bind(
+    bindingOrTargetProp: Binding | string,
+    sourceprop?: string,
+    conv?: (value: any, targetObject: any, model: any) => any,
+    backconv?: (value: any, sourceData: any, model: any) => any
+  ): this {
+    const binding = typeof bindingOrTargetProp === 'string'
+      ? new Binding(bindingOrTargetProp, sourceprop, conv)
+      : bindingOrTargetProp;
+    if (backconv !== undefined && backconv !== null) binding.makeTwoWay(backconv);
+    this._bindings.push(binding);
+    return this;
+  }
+
+  /**
+   * 官方 `RowColumnDefinition.bindTwoWay(...)`：等价于 `bind(...)` 后调用 `Binding.makeTwoWay()`。
+   * 官方 `s === void 0 && n.makeTwoWay()`（未显式给 backconv 时也做双向绑定）。
+   */
+  bindTwoWay(
+    bindingOrTargetProp: Binding | string,
+    sourceprop?: string,
+    conv?: (value: any, targetObject: any, model: any) => any,
+    backconv?: (value: any, sourceData: any, model: any) => any
+  ): this {
+    const binding = typeof bindingOrTargetProp === 'string'
+      ? new Binding(bindingOrTargetProp, sourceprop, conv)
+      : bindingOrTargetProp;
+    binding.makeTwoWay(backconv);
+    this._bindings.push(binding);
+    return this;
+  }
+
+  theme(
+    targetprop: string,
+    sourceprop?: string,
+    themeSource?: string,
+    conv?: (value: any, targetObject: any, model: any) => any,
+    themeconv?: (value: any, targetObject: any, model: any) => any
+  ): this {
+    const binding = new Binding(targetprop, sourceprop || targetprop, conv || themeconv);
+    binding.sourceObject = themeSource || '';
+    this._bindings.push(binding);
+    return this;
+  }
+
+  themeData(
+    targetprop: string,
+    sourceprop?: string,
+    themeSource?: string,
+    conv?: (value: any, targetObject: any, model: any) => any,
+    themeconv?: (value: any, targetObject: any, model: any) => any
+  ): this {
+    const binding = new Binding(targetprop, sourceprop || targetprop, conv || themeconv);
+    binding.sourceObject = 'model';
+    this._bindings.push(binding);
+    return this;
+  }
+
+  themeObject(
+    targetprop: string,
+    sourceprop?: string,
+    themeSource?: string,
+    conv?: (value: any, targetObject: any, model: any) => any,
+    themeconv?: (value: any, targetObject: any, model: any) => any,
+    objectSrcname?: string
+  ): this {
+    const binding = new Binding(targetprop, sourceprop || targetprop, conv || themeconv);
+    binding.sourceObject = objectSrcname !== undefined ? objectSrcname : (themeSource || '');
+    this._bindings.push(binding);
+    return this;
+  }
+
+  themeModel(
+    targetprop: string,
+    sourceprop?: string,
+    themeSource?: string,
+    conv?: (value: any, targetObject: any, model: any) => any,
+    themeconv?: (value: any, targetObject: any, model: any) => any
+  ): this {
+    const binding = new Binding(targetprop, sourceprop || targetprop, conv || themeconv);
+    binding.sourceObject = 'theme';
+    this._bindings.push(binding);
+    return this;
+  }
+
+  /** 官方：`"RowColumnDefinition (Row 0) #26"` / `"RowColumnDefinition (Column 3) #27"` */
+  toString(): string {
+    return `RowColumnDefinition (${this.isRow ? 'Row' : 'Column'} ${this.index}) #${ensureHashId(this)}`;
+  }
+
   copy(): RowColumnDefinition {
     const def = new RowColumnDefinition();
     def._row = this._row;
@@ -261,6 +383,7 @@ export class RowColumnDefinition {
     def._separatorPadding = this._separatorPadding;
     def._background = this._background;
     def._coversSeparators = this._coversSeparators;
+    def._bindings = this._bindings.map(b => b.copy());
     return def;
   }
 

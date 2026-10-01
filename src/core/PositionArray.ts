@@ -1,4 +1,5 @@
 export class PositionArray {
+  static readonly className: string = "PositionArray";
   private _positions: number[] = [];
 
   constructor(positions?: number[]) {

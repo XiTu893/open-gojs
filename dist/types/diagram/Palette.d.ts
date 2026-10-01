@@ -1,6 +1,7 @@
 import { Diagram } from './Diagram';
 import { EnumValue } from '../core/EnumValues';
 export declare class Palette extends Diagram {
+    static readonly className: string;
     constructor(divId: string | HTMLDivElement);
     get isReadOnly(): boolean;
     set isReadOnly(_val: boolean);

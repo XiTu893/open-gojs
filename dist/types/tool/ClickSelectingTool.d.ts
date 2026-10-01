@@ -1,5 +1,6 @@
 import { Tool } from './Tool';
 export declare class ClickSelectingTool extends Tool {
+    static readonly className: string;
     private _lastClickTime;
     private _lastClickObj;
     constructor();

@@ -6,6 +6,7 @@ import { List } from '../core/List';
 import type { Part } from '../view/Part';
 
 export class DraggingTool extends Tool {
+  static readonly className: string = "DraggingTool";
 
   private _isCopy: boolean = false;
   private _isCopyEnabled: boolean = true;

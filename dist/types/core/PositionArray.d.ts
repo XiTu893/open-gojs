@@ -1,4 +1,5 @@
 export declare class PositionArray {
+    static readonly className: string;
     private _positions;
     constructor(positions?: number[]);
     get count(): number;

@@ -12,6 +12,13 @@ import { LayoutEdge } from './LayoutEdge';
  * and gravity pulls nodes toward the center.
  */
 export class ForceDirectedLayout extends Layout {
+  static readonly className: string = "ForceDirectedLayout";
+
+  /** 官方 `ForceDirectedLayout.constructor(init?)`：`t && Object.assign(this, t)` */
+  constructor(init?: any) {
+    super();
+    if (init) Object.assign(this, init);
+  }
 
   private _maxIterations: number = 300;
   private _defaultSpringLength: number = 50;
@@ -31,6 +38,14 @@ export class ForceDirectedLayout extends Layout {
   private _electricalCharge: number = NaN;
   private _gravitationalMass: number = NaN;
   private _currentIteration: number = 0;
+  private _comments: boolean = false;
+  private _maxPrelayoutIterations: number = 100;
+  private _epsilonDistance: number = 1;
+  private _moveLimit: number = Infinity;
+  private _defaultCommentSpringLength: number = 10;
+  private _defaultCommentElectricalCharge: number = 5;
+  private _prelayoutQuality: number = NaN;
+  private _prelayoutSpread: number = 10;
 
   get maxIterations(): number { return this._maxIterations; }
   set maxIterations(val: number) { this._maxIterations = val; this.invalidateLayout(); }
@@ -85,9 +100,245 @@ export class ForceDirectedLayout extends Layout {
 
   get currentIteration(): number { return this._currentIteration; }
 
+  get comments(): boolean { return this._comments; }
+  set comments(val: boolean) { this._comments = val; }
+
+  get maxPrelayoutIterations(): number { return this._maxPrelayoutIterations; }
+  set maxPrelayoutIterations(val: number) { this._maxPrelayoutIterations = val; this.invalidateLayout(); }
+
+  get epsilonDistance(): number { return this._epsilonDistance; }
+  set epsilonDistance(val: number) { this._epsilonDistance = val; this.invalidateLayout(); }
+
+  get moveLimit(): number { return this._moveLimit; }
+  set moveLimit(val: number) { this._moveLimit = val; this.invalidateLayout(); }
+
+  get defaultCommentSpringLength(): number { return this._defaultCommentSpringLength; }
+  set defaultCommentSpringLength(val: number) { this._defaultCommentSpringLength = val; this.invalidateLayout(); }
+
+  get defaultCommentElectricalCharge(): number { return this._defaultCommentElectricalCharge; }
+  set defaultCommentElectricalCharge(val: number) { this._defaultCommentElectricalCharge = val; this.invalidateLayout(); }
+
+  get prelayoutQuality(): number { return this._prelayoutQuality; }
+  set prelayoutQuality(val: number) { this._prelayoutQuality = val; this.invalidateLayout(); }
+
+  get prelayoutSpread(): number { return this._prelayoutSpread; }
+  set prelayoutSpread(val: number) { this._prelayoutSpread = val; this.invalidateLayout(); }
+
+  // ============ 官方 ForceDirectedLayout 阶段 7 补齐的虚钩子/字段方法 ============
+
+  needsPrelayout(): boolean {
+    if (this.network === null || this.network.vertexes.count < 3) return false;
+    let t = 0;
+    const e = this.network.vertexes.first()?.bounds;
+    const s = this.network.vertexes.iterator;
+    let i = 0;
+    for (; s.next(); ) {
+      const n = s.value;
+      const o = n.bounds;
+      if (isNaN(n.x) || isNaN(n.y) || e && o.intersectsRect(e) && (t++, t > 2)) return true;
+      if (i > 10) return false;
+      i++;
+    }
+    return false;
+  }
+
+  doConnectedSubnetLayout(t: LayoutNetwork): void {
+    const it = t.vertexes.iterator;
+    while (it.next()) {
+      const v = it.value;
+      if (v.node) v.node.move(new Point(v.x, v.y));
+    }
+  }
+
+  computePairwiseDistances(t: LayoutNetwork): number[][] {
+    const i = t.vertexes.count;
+    const e: number[][] = new Array(i);
+    const vertexes: LayoutVertex[] = [];
+    const vit = t.vertexes.iterator;
+    while (vit.next()) vertexes.push(vit.value);
+    for (let r = 0; r < i; r++) {
+      e[r] = new Array(i).fill(-1);
+      e[r][r] = 0;
+    }
+    for (let r = 0; r < i; r++) {
+      const n = new Map<number, number>();
+      const o: LayoutVertex[] = [];
+      o.push(vertexes[r]);
+      n.set(vertexes[r]._index, 0);
+      let l = 0;
+      while (l < o.length) {
+        const h = o[l++];
+        const a = h.sourceEdges.iterator;
+        while (a.next()) {
+          const c = a.value.toVertex;
+          if (c && c !== h && !n.has(c._index)) {
+            n.set(c._index, (n.get(h._index) ?? 0) + 1);
+            o.push(c);
+          }
+        }
+        const a2 = h.destinationEdges.iterator;
+        while (a2.next()) {
+          const c = a2.value.fromVertex;
+          if (c && c !== h && !n.has(c._index)) {
+            n.set(c._index, (n.get(h._index) ?? 0) + 1);
+            o.push(c);
+          }
+        }
+      }
+      for (let h = 0; h < i; h++) {
+        const a = Math.min(e[vertexes[r]._index][h], e[h][vertexes[r]._index]);
+        const c = n.get(h) ?? 0;
+        if (a < 0 || c < a) {
+          e[vertexes[r]._index][h] = c;
+          e[h][vertexes[r]._index] = c;
+        }
+      }
+    }
+    return e;
+  }
+
+  coarsenNetwork(t: LayoutNetwork): LayoutNetwork {
+    const i = this.createNetwork();
+    const e = new Map<number, LayoutVertex>();
+    let s = 0;
+    let n = t.vertexes.iterator;
+    while (n.next()) {
+      n.value._index = s++;
+    }
+    n = t.vertexes.iterator;
+    while (n.next()) {
+      const r = n.value;
+      if (e.has(r._index)) continue;
+      let h = null as LayoutVertex | null;
+      const c = i.createVertex();
+      c.x = r.x;
+      c.y = r.y;
+      e.set(r._index, c);
+      i.addVertex(c);
+      const a = r.sourceEdges.iterator;
+      while (a.next()) {
+        const f = a.value.toVertex;
+        if (f && f !== r && !e.has(f._index) && (h === null || h._index > f._index)) h = f;
+      }
+      if (h !== null) e.set(h._index, c);
+    }
+    const o = t.edges.iterator;
+    while (o.next()) {
+      const r = o.value;
+      const l = r.fromVertex ? e.get(r.fromVertex._index) : undefined;
+      const h = r.toVertex ? e.get(r.toVertex._index) : undefined;
+      if (l === undefined || h === undefined || l === h) continue;
+      const a = i.createEdge();
+      a.fromVertex = l;
+      a.toVertex = h;
+      i.addEdge(a);
+    }
+    return i;
+  }
+
+  addComments(v: LayoutVertex): void {
+    if (this.network === null) return;
+    const node = v.node;
+    if (node !== null) {
+      const e = node.findNodesConnected() as any;
+      while (e.next()) {
+        const s = e.value;
+        if (s.category !== "Comment" || !s.isVisible()) continue;
+        let n = this.network.findVertex(s);
+        if (n === null) n = this.network.addNode(s);
+        (n as any).charge = this.defaultCommentElectricalCharge;
+        let o: LayoutEdge | null = null;
+        const r = n.destinationEdges.iterator;
+        while (r.next()) {
+          const l = r.value;
+          if (l.toVertex === v) {
+            o = l;
+            break;
+          }
+        }
+        if (o === null) {
+          const l = n.sourceEdges.iterator;
+          while (l.next()) {
+            const h = l.value;
+            if (h.fromVertex === v) {
+              o = h;
+              break;
+            }
+          }
+        }
+        if (o === null) o = this.network.linkVertexes(v, n);
+        o.length = this.defaultCommentSpringLength;
+      }
+    }
+  }
+
+  moveVertex(v: LayoutVertex): number {
+    const fx = (v as any).forceX || 0;
+    const fy = (v as any).forceY || 0;
+    const s = fx * fx + fy * fy;
+    const n = Math.min(this._defaultSpringLength, this._moveLimit);
+    const o = Math.max(n, this._epsilonDistance);
+    const r = o * o;
+    let i = fx, e = fy;
+    if (s > r) {
+      const l = o / Math.sqrt(s);
+      i *= l;
+      e *= l;
+    }
+    v.x += i;
+    v.y += e;
+    return i * i + e * e;
+  }
+
+  shouldInteract(v1: LayoutVertex, v2: LayoutVertex): boolean {
+    return true;
+  }
+
+  moveFixedVertex(v: LayoutVertex): void {
+    // 官方默认空实现：被固定的顶点不移动
+  }
+
+  commitNodes(): void {
+    if (!this.network) return;
+    const it = this.network.vertexes.iterator;
+    while (it.next()) {
+      const v = it.value;
+      if (v.node && !v._isArtificial) v.node.move(new Point(v.x, v.y));
+    }
+  }
+
+  commitLinks(): void {
+    if (!this.network) return;
+    const it = this.network.edges.iterator;
+    while (it.next()) {
+      const e = it.value;
+      if (e.link) e.link.updateRoute();
+    }
+  }
+
+  electricalFieldX(x: number, y: number): number {
+    return 0;
+  }
+
+  electricalFieldY(x: number, y: number): number {
+    return 0;
+  }
+
+  gravitationalFieldX(x: number, y: number): number {
+    return 0;
+  }
+
+  gravitationalFieldY(x: number, y: number): number {
+    return 0;
+  }
+
+  isFixed(v: LayoutVertex): boolean {
+    return !!(v as any).isFixed;
+  }
+
   copy(): ForceDirectedLayout {
     const copy = new ForceDirectedLayout();
-    copy._arrangementOrigin = this._arrangementOrigin.copy();
+    this.cloneProtected(copy);
     copy._maxIterations = this._maxIterations;
     copy._defaultSpringLength = this._defaultSpringLength;
     copy._defaultSpringStiffness = this._defaultSpringStiffness;

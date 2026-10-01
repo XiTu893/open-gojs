@@ -12,11 +12,96 @@ import { List } from '../core/List';
 import { Map as Dict } from '../core/Map';
 import { getFigureGeometry, figures, CORE_FIGURE_NAMES, isExtensionFigure } from '../figures/Figures';
 
+/** 官方内置箭头几何路径串（与官方 G.Nm 一致，键为箭头名） */
+const ARROWHEAD_PATH_STRINGS: Record<string, string> = {
+  "Standard": "F1 m 0,0 l 8,4 -8,4 2,-4 z",
+  "Backward": "F1 m 8,0 l -2,4 2,4 -8,-4 z",
+  "Triangle": "F1 m 0,0 l 8,4.62 -8,4.62 z",
+  "BackwardTriangle": "F1 m 8,4 l 0,4 -8,-4 8,-4 0,4 z",
+  "Boomerang": "F1 m 0,0 l 8,4 -8,4 4,-4 -4,-4 z",
+  "BackwardBoomerang": "F1 m 8,0 l -8,4 8,4 -4,-4 4,-4 z",
+  "SidewaysV": "m 0,0 l 8,4 -8,4 0,-1 6,-3 -6,-3 0,-1 z",
+  "BackwardV": "m 8,0 l -8,4 8,4 0,-1 -6,-3 6,-3 0,-1 z",
+  "OpenTriangle": "m 0,0 l 8,4 -8,4",
+  "BackwardOpenTriangle": "m 8,0 l -8,4 8,4",
+  "OpenTriangleLine": "m 0,0 l 8,4 -8,4 m 8.5,0 l 0,-8",
+  "BackwardOpenTriangleLine": "m 8,0 l  -8,4 8,4 m -8.5,0 l 0,-8",
+  "OpenTriangleTop": "m 0,0 l 8,4 m 0,4",
+  "BackwardOpenTriangleTop": "m 8,0 l -8,4 m 0,4",
+  "OpenTriangleBottom": "m 0,8 l 8,-4",
+  "BackwardOpenTriangleBottom": "m 0,4 l 8,4",
+  "HalfTriangleTop": "F1 m 0,0 l 0,4 8,0 z m 0,8",
+  "BackwardHalfTriangleTop": "F1 m 8,0 l 0,4 -8,0 z m 0,8",
+  "HalfTriangleBottom": "F1 m 0,4 l 0,4 8,-4 z",
+  "BackwardHalfTriangleBottom": "F1 m 8,4 l 0,4 -8,-4 z",
+  "ForwardSemiCircle": "m 4,0 b 270 180 0 4 4",
+  "BackwardSemiCircle": "m 4,8 b 90 180 0 -4 4",
+  "Feather": "m 0,0 l 3,4 -3,4",
+  "BackwardFeather": "m 3,0 l -3,4 3,4",
+  "DoubleFeathers": "m 0,0 l 3,4 -3,4 m 3,-8 l 3,4 -3,4",
+  "BackwardDoubleFeathers": "m 3,0 l -3,4 3,4 m 3,-8 l -3,4 3,4",
+  "TripleFeathers": "m 0,0 l 3,4 -3,4 m 3,-8 l 3,4 -3,4 m 3,-8 l 3,4 -3,4",
+  "BackwardTripleFeathers": "m 3,0 l -3,4 3,4 m 3,-8 l -3,4 3,4 m 3,-8 l -3,4 3,4",
+  "ForwardSlash": "m 0,8 l 5,-8",
+  "BackSlash": "m 0,0 l 5,8",
+  "DoubleForwardSlash": "m 0,8 l 4,-8 m -2,8 l 4,-8",
+  "DoubleBackSlash": "m 0,0 l 4,8 m -2,-8 l 4,8",
+  "TripleForwardSlash": "m 0,8 l 4,-8 m -2,8 l 4,-8 m -2,8 l 4,-8",
+  "TripleBackSlash": "m 0,0 l 4,8 m -2,-8 l 4,8 m -2,-8 l 4,8",
+  "Fork": "m 0,4 l 8,0 m -8,0 l 8,-4 m -8,4 l 8,4",
+  "BackwardFork": "m 8,4 l -8,0 m 8,0 l -8,-4 m 8,4 l -8,4",
+  "LineFork": "m 0,0 l 0,8 m 0,-4 l 8,0 m -8,0 l 8,-4 m -8,4 l 8,4",
+  "BackwardLineFork": "m 8,4 l -8,0 m 8,0 l -8,-4 m 8,4 l -8,4 m 8,-8 l 0,8",
+  "CircleFork": "F1 m 6,4 b 0 360 -3 0 3 z m 0,0 l 6,0 m -6,0 l 6,-4 m -6,4 l 6,4",
+  "BackwardCircleFork": "F1 m 0,4 l 6,0 m -6,-4 l 6,4 m -6,4 l 6,-4 m 6,0 b 0 360 -3 0 3",
+  "CircleLineFork": "F1 m 6,4 b 0 360 -3 0 3 z m 1,-4 l 0,8 m 0,-4 l 6,0 m -6,0 l 6,-4 m -6,4 l 6,4",
+  "BackwardCircleLineFork": "F1 m 0,4 l 6,0 m -6,-4 l 6,4 m -6,4 l 6,-4 m 0,-4 l 0,8 m 7,-4 b 0 360 -3 0 3",
+  "Circle": "F1 m 8,4 b 0 360 -4 0 4 z",
+  "Block": "F1 m 0,0 l 0,8 8,0 0,-8 z",
+  "StretchedDiamond": "F1 m 0,3 l 5,-3 5,3 -5,3 -5,-3 z",
+  "Diamond": "F1 m 0,4 l 4,-4 4,4 -4,4 -4,-4 z",
+  "Chevron": "F1 m 0,0 l 5,0 3,4 -3,4 -5,0 3,-4 -3,-4 z",
+  "StretchedChevron": "F1 m 0,0 l 8,0 3,4 -3,4 -8,0 3,-4 -3,-4 z",
+  "NormalArrow": "F1 m 0,2 l 4,0 0,-2 4,4 -4,4 0,-2 -4,0 z",
+  "X": "m 0,0 l 8,8 m 0,-8 l -8,8",
+  "TailedNormalArrow": "F1 m 0,0 l 2,0 1,2 3,0 0,-2 2,4 -2,4 0,-2 -3,0 -1,2 -2,0 1,-4 -1,-4 z",
+  "DoubleTriangle": "F1 m 0,0 l 4,4 -4,4 0,-8 z  m 4,0 l 4,4 -4,4 0,-8 z",
+  "BigEndArrow": "F1 m 0,0 l 5,2 0,-2 3,4 -3,4 0,-2 -5,2 0,-8 z",
+  "ConcaveTailArrow": "F1 m 0,2 h 4 v -2 l 4,4 -4,4 v -2 h -4 l 2,-2 -2,-2 z",
+  "RoundedTriangle": "F1 m 0,1 a 1,1 0 0 1 1,-1 l 7,3 a 0.5,1 0 0 1 0,2 l -7,3 a 1,1 0 0 1 -1,-1 l 0,-6 z",
+  "SimpleArrow": "F1 m 1,2 l -1,-2 2,0 1,2 -1,2 -2,0 1,-2 5,0 0,-2 2,2 -2,2 0,-2 z",
+  "AccelerationArrow": "F1 m 0,0 l 0,8 0.2,0 0,-8 -0.2,0 z m 2,0 l 0,8 1,0 0,-8 -1,0 z m 3,0 l 2,0 2,4 -2,4 -2,0 0,-8 z",
+  "BoxArrow": "F1 m 0,0 l 4,0 0,2 2,0 0,-2 2,4 -2,4 0,-2 -2,0 0,2 -4,0 0,-8 z",
+  "TriangleLine": "F1 m 8,4 l -8,-4 0,8 8,-4 z m 0.5,4 l 0,-8",
+  "CircleEndedArrow": "F1 m 10,4 l -2,-3 0,2 -2,0 0,2 2,0 0,2 2,-3 z m -4,0 b 0 360 -3 0 3 z",
+  "DynamicWidthArrow": "F1 m 0,3 l 2,0 2,-1 2,-2 2,4 -2,4 -2,-2 -2,-1 -2,0 0,-2 z",
+  "EquilibriumArrow": "m 0,3 l 8,0 -3,-3 m 3,5 l -8,0 3,3",
+  "FastForward": "F1 m 0,0 l 3.5,4 0,-4 3.5,4 0,-4 1,0 0,8 -1,0 0,-4 -3.5,4 0,-4 -3.5,4 0,-8 z",
+  "Kite": "F1 m 0,4 l 2,-4 6,4 -6,4 -2,-4 z",
+  "HalfArrowTop": "F1 m 0,0 l 4,4 4,0 -8,-4 z m 0,8",
+  "HalfArrowBottom": "F1 m 0,8 l 4,-4 4,0 -8,4 z",
+  "OpposingDirectionDoubleArrow": "F1 m 0,4 l 2,-4 0,2 4,0 0,-2 2,4 -2,4 0,-2 -4,0 0,2 -2,-4 z",
+  "PartialDoubleTriangle": "F1 m 0,0 4,3 0,-3 4,4 -4,4 0,-3 -4,3 0,-8 z",
+  "LineCircle": "F1 m 0,0 l 0,8 m 7 -4 b 0 360 -3 0 3 z",
+  "DoubleLineCircle": "F1 m 0,0 l 0,8 m 2,-8 l 0,8 m 7 -4 b 0 360 -3 0 3 z",
+  "TripleLineCircle": "F1 m 0,0 l 0,8 m 2,-8 l 0,8 m 2,-8 l 0,8 m 7 -4 b 0 360 -3 0 3 z",
+  "CircleLine": "F1 m 6 4 b 0 360 -3 0 3 z m 1,-4 l 0,8",
+  "DiamondCircle": "F1 m 8,4 l -4,4 -4,-4 4,-4 4,4 m 8,0 b 0 360 -4 0 4 z",
+  "PlusCircle": "F1 m 8,4 b 0 360 -4 0 4 l -8 0 z m -4 -4 l 0 8",
+  "OpenRightTriangleTop": "m 8,0 l 0,4 -8,0 m 0,4",
+  "OpenRightTriangleBottom": "m 8,8 l 0,-4 -8,0",
+  "Line": "m 0,0 l 0,8",
+  "DoubleLine": "m 0,0 l 0,8 m 2,0 l 0,-8",
+  "TripleLine": "m 0,0 l 0,8 m 2,0 l 0,-8 m 2,0 l 0,8",
+  "PentagonArrow": "F1 m 8,4 l -4,-4 -4,0 0,8 4,0 4,-4 z",
+};
+
 /**
  * Shape - 几何图形
  * 表示一个几何形状，支持预定义图形和自定义几何路径
  */
 export class Shape extends GraphObject {
+  static readonly className: string = "Shape";
 
   static GeometryStretchUniform: EnumValue = GeometryStretchUniform;
   static GeometryStretchNone: EnumValue = GeometryStretchNone;
@@ -40,6 +125,9 @@ export class Shape extends GraphObject {
   private _fromArrow: string = '';
   private _geometryStretch: EnumValue = GeometryStretchDefault;
   private _fillRule: string = 'nonzero';
+  private _strokeMiterLimit: number = 10;
+  private _pathPattern: GraphObject | null = null;
+  private _isGeometryPositioned: boolean = false;
 
   constructor(figOrGeo?: string | Geometry | Partial<Shape>, init?: Partial<Shape>) {
     super();
@@ -78,6 +166,38 @@ export class Shape extends GraphObject {
 
   get strokeJoin(): string { return this._strokeJoin; }
   set strokeJoin(val: string) { this._strokeJoin = val; }
+
+  /** 官方默认 10，setter 只接受 >= 1 的值（官方 `if (e !== t && t >= 1)`） */
+  get strokeMiterLimit(): number { return this._strokeMiterLimit; }
+  set strokeMiterLimit(val: number) {
+    if (this._strokeMiterLimit !== val && val >= 1) {
+      this._strokeMiterLimit = val;
+      this._invalidateMeasure();
+    }
+  }
+
+  /**
+   * 官方 `Shape.pathPattern`：沿本 Shape 路径重复绘制的装饰对象。
+   * 该对象不计入本 Shape 的量测尺寸。
+   */
+  get pathPattern(): GraphObject | null { return this._pathPattern; }
+  set pathPattern(val: GraphObject | null) {
+    if (this._pathPattern !== val) {
+      this._pathPattern = val;
+      this._invalidateMeasure();
+    }
+  }
+
+  /** 官方默认 false；为 true 时由 geometry 自己决定定位而不是按 desiredSize 拉伸 */
+  get isGeometryPositioned(): boolean { return this._isGeometryPositioned; }
+  set isGeometryPositioned(val: boolean) {
+    if (this._isGeometryPositioned !== val) {
+      this._isGeometryPositioned = val;
+      this._invalidateMeasure();
+    }
+  }
+
+  // graduatedStart / graduatedEnd / graduatedSkip 继承自 GraphObject（官方都在 GraphObject 上）
 
   get geometryStretch(): EnumValue { return this._geometryStretch; }
   set geometryStretch(val: EnumValue) {
@@ -160,6 +280,253 @@ export class Shape extends GraphObject {
   }
 
   // ============ Methods ============
+
+  /**
+   * 官方 `Shape.polygonContainsRect(b)`：本 Shape 的填充多边形是否包含给定矩形。
+   *
+   * 步骤与官方一致：① 所属 Part 的 `actualBounds` 必须包含 b；② 矩形四个角必须都在几何内部；
+   * ③ 官方 `GeometryType.Line`（单段直线）没有面积，恒 false。
+   *
+   * 偏差：官方的 ②/③ 走 `Geometry.containsPoint` / `Geometry.type`（见阶段 5 Geometry 补齐），
+   * 本项目在本类内实现等价判断 —— 纯 Line 段图形用精确射线法，含曲线的图形暂退回
+   * `Geometry.bounds` 包含判断（非凸图形会在阶段 5 修正）。
+   */
+  polygonContainsRect(b: Rect): boolean {
+    const part = this.part;
+    if (part === null || !part.actualBounds.containsRect(b)) return false;
+    const geo = this.geometry;
+    if (geo === null) return false;
+    if (Shape._isLineGeometry(geo)) return false;
+    const corners: Point[] = [new Point(b.x, b.y)];
+    if (b.width > 0 && b.height > 0) corners.push(new Point(b.right, b.bottom));
+    if (b.width > 0) corners.push(new Point(b.right, b.y));
+    if (b.height > 0) corners.push(new Point(b.x, b.bottom));
+    for (const corner of corners) {
+      const local = this.getLocalPoint(corner);
+      if (!Shape._geometryContainsPoint(geo, local)) return false;
+    }
+    return true;
+  }
+
+  /** 官方 `GeometryType.Line` 判定：单个图形、单个非闭合 Line 段 */
+  private static _isLineGeometry(geo: Geometry): boolean {
+    const figs = geo.figures;
+    if (figs.count !== 1) return false;
+    const fig = figs.first();
+    if (fig === null) return false;
+    const segs = fig.segments;
+    if (segs.count !== 1) return false;
+    const seg = segs.first();
+    return seg !== null && seg.type._name === 'Line';
+  }
+
+  /**
+   * 点（几何局部坐标）是否落在几何的填充区域内。
+   * 纯 Line 段图形用精确射线法；含 Arc/Bezier 的图形退回 `geo.bounds`。
+   */
+  private static _geometryContainsPoint(geo: Geometry, p: Point): boolean {
+    if (!geo.bounds.containsPoint(p)) return false;
+    const it = geo.figures.iterator;
+    while (it.next()) {
+      const fig = it.value;
+      if (!fig.isFilled) continue;
+      const poly: number[] = [fig.startX, fig.startY];
+      let curved = false;
+      let cx = fig.startX;
+      let cy = fig.startY;
+      const segIt = fig.segments.iterator;
+      while (segIt.next()) {
+        const seg = segIt.value;
+        const name = seg.type._name;
+        if (name === 'Close') {
+          poly.push(fig.startX, fig.startY);
+          continue;
+        }
+        if (name !== 'Line') curved = true;
+        if (name === 'MoveTo') {
+          poly.length = 0;
+          poly.push(seg.endX, seg.endY);
+          cx = seg.endX;
+          cy = seg.endY;
+          continue;
+        }
+        poly.push(seg.endX, seg.endY);
+        cx = seg.endX;
+        cy = seg.endY;
+      }
+      if (cx !== fig.startX || cy !== fig.startY) poly.push(fig.startX, fig.startY);
+      if (curved) continue;
+      if (Shape._pointInPolygon(poly, p.x, p.y)) return true;
+    }
+    return false;
+  }
+
+  /** 射线法点在多边形内判断；`poly` 为扁平化的 [x0,y0,x1,y1,...] */
+  private static _pointInPolygon(poly: number[], x: number, y: number): boolean {
+    const n = poly.length / 2;
+    if (n < 3) return false;
+    let inside = false;
+    for (let i = 0, j = n - 1; i < n; j = i++) {
+      const xi = poly[i * 2];
+      const yi = poly[i * 2 + 1];
+      const xj = poly[j * 2];
+      const yj = poly[j * 2 + 1];
+      if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) {
+        inside = !inside;
+      }
+    }
+    return inside;
+  }
+
+  /**
+   * 官方 `Shape.Rf`（`getNearestIntersectionPoint`）：官方按图形几何求线段 pq 与本
+   * Shape 边界的最近交点——Ellipse/Circle 解椭圆方程、RoundedRectangle 走圆角、
+   * 其它闭合图形遍历 PathFigure 的线段。
+   *
+   * 偏差：本实现覆盖官方最常用的两类（椭圆类解析解 + 其余按实际几何线段求交），
+   * 因为 Link 端点默认取 actualBounds 矩形交点时，圆形节点的 fromArrow 会贴在
+   * 外接正方形上而不是圆上。
+   */
+  getNearestIntersectionPoint(p: Point, q: Point, result: Point): boolean {
+    const figName = (this._figure || '').toLowerCase();
+    const ab = this.getDocumentBounds();
+    if (!ab.isReal()) {
+      result.setTo(q.x, q.y);
+      return false;
+    }
+
+    // 椭圆类：解射线与椭圆方程，天然贴合圆/椭圆轮廓
+    if (figName === 'circle' || figName === 'ellipse' || figName === 'circlefork' || figName === 'linecircle') {
+      const cx = ab.x + ab.width / 2;
+      const cy = ab.y + ab.height / 2;
+      const rx = ab.width / 2;
+      const ry = ab.height / 2;
+      if (rx > 0 && ry > 0) {
+        const dx = q.x - p.x;
+        const dy = q.y - p.y;
+        if (dx !== 0 || dy !== 0) {
+          // ((p.x-cx)+t*dx)^2/rx^2 + ((p.y-cy)+t*dy)^2/ry^2 = 1
+          const px = p.x - cx;
+          const py = p.y - cy;
+          const a = (dx * dx) / (rx * rx) + (dy * dy) / (ry * ry);
+          const b = 2 * ((px * dx) / (rx * rx) + (py * dy) / (ry * ry));
+          const c = (px * px) / (rx * rx) + (py * py) / (ry * ry) - 1;
+          const disc = b * b - 4 * a * c;
+          if (a > 0 && disc >= 0) {
+            const sq = Math.sqrt(disc);
+            const t1 = (-b - sq) / (2 * a);
+            const t2 = (-b + sq) / (2 * a);
+            // 取沿 p→q 方向上正值的最小 t（射线离开圆/椭圆的点）
+            let t = NaN;
+            if (t1 > 1e-9 && (isNaN(t) || t1 < t)) t = t1;
+            if (t2 > 1e-9 && (isNaN(t) || t2 < t)) t = t2;
+            if (!isNaN(t)) {
+              result.setTo(p.x + t * dx, p.y + t * dy);
+              return true;
+            }
+          }
+        }
+      }
+      return super.getNearestIntersectionPoint(p, q, result);
+    }
+
+    // 其它图形：用实际几何的各条线段与 pq 求交，取离 p 最近者
+    const geo = this._getGeometry();
+    if (geo) {
+      // 必须用【文档坐标】包围盒把图形局部坐标映射到文档坐标：
+      // actualBounds 是相对父面板的局部坐标，而 p/q 都是文档坐标，
+      // 混用会把节点的 width/height 当成 x/y（表现为 link 端点乱飞）。
+      const ab2 = ab;
+      const geoBounds = geo.bounds;
+      if (geoBounds.isReal() && (geoBounds.width > 0 || geoBounds.height > 0)) {
+        const sx = geoBounds.width > 0 ? ab2.width / geoBounds.width : 1;
+        const sy = geoBounds.height > 0 ? ab2.height / geoBounds.height : 1;
+        // 文档坐标 = actualBounds 左上 + 图形局部坐标经 (sx,sy) 缩放
+        const toDoc = (lx: number, ly: number): Point =>
+          new Point(ab2.x + (lx - geoBounds.x) * sx, ab2.y + (ly - geoBounds.y) * sy);
+
+        let bestT = Infinity;
+        let bestX = 0;
+        let bestY = 0;
+        let found = false;
+        const dx = q.x - p.x;
+        const dy = q.y - p.y;
+
+        const hitSeg = (x1: number, y1: number, x2: number, y2: number): void => {
+          const ex = x2 - x1;
+          const ey = y2 - y1;
+          const den = dx * ey - dy * ex;
+          if (Math.abs(den) < 1e-12) return; // 平行
+          const t = ((x1 - p.x) * ey - (y1 - p.y) * ex) / den;
+          const u = ((x1 - p.x) * dy - (y1 - p.y) * dx) / den;
+          if (t > 1e-9 && u >= 0 && u <= 1 && t < bestT) {
+            bestT = t;
+            bestX = p.x + t * dx;
+            bestY = p.y + t * dy;
+            found = true;
+          }
+        };
+
+        const fit = geo.figures.iterator;
+        while (fit.next()) {
+          const f = fit.value;
+          let cx = f.startX;
+          let cy = f.startY;
+          const sit = f.segments.iterator;
+          while (sit.next()) {
+            const seg = sit.value;
+            const name = seg.type._name;
+            if (name === 'MoveTo') {
+              cx = seg.endX; cy = seg.endY;
+            } else if (name === 'Close') {
+              const a = toDoc(cx, cy);
+              const b = toDoc(f.startX, f.startY);
+              hitSeg(a.x, a.y, b.x, b.y);
+              cx = f.startX; cy = f.startY;
+            } else if (name === 'Line') {
+              const a = toDoc(cx, cy);
+              const b = toDoc(seg.endX, seg.endY);
+              hitSeg(a.x, a.y, b.x, b.y);
+              cx = seg.endX; cy = seg.endY;
+            } else {
+              // 曲线段：按多段折线近似求交（步长足够细，误差远小于一个像素）
+              const steps = 16;
+              let px = cx;
+              let py = cy;
+              for (let i = 1; i <= steps; i++) {
+                const t = i / steps;
+                const mt = 1 - t;
+                let ex: number;
+                let ey: number;
+                if (name === 'QuadraticBezier') {
+                  ex = mt * mt * cx + 2 * mt * t * seg.x1 + t * t * seg.endX;
+                  ey = mt * mt * cy + 2 * mt * t * seg.y1 + t * t * seg.endY;
+                } else {
+                  const a = mt * mt * mt;
+                  const bq = 3 * mt * mt * t;
+                  const cq = 3 * mt * t * t;
+                  const dq = t * t * t;
+                  ex = a * cx + bq * seg.x1 + cq * seg.x2 + dq * seg.endX;
+                  ey = a * cy + bq * seg.y1 + cq * seg.y2 + dq * seg.endY;
+                }
+                const pa = toDoc(px, py);
+                const pb = toDoc(ex, ey);
+                hitSeg(pa.x, pa.y, pb.x, pb.y);
+                px = ex; py = ey;
+              }
+              cx = seg.endX; cy = seg.endY;
+            }
+          }
+        }
+        if (found) {
+          result.setTo(bestX, bestY);
+          return true;
+        }
+      }
+    }
+
+    return super.getNearestIntersectionPoint(p, q, result);
+  }
 
   /** 获取几何路径（从图形名称或自定义几何） */
   _getGeometry(): Geometry | null {
@@ -285,6 +652,26 @@ export class Shape extends GraphObject {
     if (isFinite(ds.height)) aH = ds.height;
     const maxS = this._maxSize;
     const minS = this._minSize;
+    // 官方 yt 后半段：grow 目标 f/u → e/s，再收敛约束 t/i（用于 Yd 的 Infinity 分支判定）
+    let ft = 0;
+    let fi = 0;
+    if (st === StretchFill) {
+      if (isFinite(t)) ft = t;
+      if (isFinite(i)) fi = i;
+    } else if (st === StretchHorizontal) {
+      if (isFinite(t)) ft = t;
+    } else if (st === StretchVertical) {
+      if (isFinite(i)) fi = i;
+    }
+    if (ft > maxS.width && minS.width < maxS.width) ft = maxS.width;
+    if (fi > maxS.height && minS.height < maxS.height) fi = maxS.height;
+    let ey = Math.max(ft, minS.width);
+    let sy = Math.max(fi, minS.height);
+    if (maxS.width < ey) ey = Math.min(minS.width, ey);
+    if (maxS.height < sy) sy = Math.min(minS.height, sy);
+    const tY = Math.max(ey, Math.min(maxS.width, t));
+    const iY = Math.max(sy, Math.min(maxS.height, i));
+
     e = Math.max(e - strokeW, minS.width);
     s = Math.max(s - strokeW, minS.height);
     aW = Math.min(maxS.width, aW);
@@ -305,10 +692,51 @@ export class Shape extends GraphObject {
       gH = nat.h * k;
     }
     // 2（Fill）及以上默认：gW/gH = 内容尺寸
+    // 官方 Yd：l===0 → 0.001
+    if (gW === 0) gW = 0.001;
+    if (gH === 0) gH = 0.001;
     (this as any)._geoW = gW;
     (this as any)._geoH = gH;
-    this._naturalBounds = new Rect(0, 0, aW, aH);
-    this._measuredBounds = new Rect(0, 0, aW + strokeW, aH + strokeW);
+    // 官方 Yd 尾部：约束有一维 Infinity → measuredBounds = 实际几何 bounds（Uniform letterbox 生效，
+    // 如 Square width=85 + 竖排面板高度 Infinity → 85×85 而非 85×100）
+    let gb: Rect | null = null;
+    // 只有 isGeometryPositioned 的 Shape 才把「图形自身原点」带进 measuredBounds：
+    // 它的几何是画在父面板坐标系里的（pieCharts 的多个扇形原点各异），
+    // 父面板必须按原点并集才能量出覆盖整块饼的尺寸。
+    // 普通 Shape（含 sparklineGraphs 的负 y geometryString）在绘制时会被归一化到
+    // 自身包围盒，原点不应影响测量。
+    let keepOrigin = false;
+    if (this._geometry !== null || this._geometryString) {
+      const raw = this._geometry !== null ? this._geometry : Geometry.parse(this._geometryString);
+      const yM0 = yM === 0 || yM === 2;
+      if (yM0 && this._isGeometryPositioned) {
+        gb = raw.bounds.copy();
+        keepOrigin = true;
+      } else {
+        // 官方 qI(l,h)：归一到 (0,0,l,h)，绘制时再由渲染器贴回包围盒
+        gb = new Rect(0, 0, gW, gH);
+      }
+    } else {
+      const geo = this._getGeometry();
+      if (geo) gb = geo.bounds;
+    }
+    const orgX = keepOrigin && gb ? gb.x : 0;
+    const orgY = keepOrigin && gb ? gb.y : 0;
+    if ((tY === Infinity || iY === Infinity) && gb) {
+      this._measuredBounds = new Rect(gb.x, gb.y, gb.width + strokeW, gb.height + strokeW);
+    } else {
+      this._measuredBounds = new Rect(orgX, orgY, aW + strokeW, aH + strokeW);
+    }
+    // 官方 _i（naturalBounds）：desiredSize 双有限 → ds 收敛；否则 → 几何 bounds
+    if (isFinite(ds.width) && isFinite(ds.height)) {
+      const nw = Math.max(minS.width, Math.min(maxS.width, ds.width));
+      const nh = Math.max(minS.height, Math.min(maxS.height, ds.height));
+      this._naturalBounds = new Rect(0, 0, nw, nh);
+    } else if (gb) {
+      this._naturalBounds = new Rect(gb.x, gb.y, gb.width, gb.height);
+    } else {
+      this._naturalBounds = new Rect(0, 0, aW, aH);
+    }
     this._applyMeasureTransform();
   }
 
@@ -439,6 +867,11 @@ export class Shape extends GraphObject {
             curY = fig.startY;
             break;
         }
+        if (seg.isClosed && seg.type._name !== 'Close') {
+          ctx.closePath();
+          curX = fig.startX;
+          curY = fig.startY;
+        }
       }
     }
   }
@@ -449,6 +882,22 @@ export class Shape extends GraphObject {
     const ry = seg.radiusY;
     const endX = seg.endX;
     const endY = seg.endY;
+
+    // 官方「按角度」圆弧：new PathSegment(SegmentType.Arc, startAngle, sweepAngle, cx, cy, rx, ry)
+    if (!isNaN(seg.startAngle) && !isNaN(seg.centerX)) {
+      const rX = Math.abs(rx);
+      const rY = Math.abs(ry === 0 ? rx : ry);
+      if (rX <= 0 || rY <= 0) {
+        ctx.lineTo(endX, endY);
+        return;
+      }
+      const a0 = (seg.startAngle * Math.PI) / 180;
+      const sweep = seg.sweepAngle || 0;
+      const a1 = ((seg.startAngle + sweep) * Math.PI) / 180;
+      // 官方以「起始角 + 扫掠角」描述，扫掠为正表示角度增大方向
+      ctx.ellipse(seg.centerX, seg.centerY, rX, rY, 0, a0, a1, sweep < 0);
+      return;
+    }
 
     if (rx <= 0 || ry <= 0) {
       ctx.lineTo(endX, endY);
@@ -556,13 +1005,17 @@ export class Shape extends GraphObject {
     shape._fromArrow = this._fromArrow;
     shape._geometryStretch = this._geometryStretch;
     shape._fillRule = this._fillRule;
+    shape._strokeMiterLimit = this._strokeMiterLimit;
+    shape._pathPattern = this._pathPattern;
+    shape._isGeometryPositioned = this._isGeometryPositioned;
+    // graduated* 已由 GraphObject._copyPropertiesTo 复制
     shape._spot1 = this._spot1 ? this._spot1.copy() : null;
     shape._spot2 = this._spot2 ? this._spot2.copy() : null;
     return shape;
   }
 
-  static defineFigureGenerator(name: string, func: (shape: Shape | null, w: number, h: number) => Geometry): void {
-    figures.add(name, func);
+  static defineFigureGenerator(name: string, func: ((shape: Shape | null, w: number, h: number) => Geometry) | string): void {
+    figures.add(name, func as any);
   }
 
   static getFigureGenerators(): any {
@@ -581,72 +1034,116 @@ export class Shape extends GraphObject {
     return result;
   }
 
-  private static _arrowheadGeometries: Record<string, Geometry> | null = null;
+  private static _arrowheadGeometries: Dict<string, Geometry> | null = null;
 
-  static getArrowheadGeometries(): Record<string, Geometry> {
+  /** 内部表（含小写别名键），官方对应 `Shape.En`。 */
+  private static _arrowheads(): Dict<string, Geometry> {
     if (!Shape._arrowheadGeometries) {
       Shape._arrowheadGeometries = Shape._createArrowheadGeometries();
     }
     return Shape._arrowheadGeometries;
   }
 
-  static defineArrowheadGenerator(name: string, func: (shape: Shape | null, w: number, h: number) => Geometry): void {
-    if (!Shape._arrowheadGeometries) {
-      Shape._arrowheadGeometries = Shape._createArrowheadGeometries();
+  /**
+   * 官方 `Shape.getArrowheadGeometries()`：返回 `Map<string, Geometry>`（官方为 PropertyCollection 上的 GMap），
+   * 只包含规范大小写的箭头名（跳过全小写别名键），供 `arrowheads.html` 等样例
+   * 用 `.toKeySet().toArray()` 枚举全部箭头名。
+   */
+  static getArrowheadGeometries(): Dict<string, Geometry> {
+    const src = Shape._arrowheads();
+    const result = new Dict<string, Geometry>();
+    const it = src.iterator;
+    while (it.next()) {
+      const key = it.key;
+      if (key === key.toLowerCase()) continue; // 跳过全小写别名
+      const val = it.value;
+      if (val) result.set(key, val);
     }
-    Shape._arrowheadGeometries[name] = func(null, 10, 10);
+    return result;
+  }
+
+  static defineArrowheadGenerator(name: string, func: (shape: Shape | null, w: number, h: number) => Geometry): void {
+    Shape._arrowheads().set(name, func(null, 10, 10));
+  }
+
+  /** 官方 `Shape.isFigureDefined(name)`：`name in G._n`（核心图形 + defineFigureGenerator 定义的） */
+  static isFigureDefined(name: string): boolean {
+    return figures.has(name);
+  }
+
+  /**
+   * 官方 `Shape.defineArrowheadGeometry(name, pathstr)`。
+   * 官方校验：name 不得为空 / 'None' / 全小写，否则抛错。
+   *
+   * 偏差：官方 `Shape.En` 的小写别名存的是「规范名字符串」，由 `Shape.tF` 归一化；
+   * 本项目小写别名直接指向同一 Geometry，以便 `_getArrowheadGeometry` 保持返回 Geometry。
+   */
+  static defineArrowheadGeometry(name: string, pathstr: Geometry | string): void {
+    const lower = name === undefined || name === null ? '' : name.toLowerCase();
+    if (!name || lower === 'none' || lower === name) {
+      throw new Error('Shape.defineArrowheadGeometry name must not be empty or None or all-lower-case: ' + name);
+    }
+    const geo = typeof pathstr === 'string' ? Geometry.parse(pathstr) : pathstr;
+    const geos = Shape._arrowheads();
+    geos.set(name, geo);
+    geos.set(lower, geo);
+  }
+
+  /**
+   * 官方 `Shape.isArrowheadDefined(name)`。
+   *
+   * 偏差：官方实现为 `Shape.En.has(t)`，而 `Shape.En` 是 PropertyCollection（没有 `has`），
+   * 所以官方在运行时会抛 `TypeError`；本项目按其文档语义返回真实结果。
+   * 内部表包含小写别名键；`getArrowheadGeometries()` 返回的公开 Map 会过滤掉全小写键，
+   * 因此这里先查内部表，再做一次大小写不敏感兜底。
+   */
+  static isArrowheadDefined(name: string): boolean {
+    const geos = Shape._arrowheads();
+    if (geos.has(name)) return true;
+    const lower = name.toLowerCase();
+    if (geos.has(lower)) return true;
+    const it = geos.iterator;
+    while (it.next()) {
+      if (it.key.toLowerCase() === lower) return true;
+    }
+    return false;
   }
 
   private static _getArrowheadGeometry(name: string): Geometry | null {
-    const geos = Shape.getArrowheadGeometries();
-    return geos[name] || geos['Standard'] || null;
+    // 官方 'None'/'' 表示不画箭头，必须返回空几何而不是回退到 Standard
+    if (!name || name === 'None' || name.toLowerCase() === 'none') return new Geometry();
+    const geos = Shape._arrowheads();
+    const direct = geos.get(name);
+    if (direct) return direct;
+    const lower = name.toLowerCase();
+    const byLower = geos.get(lower);
+    if (byLower) return byLower;
+    // 官方 `Shape.rF` 会大小写不敏感地在内置箭头名里回退查找
+    const it = geos.iterator;
+    while (it.next()) {
+      if (it.key.toLowerCase() === lower) return it.value;
+    }
+    return geos.get('Standard') || null;
   }
 
-  private static _createArrowheadGeometries(): Record<string, Geometry> {
-    const geos: Record<string, Geometry> = {};
-
-    const makeGeo = (figs: any[]) => {
-      const geo = new Geometry();
-      for (const fig of figs) {
-        geo.add(fig);
+  /** 官方内置箭头几何（与官方 G.Nm 一致的 80 条路径串，由 Geometry.parse 解析） */
+  private static _createArrowheadGeometries(): Dict<string, Geometry> {
+    const result = new Dict<string, Geometry>();
+    for (const name in ARROWHEAD_PATH_STRINGS) {
+      const pathstr = ARROWHEAD_PATH_STRINGS[name];
+      let geo: Geometry;
+      try {
+        geo = Geometry.parse(pathstr);
+      } catch {
+        continue;
       }
-      return geo;
-    };
-
-    const fig = (sx: number, sy: number, segs: any[]) => {
-      const f = new PathFigure(sx, sy, true);
-      for (const s of segs) f.add(s);
-      return f;
-    };
-
-    const line = (x: number, y: number) => PathSegment.Line(x, y);
-    const close = () => PathSegment.Close();
-
-    geos['Standard'] = makeGeo([fig(0, -5, [line(10, 0), line(0, 5), line(2.5, 0), close()])]);
-    geos['Triangle'] = makeGeo([fig(0, -4, [line(15, 0), line(0, 4), close()])]);
-    geos['Backward'] = makeGeo([fig(0, -5, [line(10, 0), line(0, 5), close()])]);
-    geos['OpenTriangle'] = makeGeo([fig(0, -5, [line(10, 0), line(0, 5)])]);
-    geos['BackwardOpenTriangle'] = makeGeo([fig(0, -5, [line(10, 0), line(0, 5)])]);
-    geos['Circle'] = makeGeo([fig(0, 0, [PathSegment.Arc(0, 0, 5, 5)])]);
-    geos['BackwardCircle'] = makeGeo([fig(0, 0, [PathSegment.Arc(0, 0, 5, 5)])]);
-    geos['Diamond'] = makeGeo([fig(0, 0, [line(5, -5), line(10, 0), line(5, 5), close()])]);
-    geos['BackwardDiamond'] = makeGeo([fig(0, 0, [line(-5, -5), line(-10, 0), line(-5, 5), close()])]);
-    geos['Chevron'] = makeGeo([fig(0, -5, [line(10, 0), line(0, 5)])]);
-    geos['BackwardChevron'] = makeGeo([fig(0, -5, [line(-10, 0), line(0, 5)])]);
-    geos['DoubleTriangle'] = makeGeo([
-      fig(0, -5, [line(5, 0), line(5, 5), close()]),
-      fig(0, 5, [line(5, 0), line(5, -5), close()])
-    ]);
-    geos['DoubleChevron'] = makeGeo([fig(0, -5, [line(5, 0), line(0, 5)]), fig(0, 5, [line(5, 0), line(0, -5)])]);
-    geos['HalfTriangle'] = makeGeo([fig(0, 0, [line(10, 0), line(10, 5), close()])]);
-    geos['BackwardHalfTriangle'] = makeGeo([fig(0, 0, [line(-10, 0), line(-10, 5), close()])]);
-    geos['StretchedDiamond'] = makeGeo([fig(0, 0, [line(5, -5), line(10, 0), line(5, 5), close()])]);
-    geos['ThinTriangle'] = makeGeo([fig(0, 0, [line(10, 0), line(0, 2), close()])]);
-    geos['BackwardThinTriangle'] = makeGeo([fig(0, 0, [line(-10, 0), line(-10, 2), close()])]);
-    geos['Line'] = makeGeo([fig(0, 0, [line(10, 0)])]);
-    geos['None'] = new Geometry();
-
-    return geos;
+      result.set(name, geo);
+      const lower = name.toLowerCase();
+      if (lower !== name) result.set(lower, geo);
+    }
+    // 官方 G.Nm 中没有 'None' 项（官方内部表以 '' 空串表示），公开名单因此正好 80 个。
+    // 'None' 由 _getArrowheadGeometry 单独处理为空几何，不进入名单，否则样例会多生成一条链接。
+    return result;
   }
 }
 

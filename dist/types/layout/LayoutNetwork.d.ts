@@ -9,6 +9,7 @@ import { LayoutEdge } from './LayoutEdge';
  * Contains vertexes (nodes) and edges (links) for layout computation.
  */
 export declare class LayoutNetwork {
+    static readonly className: string;
     /** The layout that owns this network */
     layout: any;
     /** All vertexes in this network */
@@ -43,6 +44,14 @@ export declare class LayoutNetwork {
     linkVertexes(fromVertex: LayoutVertex, toVertex: LayoutEdge | LayoutVertex): LayoutEdge;
     /** Delete an edge from the network */
     deleteEdge(edge: LayoutEdge): void;
-    /** Split this network into sub-networks of connected components */
+    /**
+     * 官方 `LayoutNetwork.splitIntoSubNetworks()` 的连通分量拆分（对照官方 `F4`）：
+     * 只在“本网络 → 子网络”之间搬移顶点/边的归属，不改动顶点上的
+     * `sourceEdges`/`destinationEdges`。
+     * 旧实现在遍历 `v.sourceEdges` 的同时调用 `addEdge`（又会向同一 List 追加该边），
+     * 导致 List 无限增长直至 `RangeError: Invalid array length`。
+     */
     splitIntoSubNetworks(): List<LayoutNetwork>;
+    /** 官方 `bA(edge)` + `xA(edge)`：把边从原网络搬进目标网络（不动顶点边表） */
+    private _moveEdgeTo;
 }

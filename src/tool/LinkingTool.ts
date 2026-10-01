@@ -10,6 +10,7 @@ import { Link } from '../view/Link';
  * The user drags from an outgoing port to an incoming port to create a new link.
  */
 export class LinkingTool extends LinkingBaseTool {
+  static readonly className: string = "LinkingTool";
 
   private _originalFromPort: GraphObject | null = null;
 

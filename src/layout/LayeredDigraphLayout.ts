@@ -5,8 +5,14 @@ import {
   LayeredDigraphDirectionLeft, LayeredDigraphDirectionRight,
   LayeredDigraphAggressiveNone, LayeredDigraphAggressiveHorizontal,
   LayeredDigraphAggressiveVertical, LayeredDigraphAggressiveAll,
+  LayeredDigraphAggressiveLess, LayeredDigraphAggressiveMore,
   LayeredDigraphPackNone, LayeredDigraphPackAll, LayeredDigraphPackExpand,
-  LayeredDigraphPackStraighten, LayeredDigraphPackMedian
+  LayeredDigraphPackStraighten, LayeredDigraphPackMedian,
+  LayeredDigraphCycleRemoveDepthFirst, LayeredDigraphCycleRemoveGreedy, LayeredDigraphCycleRemoveFromLayers,
+  LayeredDigraphLayeringOptimalLinkLength, LayeredDigraphLayeringLongestPathSink, LayeredDigraphLayeringLongestPathSource,
+  LayeredDigraphInitDepthFirstOut, LayeredDigraphInitDepthFirstIn, LayeredDigraphInitNaive,
+  LayeredDigraphAlignNone, LayeredDigraphAlignUpperLeft, LayeredDigraphAlignUpperRight,
+  LayeredDigraphAlignLowerLeft, LayeredDigraphAlignLowerRight, LayeredDigraphAlignAll
 } from '../core/EnumValues';
 import { Node } from '../view/Node';
 import { Layout } from './Layout';
@@ -29,8 +35,15 @@ function createArrayOfArrays<T>(length: number): T[][] {
  * Produces a layered arrangement of nodes with minimized edge crossings.
  */
 export class LayeredDigraphLayout extends Layout {
+  static readonly className: string = "LayeredDigraphLayout";
 
-  private _direction: EnumValue = LayeredDigraphDirectionDown;
+  /** 官方 `LayeredDigraphLayout.constructor(init?)`：`t && Object.assign(this, t)` */
+  constructor(init?: any) {
+    super();
+    if (init) Object.assign(this, init);
+  }
+
+  private _direction: number = LayeredDigraphDirectionRight;
   private _layerSpacing: number = 50;
   private _columnSpacing: number = 30;
   private _setsPortSpots: boolean = true;
@@ -39,8 +52,19 @@ export class LayeredDigraphLayout extends Layout {
   private _layeringOption: string = 'longestpathsource';
   private _cycleRemoveOption: string = 'depthfirst';
 
-  get direction(): EnumValue { return this._direction; }
-  set direction(val: EnumValue) { this._direction = val; this.invalidateLayout(); }
+  private _initializeOption: EnumValue = LayeredDigraphInitDepthFirstOut;
+  private _iterations: number = 4;
+  private _packIterations: number = 10;
+  private _alignOption: EnumValue = LayeredDigraphAlignAll;
+  private _centered: boolean = true;
+  private _maxLayer: number = -1;
+  private _maxIndex: number = -1;
+  private _maxColumn: number = -1;
+  private _minIndexLayer: number = 0;
+  private _maxIndexLayer: number = 0;
+
+  get direction(): number { return this._direction; }
+  set direction(val: number) { this._direction = val; this.invalidateLayout(); }
 
   get layerSpacing(): number { return this._layerSpacing; }
   set layerSpacing(val: number) { this._layerSpacing = val; this.invalidateLayout(); }
@@ -63,9 +87,236 @@ export class LayeredDigraphLayout extends Layout {
   get cycleRemoveOption(): string { return this._cycleRemoveOption; }
   set cycleRemoveOption(val: string) { this._cycleRemoveOption = val; this.invalidateLayout(); }
 
+  get initializeOption(): EnumValue { return this._initializeOption; }
+  set initializeOption(val: EnumValue) { this._initializeOption = val; this.invalidateLayout(); }
+
+  get iterations(): number { return this._iterations; }
+  set iterations(val: number) { this._iterations = val; this.invalidateLayout(); }
+
+  get packIterations(): number { return this._packIterations; }
+  set packIterations(val: number) { this._packIterations = val; }
+
+  get alignOption(): EnumValue { return this._alignOption; }
+  set alignOption(val: EnumValue) { this._alignOption = val; this.invalidateLayout(); }
+
+  get centered(): boolean { return this._centered; }
+  set centered(val: boolean) { this._centered = val; this.invalidateLayout(); }
+
+  get maxLayer(): number { return this._maxLayer; }
+  get maxIndex(): number { return this._maxIndex; }
+  get maxColumn(): number { return this._maxColumn; }
+  get minIndexLayer(): number { return this._minIndexLayer; }
+  get maxIndexLayer(): number { return this._maxIndexLayer; }
+
+  /** 官方 protected linkMinLength(edge)：默认最小长度 1 */
+  linkMinLength(edge: LayoutEdge): number {
+    return 1;
+  }
+
+  /** 官方 protected linkLengthWeight(edge)：默认权重 1 */
+  linkLengthWeight(edge: LayoutEdge): number {
+    return 1;
+  }
+
+  /** 官方 protected linkStraightenWeight(edge)：人工节点权重更高 */
+  linkStraightenWeight(edge: LayoutEdge): number {
+    const i = edge.fromVertex ? edge.fromVertex.node : null;
+    const e = edge.toVertex ? edge.toVertex.node : null;
+    return i === null && e === null ? 8 : i === null || e === null ? 4 : 1;
+  }
+
+  /** 层与层之间推进的方向：90/270 为竖直（向下/向上），0/180 为水平（向右/向左） */
+  private get _isVertical(): boolean {
+    return this._direction === LayeredDigraphDirectionDown || this._direction === LayeredDigraphDirectionUp;
+  }
+  /** 是否与正方向相反（向上/向左） */
+  private get _isReversed(): boolean {
+    return this._direction === LayeredDigraphDirectionUp || this._direction === LayeredDigraphDirectionLeft;
+  }
+
+  /** 官方 protected nodeMinLayerSpace(v, topleft)：默认预留的层内空间 */
+  nodeMinLayerSpace(v: LayoutVertex, topleft: boolean): number {
+    if (v.node === null) return 0;
+    const horizontal = this._isVertical;
+    return topleft
+      ? (horizontal ? v.focusX + 10 : v.focusY + 10)
+      : (horizontal ? v.bounds.width - v.focusX + 10 : v.bounds.height - v.focusY + 10);
+  }
+
+  /** 官方 protected nodeMinColumnSpace(v, topleft)：默认按 columnSpacing 折算列空间 */
+  nodeMinColumnSpace(v: LayoutVertex, topleft: boolean): number {
+    if (v.node === null) return 0;
+    const horizontal = this._isVertical;
+    return topleft
+      ? (horizontal ? Math.ceil(v.focusX / this._columnSpacing) : Math.ceil(v.focusY / this._columnSpacing))
+      : (horizontal ? Math.ceil((v.bounds.width - v.focusX) / this._columnSpacing) : Math.ceil((v.bounds.height - v.focusY) / this._columnSpacing));
+  }
+
+  /** 官方 protected removeCycles()：基于网络移除环 */
+  removeCycles(): void {
+    const net = this.network;
+    if (net === null || net.vertexes.count === 0) return;
+    const vertexes: LayoutVertex[] = [];
+    const edges: LayoutEdge[] = [];
+    const vit = net.vertexes.iterator;
+    while (vit.next()) vertexes.push(vit.value);
+    const eit = net.edges.iterator;
+    while (eit.next()) edges.push(eit.value);
+    for (let i = 0; i < vertexes.length; i++) vertexes[i]._index = i;
+    const reversedEdges = this._removeCycles(vertexes, edges).reversedEdges;
+    for (const edge of reversedEdges) {
+      const temp = edge.fromVertex;
+      edge.fromVertex = edge.toVertex;
+      edge.toVertex = temp;
+    }
+  }
+
+  /** 官方 protected assignLayers()：按当前 layeringOption 为网络分配层 */
+  assignLayers(): void {
+    const net = this.network;
+    if (net === null || net.vertexes.count === 0) return;
+    const vertexes: LayoutVertex[] = [];
+    const edges: LayoutEdge[] = [];
+    const vit = net.vertexes.iterator;
+    while (vit.next()) vertexes.push(vit.value);
+    const eit = net.edges.iterator;
+    while (eit.next()) edges.push(eit.value);
+    for (let i = 0; i < vertexes.length; i++) vertexes[i]._index = i;
+    const layers = this._assignLayers(vertexes, edges);
+    let max = -1;
+    for (let l = 0; l < layers.length; l++) {
+      for (const v of layers[l]) (v as any).layer = l;
+      if (l > max) max = l;
+    }
+    for (const v of vertexes) {
+      if ((v as any).layer === undefined) (v as any).layer = 0;
+    }
+    this._maxLayer = max;
+  }
+
+  /** 官方 protected initializeIndices()：为各层节点分配索引 */
+  initializeIndices(): void {
+    const net = this.network;
+    if (net === null || net.vertexes.count === 0) return;
+    const layerCounts: number[] = [];
+    const vit = net.vertexes.iterator;
+    while (vit.next()) {
+      const v = vit.value;
+      const l = (v as any).layer as number;
+      const n = layerCounts[l] !== undefined ? layerCounts[l] : 0;
+      (v as any).index = n;
+      layerCounts[l] = n + 1;
+    }
+    let maxIndex = -1;
+    let maxLayer = 0;
+    let minLayer = 0;
+    let minCount = Infinity;
+    let maxCount = -1;
+    for (let l = 0; l < layerCounts.length; l++) {
+      const c = layerCounts[l] !== undefined ? layerCounts[l] : 0;
+      if (c > maxCount) { maxCount = c; maxLayer = l; }
+      if (c < minCount) { minCount = c; minLayer = l; }
+    }
+    this._maxLayer = layerCounts.length - 1;
+    this._maxIndex = maxIndex;
+    this._minIndexLayer = minLayer;
+    this._maxIndexLayer = maxLayer;
+  }
+
+  /** 官方 countCrossings()：统计当前排列下的交叉数 */
+  countCrossings(): number {
+    const net = this.network;
+    if (net === null || net.vertexes.count === 0) return 0;
+    let crossings = 0;
+    const edges: LayoutEdge[] = [];
+    const eit = net.edges.iterator;
+    while (eit.next()) edges.push(eit.value);
+    for (let i = 0; i < edges.length; i++) {
+      for (let j = i + 1; j < edges.length; j++) {
+        const a = edges[i];
+        const b = edges[j];
+        if (!a.fromVertex || !a.toVertex || !b.fromVertex || !b.toVertex) continue;
+        const aFrom = (a.fromVertex as any).layer as number;
+        const aTo = (a.toVertex as any).layer as number;
+        const bFrom = (b.fromVertex as any).layer as number;
+        const bTo = (b.toVertex as any).layer as number;
+        if (aFrom !== bFrom || aTo !== bTo) continue;
+        const aFIdx = (a.fromVertex as any).index as number;
+        const aTIdx = (a.toVertex as any).index as number;
+        const bFIdx = (b.fromVertex as any).index as number;
+        const bTIdx = (b.toVertex as any).index as number;
+        if ((aFIdx < bFIdx && aTIdx > bTIdx) || (aFIdx > bFIdx && aTIdx < bTIdx)) crossings++;
+      }
+    }
+    return crossings;
+  }
+
+  /** 官方 protected reduceCrossings()：减少同层节点间的连线交叉 */
+  reduceCrossings(): void {
+    const net = this.network;
+    if (net === null || net.vertexes.count === 0) return;
+    const vertexes: LayoutVertex[] = [];
+    const edges: LayoutEdge[] = [];
+    const vit = net.vertexes.iterator;
+    while (vit.next()) vertexes.push(vit.value);
+    const eit = net.edges.iterator;
+    while (eit.next()) edges.push(eit.value);
+    const maxLayer = this._maxLayer;
+    const layers: LayoutVertex[][] = createArrayOfArrays<LayoutVertex>(maxLayer + 1);
+    for (const v of vertexes) {
+      const l = (v as any).layer as number;
+      if (l >= 0 && l <= maxLayer) layers[l].push(v);
+    }
+    this._reduceCrossings(layers, edges);
+  }
+
+  /** 官方 protected straightenAndPack()：调整列位置以拉直连线并紧凑排列 */
+  straightenAndPack(): void {
+    const net = this.network;
+    if (net === null || net.vertexes.count === 0) return;
+    const vertexes: LayoutVertex[] = [];
+    const vit = net.vertexes.iterator;
+    while (vit.next()) vertexes.push(vit.value);
+    const layers: LayoutVertex[][] = createArrayOfArrays<LayoutVertex>(this._maxLayer + 1);
+    for (const v of vertexes) {
+      const l = (v as any).layer as number;
+      if (l >= 0 && l <= this._maxLayer) layers[l].push(v);
+    }
+    this._positionNodes(layers);
+  }
+
+  /** 官方 protected commitLayers(layerRects, offset)：默认不做任何事 */
+  commitLayers(layerRects: unknown[], offset: Point): void {
+    // 官方默认实现为空
+  }
+
+  /** 官方 protected commitNodes()：按顶点位置移动各节点 */
+  commitNodes(): void {
+    const net = this.network;
+    if (net === null) return;
+    const vit = net.vertexes.iterator;
+    while (vit.next()) {
+      const v = vit.value;
+      if (v.node && !v._isArtificial) {
+        v.node.move(new Point(v.x, v.y));
+      }
+    }
+  }
+
+  /** 官方 protected commitLinks()：更新各连线路由 */
+  commitLinks(): void {
+    const net = this.network;
+    if (net === null) return;
+    const eit = net.edges.iterator;
+    while (eit.next()) {
+      const link = eit.value.link;
+      if (link !== null) link.updateRoute();
+    }
+  }
+
   copy(): LayeredDigraphLayout {
     const copy = new LayeredDigraphLayout();
-    copy._arrangementOrigin = this._arrangementOrigin.copy();
+    this.cloneProtected(copy);
     copy._direction = this._direction;
     copy._layerSpacing = this._layerSpacing;
     copy._columnSpacing = this._columnSpacing;
@@ -74,6 +325,11 @@ export class LayeredDigraphLayout extends Layout {
     copy._packOption = this._packOption;
     copy._layeringOption = this._layeringOption;
     copy._cycleRemoveOption = this._cycleRemoveOption;
+    copy._initializeOption = this._initializeOption;
+    copy._iterations = this._iterations;
+    copy._packIterations = this._packIterations;
+    copy._alignOption = this._alignOption;
+    copy._centered = this._centered;
     return copy;
   }
 
@@ -125,8 +381,8 @@ export class LayeredDigraphLayout extends Layout {
 
     // Commit positions
     const origin = this.arrangementOrigin;
-    const isVertical = (this._direction === LayeredDigraphDirectionDown || this._direction === LayeredDigraphDirectionUp);
-    const isReversed = (this._direction === LayeredDigraphDirectionUp || this._direction === LayeredDigraphDirectionLeft);
+    const isVertical = this._isVertical;
+    const isReversed = this._isReversed;
 
     for (const v of vertexes) {
       if (v.node && !v._isArtificial) {
@@ -310,23 +566,65 @@ export class LayeredDigraphLayout extends Layout {
 
   /**
    * Position nodes within each layer.
+   *
+   * v.x is the coordinate along the within-layer axis and v.y along the
+   * layer-progression axis; both are measured from 0. Official GoJS advances
+   * the layer axis by the previous layer's maximum thickness plus
+   * layerSpacing, and spaces nodes inside a layer by their own breadth plus
+   * columnSpacing - so nodes never overlap.
    */
   private _positionNodes(layers: LayoutVertex[][]): void {
-    for (let l = 0; l < layers.length; l++) {
-      const layer = layers[l];
-      let totalWidth = 0;
+    // Layer axis: cumulative, so each layer clears the previous one.
+    let layerOffset = 0;
+    for (const layer of layers) {
+      let layerThick = 0;
       for (const v of layer) {
-        totalWidth += v.width;
+        const t = this._isVertical ? v.bounds.height : v.bounds.width;
+        if (t > layerThick) layerThick = t;
+        v.y = layerOffset;
       }
-      totalWidth += (layer.length - 1) * this._columnSpacing;
+      layerOffset += layerThick + this._layerSpacing;
+    }
 
-      let x = -totalWidth / 2;
-      for (let i = 0; i < layer.length; i++) {
-        const v = layer[i];
-        v.x = x + v.width / 2;
-        v.y = l * this._layerSpacing;
-        x += v.width + this._columnSpacing;
+    // Within-layer axis: laid out left-to-right, then the whole thing is
+    // shifted so the leftmost node starts at 0.
+    let maxAcross = 0;
+    for (const layer of layers) {
+      let across = 0;
+      for (const v of layer) {
+        const size = this._isVertical ? v.bounds.width : v.bounds.height;
+        v.x = across + size / 2;
+        across += size + this._columnSpacing;
       }
+      if (across > maxAcross) maxAcross = across;
+    }
+    for (const layer of layers) {
+      for (const v of layer) v.x -= maxAcross / 2;
     }
   }
+
+  // ============ 官方 LayeredDigraphLayout 静态枚举（对齐 go.d.ts，阶段 7） ============
+  static CycleDepthFirst = LayeredDigraphCycleRemoveDepthFirst;
+  static CycleGreedy = LayeredDigraphCycleRemoveGreedy;
+  static CycleFromLayers = LayeredDigraphCycleRemoveFromLayers;
+  static LayerOptimalLinkLength = LayeredDigraphLayeringOptimalLinkLength;
+  static LayerLongestPathSink = LayeredDigraphLayeringLongestPathSink;
+  static LayerLongestPathSource = LayeredDigraphLayeringLongestPathSource;
+  static InitDepthFirstOut = LayeredDigraphInitDepthFirstOut;
+  static InitDepthFirstIn = LayeredDigraphInitDepthFirstIn;
+  static InitNaive = LayeredDigraphInitNaive;
+  static AggressiveNone = LayeredDigraphAggressiveNone;
+  static AggressiveLess = LayeredDigraphAggressiveLess;
+  static AggressiveMore = LayeredDigraphAggressiveMore;
+  static PackNone = LayeredDigraphPackNone;
+  static PackExpand = LayeredDigraphPackExpand;
+  static PackStraighten = LayeredDigraphPackStraighten;
+  static PackMedian = LayeredDigraphPackMedian;
+  static PackAll = LayeredDigraphPackAll;
+  static AlignNone = LayeredDigraphAlignNone;
+  static AlignUpperLeft = LayeredDigraphAlignUpperLeft;
+  static AlignUpperRight = LayeredDigraphAlignUpperRight;
+  static AlignLowerLeft = LayeredDigraphAlignLowerLeft;
+  static AlignLowerRight = LayeredDigraphAlignLowerRight;
+  static AlignAll = LayeredDigraphAlignAll;
 }

@@ -20,6 +20,7 @@ import { RoutingOrthogonal, RoutingAvoidsNodes } from '../core/EnumValues';
  *   myDiagram.routers.add(new AvoidsLinksRouter());
  */
 export class AvoidsLinksRouter {
+  static readonly className: string = "AvoidsLinksRouter";
 
   // ============ Private property storage ============
   private _isEnabled: boolean = true;
@@ -241,8 +242,8 @@ export class AvoidsLinksRouter {
         const part = partsIt.value;
         if (part instanceof Node && part !== fromNode && part !== toNode) {
           const bounds = part.getDocumentBounds();
-          if (bounds.isReal && !bounds.isEmpty) {
-            const paddedRect = bounds.inflate(this._avoidablePadding);
+          if (bounds.isReal() && !bounds.isEmpty()) {
+            const paddedRect = bounds.inflate(this._avoidablePadding, this._avoidablePadding);
             avoidRects.push({ rect: paddedRect, node: part });
           }
         }
@@ -371,7 +372,7 @@ export class AvoidsLinksRouter {
 
     for (const entry of avoidRects) {
       // Quick bounding box check
-      if (!segBounds.intersects(entry.rect)) continue;
+      if (!segBounds.intersectsRect(entry.rect)) continue;
 
       // Precise segment-rect intersection check
       if (this._segmentIntersectsRect(segStart, segEnd, entry.rect)) {
@@ -457,7 +458,7 @@ export class AvoidsLinksRouter {
     // Find the combined bounds of all intersecting nodes
     let combinedRect = intersectingNodes[0].rect;
     for (let i = 1; i < intersectingNodes.length; i++) {
-      combinedRect = combinedRect.union(intersectingNodes[i].rect);
+      combinedRect = combinedRect.unionRect(intersectingNodes[i].rect);
     }
 
     const spacing = this._linkSpacing;
@@ -738,7 +739,7 @@ export class AvoidsLinksRouter {
         if (!(part instanceof Node) || part === fromNode || part === toNode) continue;
 
         const bounds = part.getDocumentBounds();
-        const paddedRect = bounds.inflate(this._avoidablePadding);
+        const paddedRect = bounds.inflate(this._avoidablePadding, this._avoidablePadding);
 
         if (orientation === 'horizontal') {
           // Check if horizontal line at pos overlaps with node

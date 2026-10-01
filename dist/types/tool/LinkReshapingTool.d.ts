@@ -1,6 +1,7 @@
 import { Tool } from './Tool';
 import { GraphObject } from '../view/GraphObject';
 export declare class LinkReshapingTool extends Tool {
+    static readonly className: string;
     private _handle;
     private _adornedLink;
     private _handleIndex;

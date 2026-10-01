@@ -1,4 +1,5 @@
 export declare class ThemeBinding {
+    static readonly className: string;
     /** The name of the binding. */
     name: string;
     /** The source property name. */

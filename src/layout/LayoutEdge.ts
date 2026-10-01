@@ -6,6 +6,7 @@ import { LayoutNetwork } from './LayoutNetwork';
  * LayoutEdge - represents a link in the layout network.
  */
 export class LayoutEdge {
+  static readonly className: string = "LayoutEdge";
   /** The network this edge belongs to */
   network: LayoutNetwork | null = null;
 

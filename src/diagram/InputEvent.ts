@@ -3,6 +3,7 @@
  * 封装鼠标/键盘/触摸事件信息
  */
 export class InputEvent {
+  static readonly className: string = "InputEvent";
   /** 事件类型 */
   public eventType: string;
   /** 文档坐标 X */
@@ -102,6 +103,64 @@ export class InputEvent {
     ie.isContextMenu = this.isContextMenu;
     ie.clickCount = this.clickCount;
     ie.delta = this.delta;
+    ie.bubbles = this.bubbles;
+    ie.targetObject = this.targetObject;
+    ie.down = this.down;
+    ie.up = this.up;
     return ie;
   }
+
+  // ============ 官方 InputEvent API 对齐（阶段 6） ============
+
+  /**
+   * 官方 InputEvent.bubbles
+   * 当 InputEvent 作用于某个 GraphObject 并向其父级 Panel 冒泡时是否被处理。
+   */
+  public bubbles: boolean = true;
+
+  /**
+   * 官方 InputEvent.targetObject（官方类型为 GraphObject | null）
+   * 此处用 any 以避免与 view 层产生循环依赖。
+   */
+  public targetObject: any = null;
+
+  /**
+   * 官方 InputEvent.event（本项目内部字段名为 nativeEvent）。
+   */
+  get event(): Event | null { return this.nativeEvent; }
+  set event(value: Event | null) { this.nativeEvent = value; }
+
+  /**
+   * 官方 InputEvent.isTouchEvent
+   * 是否为触摸事件。
+   */
+  get isTouchEvent(): boolean {
+    const e: any = this.nativeEvent;
+    return e !== null && typeof e.type === 'string' && e.type.indexOf('touch') >= 0;
+  }
+
+  /**
+   * 官方 InputEvent.left
+   * 逻辑左键是否被按住。
+   * 若为 mousedown/mouseup 事件，使用 button；否则使用 buttons 的第 0 位。
+   */
+  get left(): boolean {
+    const e: any = this.nativeEvent;
+    if (e !== null && (e.type === 'mouseup' || e.type === 'mousedown')) return this.button === 0;
+    if (e !== null && typeof e.buttons === 'number') return (e.buttons & 1) === 1;
+    return this.button === 0;
+  }
+  set left(value: boolean) {
+    const e: any = this.nativeEvent;
+    if (e !== null && typeof e.buttons === 'number') {
+      e.buttons = value ? (e.buttons | 1) : (e.buttons & ~1);
+    }
+    if (value && this.button !== 0) this.button = 0;
+  }
+
+  /** 官方 InputEvent.down —— 逻辑主键是否为按下状态。 */
+  public down: boolean = false;
+
+  /** 官方 InputEvent.up —— 逻辑主键是否处于抬起状态。 */
+  public up: boolean = false;
 }

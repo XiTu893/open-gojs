@@ -4,6 +4,7 @@ import { List } from './List';
  * PathFigure - 路径图形（起点 + 段集合）
  */
 export declare class PathFigure {
+    static readonly className: string;
     /** 起点 X */
     startX: number;
     /** 起点 Y */
@@ -12,6 +13,8 @@ export declare class PathFigure {
     isFilled: boolean;
     /** 是否描边 */
     isShadowed: boolean;
+    /** 官方 PathFigure.isEvenOdd：偶奇填充规则 */
+    isEvenOdd: boolean;
     /** 段集合 */
     private _segments;
     constructor(startX?: number, startY?: number, isFilled?: boolean);

@@ -1,4 +1,5 @@
 export class LayeredDigraphNetwork {
+  static readonly className: string = "LayeredDigraphNetwork";
 
   /** The name of this network. */
   name: string;

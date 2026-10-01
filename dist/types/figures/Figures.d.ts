@@ -1,6 +1,7 @@
 import { Geometry } from '../core/Geometry';
 import { Map } from '../core/Map';
-export declare const figures: Map<string, (shape: any, w: number, h: number) => Geometry>;
+export type FigureGenerator = (shape: any, w: number, h: number) => Geometry;
+export declare const figures: Map<string, FigureGenerator | string>;
 /** 官方 go.js 内置图形名（Shape.getFigureGenerators 返回的 30 个），顺序与官方一致 */
 export declare const CORE_FIGURE_NAMES: string[];
 export declare function isExtensionFigure(name: string): boolean;

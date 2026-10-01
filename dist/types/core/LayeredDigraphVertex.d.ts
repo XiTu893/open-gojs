@@ -1,4 +1,5 @@
 export declare class LayeredDigraphVertex {
+    static readonly className: string;
     /** The key of this vertex. */
     key: any;
     /** The position of this vertex. */

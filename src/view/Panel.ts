@@ -18,6 +18,10 @@ import { List } from '../core/List';
 import { Map } from '../core/Map';
 import { Iterator } from '../core/Iterable';
 import { BrushLike } from '../core/Brush';
+import { Geometry } from '../core/Geometry';
+import { PanelLayout } from './PanelLayout';
+import { computePathPoints, interpolatePath, fractionAlongPath } from '../core/PathSampling';
+import { getFigureGeometry } from '../figures/Figures';
 import { Binding } from '../model/Binding';
 import { GraphObject } from './GraphObject';
 import { Shape } from './Shape';
@@ -27,6 +31,7 @@ import { RowColumnDefinition } from './RowColumnDefinition';
  * Panel - container that arranges child GraphObjects according to its type.
  */
 export class Panel extends GraphObject {
+  static readonly className: string = "Panel";
 
   // ============ Internal storage ============
   _elements: GraphObject[] = [];
@@ -47,6 +52,13 @@ export class Panel extends GraphObject {
   private _defaultColumnSeparatorStrokeWidth: number = 1;
   private _defaultRowSeparatorStroke: BrushLike = null;
   private _defaultRowSeparatorStrokeWidth: number = 1;
+  // 阶段 4：官方 Panel 上的未文档化/次要属性
+  private _defaultColumnSeparatorDashArray: number[] | null = null;
+  private _defaultRowSeparatorDashArray: number[] | null = null;
+  private _isOpposite: boolean = false;
+  /** 官方 `Panel` 构造第一个参数可以是 `PanelLayout` 实例（自定义面板布局） */
+  private _panelLayout: PanelLayout | null = null;
+  private _panelLayoutState: any = null;
   private _defaultSeparatorPadding: Margin = Margin.Zero.copy();
   private _columnSizing: EnumValue = SizingProp;
   private _rowSizing: EnumValue = SizingProp;
@@ -62,12 +74,14 @@ export class Panel extends GraphObject {
   private _topIndex: number = 0;
   private _gridCellSize: Size = new Size(10, 10);
   private _gridOrigin: Point = new Point(0, 0);
+  /** 官方 GridPanelSettings.Cf：lcm(间隔) × gridCellSize，供 Diagram.eC 定位 */
+  _gridCf: Size | null = null;
+  /** 官方 GridPanelSettings.Yp：每个元素的同向更大 interval 排除表（pS 判定用） */
+  _gridExclusions: number[][] | null = null;
   private _graduatedMin: number = 0;
   private _graduatedMax: number = 100;
   private _graduatedTickUnit: number = 1;
   private _graduatedTickBase: number = 0;
-  private _graduatedStart: number = 0;
-  private _graduatedEnd: number = 1;
   private _viewboxStretch: EnumValue = StretchUniform;
   _viewboxScaleX: number = 1;
   _viewboxScaleY: number = 1;
@@ -81,6 +95,7 @@ export class Panel extends GraphObject {
     if (t !== undefined && t !== null) {
       if (typeof t === 'string') this._type = Panel._resolvePanelTypeStr(t);
       else if (t instanceof EnumValue) this._type = t;
+      else if (t instanceof PanelLayout) this._panelLayout = t;
       else i = t;
     }
     if (i) {
@@ -283,6 +298,70 @@ export class Panel extends GraphObject {
     const p = val && typeof val.copy === 'function' ? val.copy() : (val ? new Point(val.x || 0, val.y || 0) : Point.Zero.copy());
     if (this._gridOrigin.equals(p)) return;
     this._gridOrigin = p;
+    // 官方：gridOrigin setter → panel.L()（失效重绘）；是 diagram.grid 时再 Ld()
+    const d = this.diagram;
+    if (d) d.requestUpdate();
+  }
+
+  /**
+   * 官方 PanelLayoutGrid.u3/d3：
+   * - u3：按垂直/水平方向求 interval 的 lcm → Cf = Size(lcmV·cellW, lcmH·cellH)
+   * - d3：每个元素收集同向且 interval 更大的元素 → Yp（画线时被更大线覆盖的小间隔线跳过）
+   */
+  _updateGridSettings(): void {
+    const elems = this._elements;
+    const cell = this._gridCellSize;
+    let wPeriod = 1;
+    let hPeriod = 1;
+    for (const el of elems) {
+      const a = Math.abs((el as any).interval);
+      if (a < 2) continue;
+      if (Panel._isVerticalGridFigure((el as any).figure)) {
+        wPeriod = (wPeriod * a) / Panel._gridGCD(wPeriod, a);
+      } else {
+        hPeriod = (hPeriod * a) / Panel._gridGCD(hPeriod, a);
+      }
+    }
+    this._gridCf = new Size(wPeriod * cell.width, hPeriod * cell.height);
+    const ys: number[][] = [];
+    for (let n = 0; n < elems.length; n++) {
+      const row: number[] = [];
+      ys.push(row);
+      const o: any = elems[n];
+      if (!o.visible) continue;
+      const l = o.interval;
+      if (l < 0) continue;
+      const vertical = Panel._isVerticalGridFigure(o.figure);
+      for (let c = 0; c < elems.length; c++) {
+        if (c === n) continue;
+        const f: any = elems[c];
+        if (!f.visible) continue;
+        if (Panel._isVerticalGridFigure(f.figure) !== vertical) continue;
+        const d = f.interval;
+        if (d > l) row.push(d);
+      }
+    }
+    this._gridExclusions = ys;
+  }
+
+  /** 官方 PanelLayoutGrid.MN：LineV/BarV 为垂直方向（影响宽度周期） */
+  static _isVerticalGridFigure(figure: string): boolean {
+    return figure === 'LineV' || figure === 'BarV';
+  }
+
+  /** 官方 G.CT：最大公约数（含小数 interval 的欧几里得算法） */
+  static _gridGCD(a: number, b: number): number {
+    let i = Math.max(a, b);
+    let e = Math.min(a, b);
+    let s = 1;
+    let n = 1;
+    do {
+      s = i % e;
+      n = e;
+      i = e;
+      e = s;
+    } while (s > 0);
+    return n;
   }
 
   get graduatedMin(): number { return this._graduatedMin; }
@@ -312,17 +391,7 @@ export class Panel extends GraphObject {
     this._graduatedTickBase = val;
   }
 
-  get graduatedStart(): number { return this._graduatedStart; }
-  set graduatedStart(val: number) {
-    if (this._graduatedStart === val) return;
-    this._graduatedStart = val;
-  }
-
-  get graduatedEnd(): number { return this._graduatedEnd; }
-  set graduatedEnd(val: number) {
-    if (this._graduatedEnd === val) return;
-    this._graduatedEnd = val;
-  }
+  // graduatedStart / graduatedEnd 继承自 GraphObject（官方两者都在 GraphObject 上）
 
   get viewboxStretch(): EnumValue { return this._viewboxStretch; }
   set viewboxStretch(val: EnumValue) {
@@ -435,6 +504,180 @@ export class Panel extends GraphObject {
     return els[0];
   }
 
+  // ============ 阶段 4：官方 Panel.prototype 缺口 ============
+
+  /** 官方 `Panel.addRowColumnDefinition(rowOrColumnDef)`：把 def 的设置合并进同序号的行/列定义，返回 this */
+  addRowColumnDefinition(def: RowColumnDefinition): this {
+    if (!def) return this;
+    const existing = def.isRow
+      ? this.getRowDefinition(def.index)
+      : this.getColumnDefinition(def.index);
+    if (existing) existing._setValuesFrom(def);
+    this._invalidateMeasure();
+    return this;
+  }
+
+  /** 官方 `Panel.copyTemplate(freeze?)`：复制整棵视觉树作为模板，可选冻结其中的绑定 */
+  copyTemplate(freeze?: boolean): this {
+    const copy = this.copy() as this;
+    if (freeze === true) copy.freezeBindings();
+    return copy;
+  }
+
+  get defaultColumnSeparatorDashArray(): number[] | null { return this._defaultColumnSeparatorDashArray; }
+  set defaultColumnSeparatorDashArray(value: number[] | null) {
+    if (value === this._defaultColumnSeparatorDashArray) return;
+    const old = this._defaultColumnSeparatorDashArray;
+    this._defaultColumnSeparatorDashArray = value;
+    this.raiseChanged('defaultColumnSeparatorDashArray', old, value);
+  }
+
+  get defaultRowSeparatorDashArray(): number[] | null { return this._defaultRowSeparatorDashArray; }
+  set defaultRowSeparatorDashArray(value: number[] | null) {
+    if (value === this._defaultRowSeparatorDashArray) return;
+    const old = this._defaultRowSeparatorDashArray;
+    this._defaultRowSeparatorDashArray = value;
+    this.raiseChanged('defaultRowSeparatorDashArray', old, value);
+  }
+
+  /** 官方 `Panel.findColumnForLocalX(x)`：Table 面板中局部 x 落在哪一列（未命中返回列数） */
+  findColumnForLocalX(x: number): number {
+    if (x < 0 || this._type !== PanelTable || this.columnCount === 0) return -1;
+    let total = 0;
+    const defs = this._columnDefinitions;
+    const len = defs.length;
+    let i = this._leftIndex;
+    for (; i < len; i++) {
+      const def = defs[i];
+      if (def !== undefined && def !== null) {
+        total += def.total;
+        if (x < total) return i;
+      }
+    }
+    return i;
+  }
+
+  /** 官方 `Panel.findRowForLocalY(y)`：Table 面板中局部 y 落在哪一行（未命中返回行数） */
+  findRowForLocalY(y: number): number {
+    if (y < 0 || this._type !== PanelTable || this.rowCount === 0) return -1;
+    let total = 0;
+    const defs = this._rowDefinitions;
+    const len = defs.length;
+    let i = this._topIndex;
+    for (; i < len; i++) {
+      const def = defs[i];
+      if (def !== undefined && def !== null) {
+        total += def.total;
+        if (y < total) return i;
+      }
+    }
+    return i;
+  }
+
+  /**
+   * 官方 `Panel.findInVisualTree(func)`：深度优先遍历视觉树，
+   * 返回第一个让 func 返回真值的对象；没有则返回 null。
+   */
+  findInVisualTree(func: (obj: GraphObject) => any): GraphObject | null {
+    if (func(this)) return this;
+    if (this instanceof Panel) {
+      for (const child of this._elements) {
+        const found = child instanceof Panel
+          ? (child as Panel).findInVisualTree(func)
+          : (func(child) ? child : null);
+        if (found !== null) return found;
+      }
+    }
+    return null;
+  }
+
+  /** 官方 `Panel.walkVisualTreeFrom(obj, func)`：func(root, obj) 先于子树被调用 */
+  walkVisualTreeFrom(obj: GraphObject, func: (root: GraphObject, obj: GraphObject) => void): void {
+    func(this, obj);
+    if (obj instanceof Panel) {
+      for (const child of (obj as Panel)._elements) {
+        this.walkVisualTreeFrom(child, func);
+      }
+    }
+  }
+
+  /**
+   * 官方 `Panel.freezeBindings()`：收集视觉树里所有 Binding 并冻结，
+   * 同时解析 sourceName → 目标对象的关联，使模板的每份拷贝都能按名字找到目标。
+   *
+   * 本项目 `Binding` 还没有 `sourceName` / `targetId`（阶段 5 补齐），而 `copy()`
+   * 已经会把 `_bindings` 深拷贝，因此这里只完成视觉树遍历这一半语义。
+   */
+  freezeBindings(): this {
+    this.walkVisualTreeFrom(this, () => { /* 阶段 5：绑定冻结/解析在这里补 */ });
+    return this;
+  }
+
+  /** 官方 `Panel.graduatedRange` */
+  get graduatedRange(): number { return this._graduatedMax - this._graduatedMin; }
+
+  /** 官方 `Panel.graduatedPointForValue(val, result?)`：Graduated 面板把数值映射成路径上的点 */
+  graduatedPointForValue(val: number, result?: Point): Point {
+    if (result === undefined) result = new Point(NaN, NaN);
+    if (this._type !== PanelGraduated) {
+      result.setTo(NaN, NaN);
+      return result;
+    }
+    const v = Math.min(Math.max(val, this._graduatedMin), this._graduatedMax);
+    const main = this.findMainElement();
+    if (main === null) {
+      result.setTo(NaN, NaN);
+      return result;
+    }
+    const range = this.graduatedRange;
+    const frac = range === 0 ? 0 : (v - this._graduatedMin) / range;
+    const geo = Panel._geometryOf(main);
+    const pt = geo !== null
+      ? interpolatePath(computePathPoints(geo), frac)
+      : { x: frac * main.actualBounds.width, y: 0, angle: 0 };
+    // 官方最后一步 `main.T.wt(e)`：把主元素局部坐标换算到本 Panel 坐标
+    result.setTo(pt.x + main.actualBounds.x, pt.y + main.actualBounds.y);
+    return result;
+  }
+
+  /** 官方 `Panel.graduatedValueForPoint(pt)`：Graduated 面板把路径上的点反算成数值 */
+  graduatedValueForPoint(pt: Point): number {
+    if (this._type !== PanelGraduated) return NaN;
+    const main = this.findMainElement();
+    if (main === null) return NaN;
+    const geo = Panel._geometryOf(main);
+    if (geo === null) return NaN;
+    // 官方 `main.T.Di(pt)`：本 Panel 坐标 → 主元素局部坐标
+    const local = new Point(pt.x - main.actualBounds.x, pt.y - main.actualBounds.y);
+    const frac = fractionAlongPath(computePathPoints(geo), local.x, local.y);
+    return frac * this.graduatedRange + this._graduatedMin;
+  }
+
+  /** 官方 `Panel.isOpposite`（官方用位标志，这里用布尔量等价表达） */
+  get isOpposite(): boolean { return this._isOpposite; }
+  set isOpposite(value: boolean) {
+    if (value === this._isOpposite) return;
+    const old = this._isOpposite;
+    this._isOpposite = value;
+    this._invalidateMeasure();
+    this.raiseChanged('isOpposite', old, value);
+  }
+
+  /** 官方 `Panel.panelLayoutState`（PanelLayout 的缓存状态，本项目尚未实现 PanelLayout） */
+  get panelLayoutState(): any { return this._panelLayoutState; }
+  set panelLayoutState(value: any) { this._panelLayoutState = value; }
+
+  /** 主元素的几何：优先 Shape.geometry，否则按 figure + 尺寸生成 */
+  private static _geometryOf(elem: GraphObject): Geometry | null {
+    if (!(elem instanceof Shape)) return null;
+    const shape = elem as Shape;
+    const geo = shape.geometry;
+    if (geo) return geo;
+    const w = shape.desiredSize.width > 0 ? shape.desiredSize.width : shape.measuredBounds.width;
+    const h = shape.desiredSize.height > 0 ? shape.desiredSize.height : shape.measuredBounds.height;
+    return getFigureGeometry(shape.figure, w, h) || null;
+  }
+
   findItemPanelForData(data: any): Panel | null {
     for (const elem of this._elements) {
       if (elem instanceof Panel && (elem as Panel).data === data) {
@@ -449,31 +692,64 @@ export class Panel extends GraphObject {
     return this._columnDefinitions[index];
   }
 
-  addColumnDefinition(index?: number, width?: number): RowColumnDefinition {
-    const idx = index !== undefined ? index : this._columnDefinitions.length;
-    this._ensureColumnDefinition(idx);
-    const def = this._columnDefinitions[idx];
-    if (width !== undefined) {
-      def.width = width;
-    }
+  /**
+   * 官方 `Panel.addRowDefinition(rowIndex, options): this`：
+   * get-or-create 行定义，把 options（Partial<RowColumnDefinition> 或数字高度）合并进去，返回 this（可链式 .add）。
+   * 官方实现里 height/width 共用同一存储，跨传也会生效——这里按 isRow 归一化。
+   */
+  addRowDefinition(index?: number, options?: Partial<RowColumnDefinition> | RowColumnDefinition | number): this {
+    const idx = index !== undefined && index !== null ? index : this._rowDefinitions.length;
+    const def = this.getRowDefinition(idx);
+    this._applyRowColumnOptions(def, true, options);
     this._invalidateMeasure();
-    return def;
+    return this;
+  }
+
+  /**
+   * 官方 `Panel.addColumnDefinition(colIndex, options): this`：
+   * get-or-create 列定义，把 options 合并进去，返回 this。
+   */
+  addColumnDefinition(index?: number, options?: Partial<RowColumnDefinition> | RowColumnDefinition | number): this {
+    const idx = index !== undefined && index !== null ? index : this._columnDefinitions.length;
+    const def = this.getColumnDefinition(idx);
+    this._applyRowColumnOptions(def, false, options);
+    this._invalidateMeasure();
+    return this;
+  }
+
+  private _applyRowColumnOptions(
+    def: RowColumnDefinition,
+    isRow: boolean,
+    options?: Partial<RowColumnDefinition> | RowColumnDefinition | number
+  ): void {
+    if (options === undefined || options === null || !def) return;
+    if (typeof options === 'number') {
+      if (isRow) def.height = options;
+      else def.width = options;
+      return;
+    }
+    if (options instanceof RowColumnDefinition) {
+      def._setValuesFrom(options);
+      return;
+    }
+    const rec = options as Record<string, any>;
+    // 官方 height/width 同存储：未按行列区分传入时互相兜底
+    const sizeVal = isRow
+      ? (rec.height !== undefined ? rec.height : rec.width)
+      : (rec.width !== undefined ? rec.width : rec.height);
+    if (sizeVal !== undefined) {
+      if (isRow) def.height = sizeVal;
+      else def.width = sizeVal;
+    }
+    for (const key of Object.keys(rec)) {
+      if (key === 'width' || key === 'height') continue;
+      if (key in def) (def as any)[key] = rec[key];
+    }
   }
 
   getRowDefinition(index: number): RowColumnDefinition {
     this._ensureRowDefinition(index);
     return this._rowDefinitions[index];
-  }
-
-  addRowDefinition(index?: number, height?: number): RowColumnDefinition {
-    const idx = index !== undefined ? index : this._rowDefinitions.length;
-    this._ensureRowDefinition(idx);
-    const def = this._rowDefinitions[idx];
-    if (height !== undefined) {
-      def.height = height;
-    }
-    this._invalidateMeasure();
-    return def;
   }
 
   removeColumnDefinition(index: number, count: number = 1): Panel {
@@ -548,11 +824,20 @@ export class Panel extends GraphObject {
         ? (elem as any)._data : this._data;
       const bindings: Binding[] = (elem as any)._bindings;
       if (bindings && bindings.length > 0) {
-        if (data) {
-          for (const binding of bindings) {
-            if (propname === undefined || propname === binding.sourceProperty) {
+        for (const binding of bindings) {
+          // 官方：theme 绑定不依赖 data（无数据部件也要应用）
+          if (!data && !binding.isToTheme) continue;
+          if (propname === undefined || propname === binding.sourceProperty) {
+            // 官方 Binding.updateTarget：取源值 + converter + 写目标属性整段
+            // 包在 try/catch 里，异常静默吞掉（见 Diagram._resolveBindingValue 注释）
+            try {
               const val = binding.getValueFromSource(data, elem, null);
-              (elem as any)[binding.targetProperty] = val;
+              // 官方：源值为 undefined 时整体跳过（不赋值），保留模板默认值
+              if (val !== undefined) {
+                (elem as any)[binding.targetProperty] = val;
+              }
+            } catch {
+              /* 与官方一致：静默忽略 */
             }
           }
         }
@@ -590,8 +875,11 @@ export class Panel extends GraphObject {
     copy._defaultStretch = this._defaultStretch;
     copy._defaultColumnSeparatorStroke = this._defaultColumnSeparatorStroke;
     copy._defaultColumnSeparatorStrokeWidth = this._defaultColumnSeparatorStrokeWidth;
+    copy._defaultColumnSeparatorDashArray = this._defaultColumnSeparatorDashArray ? [...this._defaultColumnSeparatorDashArray] : null;
     copy._defaultRowSeparatorStroke = this._defaultRowSeparatorStroke;
     copy._defaultRowSeparatorStrokeWidth = this._defaultRowSeparatorStrokeWidth;
+    copy._defaultRowSeparatorDashArray = this._defaultRowSeparatorDashArray ? [...this._defaultRowSeparatorDashArray] : null;
+    copy._isOpposite = this._isOpposite;
     copy._defaultSeparatorPadding = this._defaultSeparatorPadding.copy();
     copy._columnSizing = this._columnSizing;
     copy._rowSizing = this._rowSizing;
@@ -610,8 +898,7 @@ export class Panel extends GraphObject {
     copy._graduatedMax = this._graduatedMax;
     copy._graduatedTickUnit = this._graduatedTickUnit;
     copy._graduatedTickBase = this._graduatedTickBase;
-    copy._graduatedStart = this._graduatedStart;
-    copy._graduatedEnd = this._graduatedEnd;
+    // graduatedStart/graduatedEnd 已由 GraphObject._copyPropertiesTo 复制
     copy._viewboxStretch = this._viewboxStretch;
     copy._viewboxScaleX = this._viewboxScaleX;
     copy._viewboxScaleY = this._viewboxScaleY;
@@ -670,6 +957,9 @@ export class Panel extends GraphObject {
       if (isFinite(i) && i > s) u = i;
       t = Infinity;
     }
+    // 官方 Panel.Yd：stretch 预处理（None/Vertical/Horizontal 会把约束置 Infinity）后按 desiredSize 回填
+    if (isFinite(ds.width)) t = Math.min(ds.width, maxS.width);
+    if (isFinite(ds.height)) i = Math.min(ds.height, maxS.height);
     // 官方 yt：min/max 夹取
     if (f > maxS.width && minS.width < maxS.width) f = maxS.width;
     if (u > maxS.height && minS.height < maxS.height) u = maxS.height;
@@ -685,10 +975,14 @@ export class Panel extends GraphObject {
     const availW = Math.max(t - pad.left - pad.right, 0);
     const availH = Math.max(i - pad.top - pad.bottom, 0);
     const union = this._unionRect;
-    union.set(0, 0, 0, 0);
+    union.setTo(0, 0, 0, 0);
 
     if (this._type === PanelAuto) {
       this._measureAuto(availW, availH);
+    } else if (this._panelLayout !== null) {
+      // 官方：构造第一个参数给了 PanelLayout 就走自定义布局的 measure
+      const els = this._elements.filter(el => el.visible);
+      this._panelLayout.measure(this, t, i, els, this._unionRect, e, s);
     } else if (this._type === PanelVertical) {
       this._measureVertical(availW, availH);
     } else if (this._type === PanelHorizontal) {
@@ -706,7 +1000,8 @@ export class Panel extends GraphObject {
     } else if (this._type === PanelGraduated) {
       this._measureGraduated(availW, availH);
     } else if (this._type === PanelGrid) {
-      // union 保持 (0,0,0,0)
+      // union 保持 (0,0,0,0)；官方 PanelLayoutGrid.measure 同步 u3/d3 设置
+      this._updateGridSettings();
     } else {
       // 默认：所有可见元素包围盒
       let maxW = 0;
@@ -719,7 +1014,7 @@ export class Panel extends GraphObject {
         maxW = Math.max(maxW, mb.width + m.left + m.right);
         maxH = Math.max(maxH, mb.height + m.top + m.bottom);
       }
-      union.set(0, 0, maxW, maxH);
+      union.setTo(0, 0, maxW, maxH);
     }
 
     // 官方 Panel.Yd：union 内容 + padding；desired/max/min 夹取；不被 constraint 夹
@@ -735,7 +1030,7 @@ export class Panel extends GraphObject {
     fh = Math.max(s, fh);
     this._originX = union.x;
     this._originY = union.y;
-    union.set(union.x, union.y, c, fh);
+    union.setTo(union.x, union.y, c, fh);
     this._naturalBounds = new Rect(0, 0, c, fh);
     this._measuredBounds = new Rect(0, 0, c, fh);
     this._applyMeasureTransform();
@@ -748,7 +1043,7 @@ export class Panel extends GraphObject {
     const ny = Math.min(u.y, y);
     const nr = Math.max(u.right, x + w);
     const nb = Math.max(u.bottom, y + h);
-    u.set(nx, ny, nr - nx, nb - ny);
+    u.setTo(nx, ny, nr - nx, nb - ny);
   }
 
   _arrange(bounds: Rect): void {
@@ -768,6 +1063,10 @@ export class Panel extends GraphObject {
 
     if (this._type === PanelAuto) {
       this._arrangeAuto(innerX, innerY, innerW, innerH);
+    } else if (this._panelLayout !== null) {
+      // 官方：自定义 PanelLayout 的 arrange 用的是 measure 时算出的 union
+      const els = this._elements.filter(el => el.visible);
+      this._panelLayout.arrange(this, els, this._unionRect);
     } else if (this._type === PanelVertical) {
       this._arrangeVertical(innerX, innerY, innerW, innerH);
     } else if (this._type === PanelHorizontal) {
@@ -778,6 +1077,8 @@ export class Panel extends GraphObject {
       this._arrangeTable(innerX, innerY, innerW, innerH);
     } else if (this._type === PanelPosition) {
       this._arrangePosition(innerX, innerY, innerW, innerH);
+    } else if (this._type === PanelGrid) {
+      // 官方 PanelLayoutGrid.arrange 为空：网格线只由 renderGrid 按 panel 边界绘制
     } else if (this._type === PanelViewbox) {
       this._arrangeViewbox(innerX, innerY, innerW, innerH);
     } else if (this._type === PanelGraduated) {
@@ -849,6 +1150,11 @@ export class Panel extends GraphObject {
     let holeH = availH;
     if (isFinite(availW)) holeW = Math.max(Math.abs(s1.x * y + s1.offsetX - (s2.x * y + s2.offsetX)) - stroke, 0);
     if (isFinite(availH)) holeH = Math.max(Math.abs(s1.y * x + s1.offsetY - (s2.y * x + s2.offsetY)) - stroke, 0);
+    // 官方 PanelLayoutAuto：可用尺寸无限时用主元素的尺寸约束其余子元素。
+    // 否则 Node 里的 TextBlock 会按无限宽测量而不换行，
+    // 文字直接溢出节点被裁掉（absolute.html 的 "lightblue" 应排成两行）。
+    if (!isFinite(holeW)) holeW = Math.max(y - stroke, 0);
+    if (!isFinite(holeH)) holeH = Math.max(x - stroke, 0);
     let maxT = 0;
     let maxTh = 0;
     for (const el of els) {
@@ -864,7 +1170,7 @@ export class Panel extends GraphObject {
     const union = this._unionRect;
     if (els.length === 1) {
       mb = main.measuredBounds;
-      union.set(0, 0, Math.max(mb.width + u, 0), Math.max(mb.height + d, 0));
+      union.setTo(0, 0, Math.max(mb.width + u, 0), Math.max(mb.height + d, 0));
       return;
     }
     let D = 0;
@@ -887,7 +1193,7 @@ export class Panel extends GraphObject {
     }
     main._measure(D, F);
     mb = main.measuredBounds;
-    union.set(0, 0, Math.max(mb.width + u, 0), Math.max(mb.height + d, 0));
+    union.setTo(0, 0, Math.max(mb.width + u, 0), Math.max(mb.height + d, 0));
   }
 
   /** 官方 PanelLayoutAuto.arrange */
@@ -964,7 +1270,7 @@ export class Panel extends GraphObject {
       maxW = Math.max(maxW, mb.width + m.left + m.right);
     }
 
-    this._unionRect.set(0, 0, maxW, totalH);
+    this._unionRect.setTo(0, 0, maxW, totalH);
   }
 
   private _arrangeVertical(innerX: number, innerY: number, innerW: number, innerH: number): void {
@@ -1003,7 +1309,7 @@ export class Panel extends GraphObject {
       maxH = Math.max(maxH, mb.height + m.top + m.bottom);
     }
 
-    this._unionRect.set(0, 0, totalW, maxH);
+    this._unionRect.setTo(0, 0, totalW, maxH);
   }
 
   private _arrangeHorizontal(innerX: number, innerY: number, innerW: number, innerH: number): void {
@@ -1077,20 +1383,20 @@ export class Panel extends GraphObject {
       const y = Math.max(mb.width + cw, 0);
       const x = Math.max(mb.height + ch, 0);
       let A = el.alignment;
-      if (A.isDefault) A = this._defaultAlignment;
-      if (A.isDefault || isNaN(A.x) || isNaN(A.y)) A = Spot.Center;
+      if (A.isDefault()) A = this._defaultAlignment;
+      if (A.isDefault() || isNaN(A.x) || isNaN(A.y)) A = Spot.Center;
       let I = el.alignmentFocus;
-      if (I.isDefault) I = Spot.Center;
+      if (I.isDefault()) I = Spot.Center;
       const X = -D + A.x * kw + A.offsetX - (I.x * mb.width + I.offsetX);
       const Y = -F + A.y * kh + A.offsetY - (I.y * mb.height + I.offsetY);
       if (!hasOther) {
         hasOther = true;
-        union.set(X, Y, y, x);
+        union.setTo(X, Y, y, x);
       } else {
         this._unionInto(X, Y, y, x);
       }
     }
-    if (!hasOther) union.set(sBoxX, sBoxY, sBoxW, sBoxH);
+    if (!hasOther) union.setTo(sBoxX, sBoxY, sBoxW, sBoxH);
     else this._unionInto(sBoxX, sBoxY, sBoxW, sBoxH);
     // 主元素 stretch 早退（官方 switch）
     let R = main.stretch;
@@ -1111,10 +1417,10 @@ export class Panel extends GraphObject {
       const y = Math.max(mb.width + em.right + em.left, 0);
       const x = Math.max(mb.height + em.top + em.bottom, 0);
       let A = el.alignment;
-      if (A.isDefault) A = this._defaultAlignment;
-      if (A.isDefault || isNaN(A.x) || isNaN(A.y)) A = Spot.Center;
+      if (A.isDefault()) A = this._defaultAlignment;
+      if (A.isDefault() || isNaN(A.x) || isNaN(A.y)) A = Spot.Center;
       let I = el.alignmentFocus;
-      if (I.isDefault) I = Spot.Center;
+      if (I.isDefault()) I = Spot.Center;
       const X = A.x * kw + A.offsetX - (I.x * mb.width + I.offsetX) - em.left;
       const Y = A.y * kh + A.offsetY - (I.y * mb.height + I.offsetY) - em.top;
       this._unionInto(X, Y, y, x);
@@ -1138,10 +1444,10 @@ export class Panel extends GraphObject {
       if (el === main || !el.visible) continue;
       const eMb = el.measuredBounds;
       let A = el.alignment;
-      if (A.isDefault) A = this._defaultAlignment;
-      if (A.isDefault || isNaN(A.x) || isNaN(A.y)) A = Spot.Center;
+      if (A.isDefault()) A = this._defaultAlignment;
+      if (A.isDefault() || isNaN(A.x) || isNaN(A.y)) A = Spot.Center;
       let I = el.alignmentFocus;
-      if (I.isDefault) I = Spot.Center;
+      if (I.isDefault()) I = Spot.Center;
       let f = A.x * dw + A.offsetX - (I.x * eMb.width + I.offsetX);
       let uu = A.y * dh + A.offsetY - (I.y * eMb.height + I.offsetY);
       f += -this._originX;
@@ -1634,7 +1940,7 @@ export class Panel extends GraphObject {
 
     // 官方：单元格缓存 t.Gh 供 arrange 使用；n 内容尺寸 → union
     (this as any)._lastCells = cells;
-    this._unionRect.set(0, 0, offX, offY);
+    this._unionRect.setTo(0, 0, offX, offY);
   }
 
   private _arrangeTable(innerX: number, innerY: number, innerW: number, innerH: number): void {
@@ -1741,17 +2047,17 @@ export class Panel extends GraphObject {
 
           let q = R.alignment;
           let Q: number, Jv: number, tt: number, Vv: number;
-          if (q.isDefault) {
+          if (q.isDefault()) {
             let dq = this._defaultAlignment;
-            if (dq.isDefault || isNaN(dq.x) || isNaN(dq.y)) dq = Spot.Center;
+            if (dq.isDefault() || isNaN(dq.x) || isNaN(dq.y)) dq = Spot.Center;
             Q = dq.x; Jv = dq.y; tt = dq.offsetX; Vv = dq.offsetY;
             const colAl = T.alignment;
             const rowAl = M.alignment;
-            if (!colAl.isDefault && !isNaN(colAl.x) && !isNaN(colAl.y)) {
+            if (!colAl.isDefault() && !isNaN(colAl.x) && !isNaN(colAl.y)) {
               Q = colAl.x;
               tt = colAl.offsetX;
             }
-            if (!rowAl.isDefault && !isNaN(rowAl.x) && !isNaN(rowAl.y)) {
+            if (!rowAl.isDefault() && !isNaN(rowAl.x) && !isNaN(rowAl.y)) {
               Jv = rowAl.y;
               Vv = rowAl.offsetY;
             }
@@ -1811,6 +2117,13 @@ export class Panel extends GraphObject {
       let py = elem.position.y;
       if (!isFinite(px)) px = 0;
       if (!isFinite(py)) py = 0;
+      // isGeometryPositioned 的 Shape 把几何画在父面板坐标系里（原始几何坐标），
+      // 其 measuredBounds 的原点就是几何原点，必须计入并集，
+      // 否则面板量出的尺寸小于实际绘制范围（pieCharts 会出现两个饼重叠）。
+      if ((elem as any).isGeometryPositioned === true) {
+        px += mb.x;
+        py += mb.y;
+      }
       this._unionInto(px, py, boxW, boxH);
     }
   }
@@ -1845,7 +2158,7 @@ export class Panel extends GraphObject {
       const m = child.margin;
       const w = Math.min(availW, mb.width + m.left + m.right);
       const h = Math.min(availH, mb.height + m.top + m.bottom);
-      this._unionRect.set(0, 0, w, h);
+      this._unionRect.setTo(0, 0, w, h);
     }
   }
 
@@ -1897,21 +2210,20 @@ export class Panel extends GraphObject {
   // ============ PanelGraduated measure/arrange ============
 
   private _measureGraduated(availW: number, availH: number): void {
-    const { main, others } = this._findMainAndOthers();
+    const { main } = this._findMainAndOthers();
 
+    // 官方 `PanelLayoutGraduated.measure`：Graduated 面板的尺寸**只**由 main 元素决定，
+    // 刻度元素（interval / alignmentFocus 那些）沿路径摆放，不参与面板包围盒。
+    // 以前把 others 也 union 进来，gantt 的 `myTimeline`（Graduated 面板）被撑到 648 高，
+    // 里面 `MAIN` 那根 `background:'lightgray'` 的形状就铺满整个图区，
+    // 把所有任务条都盖住了（实测 gantt 右图区一片浅灰）。
     if (main !== null && main.visible) {
       main._measure(availW, availH);
       const mb = main.measuredBounds;
       const m = main.margin;
-      this._unionRect.set(0, 0, Math.max(mb.width + m.left + m.right, 0), Math.max(mb.height + m.top + m.bottom, 0));
-    }
-
-    for (const elem of others) {
-      if (!elem.visible) continue;
-      elem._measure(availW, availH);
-      const mb = elem.measuredBounds;
-      const m = elem.margin;
-      this._unionInto(0, 0, Math.max(mb.width + m.left + m.right, 0), Math.max(mb.height + m.top + m.bottom, 0));
+      this._unionRect.setTo(0, 0, Math.max(mb.width + m.left + m.right, 0), Math.max(mb.height + m.top + m.bottom, 0));
+    } else {
+      this._unionRect.setTo(0, 0, 0, 0);
     }
   }
 
@@ -1945,7 +2257,31 @@ export class Panel extends GraphObject {
 
   // ============ PanelLink measure/arrange ============
 
+  /** 取 link 里「画线」的主图元：优先 isPanelMain，否则第一个同时有 fill/stroke 的 Shape */
+  private _findLinkMainElement(): any {
+    let fallback: any = null;
+    for (const elem of this._elements) {
+      if (!elem.visible) continue;
+      if (elem.isPanelMain) return elem;
+      if (!fallback && 'fill' in elem && 'stroke' in elem) fallback = elem;
+    }
+    return fallback;
+  }
+
   private _measureLink(availW: number, availH: number): void {
+    // 官方 Link 在 measure 前保证路线已算出（computePoints 依赖两端节点的
+    // actualBounds）。缺这一步时 link.points 此刻仍为空，_unionRect 退化成
+    // [0,0,1,1]，link 自身的 natural/measured/actual bounds 全部作废，
+    // documentBounds 随之错位。
+    const linkSelf = this as any;
+    if (typeof linkSelf.updateRoute === 'function') {
+      try {
+        linkSelf.updateRoute();
+      } catch {
+        /* 无端口/未入图时保持退化矩形 */
+      }
+    }
+
     for (const elem of this._elements) {
       if (!elem.visible) continue;
       elem._measure(Infinity, Infinity);
@@ -1967,9 +2303,31 @@ export class Panel extends GraphObject {
         maxX = Math.max(maxX, p.x);
         maxY = Math.max(maxY, p.y);
       }
-      this._unionRect.set(0, 0, maxX - minX, maxY - minY);
+      this._unionRect.setTo(0, 0, maxX - minX, maxY - minY);
+
+      // 官方把「画线」的主图元 measured 尺寸设为 (路线长, 线宽)，并让它在起点前
+      // 留出半个线宽。缺这一步时主图元保持默认 1×1（加描边后 2×2），
+      // link 的 naturalBounds 塌缩成箭头大小，包围盒与官方差一大截。
+      const main = this._findLinkMainElement();
+      if (main) {
+        const sw = main.strokeWidth > 0 ? main.strokeWidth : 0;
+        const len = maxX - minX;
+        if (sw > 0 && len > 0) {
+          main._measuredBounds = new Rect(-sw / 2, -sw / 2, len, sw);
+        }
+      }
+
+      // 官方 natural bounds 是「路线范围 ∪ 各子图元 measured 尺寸」的并集：
+      // 箭头(measured = natural×scale)比路线高，缺了它 link 只有一条零高度线。
+      for (const elem of this._elements) {
+        if (!elem.visible) continue;
+        const mb = elem.measuredBounds;
+        if (!mb || !(mb.width > 0) || !(mb.height > 0)) continue;
+        if (mb.width > this._unionRect.width) this._unionRect.width = mb.width;
+        if (mb.height > this._unionRect.height) this._unionRect.height = mb.height;
+      }
     } else {
-      this._unionRect.set(0, 0, 1, 1);
+      this._unionRect.setTo(0, 0, 1, 1);
     }
   }
 
@@ -1998,7 +2356,7 @@ export class Panel extends GraphObject {
     const segLengths: number[] = [];
     let totalLength = 0;
     for (let i = 0; i < pts.length - 1; i++) {
-      const len = pts[i].distanceTo(pts[i + 1]);
+      const len = Math.sqrt(pts[i].distanceSquaredPoint(pts[i + 1]));
       segLengths.push(len);
       totalLength += len;
     }
@@ -2055,7 +2413,7 @@ export class Panel extends GraphObject {
         const startPt = pts[clampedIdx];
         const endPt = pts[clampedIdx + 1];
         basePos = Point.lerp(startPt, endPt, segFraction);
-        segAngle = startPt.directionTo(endPt);
+        segAngle = startPt.directionPoint(endPt);
       }
 
       basePos = new Point(basePos.x - minX, basePos.y - minY);
@@ -2066,13 +2424,13 @@ export class Panel extends GraphObject {
 
       let rotationAngle = 0;
       if (segOrientation === SegmentOrientationAlong || segOrientation === SegmentOrientationParallel) {
-        rotationAngle = segAngle * 180 / Math.PI;
+        rotationAngle = segAngle;
       } else if (segOrientation === SegmentOrientationOpposite) {
-        rotationAngle = segAngle * 180 / Math.PI + 180;
+        rotationAngle = segAngle + 180;
       } else if (segOrientation === SegmentOrientationPerpendicular) {
-        rotationAngle = segAngle * 180 / Math.PI + 90;
+        rotationAngle = segAngle + 90;
       } else if (segOrientation === SegmentOrientationOrthogonal) {
-        rotationAngle = Math.round(segAngle * 180 / Math.PI / 90) * 90;
+        rotationAngle = Math.round(segAngle / 90) * 90;
       }
 
       elem._arrange(new Rect(
@@ -2105,30 +2463,129 @@ export class Panel extends GraphObject {
     let accumulated = 0;
     for (let i = 0; i < segLengths.length; i++) {
       if (accumulated + segLengths[i] >= distance) {
-        return pts[i].directionTo(pts[i + 1]);
+        return pts[i].directionPoint(pts[i + 1]);
       }
       accumulated += segLengths[i];
     }
     if (pts.length >= 2) {
-      return pts[pts.length - 2].directionTo(pts[pts.length - 1]);
+      return pts[pts.length - 2].directionPoint(pts[pts.length - 1]);
     }
     return 0;
   }
 
   // ============ Internal helpers ============
 
+  // ---- 官方拾取实现（Panel.xL / bL / m0 / SL）----
+  // 供 Layer.findObjectAt / findObjectsAt / findObjectsIn / findObjectsNear 使用。
+  // 偏差：官方靠内部 Transform 矩阵在「本对象局部坐标」与「所在 Panel 坐标」之间换算，
+  // 本项目没有 Transform，统一按**文档坐标**（与 GraphObject.containsPoint / getDocumentBounds 同约定）。
+
+  /** 官方 `Panel.xL(p, navig, pred)`：找点选命中的最上层对象。 */
+  _findObjectAtDoc(p: Point): GraphObject | null {
+    if (!this.pickable || !this.visible) return null;
+    const b = this.getDocumentBounds();
+    if (!b.isReal()) return null;
+    // 官方 extraTouchArea 默认 10（面向触控放宽），命中区外扩 5
+    if (!Rect.contains(b.x - 5, b.y - 5, b.width + 10, b.height + 10, p.x, p.y)) return null;
+    const els = this._elements;
+    for (let i = els.length - 1; i >= 0; i--) {
+      const child = els[i];
+      if (!child.visible) continue;
+      const hit = child instanceof Panel
+        ? child._findObjectAtDoc(p)
+        : (child.pickable && child.containsPoint(p) ? child : null);
+      if (hit !== null) return hit;
+    }
+    if (this.background !== null && Rect.contains(b.x, b.y, b.width, b.height, p.x, p.y)) return this;
+    return null;
+  }
+
+  /** 官方 `Panel.bL(p, navig, pred, coll)`：收集点选命中的全部对象。 */
+  _collectObjectsAtDoc(p: Point, add: (o: GraphObject) => void): void {
+    if (!this.pickable) return;
+    const b = this.getDocumentBounds();
+    if (!b.isReal() || !Rect.contains(b.x, b.y, b.width, b.height, p.x, p.y)) return;
+    const els = this._elements;
+    for (let i = els.length - 1; i >= 0; i--) {
+      const child = els[i];
+      if (!child.visible) continue;
+      if (child instanceof Panel) child._collectObjectsAtDoc(p, add);
+      else if (child.pickable && child.containsPoint(p)) add(child);
+    }
+    if (this.background !== null) add(this);
+  }
+
+  /** 官方 `Panel.m0(r, navig, pred, partialInclusion, coll)`：收集与矩形包含/相交的对象。 */
+  _collectObjectsInDoc(r: Rect, add: (o: GraphObject) => void, partial: boolean): void {
+    if (!this.pickable) return;
+    const b = this.getDocumentBounds();
+    if (!b.isReal()) return;
+    const inside = r.containsRect(b);
+    const overlaps = r.intersectsRect(b);
+    if (!inside && !overlaps) return;
+    const els = this._elements;
+    for (let i = els.length - 1; i >= 0; i--) {
+      const child = els[i];
+      if (!child.visible) continue;
+      if (child instanceof Panel) child._collectObjectsInDoc(r, add, partial);
+      else if (child.pickable && (partial ? child.intersectsRect(r) : child.containsRect(r))) add(child);
+    }
+    if (inside) add(this);
+    else if (this.background !== null && partial) add(this);
+  }
+
+  /** 官方 `Panel.SL(pt1, pt2, navig, pred, partialInclusion, coll)`：收集距离圆命中的对象。 */
+  _collectObjectsNearDoc(p: Point, dist: number, add: (o: GraphObject) => void, partial: boolean): void {
+    if (!this.pickable) return;
+    const b = this.getDocumentBounds();
+    if (!b.isReal()) return;
+    const rel = Panel._circleRectRelation(b, p, dist);
+    if (rel === 0) return;
+    const els = this._elements;
+    for (let i = els.length - 1; i >= 0; i--) {
+      const child = els[i];
+      if (!child.visible) continue;
+      if (child instanceof Panel) child._collectObjectsNearDoc(p, dist, add, partial);
+      else {
+        const cr = Panel._circleRectRelation(child.getDocumentBounds(), p, dist);
+        if (cr === 0) continue;
+        if (partial ? cr >= 1 : cr === 2) add(child);
+      }
+    }
+    if (rel === 2) add(this);
+    else if (this.background !== null && partial) add(this);
+  }
+
+  /**
+   * 圆 (p, dist) 与轴对齐矩形 r 的关系：
+   * 0 = 无交集，1 = 相交（但未包含），2 = 圆完全包含矩形。
+   * 对应官方 `SL` 里的 `f`（相交）/ `u`（包含）判定。
+   */
+  private static _circleRectRelation(r: Rect, p: Point, dist: number): 0 | 1 | 2 {
+    const d2 = dist * dist;
+    const dx = Math.max(r.x - p.x, 0, p.x - r.right);
+    const dy = Math.max(r.y - p.y, 0, p.y - r.bottom);
+    if (dx * dx + dy * dy > d2) return 0;
+    const c1 = (r.x - p.x) * (r.x - p.x) + (r.y - p.y) * (r.y - p.y);
+    const c2 = (r.right - p.x) * (r.right - p.x) + (r.y - p.y) * (r.y - p.y);
+    const c3 = (r.right - p.x) * (r.right - p.x) + (r.bottom - p.y) * (r.bottom - p.y);
+    const c4 = (r.x - p.x) * (r.x - p.x) + (r.bottom - p.y) * (r.bottom - p.y);
+    if (c1 <= d2 && c2 <= d2 && c3 <= d2 && c4 <= d2) return 2;
+    return 1;
+  }
+
   /** 官方：alignment → defaultAlignment，仍默认则 Center */
   private _resolveAlignment(elem: GraphObject): Spot {
     let a = elem.alignment;
-    if (a.isDefault) a = this._defaultAlignment;
-    if (a.isDefault || isNaN(a.x) || isNaN(a.y)) return Spot.Center;
+    if (a.isDefault()) a = this._defaultAlignment;
+    if (a.isDefault() || isNaN(a.x) || isNaN(a.y)) return Spot.Center;
     return a;
   }
 
   /** 官方：alignmentFocus 默认 → 回退为该元素的 alignment（focus 落在 alignment 同一边） */
   private _resolveAlignmentFocus(elem: GraphObject): Spot {
     const af = elem.alignmentFocus;
-    if (af.isDefault) return this._resolveAlignment(elem);
+    if (af.isDefault()) return this._resolveAlignment(elem);
     return af;
   }
 
@@ -2221,6 +2678,19 @@ export class Panel extends GraphObject {
   static Link = PanelLink;
   static TableColumn = PanelTableColumn;
   static TableRow = PanelTableRow;
+
+  /** 官方 PanelLayout 的注册表（官方是 `PanelLayout.In` / `PanelLayout.is`） */
+  private static _panelLayouts: Record<string, Function> = {};
+
+  /** 官方 `Panel.definePanelLayout(name, func)` */
+  static definePanelLayout(name: string, func: Function): void {
+    Panel._panelLayouts[name] = func;
+  }
+
+  /** 官方 `Panel.isLayoutDefined(name)` */
+  static isLayoutDefined(name: string): boolean {
+    return Object.prototype.hasOwnProperty.call(Panel._panelLayouts, name);
+  }
 }
 
 GraphObject.defineBuilder('Panel', Panel);

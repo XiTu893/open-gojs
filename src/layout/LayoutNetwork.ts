@@ -1,6 +1,5 @@
 import { List } from '../core/List';
 import { Map } from '../core/Map';
-import { Set } from '../core/Set';
 import { Node } from '../view/Node';
 import { Link } from '../view/Link';
 import { LayoutVertex } from './LayoutVertex';
@@ -11,6 +10,7 @@ import { LayoutEdge } from './LayoutEdge';
  * Contains vertexes (nodes) and edges (links) for layout computation.
  */
 export class LayoutNetwork {
+  static readonly className: string = "LayoutNetwork";
   /** The layout that owns this network */
   layout: any = null;
 
@@ -177,49 +177,48 @@ export class LayoutNetwork {
     }
   }
 
-  /** Split this network into sub-networks of connected components */
+  /**
+   * 官方 `LayoutNetwork.splitIntoSubNetworks()` 的连通分量拆分（对照官方 `F4`）：
+   * 只在“本网络 → 子网络”之间搬移顶点/边的归属，不改动顶点上的
+   * `sourceEdges`/`destinationEdges`。
+   * 旧实现在遍历 `v.sourceEdges` 的同时调用 `addEdge`（又会向同一 List 追加该边），
+   * 导致 List 无限增长直至 `RangeError: Invalid array length`。
+   */
   splitIntoSubNetworks(): List<LayoutNetwork> {
     const result = new List<LayoutNetwork>();
     if (this.vertexes.count === 0) return result;
 
-    const visited = new Set<LayoutVertex>();
+    const starts = this.vertexes.toArray();
+    for (const startVertex of starts) {
+      if (startVertex.network !== this) continue; // 已归入其它子网络
 
-    const it = this.vertexes.iterator;
-    while (it.next()) {
-      const startVertex = it.value;
-      if (visited.has(startVertex)) continue;
-
-      // BFS to find all connected vertexes
       const component = new LayoutNetwork();
       component.layout = this.layout;
-      const queue: LayoutVertex[] = [startVertex];
-      visited.add(startVertex);
+      const stack: LayoutVertex[] = [startVertex];
 
-      while (queue.length > 0) {
-        const v = queue.shift()!;
+      while (stack.length > 0) {
+        const v = stack.pop()!;
+        if (v.network === component) continue;
+        this.vertexes.remove(v);
         component.addVertex(v);
 
-        // Traverse source edges
+        // sourceEdges：v 是终点，另一端是 fromVertex
         const srcIt = v.sourceEdges.iterator;
         while (srcIt.next()) {
           const e = srcIt.value;
-          if (e.toVertex && !visited.has(e.toVertex)) {
-            visited.add(e.toVertex);
-            queue.push(e.toVertex);
+          if (e.network !== component) {
+            this._moveEdgeTo(e, component);
+            if (e.fromVertex) stack.push(e.fromVertex);
           }
-          component.addEdge(e);
         }
 
-        // Traverse destination edges
+        // destinationEdges：v 是起点，另一端是 toVertex
         const dstIt = v.destinationEdges.iterator;
         while (dstIt.next()) {
           const e = dstIt.value;
-          if (e.fromVertex && !visited.has(e.fromVertex)) {
-            visited.add(e.fromVertex);
-            queue.push(e.fromVertex);
-          }
-          if (!component.edges.contains(e)) {
-            component.addEdge(e);
+          if (e.network !== component) {
+            this._moveEdgeTo(e, component);
+            if (e.toVertex) stack.push(e.toVertex);
           }
         }
       }
@@ -228,5 +227,12 @@ export class LayoutNetwork {
     }
 
     return result;
+  }
+
+  /** 官方 `bA(edge)` + `xA(edge)`：把边从原网络搬进目标网络（不动顶点边表） */
+  private _moveEdgeTo(edge: LayoutEdge, target: LayoutNetwork): void {
+    if (edge.network && edge.network !== target) edge.network.edges.remove(edge);
+    if (!target.edges.contains(edge)) target.edges.add(edge);
+    edge.network = target;
   }
 }

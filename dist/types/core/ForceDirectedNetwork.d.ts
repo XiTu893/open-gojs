@@ -1,4 +1,5 @@
 export declare class ForceDirectedNetwork {
+    static readonly className: string;
     /** The name of this network. */
     name: string;
     /** The nodes in this network. */

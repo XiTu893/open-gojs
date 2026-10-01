@@ -14,12 +14,16 @@ import { PanningTool } from './PanningTool';
 import { ContextMenuTool } from './ContextMenuTool';
 import { ClickCreatingTool } from './ClickCreatingTool';
 import { ActionTool } from './ActionTool';
+import { GraphObject } from '../view/GraphObject';
+import { List } from '../core/List';
+import { Size } from '../core/Size';
 /**
  * ToolManager - manages tool dispatch and event routing.
  * Holds lists of mouse-down, mouse-move, and mouse-up tools,
  * and dispatches events to the appropriate tool.
  */
 export declare class ToolManager extends Tool {
+    static readonly className: string;
     private _mouseDownTools;
     private _mouseMoveTools;
     private _mouseUpTools;
@@ -32,18 +36,29 @@ export declare class ToolManager extends Tool {
     private _previousInput;
     private _mouseDownPoint;
     constructor();
-    get mouseDownTools(): Tool[];
-    set mouseDownTools(val: Tool[]);
-    get mouseMoveTools(): Tool[];
-    set mouseMoveTools(val: Tool[]);
-    get mouseUpTools(): Tool[];
-    set mouseUpTools(val: Tool[]);
-    get mouseHoverTools(): Tool[];
-    set mouseHoverTools(val: Tool[]);
+    get mouseDownTools(): List<Tool>;
+    set mouseDownTools(val: List<Tool> | Tool[] | Iterable<Tool>);
+    get mouseMoveTools(): List<Tool>;
+    set mouseMoveTools(val: List<Tool> | Tool[] | Iterable<Tool>);
+    get mouseUpTools(): List<Tool>;
+    set mouseUpTools(val: List<Tool> | Tool[] | Iterable<Tool>);
+    get mouseHoverTools(): List<Tool>;
+    set mouseHoverTools(val: List<Tool> | Tool[] | Iterable<Tool>);
     get currentTool(): Tool | null;
     set currentTool(val: Tool | null);
     get defaultTool(): Tool;
     set defaultTool(val: Tool);
+    /**
+     * 官方 ToolManager 暴露的每个内置工具实例都能被样例拿到，
+     * 不管它被放进哪张工具表 —— 样例大量写
+     * `myDiagram.toolManager.clickSelectingTool.standardMouseSelect = fn`、
+     * `myDiagram.toolManager.textEditingTool.acceptText = fn`。
+     * 以前每个 getter 只在**某一张**表里找（`clickSelectingTool` 找 mouseDownTools、
+     * `textEditingTool` 找 mouseDownTools），找不到就返回 undefined，
+     * 样例赋值时直接 `Cannot set properties of undefined`（实测 distances / audioEditor）。
+     * 这里三张表全查。
+     */
+    private _toolOfType;
     get clickSelectingTool(): ClickSelectingTool;
     get draggingTool(): DraggingTool;
     get dragSelectingTool(): DragSelectingTool;
@@ -64,7 +79,20 @@ export declare class ToolManager extends Tool {
     get lastInput(): InputEvent;
     set lastInput(val: InputEvent);
     get previousInput(): InputEvent;
+    /**
+     * 必须显式再声明一次 getter：子类里只写 `set diagram` 会**遮蔽**
+     * 父类 `Tool` 的 getter —— JS 访问器描述符里 `get` 会变成 undefined，
+     * `this.diagram` 直接返回 undefined，于是 `doMouseDown/doMouseUp/...`
+     * 全部在第一行 `if (!diagram) return;` 处早退，整个 ToolManager 失效。
+     */
+    get diagram(): Diagram | null;
     set diagram(val: Diagram | null);
+    /**
+     * 样例通常在 Diagram 构建完之后才往三个工具表里 `add`/`insertAt` 新工具，
+     * 这些后加的工具既没有 `toolManager` 也没有 `diagram`。
+     * 在每次事件分发前统一补齐，避免 `this.diagram` 取到 null。
+     */
+    private _syncTools;
     /** Dispatch mouse-down event to the appropriate tool. */
     doMouseDown(): void;
     /** Dispatch mouse-move event to the current tool. */
@@ -77,8 +105,47 @@ export declare class ToolManager extends Tool {
     doKeyUp(): void;
     /** Dispatch mouse-wheel event to the current tool. */
     doMouseWheel(): void;
-    /** Update adornments for all relevant parts. */
+    /**
+     * Update adornments for all relevant parts.
+     * 对齐官方 `Diagram.selectCollection`：
+     *   `mouseDownTools.each(i => { i.isEnabled && i.updateAdornments(part) })`
+     */
     updateAdornments(part: any): void;
     /** Standard mouse wheel: zoom in/out centered on mouse position. */
     standardMouseWheel(): void;
+    static WheelScroll: import("../core/EnumValues").EnumValue;
+    static WheelZoom: import("../core/EnumValues").EnumValue;
+    static WheelNone: import("../core/EnumValues").EnumValue;
+    static GestureZoom: import("../core/EnumValues").EnumValue;
+    static GestureCancel: import("../core/EnumValues").EnumValue;
+    static GestureNone: import("../core/EnumValues").EnumValue;
+    private _mouseWheelBehavior;
+    private _gestureBehavior;
+    private _dragSize;
+    private _toolTipDuration;
+    private _toolTipTimer;
+    private _currentToolTip;
+    private _toolTipAdornment;
+    get mouseWheelBehavior(): any;
+    set mouseWheelBehavior(val: any);
+    get gestureBehavior(): any;
+    set gestureBehavior(val: any);
+    get toolTipDuration(): number;
+    set toolTipDuration(val: number);
+    get dragSize(): Size;
+    set dragSize(val: Size);
+    get currentToolTip(): any;
+    set currentToolTip(val: any);
+    initializeStandardTools(): this;
+    findTool(name: string): Tool | null;
+    private _findToolIn;
+    replaceTool(name: string, newtool: Tool | null): Tool | null;
+    private _replaceToolIn;
+    replaceStandardTool(name: string, newtool: Tool | null, list: List<Tool>): void;
+    showToolTip(toolTip: any, obj?: GraphObject | null): void;
+    positionToolTip(toolTip: any, obj?: GraphObject | null): void;
+    extendToolTip(duration?: number): void;
+    hideToolTip(): void;
+    doToolTip(): void;
+    doMouseHover(): void;
 }

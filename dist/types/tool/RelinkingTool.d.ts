@@ -2,6 +2,7 @@ import { LinkingBaseTool } from './LinkingBaseTool';
 import { GraphObject } from '../view/GraphObject';
 import { Link } from '../view/Link';
 export declare class RelinkingTool extends LinkingBaseTool {
+    static readonly className: string;
     private _originalLink;
     private _originalFromPort;
     private _originalToPort;

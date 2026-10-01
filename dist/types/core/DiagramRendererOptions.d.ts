@@ -1,4 +1,5 @@
 export declare class DiagramRendererOptions {
+    static readonly className: string;
     /** The type of renderer to use */
     type: string;
     /** The width of the rendered image in pixels */

@@ -1,11 +1,14 @@
 import { Transaction } from './Transaction';
 import { ChangedEvent } from './ChangedEvent';
 import { ChangedEventTransaction, ChangedEventInsert, ChangedEventRemove } from '../core/EnumValues';
+import { List } from '../core/List';
+import { Iterator } from '../core/Iterable';
 
 /**
  * UndoManager - 撤销管理器
  */
 export class UndoManager {
+  static readonly className: string = "UndoManager";
   private _undoStack: Transaction[] = [];
   private _redoStack: Transaction[] = [];
   private _currentTransaction: Transaction | null = null;
@@ -19,6 +22,7 @@ export class UndoManager {
   private _stateChangedListeners: ((manager: UndoManager) => void)[] = [];
   private _skipsUndoManager: boolean = false;
   private _handlesModelChanges: boolean = true;
+  private _hasStartedFirstTransaction: boolean = false;
 
   constructor() {}
 
@@ -95,11 +99,16 @@ export class UndoManager {
 
   startTransaction(name: string = ''): boolean {
     if (!this._isEnabled) return false;
+    this._nestedTransactionNames.push(name);
     this._transactionLevel++;
     if (this._transactionLevel === 1) {
       this._currentTransaction = new Transaction(name);
       this._changes = [];
-      this._fireTransactionEvent('StartingTransaction', name);
+      // 官方：只有本 UndoManager 的第一次事务才有 StartingFirstTransaction
+      if (!this._hasStartedFirstTransaction) {
+        this._hasStartedFirstTransaction = true;
+        this._fireTransactionEvent('StartingFirstTransaction', name);
+      }
       this._fireTransactionEvent('StartedTransaction', name);
     } else if (this._currentTransaction) {
       this._currentTransaction.begin();
@@ -111,6 +120,7 @@ export class UndoManager {
   commitTransaction(name?: string): boolean {
     if (!this._isEnabled) return false;
     if (this._transactionLevel <= 0) return false;
+    if (this._nestedTransactionNames.length > 0) this._nestedTransactionNames.pop();
 
     this._transactionLevel--;
     if (name !== undefined && this._currentTransaction) {
@@ -143,6 +153,7 @@ export class UndoManager {
   rollbackTransaction(): boolean {
     if (!this._isEnabled) return false;
     if (this._transactionLevel <= 0) return false;
+    if (this._nestedTransactionNames.length > 0) this._nestedTransactionNames.pop();
 
     this._transactionLevel--;
     if (this._transactionLevel === 0) {
@@ -215,6 +226,7 @@ export class UndoManager {
     this._currentTransaction = null;
     this._transactionLevel = 0;
     this._changes = [];
+    this._nestedTransactionNames.length = 0;
     this._fireStateChanged();
   }
 
@@ -335,4 +347,161 @@ export class UndoManager {
       this._model.raiseTransactionEvent(propertyName, tname, transObj);
     }
   }
+  // ============ 官方 UndoManager API 对齐（阶段 5） ============
+
+  private _models: any[] = [];
+  private _nestedTransactionNames: string[] = [];
+  private _checksTransactionLevel: boolean = false;
+  private _isJustDiscarded: boolean = false;
+
+  /** 官方 UndoManager.models：所有关联模型的迭代器 */
+  get models(): Iterator<any> {
+    return new List<any>(this._models).iterator;
+  }
+
+  /** 官方 UndoManager.addModel */
+  addModel(model: any): void {
+    if (model === null || model === undefined) return;
+    if (this._models.indexOf(model) < 0) this._models.push(model);
+  }
+
+  /** 官方 UndoManager.removeModel */
+  removeModel(model: any): void {
+    const i = this._models.indexOf(model);
+    if (i >= 0) this._models.splice(i, 1);
+  }
+
+  /**
+   * 官方 UndoManager.history：已提交事务的历史。
+   * 官方是一条 List（historyIndex 指向最近一次可撤销的事务）；
+   * 本项目内部是 undo/redo 两个栈，这里按官方语义拼出等价快照：
+   * 顺序 = 撤销栈正序 + 重做栈逆序。
+   */
+  get history(): List<Transaction> {
+    const out: Transaction[] = this._undoStack.slice();
+    for (let i = this._redoStack.length - 1; i >= 0; i--) out.push(this._redoStack[i]);
+    return new List<Transaction>(out);
+  }
+
+  /** 官方 UndoManager.historyIndex：最近一条可撤销事务在 history 中的下标 */
+  get historyIndex(): number {
+    return this._undoStack.length - 1;
+  }
+
+  /** 官方 UndoManager.maxHistoryLength（本项目默认 0 表示不限长度，官方默认 999） */
+  get maxHistoryLength(): number {
+    return this._maxHistory;
+  }
+  set maxHistoryLength(value: number) {
+    if (typeof value !== 'number' || isNaN(value)) return;
+    this._maxHistory = value;
+  }
+
+  /** 官方 UndoManager.nestedTransactionNames */
+  get nestedTransactionNames(): List<string> {
+    return new List<string>(this._nestedTransactionNames);
+  }
+
+  /** 官方 UndoManager.checksTransactionLevel */
+  get checksTransactionLevel(): boolean {
+    return this._checksTransactionLevel;
+  }
+  set checksTransactionLevel(value: boolean) {
+    this._checksTransactionLevel = value;
+  }
+
+  /** 官方 UndoManager.isUndoingRedoing：撤销/重放过程中为 true */
+  get isUndoingRedoing(): boolean {
+    return this._skipsUndoManager;
+  }
+
+  /** 官方 UndoManager.isJustDiscarded */
+  get isJustDiscarded(): boolean {
+    return this._isJustDiscarded;
+  }
+
+  /** 官方 UndoManager.discardHistoryAfterIndex：丢掉 historyIndex 之后（可重做）的事务 */
+  discardHistoryAfterIndex(): void {
+    if (this.isUndoingRedoing || !this.canRedo) return;
+    while (this._redoStack.length > 0) {
+      const t = this._redoStack.pop();
+      if (t) t.clear();
+      this._isJustDiscarded = true;
+    }
+  }
+
+  /**
+   * 官方 UndoManager.combineTransactions：把紧跟在 target 之后的那条事务
+   * 的全部变更并入 target，并从历史里删掉它。不传 target 时合并最后两条。
+   */
+  combineTransactions(target?: Transaction): void {
+    if (this.isUndoingRedoing) return;
+    const hist = this._undoStack;
+    if (hist.length < 2) return;
+    let into: Transaction;
+    let idx: number;
+    if (target) {
+      const k = hist.indexOf(target);
+      if (k < 0) throw new Error('combineTransactions given unknown Transaction: ' + target);
+      into = target;
+      idx = k + 1;
+    } else {
+      into = hist[hist.length - 2];
+      idx = hist.length - 1;
+    }
+    if (idx >= hist.length) return;
+    const src = hist[idx];
+    into.addAllChanges(src.changes);
+    hist.splice(idx, 1);
+  }
+
+  /** 官方 UndoManager.copyProperties：只拷贝三个可配置属性 */
+  copyProperties(other: UndoManager): void {
+    this.isEnabled = other.isEnabled;
+    this.maxHistoryLength = other.maxHistoryLength;
+    this.checksTransactionLevel = other.checksTransactionLevel;
+  }
+
+  /** 官方 UndoManager.thaw：本项目历史是普通数组，无冻结语义，保持空实现 */
+  thaw(): void {
+    // no-op
+  }
+
+  /** 官方 UndoManager.skipsEvent：临时层对象与事务事件本身不进历史 */
+  skipsEvent(e: ChangedEvent | null): boolean {
+    if (e === null || e.change === ChangedEventTransaction) return true;
+    const obj = e.object;
+    if (obj === null || obj === undefined) return false;
+    if (obj.layer !== undefined) {
+      const layer = obj.layer;
+      if (layer !== null && layer !== undefined && layer.isTemporary) return true;
+    } else if (obj.isTemporary) {
+      return true;
+    }
+    return false;
+  }
+
+  /** 官方 UndoManager.toString */
+  toString(level?: number): string {
+    const lv = level === undefined ? 0 : level;
+    let str =
+      'UndoManager ' + this.historyIndex + '<' + this.history.count + '<=' + this.maxHistoryLength;
+    str += '[';
+    const names = this.nestedTransactionNames;
+    const n = names.count;
+    for (let i = 0; i < n; i++) {
+      if (i > 0) str += ' ';
+      str += names.elt(i);
+    }
+    str += ']';
+    if (lv > 0) {
+      const hist = this.history;
+      for (let i = 0; i < hist.count; i++) {
+        const t = hist.elt(i);
+        str += '\n ' + (t === null ? '' : t.toString());
+      }
+    }
+    return str;
+  }
+
 }

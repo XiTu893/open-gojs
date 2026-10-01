@@ -1,4 +1,5 @@
 export class TreeVertex {
+  static readonly className: string = "TreeVertex";
 
   /** The key of this vertex. */
   key!: any;

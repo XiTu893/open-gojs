@@ -1,4 +1,4 @@
-import { EnumValue, BrushSolid, BrushLinear, BrushRadial } from './EnumValues';
+import { EnumValue, BrushSolid, BrushLinear, BrushRadial, BrushPattern, ColorSpaceHSL } from './EnumValues';
 import { Point } from './Point';
 
 /**
@@ -6,6 +6,7 @@ import { Point } from './Point';
  * 支持 Solid（纯色）、Linear（线性渐变）、Radial（径向渐变）
  */
 export class Brush {
+  static readonly className: string = "Brush";
   /** 画刷类型 */
   public type: EnumValue;
   /** 纯色颜色值 */
@@ -23,7 +24,8 @@ export class Brush {
   /** 径向渐变半径 */
   public radius: number;
 
-  constructor(type?: EnumValue | string) {
+  /** 官方 `Brush(type?, colorStops?)`：colorStops 对象中数字键为色标，其余键直接赋值（如 start/end） */
+  constructor(type?: EnumValue | string, colorStops?: Record<string, any>) {
     if (typeof type === 'string') {
       this.type = BrushSolid;
       this.color = type;
@@ -37,6 +39,13 @@ export class Brush {
     this.center = new Point(0.5, 0.5);
     this.focus = new Point(0.5, 0.5);
     this.radius = 0.5;
+    if (colorStops) {
+      for (const key of Object.keys(colorStops)) {
+        const n = parseFloat(key);
+        if (isFinite(n)) this.addColorStop(n, colorStops[key]);
+        else (this as any)[key] = colorStops[key];
+      }
+    }
   }
 
   /** 获取色标列表 */
@@ -44,8 +53,11 @@ export class Brush {
     return this._stops;
   }
 
-  /** 添加色标 */
+  /** 添加色标（官方：Solid 上加色标会自动转为 Linear） */
   addColorStop(offset: number, color: string): this {
+    if (this.type === BrushSolid) {
+      this.type = BrushLinear;
+    }
     this._stops.push({ offset, color });
     this._stops.sort((a, b) => a.offset - b.offset);
     return this;
@@ -157,37 +169,105 @@ export class Brush {
     return b instanceof Brush;
   }
 
-  static randomColor(): string {
-    const r = Math.floor(Math.random() * 256);
-    const g = Math.floor(Math.random() * 256);
-    const b = Math.floor(Math.random() * 256);
-    return 'rgb(' + r + ',' + g + ',' + b + ')';
+  /** 官方 U.wm：crypto.getRandomValues 单位浮点 */
+  private static _wm(): number {
+    const a = new Uint32Array(1);
+    const c: any = typeof globalThis !== 'undefined' ? (globalThis as any).crypto : undefined;
+    if (c && typeof c.getRandomValues === 'function') c.getRandomValues(a);
+    else a[0] = Math.floor(Math.random() * 4294967296);
+    return a[0] / 4294967296;
   }
 
-  static darken(color: string, fraction?: number): string {
-    return Brush.darkenBy(color, fraction || 0.2);
+  /** 官方 Brush.randomColor(min=128, max=max(min,255))：'#rrggbb'，经 crypto 随机 */
+  static randomColor(min?: number, max?: number): string {
+    if (min === undefined) min = 128;
+    if (max === undefined) max = Math.max(min, 255);
+    const e = Math.abs(max - min);
+    let s = Math.floor(min + Brush._wm() * e).toString(16);
+    let g = Math.floor(min + Brush._wm() * e).toString(16);
+    let b = Math.floor(min + Brush._wm() * e).toString(16);
+    if (s.length < 2) s = '0' + s;
+    if (g.length < 2) g = '0' + g;
+    if (b.length < 2) b = '0' + b;
+    return '#' + s + g + b;
   }
 
-  static darkenBy(color: string, fraction: number): string {
+  static darken(color: string, fraction?: number, space?: number): string {
+    return Brush.darkenBy(color, fraction === undefined ? 0.2 : fraction, space);
+  }
+
+  static darkenBy(color: string, fraction: number, space?: number): string {
+    return Brush._wd(color, -(fraction === undefined ? 0.2 : fraction), space === undefined ? 3 : space);
+  }
+
+  static lighten(color: string, fraction?: number, space?: number): string {
+    return Brush.lightenBy(color, fraction === undefined ? 0.2 : fraction, space);
+  }
+
+  static lightenBy(color: string, fraction: number, space?: number): string {
+    return Brush._wd(color, fraction === undefined ? 0.2 : fraction, space === undefined ? 3 : space);
+  }
+
+  /** 官方 sRGB gamma 解码（sRGB → 线性） */
+  private static _yN(t: number): number {
+    t /= 255;
+    return t <= 0.04045 ? t / 12.92 : Math.pow((t + 0.055) / 1.055, 2.4);
+  }
+
+  /** 官方 sRGB gamma 编码（线性 → sRGB） */
+  private static _wN(t: number): number {
+    return t <= 0.0031308 ? t * 12.92 : 1.055 * Math.pow(t, 1 / 2.4) - 0.055;
+  }
+
+  /**
+   * 官方 Brush.Wd/Ho：解析颜色 → 按颜色空间调整明度（space=3 官方默认 OKLCh）→
+   * 返回官方格式 "rgba(r, g, b, a)"。仅实现官方默认的 OKLCh（+未用到的 HSL/Lab 不实现，
+   * space 非 3 时原样返回）。
+   */
+  private static _wd(color: string, amount: number, space: number): string {
+    if (space !== 3) return color;
     const c = Color.parse(color);
     if (!c) return color;
-    const f = 1 - fraction;
-    return Color.toString(Math.round(c.r * f), Math.round(c.g * f), Math.round(c.b * f), c.a);
-  }
-
-  static lighten(color: string, fraction?: number): string {
-    return Brush.lightenBy(color, fraction || 0.2);
-  }
-
-  static lightenBy(color: string, fraction: number): string {
-    const c = Color.parse(color);
-    if (!c) return color;
-    return Color.toString(
-      Math.round(c.r + (255 - c.r) * fraction),
-      Math.round(c.g + (255 - c.g) * fraction),
-      Math.round(c.b + (255 - c.b) * fraction),
-      c.a
-    );
+    // sRGB → 线性 RGB → XYZ D65（官方 GD）
+    const lr = Brush._yN(c.r);
+    const lg = Brush._yN(c.g);
+    const lb = Brush._yN(c.b);
+    let x = 0.4124564 * lr + 0.3575761 * lg + 0.1804375 * lb;
+    let y = 0.2126729 * lr + 0.7151522 * lg + 0.072175 * lb;
+    let z = 0.0193339 * lr + 0.119192 * lg + 0.9503041 * lb;
+    // XYZ → OKLab（官方 h3）
+    const l_ = Math.cbrt(0.8190224 * x + 0.3619062 * y - 0.1288737 * z);
+    const m_ = Math.cbrt(0.03298366 * x + 0.9292868 * y + 0.03614466 * z);
+    const s_ = Math.cbrt(0.04817719 * x + 0.2642395 * y + 0.6335478 * z);
+    const labL = 0.2104542 * l_ + 0.7936177 * m_ - 0.004072046 * s_;
+    const labA = 1.977998 * l_ - 2.428592 * m_ + 0.4505937 * s_;
+    const labB = 0.02590403 * l_ + 0.7827717 * m_ - 0.8086757 * s_;
+    // OKLab → OKLCh（官方 c3），调 L（官方 Wd case3：clamp(0,100, L+100*amount)）
+    const hue = Math.atan2(labB, labA) * 180 / Math.PI;
+    const chroma = Math.sqrt(labA * labA + labB * labB);
+    const L = Math.min(100, Math.max(0, labL * 100 + 100 * amount)) / 100;
+    // OKLCh → OKLab（官方 f3）
+    const rad = (hue >= 0 ? hue : hue + 360) * Math.PI / 180;
+    const a2 = chroma * Math.cos(rad);
+    const b2 = chroma * Math.sin(rad);
+    // OKLab → XYZ（官方 a3）
+    let t1 = 0.9999999 * L + 0.3963377 * a2 + 0.2158037 * b2;
+    let t2 = 1.000000009 * L - 0.1055613 * a2 - 0.06385417 * b2;
+    let t3 = 1.00000005 * L - 0.08948418 * a2 - 1.291485 * b2;
+    t1 = t1 * t1 * t1;
+    t2 = t2 * t2 * t2;
+    t3 = t3 * t3 * t3;
+    x = 1.2268798 * t1 - 0.5578149 * t2 + 0.281391 * t3;
+    y = -0.04057576 * t1 + 1.112286 * t2 - 0.07171106 * t3;
+    z = -0.07637294 * t1 - 0.4214933 * t2 + 1.586924 * t3;
+    // XYZ → 线性 RGB → sRGB（官方 qD：round + clamp 0..255）
+    let rr = Math.round(Brush._wN(x) * 255);
+    let gg = Math.round(Brush._wN(y) * 255);
+    let bb = Math.round(Brush._wN(z) * 255);
+    if (rr > 255) rr = 255; else if (rr < 0) rr = 0;
+    if (gg > 255) gg = 255; else if (gg < 0) gg = 0;
+    if (bb > 255) bb = 255; else if (bb < 0) bb = 0;
+    return 'rgba(' + rr + ', ' + gg + ', ' + bb + ', ' + c.a + ')';
   }
 
   static isDark(color: string): boolean {
@@ -195,6 +275,191 @@ export class Brush {
     if (!c) return false;
     return (c.r * 0.299 + c.g * 0.587 + c.b * 0.114) < 128;
   }
+  // ============ 官方 Brush API 对齐（阶段 5） ============
+
+  private _startRadius: number = 0;
+  private _endRadius: number = 0;
+  private _pattern: HTMLCanvasElement | HTMLImageElement | null = null;
+
+  /** 官方 Brush.startRadius（Radial 起始半径） */
+  get startRadius(): number {
+    return this._startRadius;
+  }
+  set startRadius(value: number) {
+    this._startRadius = value;
+  }
+
+  /** 官方 Brush.endRadius（Radial 结束半径） */
+  get endRadius(): number {
+    return this._endRadius;
+  }
+  set endRadius(value: number) {
+    this._endRadius = value;
+  }
+
+  /** 官方 Brush.pattern（BrushType.Pattern 使用的位图） */
+  get pattern(): HTMLCanvasElement | HTMLImageElement | null {
+    return this._pattern;
+  }
+  set pattern(value: HTMLCanvasElement | HTMLImageElement | null) {
+    this._pattern = value;
+  }
+
+  /**
+   * 官方 Brush.colorStops：offset → color 的 Map 视图（本项目内部用 BrushStop[] 存储）。
+   * 无色标时与官方一样返回 null。
+   */
+  get colorStops(): Map<number, string> | null {
+    if (this._stops.length === 0) return null;
+    const m = new Map<number, string>();
+    for (let i = 0; i < this._stops.length; i++) {
+      m.set(this._stops[i].offset, this._stops[i].color);
+    }
+    return m;
+  }
+  set colorStops(value: Map<number, string> | null) {
+    if (value === null || value === undefined) {
+      this._stops = [];
+      return;
+    }
+    const arr: BrushStop[] = [];
+    value.forEach((color: string, offset: number) => {
+      arr.push({ offset, color });
+    });
+    arr.sort((a, b) => a.offset - b.offset);
+    this._stops = arr;
+  }
+
+  /** 官方 Brush.toString */
+  toString(): string {
+    let str = 'Brush(';
+    if (this.type === BrushSolid) {
+      str += this.color;
+    } else {
+      str +=
+        this.type === BrushLinear
+          ? 'Linear '
+          : this.type === BrushRadial
+            ? 'Radial '
+            : this.type === BrushPattern
+              ? 'Pattern '
+              : '(unknown) ';
+      str += this.start + ' ' + this.end;
+      const cs = this.colorStops;
+      if (cs !== null) {
+        cs.forEach((color: string, offset: number) => {
+          str += ' ' + offset + ':' + color;
+        });
+      }
+    }
+    return str + ')';
+  }
+
+  /** 官方 Brush.lightenBy（实例版，就地变亮） */
+  lightenBy(fraction?: number, mode?: EnumValue): this {
+    const f = fraction === undefined || typeof fraction !== 'number' ? 0.2 : fraction;
+    void mode;
+    if (this.type === BrushSolid) {
+      this.color = Brush.lightenBy(this.color, f);
+    } else if (this.type === BrushLinear || this.type === BrushRadial) {
+      const arr = this._stops.slice();
+      this._stops = [];
+      for (let i = 0; i < arr.length; i++) {
+        this.addColorStop(arr[i].offset, Brush.lightenBy(arr[i].color, f));
+      }
+    }
+    return this;
+  }
+
+  /** 官方 Brush.darkenBy（实例版，就地变暗） */
+  darkenBy(fraction?: number, mode?: EnumValue): this {
+    const f = fraction === undefined || typeof fraction !== 'number' ? 0.2 : fraction;
+    void mode;
+    if (this.type === BrushSolid) {
+      this.color = Brush.darkenBy(this.color, f);
+    } else if (this.type === BrushLinear || this.type === BrushRadial) {
+      const arr = this._stops.slice();
+      this._stops = [];
+      for (let i = 0; i < arr.length; i++) {
+        this.addColorStop(arr[i].offset, Brush.darkenBy(arr[i].color, f));
+      }
+    }
+    return this;
+  }
+
+  /** 官方 Brush.isDark（实例版） */
+  isDark(): boolean {
+    if (this.type === BrushSolid) return Brush.isDark(this.color);
+    if (this.type === BrushLinear || this.type === BrushRadial) {
+      const stops = this._stops;
+      if (stops.length === 0) return false;
+      if (this.type === BrushRadial) {
+        return Brush.isDark(stops[0].color);
+      }
+      const half = stops.find((s: BrushStop) => s.offset === 0.5);
+      if (half !== undefined) return Brush.isDark(half.color);
+      if (stops.length === 2) return Brush.isDark(Brush.mix(stops[0].color, stops[1].color));
+      let i1 = -1;
+      let i2 = -1;
+      let d1 = 1;
+      let d2 = 1;
+      for (let i = 0; i < stops.length; i++) {
+        const d = Math.abs(0.5 - stops[i].offset);
+        if (d1 > d2) {
+          if (d < d1) {
+            i1 = i;
+            d1 = d;
+          }
+        } else if (d < d2) {
+          i2 = i;
+          d2 = d;
+        }
+      }
+      if (i1 > i2) {
+        const ti = i1;
+        i1 = i2;
+        i2 = ti;
+        const td = d1;
+        d1 = d2;
+        d2 = td;
+      }
+      if (i1 < 0 || i2 < 0) return Brush.isDark(stops[0].color);
+      const span = d2 - d1;
+      const t = span === 0 ? 0.5 : 1 - d2 / span;
+      return Brush.isDark(Brush.mix(stops[i1].color, stops[i2].color, t));
+    }
+    return false;
+  }
+
+  // ---- 官方 Brush 静态成员（阶段 5） ----
+
+  /** 官方 Brush.isValidColor */
+  static isValidColor(color: string): boolean {
+    const g: any = typeof globalThis !== 'undefined' ? globalThis : undefined;
+    if (g !== undefined && g.CSS !== undefined && typeof g.CSS.supports === 'function') {
+      return g.CSS.supports('color', color);
+    }
+    return true;
+  }
+
+  /** 官方 Brush.mix：把两个颜色按 fraction 混合 */
+  static mix(color1: string, color2: string, fraction?: number): string {
+    const f = fraction === undefined ? 0.5 : fraction;
+    const c1 = Color.parse(color1);
+    const c2 = Color.parse(color2);
+    if (c1 === null) return color1;
+    if (c2 === null) return color1;
+    const r = Math.round((c2.r - c1.r) * f + c1.r);
+    const g = Math.round((c2.g - c1.g) * f + c1.g);
+    const b = Math.round((c2.b - c1.b) * f + c1.b);
+    const a = Math.round((c2.a - c1.a) * f + c1.a);
+    return 'rgba(' + r + ', ' + g + ', ' + b + ', ' + a + ')';
+  }
+
+  /** @deprecated 用 ColorSpace.HSL */
+  static readonly HSL: EnumValue = ColorSpaceHSL;
+  /** @deprecated 用 BrushType.Pattern */
+  static readonly Pattern: EnumValue = BrushPattern;
 }
 
 /** 色标 */
@@ -291,4 +556,5 @@ const NAMED_COLORS: Record<string, { r: number; g: number; b: number; a: number 
   aqua: { r: 0, g: 255, b: 255, a: 1 },
   silver: { r: 192, g: 192, b: 192, a: 1 },
   fuchsia: { r: 255, g: 0, b: 255, a: 1 },
+
 };

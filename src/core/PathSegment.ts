@@ -4,6 +4,7 @@ import { EnumValue, PathSegmentLine, PathSegmentQuadraticBezier, PathSegmentCubi
  * PathSegment - 路径段
  */
 export class PathSegment {
+  static readonly className: string = "PathSegment";
   /** 段类型 */
   public type: EnumValue;
   /** 控制点1 X */
@@ -26,6 +27,16 @@ export class PathSegment {
   public xAxisRotation: number;
   public largeArc: boolean;
   public clockwise: boolean;
+  /**
+   * 官方「按角度」圆弧参数（`PathSegment(SegmentType.Arc, startAngle, sweepAngle, centerX, centerY, radiusX, radiusY)`）。
+   * 官方对 Arc 段复用同一批存储：endX→startAngle、endY→sweepAngle、
+   * point1X→centerX、point1Y→centerY、point2X→radiusX、point2Y→radiusY。
+   * startAngle 为 NaN 表示不是这种用法（此时 endX/endY 仍是 SVG 弧的终点）。
+   */
+  public startAngle: number;
+  public sweepAngle: number;
+  public centerX: number;
+  public centerY: number;
   /** 是否为相对坐标 */
   public isRelative: boolean;
 
@@ -38,6 +49,8 @@ export class PathSegment {
     x2: number = NaN,
     y2: number = NaN
   ) {
+    if (type && type._name === 'Bezier') type = PathSegmentCubicBezier;
+    else if (type && type._name === 'Move') type = PathSegmentMoveTo;
     this.type = type;
     this.endX = endX;
     this.endY = endY;
@@ -51,7 +64,30 @@ export class PathSegment {
     this.xAxisRotation = 0;
     this.largeArc = false;
     this.clockwise = false;
+    this.startAngle = NaN;
+    this.sweepAngle = 0;
+    this.centerX = NaN;
+    this.centerY = NaN;
     this.isRelative = false;
+
+    // 官方 Arc 段的「按角度」构造形式：
+    //   new PathSegment(SegmentType.Arc, startAngle, sweepAngle, centerX, centerY, radiusX, radiusY)
+    // 本项目内部的 SVG 弧走 PathSegment.Arc() 静态方法（只传 endX/endY，x1..y2 保持 NaN），
+    // 因此「x1/y1/x2/y2 均为有限数」即可无歧义地识别官方形式。
+    if (type === PathSegmentArc &&
+      !isNaN(x1) && !isNaN(y1) && !isNaN(x2) && !isNaN(y2)) {
+      this.startAngle = endX;
+      this.sweepAngle = endY;
+      this.centerX = x1;
+      this.centerY = y1;
+      this.radiusX = x2;
+      this.radiusY = y2;
+      // endX/endY 置为弧的终点，便于沿路径推进与求包围盒
+      const a0 = (this.startAngle * Math.PI) / 180;
+      const a1 = ((this.startAngle + this.sweepAngle) * Math.PI) / 180;
+      this.endX = this.centerX + this.radiusX * Math.cos(a1);
+      this.endY = this.centerY + this.radiusY * Math.sin(a1);
+    }
   }
 
   copy(): PathSegment {
@@ -62,6 +98,10 @@ export class PathSegment {
     seg.xAxisRotation = this.xAxisRotation;
     seg.largeArc = this.largeArc;
     seg.clockwise = this.clockwise;
+    seg.startAngle = this.startAngle;
+    seg.sweepAngle = this.sweepAngle;
+    seg.centerX = this.centerX;
+    seg.centerY = this.centerY;
     seg.isRelative = this.isRelative;
     return seg;
   }
@@ -87,6 +127,30 @@ export class PathSegment {
   /** 创建三次贝塞尔曲线段 */
   static CubicBezier(endX: number, endY: number, x1: number, y1: number, x2: number, y2: number): PathSegment {
     return new PathSegment(PathSegmentCubicBezier, endX, endY, x1, y1, x2, y2);
+  }
+
+  /**
+   * 官方 4.0 的「按角度」圆弧段：`PathFigure` 里就是这种单条 Arc 表示整圆/圆弧
+   * （例如箭头 Circle = 一条 Arc: center(4,4) r(4,4) startAngle 0 sweepAngle 360，
+   * 包围盒 [0,0,8,8]），不是用三次贝塞尔去近似。
+   */
+  static AngleArc(
+    centerX: number, centerY: number,
+    radiusX: number, radiusY: number,
+    startAngle: number, sweepAngle: number
+  ): PathSegment {
+    const endAngle = startAngle + sweepAngle;
+    const seg = new PathSegment(PathSegmentArc, 0, endAngle);
+    seg.centerX = centerX;
+    seg.centerY = centerY;
+    seg.radiusX = radiusX;
+    seg.radiusY = radiusY;
+    seg.startAngle = startAngle;
+    seg.sweepAngle = sweepAngle;
+    // 角度制的端点，供不需要反解椭圆的消费方使用
+    seg.endX = centerX + radiusX * Math.cos(endAngle * Math.PI / 180);
+    seg.endY = centerY + radiusY * Math.sin(endAngle * Math.PI / 180);
+    return seg;
   }
 
   /** 创建圆弧段 */

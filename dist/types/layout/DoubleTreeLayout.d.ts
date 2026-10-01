@@ -16,11 +16,13 @@ import { TreeLayout } from './TreeLayout';
  * left/right.
  */
 export declare class DoubleTreeLayout extends Layout {
+    static readonly className: string;
     protected _vertical: boolean;
     protected _directionFunction: (node: Node) => boolean;
     protected _bottomRightOptions: Record<string, any> | null;
     protected _topLeftOptions: Record<string, any> | null;
-    constructor();
+    /** 官方 `DoubleTreeLayout.constructor(init?)`：`t && Object.assign(this, t)` */
+    constructor(init?: any);
     /**
      * When false, the layout grows towards the left and towards the right.
      * When true, the layout grows upwards and downwards.

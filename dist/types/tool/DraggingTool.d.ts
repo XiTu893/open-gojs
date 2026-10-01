@@ -3,6 +3,7 @@ import { Point } from '../core/Point';
 import { Map } from '../core/Map';
 import type { Part } from '../view/Part';
 export declare class DraggingTool extends Tool {
+    static readonly className: string;
     private _isCopy;
     private _isCopyEnabled;
     private _startPoint;

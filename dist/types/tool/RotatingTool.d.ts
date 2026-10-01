@@ -2,6 +2,7 @@ import { Tool } from './Tool';
 import { Point } from '../core/Point';
 import { GraphObject } from '../view/GraphObject';
 export declare class RotatingTool extends Tool {
+    static readonly className: string;
     private _handle;
     private _adornedElement;
     private _angle;

@@ -1,6 +1,7 @@
 import { Tool } from './Tool';
 import { TextBlock } from '../view/TextBlock';
 export declare class TextEditingTool extends Tool {
+    static readonly className: string;
     private _textBlock;
     private _defaultText;
     private _currentText;

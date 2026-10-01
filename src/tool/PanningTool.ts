@@ -6,6 +6,7 @@ import { Point } from '../core/Point';
  * The user drags to scroll the diagram viewport.
  */
 export class PanningTool extends Tool {
+  static readonly className: string = "PanningTool";
 
   private _originalPosition: Point | null = null;
   private _startPoint: Point | null = null;

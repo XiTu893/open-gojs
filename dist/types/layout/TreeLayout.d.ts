@@ -20,6 +20,7 @@ import { TreeVertex } from './TreeVertex';
  * - 官方 K/kt/gt/mm/pm → relativePosition/subtreeSize/subtreeOffset/mm/pm。
  */
 export declare class TreeLayout extends Layout {
+    static readonly className: string;
     private _roots;
     private _path;
     private _treeStyle;
@@ -258,4 +259,28 @@ export declare class TreeLayout extends Layout {
     layoutComments(v: TreeVertex): void;
     /** 官方 layoutComments 内联的 Comment 链接 Spot 设置 */
     private _setCommentLinkSpots;
+    get alternateChildPortSpot(): Spot;
+    set alternateChildPortSpot(val: Spot);
+    get alternatePortSpot(): Spot;
+    set alternatePortSpot(val: Spot);
+    get alternateSetsChildPortSpot(): boolean;
+    set alternateSetsChildPortSpot(val: boolean);
+    get alternateSetsPortSpot(): boolean;
+    set alternateSetsPortSpot(val: boolean);
+    get alternateComparer(): (a: TreeVertex, b: TreeVertex) => number;
+    set alternateComparer(val: (a: TreeVertex, b: TreeVertex) => number);
+    get alternateCommentMargin(): number;
+    set alternateCommentMargin(val: number);
+    get alternateCommentSpacing(): number;
+    set alternateCommentSpacing(val: number);
+    findRoots(): void;
+    initializeTreeVertexValues(v: TreeVertex): void;
+    assignTreeVertexValues(v: TreeVertex): void;
+    sortTreeVertexChildren(v: TreeVertex): void;
+    layoutTree(v: TreeVertex): void;
+    addComments(v: TreeVertex): void;
+    computeBusNodeSpacing(c: TreeVertex): number;
+    computeBusLastRowSpacing(c: TreeVertex, dir: number): number;
+    commitNodes(): void;
+    commitLinks(): void;
 }

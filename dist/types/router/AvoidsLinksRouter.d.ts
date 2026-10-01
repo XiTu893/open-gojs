@@ -15,6 +15,7 @@ import { Group } from '../view/Group';
  *   myDiagram.routers.add(new AvoidsLinksRouter());
  */
 export declare class AvoidsLinksRouter {
+    static readonly className: string;
     private _isEnabled;
     private _isRealtime;
     private _name;

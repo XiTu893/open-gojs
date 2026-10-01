@@ -4,6 +4,7 @@ import type { GraphObject } from '../view/GraphObject';
 import type { Part } from '../view/Part';
 
 export class ClickSelectingTool extends Tool {
+  static readonly className: string = "ClickSelectingTool";
 
   private _lastClickTime: number = 0;
   private _lastClickObj: GraphObject | null = null;

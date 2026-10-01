@@ -1,4 +1,5 @@
 export class DiagramRendererOptions {
+  static readonly className: string = "DiagramRendererOptions";
 
   /** The type of renderer to use */
   type: string;

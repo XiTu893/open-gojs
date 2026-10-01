@@ -1,7 +1,8 @@
 import './core/Polyfill';
-export { EnumValue } from './core/EnumValues';
-export { PanelAuto, PanelVertical, PanelHorizontal, PanelSpot, PanelTable, PanelPosition, PanelGrid, PanelViewbox, PanelGraduated, PanelLink, PanelTableColumn, PanelTableRow, StretchDefault, StretchFill, StretchNone, StretchUniform, StretchUniformToFill, StretchHorizontal, StretchVertical, FlipNone, FlipHorizontal, FlipVertical, FlipBoth, RoutingNormal, RoutingOrthogonal, RoutingAvoidsNodes, CurveNone, CurveBezier, CurveJumpOver, CurveJumpGap, WrapFit, WrapDesiredSize, WrapNone, OverflowClip, OverflowEllipsis, ImageStretchNone, ImageStretchFill, ImageStretchUniform, ImageStretchUniformToFill, SizingDefault, SizingNone, SizingProp, SizingAuto, TreeStyleLayered, TreeStyleAlternating, TreeStyleLastParents, TreeStyleCompact, TreeStyleRootOnly, TreePathDefault, TreePathDestination, TreePathSource, TreeArrangementVertical, TreeArrangementHorizontal, TreeArrangementFixedRoots, TreeLayerStyleIndividual, TreeLayerStyleUniform, TreeLayerStyleSiblings, TreeSortingForwards, TreeSortingReverse, TreeSortingAscending, TreeSortingDescending, TreeCompactionBlock, TreeCompactionNone, TreeAlignmentTopLeftBus, TreeAlignmentBottomRightBus, TreeAlignmentBus, TreeAlignmentBusBranching, TreeAlignmentCenterChildren, TreeAlignmentCenterSubtrees, TreeAlignmentStart, TreeAlignmentEnd, TreeAlignmentCustom, CircularArrangementConstantDistance, CircularArrangementConstantAngle, CircularArrangementConstantRadius, CircularArrangementPacked, CircularDirectionClockwise, CircularDirectionCounterclockwise, CircularDirectionBidirectionalLeft, CircularDirectionBidirectionalRight, CircularSortingForwards, CircularSortingReverse, CircularSortingAscending, CircularSortingDescending, CircularSortingOptimized, LayeredDigraphDirectionDown, LayeredDigraphDirectionUp, LayeredDigraphDirectionLeft, LayeredDigraphDirectionRight, LayeredDigraphAlignTop, LayeredDigraphAlignBottom, LayeredDigraphAlignCenter, LayeredDigraphAlignUpper, LayeredDigraphAlignLower, LayeredDigraphAlignNone, LayeredDigraphAggressiveNone, LayeredDigraphAggressiveHorizontal, LayeredDigraphAggressiveVertical, LayeredDigraphAggressiveAll, LayeredDigraphAggressiveLess, LayeredDigraphAggressiveMore, LayeredDigraphPackNone, LayeredDigraphPackAll, LayeredDigraphPackExpand, LayeredDigraphPackStraighten, LayeredDigraphPackMedian, LayeredDigraphCycleRemoveDepthFirst, LayeredDigraphCycleRemoveGreedy, LayeredDigraphInitDepthFirstIn, LayeredDigraphInitDepthFirstOut, LayeredDigraphInitNaive, LayeredDigraphLayeringLongestPathSink, LayeredDigraphLayeringLongestPathSource, LayeredDigraphLayeringOptimalLinkLength, GridLayoutLocation, GridLayoutCenter, GridArrangementLeftToRight, GridArrangementRightToLeft, GridArrangementTopToBottom, GridArrangementBottomToTop, GridWrappingNone, GridWrappingFit, GridSortingForwards, GridSortingReverse, GridSortingAscending, GridSortingDescending, GridAlignmentLocation, GridAlignmentPosition, AnimationDefault, AnimationEaseInOut, AnimationEaseIn, AnimationEaseOut, AnimationLinear, AnimationEaseOutBounce, AnimationStyleDefault, AnimationStyleAnimateLocations, AnimationStyleNone, AutoScaleNone, AutoScaleUniform, AutoScaleUniformToFill, ScrollDocument, ScrollInfinite, CycleAll, CycleNotDirected, CycleNotUndirected, CycleDestinationTree, CycleSourceTree, SegmentOrientationNone, SegmentOrientationAlong, SegmentOrientationOpposite, SegmentOrientationParallel, SegmentOrientationPerpendicular, SegmentOrientationOrthogonal, ChangedEventProperty, ChangedEventInsert, ChangedEventRemove, ChangedEventTransaction, PathSegmentLine, PathSegmentQuadraticBezier, PathSegmentCubicBezier, PathSegmentArc, PathSegmentMoveTo, PathSegmentClose, BrushSolid, BrushLinear, BrushRadial, ViewboxStretchNone, ViewboxStretchFill, ViewboxStretchUniform, ViewboxStretchUniformToFill, GraduatedPanNone, GraduatedPanLeft, GraduatedPanCenter, GraduatedPanRight, LinkAdjustingEnd, LinkAdjustingStretch, OrientationNone, OrientationAlong, OrientationMinus90, OrientationPlus90, OrientationPlus180, GestureModeNone, GestureModeCancel, GestureModeZoom, WheelModeZoom, TextEditingAcceptLostFocus, TextEditingStartingSingleClick, LayoutConditionsStandard, LayoutConditionsNodeSized, GeometryStretchDefault, GeometryStretchUniform, GeometryTypeLine, GeometryTypePath, CircularNodeDiameterFormulaCircular, CircularNodeDiameterFormulaPythagorean, LinkingDirectionForwardsOnly, TriggerStartBundled, } from './core/EnumValues';
+export * from './core/EnumValues';
+export { Flip, TextFormat, PortSpreading, CollapsePolicy, ViewboxStretch, BrushType, ColorSpace, CircularNodeDiameterFormula, ReshapingBehavior, TextEditingState, Figures, Arrowheads, ToolNames, Builders, LayerNames, } from './core/EnumNamespaces';
 export { Iterable, Iterator, IMapIterator } from './core/Iterable';
+export { IKeyValuePair } from './core/IKeyValuePair';
 export { List } from './core/List';
 export { Map } from './core/Map';
 export { Set } from './core/Set';
@@ -26,6 +27,7 @@ export { Shape } from './view/Shape';
 export { TextBlock } from './view/TextBlock';
 export { Picture } from './view/Picture';
 export { Panel } from './view/Panel';
+export { PanelLayout } from './view/PanelLayout';
 export { Part } from './view/Part';
 export { Node } from './view/Node';
 export { Link } from './view/Link';
@@ -67,6 +69,19 @@ export { TreeLayout } from './layout/TreeLayout';
 export { ForceDirectedLayout } from './layout/ForceDirectedLayout';
 export { LayeredDigraphLayout } from './layout/LayeredDigraphLayout';
 export { CircularLayout } from './layout/CircularLayout';
+export { TreeNetwork } from './layout/TreeNetwork';
+export { TreeVertex } from './layout/TreeVertex';
+export { TreeEdge } from './layout/TreeEdge';
+export { ForceDirectedNetwork } from './core/ForceDirectedNetwork';
+export { ForceDirectedVertex } from './core/ForceDirectedVertex';
+export { ForceDirectedEdge } from './core/ForceDirectedEdge';
+export { LayeredDigraphNetwork } from './core/LayeredDigraphNetwork';
+export { LayeredDigraphVertex } from './core/LayeredDigraphVertex';
+export { LayeredDigraphEdge } from './core/LayeredDigraphEdge';
+export { ThemeBinding } from './core/ThemeBinding';
+export { Router } from './core/Router';
+/** 本包版本（官方 GoJS 同名导出 `go.version` 为 "4.0.4"，此处诚实地报告自身版本）。 */
+export declare const version = "0.1.0";
 export { Animation, AnimationState, AnimationConfig } from './animation/Animation';
 export { AnimationTrigger } from './animation/AnimationTrigger';
 export { AnimationManager } from './animation/AnimationManager';
@@ -98,19 +113,18 @@ export declare const Routing: {
     Normal: import("./core/EnumValues").EnumValue;
     Orthogonal: import("./core/EnumValues").EnumValue;
     AvoidsNodes: import("./core/EnumValues").EnumValue;
+    AvoidsNodesStraight: import("./core/EnumValues").EnumValue;
 };
 export declare const ScrollMode: {
     Document: import("./core/EnumValues").EnumValue;
     Infinite: import("./core/EnumValues").EnumValue;
 };
 export declare const Stretch: {
+    None: import("./core/EnumValues").EnumValue;
     Default: import("./core/EnumValues").EnumValue;
     Fill: import("./core/EnumValues").EnumValue;
-    None: import("./core/EnumValues").EnumValue;
-    Uniform: import("./core/EnumValues").EnumValue;
-    UniformToFill: import("./core/EnumValues").EnumValue;
-    Horizontal: import("./core/EnumValues").EnumValue;
     Vertical: import("./core/EnumValues").EnumValue;
+    Horizontal: import("./core/EnumValues").EnumValue;
 };
 export declare const TreeStyle: {
     Layered: import("./core/EnumValues").EnumValue;
@@ -155,9 +169,9 @@ export declare const TreePath: {
     Source: import("./core/EnumValues").EnumValue;
 };
 export declare const CircularArrangement: {
+    ConstantSpacing: import("./core/EnumValues").EnumValue;
     ConstantDistance: import("./core/EnumValues").EnumValue;
     ConstantAngle: import("./core/EnumValues").EnumValue;
-    ConstantRadius: import("./core/EnumValues").EnumValue;
     Packed: import("./core/EnumValues").EnumValue;
 };
 export declare const CircularSorting: {
@@ -169,23 +183,28 @@ export declare const CircularSorting: {
 };
 export declare const LayeredDigraphAggressive: {
     None: import("./core/EnumValues").EnumValue;
-    Horizontal: import("./core/EnumValues").EnumValue;
-    Vertical: import("./core/EnumValues").EnumValue;
-    All: import("./core/EnumValues").EnumValue;
     Less: import("./core/EnumValues").EnumValue;
     More: import("./core/EnumValues").EnumValue;
 };
 export declare const LayeredDigraphAlign: {
     None: import("./core/EnumValues").EnumValue;
+    UpperLeft: import("./core/EnumValues").EnumValue;
+    UpperRight: import("./core/EnumValues").EnumValue;
+    LowerLeft: import("./core/EnumValues").EnumValue;
+    LowerRight: import("./core/EnumValues").EnumValue;
+    All: import("./core/EnumValues").EnumValue;
 };
 export declare const LayeredDigraphPack: {
     None: import("./core/EnumValues").EnumValue;
+    Expand: import("./core/EnumValues").EnumValue;
+    Straighten: import("./core/EnumValues").EnumValue;
+    Median: import("./core/EnumValues").EnumValue;
+    MaybeExpand: import("./core/EnumValues").EnumValue;
+    All: import("./core/EnumValues").EnumValue;
 };
 export declare const GridArrangement: {
     LeftToRight: import("./core/EnumValues").EnumValue;
     RightToLeft: import("./core/EnumValues").EnumValue;
-    TopToBottom: import("./core/EnumValues").EnumValue;
-    BottomToTop: import("./core/EnumValues").EnumValue;
 };
 export declare const PanelTypes: {
     Auto: import("./core/EnumValues").EnumValue;
@@ -212,10 +231,10 @@ export declare const CircularDirection: {
     BidirectionalRight: import("./core/EnumValues").EnumValue;
 };
 export declare const LayeredDigraphDirection: {
-    Down: import("./core/EnumValues").EnumValue;
-    Up: import("./core/EnumValues").EnumValue;
-    Left: import("./core/EnumValues").EnumValue;
-    Right: import("./core/EnumValues").EnumValue;
+    Down: number;
+    Up: number;
+    Left: number;
+    Right: number;
 };
 export declare const LayeredDigraphInit: {
     DepthFirstOut: import("./core/EnumValues").EnumValue;
@@ -230,6 +249,7 @@ export declare const LayeredDigraphLayering: {
 export declare const LayeredDigraphCycleRemove: {
     DepthFirst: import("./core/EnumValues").EnumValue;
     Greedy: import("./core/EnumValues").EnumValue;
+    FromLayers: import("./core/EnumValues").EnumValue;
 };
 export declare const ImageStretch: {
     None: import("./core/EnumValues").EnumValue;
@@ -240,34 +260,35 @@ export declare const ImageStretch: {
 export declare const Sizing: {
     Default: import("./core/EnumValues").EnumValue;
     None: import("./core/EnumValues").EnumValue;
-    Prop: import("./core/EnumValues").EnumValue;
-    Auto: import("./core/EnumValues").EnumValue;
+    ProportionalExtra: import("./core/EnumValues").EnumValue;
 };
 export declare const Wrap: {
+    None: import("./core/EnumValues").EnumValue;
     Fit: import("./core/EnumValues").EnumValue;
     DesiredSize: import("./core/EnumValues").EnumValue;
-    None: import("./core/EnumValues").EnumValue;
+    BreakAll: import("./core/EnumValues").EnumValue;
 };
 export declare const CycleMode: {
     All: import("./core/EnumValues").EnumValue;
     NotDirected: import("./core/EnumValues").EnumValue;
+    NotDirectedFast: import("./core/EnumValues").EnumValue;
     NotUndirected: import("./core/EnumValues").EnumValue;
     DestinationTree: import("./core/EnumValues").EnumValue;
     SourceTree: import("./core/EnumValues").EnumValue;
 };
 export declare const ChangeType: {
+    Transaction: import("./core/EnumValues").EnumValue;
     Property: import("./core/EnumValues").EnumValue;
     Insert: import("./core/EnumValues").EnumValue;
     Remove: import("./core/EnumValues").EnumValue;
-    Transaction: import("./core/EnumValues").EnumValue;
 };
 export declare const SegmentType: {
+    Move: import("./core/EnumValues").EnumValue;
     Line: import("./core/EnumValues").EnumValue;
+    Bezier: import("./core/EnumValues").EnumValue;
     QuadraticBezier: import("./core/EnumValues").EnumValue;
-    CubicBezier: import("./core/EnumValues").EnumValue;
     Arc: import("./core/EnumValues").EnumValue;
-    MoveTo: import("./core/EnumValues").EnumValue;
-    Close: import("./core/EnumValues").EnumValue;
+    SvgArc: import("./core/EnumValues").EnumValue;
 };
 export declare const AnimationStyle: {
     Default: import("./core/EnumValues").EnumValue;
@@ -275,13 +296,21 @@ export declare const AnimationStyle: {
     None: import("./core/EnumValues").EnumValue;
 };
 export declare const LinkAdjusting: {
+    None: import("./core/EnumValues").EnumValue;
     End: import("./core/EnumValues").EnumValue;
+    Scale: import("./core/EnumValues").EnumValue;
     Stretch: import("./core/EnumValues").EnumValue;
 };
 export declare const Orientation: {
     None: import("./core/EnumValues").EnumValue;
     Along: import("./core/EnumValues").EnumValue;
+    Plus90: import("./core/EnumValues").EnumValue;
     Minus90: import("./core/EnumValues").EnumValue;
+    Opposite: import("./core/EnumValues").EnumValue;
+    Upright: import("./core/EnumValues").EnumValue;
+    Plus90Upright: import("./core/EnumValues").EnumValue;
+    Minus90Upright: import("./core/EnumValues").EnumValue;
+    Upright45: import("./core/EnumValues").EnumValue;
 };
 export declare const GestureMode: {
     None: import("./core/EnumValues").EnumValue;
@@ -289,30 +318,53 @@ export declare const GestureMode: {
     Zoom: import("./core/EnumValues").EnumValue;
 };
 export declare const WheelMode: {
+    Scroll: import("./core/EnumValues").EnumValue;
     Zoom: import("./core/EnumValues").EnumValue;
+    None: import("./core/EnumValues").EnumValue;
 };
 export declare const TextEditingAccept: {
     LostFocus: import("./core/EnumValues").EnumValue;
+    MouseDown: import("./core/EnumValues").EnumValue;
+    Tab: import("./core/EnumValues").EnumValue;
+    Enter: import("./core/EnumValues").EnumValue;
 };
 export declare const TextEditingStarting: {
     SingleClick: import("./core/EnumValues").EnumValue;
+    SingleClickSelected: import("./core/EnumValues").EnumValue;
+    DoubleClick: import("./core/EnumValues").EnumValue;
 };
 export declare const LayoutConditions: {
-    Standard: import("./core/EnumValues").EnumValue;
-    NodeSized: import("./core/EnumValues").EnumValue;
+    None: number;
+    Added: number;
+    Removed: number;
+    Shown: number;
+    Hidden: number;
+    NodeSized: number;
+    GroupLayout: number;
+    NodeReplaced: number;
+    Standard: number;
+    All: number;
 };
 export declare const GeometryStretch: {
+    None: import("./core/EnumValues").EnumValue;
     Default: import("./core/EnumValues").EnumValue;
+    Fill: import("./core/EnumValues").EnumValue;
     Uniform: import("./core/EnumValues").EnumValue;
 };
 export declare const GeometryType: {
     Line: import("./core/EnumValues").EnumValue;
+    Rectangle: import("./core/EnumValues").EnumValue;
+    Ellipse: import("./core/EnumValues").EnumValue;
     Path: import("./core/EnumValues").EnumValue;
 };
 export declare const LinkingDirection: {
+    Either: import("./core/EnumValues").EnumValue;
     ForwardsOnly: import("./core/EnumValues").EnumValue;
+    BackwardsOnly: import("./core/EnumValues").EnumValue;
 };
 export declare const TriggerStart: {
+    Default: import("./core/EnumValues").EnumValue;
+    Immediate: import("./core/EnumValues").EnumValue;
     Bundled: import("./core/EnumValues").EnumValue;
 };
 export declare const Overflow: {
