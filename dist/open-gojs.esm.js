@@ -13266,9 +13266,6 @@ function defineFigure(name, func) {
     if (CORE_FIGURE_NAMES.indexOf(name) < 0)
         extensionFigureNames.add(name);
 }
-function isExtensionFigure(name) {
-    return extensionFigureNames.has(name);
-}
 function getFigureGeometry(name, w, h, p1, p2, shape) {
     if (p1 === void 0) { p1 = NaN; }
     if (p2 === void 0) { p2 = NaN; }
@@ -13505,26 +13502,6 @@ defineFigure('Octagon', function (shape, w, h) {
     geo.add(fig);
     return geo;
 });
-defineFigure('Star', function (shape, w, h) {
-    var geo = new Geometry();
-    var cx = w / 2;
-    var cy = h / 2;
-    var outerR = Math.min(w, h) / 2;
-    var innerR = getP1(shape, outerR * 0.4);
-    var points = 5;
-    var fig = new PathFigure(cx, cy - outerR);
-    for (var i = 0; i < points; i++) {
-        var outerAngle = (Math.PI * 2 * i) / points - Math.PI / 2;
-        var innerAngle = outerAngle + Math.PI / points;
-        if (i > 0) {
-            fig.add(PathSegment.Line(cx + outerR * Math.cos(outerAngle), cy + outerR * Math.sin(outerAngle)));
-        }
-        fig.add(PathSegment.Line(cx + innerR * Math.cos(innerAngle), cy + innerR * Math.sin(innerAngle)));
-    }
-    fig.add(PathSegment.Close());
-    geo.add(fig);
-    return geo;
-});
 defineFigure('LineH', function (shape, w, h) {
     var geo = new Geometry();
     var fig = new PathFigure(0, h / 2, false);
@@ -13663,21 +13640,6 @@ defineFigure('Database', function (shape, w, h) {
     geo.add(fig3);
     return geo;
 });
-defineFigure('Note', function (shape, w, h) {
-    var geo = new Geometry();
-    var fig = new PathFigure(0, 0);
-    fig.add(PathSegment.Line(w * 0.8, 0));
-    fig.add(PathSegment.Line(w, h * 0.15));
-    fig.add(PathSegment.Line(w, h));
-    fig.add(PathSegment.Line(0, h));
-    fig.add(PathSegment.Close());
-    geo.add(fig);
-    var fig2 = new PathFigure(w * 0.8, 0, false);
-    fig2.add(PathSegment.Line(w * 0.8, h * 0.15));
-    fig2.add(PathSegment.Line(w, h * 0.15));
-    geo.add(fig2);
-    return geo;
-});
 defineFigure('Terminator', function (shape, w, h) {
     var r = getP1(shape, h / 2);
     var cr = Math.min(r, w / 2, h / 2);
@@ -13709,23 +13671,6 @@ defineFigure('Process', function (shape, w, h) {
     return geo;
 });
 defineFigure('Procedure', function (shape, w, h) {
-    var indent = getP1(shape, w * 0.1);
-    var geo = new Geometry();
-    var fig = new PathFigure(0, 0);
-    fig.add(PathSegment.Line(w, 0));
-    fig.add(PathSegment.Line(w, h));
-    fig.add(PathSegment.Line(0, h));
-    fig.add(PathSegment.Close());
-    geo.add(fig);
-    var fig2 = new PathFigure(indent, 0, false);
-    fig2.add(PathSegment.Line(indent, h));
-    geo.add(fig2);
-    var fig3 = new PathFigure(w - indent, 0, false);
-    fig3.add(PathSegment.Line(w - indent, h));
-    geo.add(fig3);
-    return geo;
-});
-defineFigure('PredefinedProcess', function (shape, w, h) {
     var indent = getP1(shape, w * 0.1);
     var geo = new Geometry();
     var fig = new PathFigure(0, 0);
@@ -13779,18 +13724,6 @@ defineFigure('ManualOperation', function (shape, w, h) {
     geo.add(fig);
     return geo;
 });
-defineFigure('Preparation', function (shape, w, h) {
-    var geo = new Geometry();
-    var fig = new PathFigure(w * 0.15, 0);
-    fig.add(PathSegment.Line(w * 0.85, 0));
-    fig.add(PathSegment.Line(w, h / 2));
-    fig.add(PathSegment.Line(w * 0.85, h));
-    fig.add(PathSegment.Line(w * 0.15, h));
-    fig.add(PathSegment.Line(0, h / 2));
-    fig.add(PathSegment.Close());
-    geo.add(fig);
-    return geo;
-});
 defineFigure('Delay', function (shape, w, h) {
     var geo = new Geometry();
     var fig = new PathFigure(0, 0);
@@ -13812,17 +13745,6 @@ defineFigure('Display', function (shape, w, h) {
     geo.add(fig);
     return geo;
 });
-defineFigure('OffPageLink', function (shape, w, h) {
-    var geo = new Geometry();
-    var fig = new PathFigure(0, 0);
-    fig.add(PathSegment.Line(w, 0));
-    fig.add(PathSegment.Line(w, h * 0.7));
-    fig.add(PathSegment.Line(w / 2, h));
-    fig.add(PathSegment.Line(0, h * 0.7));
-    fig.add(PathSegment.Close());
-    geo.add(fig);
-    return geo;
-});
 defineFigure('Card', function (shape, w, h) {
     var indent = getP1(shape, w * 0.1);
     var geo = new Geometry();
@@ -13833,19 +13755,6 @@ defineFigure('Card', function (shape, w, h) {
     fig.add(PathSegment.Line(0, indent));
     fig.add(PathSegment.Close());
     geo.add(fig);
-    return geo;
-});
-defineFigure('Annotation', function (shape, w, h) {
-    var indent = getP1(shape, w * 0.1);
-    var geo = new Geometry();
-    var fig = new PathFigure(0, 0, false);
-    fig.add(PathSegment.Line(w, 0));
-    fig.add(PathSegment.Line(w, h));
-    fig.add(PathSegment.Line(0, h));
-    geo.add(fig);
-    var fig2 = new PathFigure(indent, 0, false);
-    fig2.add(PathSegment.Line(indent, h));
-    geo.add(fig2);
     return geo;
 });
 defineFigure('DataStorage', function (shape, w, h) {
@@ -13921,16 +13830,6 @@ defineFigure('FramedRectangle', function (shape, w, h) {
     geo.add(fig2);
     return geo;
 });
-defineFigure('End', function (shape, w, h) {
-    var geo = new Geometry();
-    var fig = new PathFigure(w / 2, 0);
-    fig.add(PathSegment.Line(w, h / 2));
-    fig.add(PathSegment.Line(w / 2, h));
-    fig.add(PathSegment.Line(0, h / 2));
-    fig.add(PathSegment.Close());
-    geo.add(fig);
-    return geo;
-});
 defineFigure('Trapezoid', function (shape, w, h) {
     var geo = new Geometry();
     var indent = getP1(shape, w * 0.2);
@@ -13949,24 +13848,6 @@ defineFigure('Parallelogram', function (shape, w, h) {
     fig.add(PathSegment.Line(w, 0));
     fig.add(PathSegment.Line(w - indent, h));
     fig.add(PathSegment.Line(0, h));
-    fig.add(PathSegment.Close());
-    geo.add(fig);
-    return geo;
-});
-defineFigure('Cross', function (shape, w, h) {
-    var geo = new Geometry();
-    var fig = new PathFigure(w * 0.33, 0);
-    fig.add(PathSegment.Line(w * 0.67, 0));
-    fig.add(PathSegment.Line(w * 0.67, h * 0.33));
-    fig.add(PathSegment.Line(w, h * 0.33));
-    fig.add(PathSegment.Line(w, h * 0.67));
-    fig.add(PathSegment.Line(w * 0.67, h * 0.67));
-    fig.add(PathSegment.Line(w * 0.67, h));
-    fig.add(PathSegment.Line(w * 0.33, h));
-    fig.add(PathSegment.Line(w * 0.33, h * 0.67));
-    fig.add(PathSegment.Line(0, h * 0.67));
-    fig.add(PathSegment.Line(0, h * 0.33));
-    fig.add(PathSegment.Line(w * 0.33, h * 0.33));
     fig.add(PathSegment.Close());
     geo.add(fig);
     return geo;
@@ -14011,16 +13892,6 @@ defineFigure('Square', function (shape, w, h) {
     geo.add(fig);
     // 官方 Square geometry.defaultStretch = 6（Uniform）
     geo.defaultStretch = 6;
-    return geo;
-});
-defineFigure('Bar', function (shape, w, h) {
-    var geo = new Geometry();
-    var fig = new PathFigure(0, 0);
-    fig.add(PathSegment.Line(w, 0));
-    fig.add(PathSegment.Line(w, h));
-    fig.add(PathSegment.Line(0, h));
-    fig.add(PathSegment.Close());
-    geo.add(fig);
     return geo;
 });
 defineFigure('HalfEllipse', function (shape, w, h) {
@@ -14072,16 +13943,6 @@ defineFigure('File', function (shape, w, h) {
     geo.add(fig2);
     return geo;
 });
-defineFigure('Kite', function (shape, w, h) {
-    var geo = new Geometry();
-    var fig = new PathFigure(w / 2, 0);
-    fig.add(PathSegment.Line(w, h * 0.4));
-    fig.add(PathSegment.Line(w / 2, h));
-    fig.add(PathSegment.Line(0, h * 0.4));
-    fig.add(PathSegment.Close());
-    geo.add(fig);
-    return geo;
-});
 defineFigure('Document', function (shape, w, h) {
     var geo = new Geometry();
     var fig = new PathFigure(0, 0);
@@ -14089,17 +13950,6 @@ defineFigure('Document', function (shape, w, h) {
     fig.add(PathSegment.Line(w, h * 0.85));
     fig.add(PathSegment.CubicBezier(w * 0.5, h * 0.65, w * 0.65, h, w * 0.5, h));
     fig.add(PathSegment.CubicBezier(w * 0.35, h, 0, h * 0.85, 0, h * 0.85));
-    fig.add(PathSegment.Close());
-    geo.add(fig);
-    return geo;
-});
-defineFigure('Shield', function (shape, w, h) {
-    var geo = new Geometry();
-    var fig = new PathFigure(0, 0);
-    fig.add(PathSegment.Line(w, 0));
-    fig.add(PathSegment.Line(w, h * 0.5));
-    fig.add(PathSegment.CubicBezier(w, h * 0.8, w * 0.5, h, w * 0.5, h));
-    fig.add(PathSegment.CubicBezier(w * 0.5, h, 0, h * 0.8, 0, h * 0.5));
     fig.add(PathSegment.Close());
     geo.add(fig);
     return geo;
@@ -14114,19 +13964,6 @@ defineFigure('DoubleArrow', function (shape, w, h) {
     fig.add(PathSegment.Line(w * 0.75, h));
     fig.add(PathSegment.Line(w * 0.5, h * 0.75));
     fig.add(PathSegment.Line(w * 0.25, h));
-    fig.add(PathSegment.Close());
-    geo.add(fig);
-    return geo;
-});
-defineFigure('ThinArrow', function (shape, w, h) {
-    var geo = new Geometry();
-    var fig = new PathFigure(w * 0.5, 0);
-    fig.add(PathSegment.Line(w, h / 2));
-    fig.add(PathSegment.Line(w * 0.5, h));
-    fig.add(PathSegment.Line(w * 0.5, h * 0.65));
-    fig.add(PathSegment.Line(0, h * 0.65));
-    fig.add(PathSegment.Line(0, h * 0.35));
-    fig.add(PathSegment.Line(w * 0.5, h * 0.35));
     fig.add(PathSegment.Close());
     geo.add(fig);
     return geo;
@@ -15383,8 +15220,12 @@ var Shape = /** @class */ (function (_super) {
     };
     Shape.getFigureGenerators = function () {
         var e_2, _a;
-        // 官方返回 G.Mn 中所有非小写名（内置 30 个 + 运行时 defineFigureGenerator 定义的），
-        // 不含 extensions/Figures.js 的扩展图形（官方样例未加载该文件）
+        // 官方返回 G.Mn 里所有**非小写**名（内置 30 个 + 运行时 defineFigureGenerator 定义的），
+        // **包括 extensions/Figures.js 注册的扩展图形** —— shapes 样例正是靠
+        // `Shape.getFigureGenerators().toArray()` 当 nodeDataArray，把扩展图形也画出来
+        // （官方 277 个图形 / 281 个节点）。
+        // 以前这里用 `!isExtensionFigure(name)` 把扩展图形全过滤掉了，
+        // 于是 shapes 只有 249 个节点（少 32 个），diff 一直下不来。
         var result = new Map$1();
         try {
             for (var CORE_FIGURE_NAMES_1 = __values(CORE_FIGURE_NAMES), CORE_FIGURE_NAMES_1_1 = CORE_FIGURE_NAMES_1.next(); !CORE_FIGURE_NAMES_1_1.done; CORE_FIGURE_NAMES_1_1 = CORE_FIGURE_NAMES_1.next()) {
@@ -15404,7 +15245,7 @@ var Shape = /** @class */ (function (_super) {
         var it = figures.iterator;
         while (it.next()) {
             var name_4 = it.key;
-            if (CORE_FIGURE_NAMES.indexOf(name_4) < 0 && !isExtensionFigure(name_4))
+            if (CORE_FIGURE_NAMES.indexOf(name_4) < 0)
                 result.add(name_4, it.value);
         }
         return result;

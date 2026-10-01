@@ -1032,8 +1032,12 @@ export class Shape extends GraphObject {
   }
 
   static getFigureGenerators(): any {
-    // 官方返回 G.Mn 中所有非小写名（内置 30 个 + 运行时 defineFigureGenerator 定义的），
-    // 不含 extensions/Figures.js 的扩展图形（官方样例未加载该文件）
+    // 官方返回 G.Mn 里所有**非小写**名（内置 30 个 + 运行时 defineFigureGenerator 定义的），
+    // **包括 extensions/Figures.js 注册的扩展图形** —— shapes 样例正是靠
+    // `Shape.getFigureGenerators().toArray()` 当 nodeDataArray，把扩展图形也画出来
+    // （官方 277 个图形 / 281 个节点）。
+    // 以前这里用 `!isExtensionFigure(name)` 把扩展图形全过滤掉了，
+    // 于是 shapes 只有 249 个节点（少 32 个），diff 一直下不来。
     const result = new Dict<string, any>();
     for (const name of CORE_FIGURE_NAMES) {
       const f = figures.get(name);
@@ -1042,7 +1046,7 @@ export class Shape extends GraphObject {
     const it = figures.iterator;
     while (it.next()) {
       const name = (it as any).key;
-      if (CORE_FIGURE_NAMES.indexOf(name) < 0 && !isExtensionFigure(name)) result.add(name, it.value);
+      if (CORE_FIGURE_NAMES.indexOf(name) < 0) result.add(name, it.value);
     }
     return result;
   }

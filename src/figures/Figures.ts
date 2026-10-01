@@ -277,27 +277,6 @@ defineFigure('Octagon', (shape, w, h) => {
   return geo;
 });
 
-defineFigure('Star', (shape, w, h) => {
-  const geo = new Geometry();
-  const cx = w / 2;
-  const cy = h / 2;
-  const outerR = Math.min(w, h) / 2;
-  const innerR = getP1(shape, outerR * 0.4);
-  const points = 5;
-  const fig = new PathFigure(cx, cy - outerR);
-  for (let i = 0; i < points; i++) {
-    const outerAngle = (Math.PI * 2 * i) / points - Math.PI / 2;
-    const innerAngle = outerAngle + Math.PI / points;
-    if (i > 0) {
-      fig.add(PathSegment.Line(cx + outerR * Math.cos(outerAngle), cy + outerR * Math.sin(outerAngle)));
-    }
-    fig.add(PathSegment.Line(cx + innerR * Math.cos(innerAngle), cy + innerR * Math.sin(innerAngle)));
-  }
-  fig.add(PathSegment.Close());
-  geo.add(fig);
-  return geo;
-});
-
 defineFigure('LineH', (shape, w, h) => {
   const geo = new Geometry();
   const fig = new PathFigure(0, h / 2, false);
@@ -446,22 +425,6 @@ defineFigure('Database', (shape, w, h) => {
   return geo;
 });
 
-defineFigure('Note', (shape, w, h) => {
-  const geo = new Geometry();
-  const fig = new PathFigure(0, 0);
-  fig.add(PathSegment.Line(w * 0.8, 0));
-  fig.add(PathSegment.Line(w, h * 0.15));
-  fig.add(PathSegment.Line(w, h));
-  fig.add(PathSegment.Line(0, h));
-  fig.add(PathSegment.Close());
-  geo.add(fig);
-  const fig2 = new PathFigure(w * 0.8, 0, false);
-  fig2.add(PathSegment.Line(w * 0.8, h * 0.15));
-  fig2.add(PathSegment.Line(w, h * 0.15));
-  geo.add(fig2);
-  return geo;
-});
-
 defineFigure('Terminator', (shape, w, h) => {
   const r = getP1(shape, h / 2);
   const cr = Math.min(r, w / 2, h / 2);
@@ -494,24 +457,6 @@ defineFigure('Process', (shape, w, h) => {
 });
 
 defineFigure('Procedure', (shape, w, h) => {
-  const indent = getP1(shape, w * 0.1);
-  const geo = new Geometry();
-  const fig = new PathFigure(0, 0);
-  fig.add(PathSegment.Line(w, 0));
-  fig.add(PathSegment.Line(w, h));
-  fig.add(PathSegment.Line(0, h));
-  fig.add(PathSegment.Close());
-  geo.add(fig);
-  const fig2 = new PathFigure(indent, 0, false);
-  fig2.add(PathSegment.Line(indent, h));
-  geo.add(fig2);
-  const fig3 = new PathFigure(w - indent, 0, false);
-  fig3.add(PathSegment.Line(w - indent, h));
-  geo.add(fig3);
-  return geo;
-});
-
-defineFigure('PredefinedProcess', (shape, w, h) => {
   const indent = getP1(shape, w * 0.1);
   const geo = new Geometry();
   const fig = new PathFigure(0, 0);
@@ -569,19 +514,6 @@ defineFigure('ManualOperation', (shape, w, h) => {
   return geo;
 });
 
-defineFigure('Preparation', (shape, w, h) => {
-  const geo = new Geometry();
-  const fig = new PathFigure(w * 0.15, 0);
-  fig.add(PathSegment.Line(w * 0.85, 0));
-  fig.add(PathSegment.Line(w, h / 2));
-  fig.add(PathSegment.Line(w * 0.85, h));
-  fig.add(PathSegment.Line(w * 0.15, h));
-  fig.add(PathSegment.Line(0, h / 2));
-  fig.add(PathSegment.Close());
-  geo.add(fig);
-  return geo;
-});
-
 defineFigure('Delay', (shape, w, h) => {
   const geo = new Geometry();
   const fig = new PathFigure(0, 0);
@@ -605,18 +537,6 @@ defineFigure('Display', (shape, w, h) => {
   return geo;
 });
 
-defineFigure('OffPageLink', (shape, w, h) => {
-  const geo = new Geometry();
-  const fig = new PathFigure(0, 0);
-  fig.add(PathSegment.Line(w, 0));
-  fig.add(PathSegment.Line(w, h * 0.7));
-  fig.add(PathSegment.Line(w / 2, h));
-  fig.add(PathSegment.Line(0, h * 0.7));
-  fig.add(PathSegment.Close());
-  geo.add(fig);
-  return geo;
-});
-
 defineFigure('Card', (shape, w, h) => {
   const indent = getP1(shape, w * 0.1);
   const geo = new Geometry();
@@ -627,20 +547,6 @@ defineFigure('Card', (shape, w, h) => {
   fig.add(PathSegment.Line(0, indent));
   fig.add(PathSegment.Close());
   geo.add(fig);
-  return geo;
-});
-
-defineFigure('Annotation', (shape, w, h) => {
-  const indent = getP1(shape, w * 0.1);
-  const geo = new Geometry();
-  const fig = new PathFigure(0, 0, false);
-  fig.add(PathSegment.Line(w, 0));
-  fig.add(PathSegment.Line(w, h));
-  fig.add(PathSegment.Line(0, h));
-  geo.add(fig);
-  const fig2 = new PathFigure(indent, 0, false);
-  fig2.add(PathSegment.Line(indent, h));
-  geo.add(fig2);
   return geo;
 });
 
@@ -722,17 +628,6 @@ defineFigure('FramedRectangle', (shape, w, h) => {
   return geo;
 });
 
-defineFigure('End', (shape, w, h) => {
-  const geo = new Geometry();
-  const fig = new PathFigure(w / 2, 0);
-  fig.add(PathSegment.Line(w, h / 2));
-  fig.add(PathSegment.Line(w / 2, h));
-  fig.add(PathSegment.Line(0, h / 2));
-  fig.add(PathSegment.Close());
-  geo.add(fig);
-  return geo;
-});
-
 defineFigure('Trapezoid', (shape, w, h) => {
   const geo = new Geometry();
   const indent = getP1(shape, w * 0.2);
@@ -752,25 +647,6 @@ defineFigure('Parallelogram', (shape, w, h) => {
   fig.add(PathSegment.Line(w, 0));
   fig.add(PathSegment.Line(w - indent, h));
   fig.add(PathSegment.Line(0, h));
-  fig.add(PathSegment.Close());
-  geo.add(fig);
-  return geo;
-});
-
-defineFigure('Cross', (shape, w, h) => {
-  const geo = new Geometry();
-  const fig = new PathFigure(w * 0.33, 0);
-  fig.add(PathSegment.Line(w * 0.67, 0));
-  fig.add(PathSegment.Line(w * 0.67, h * 0.33));
-  fig.add(PathSegment.Line(w, h * 0.33));
-  fig.add(PathSegment.Line(w, h * 0.67));
-  fig.add(PathSegment.Line(w * 0.67, h * 0.67));
-  fig.add(PathSegment.Line(w * 0.67, h));
-  fig.add(PathSegment.Line(w * 0.33, h));
-  fig.add(PathSegment.Line(w * 0.33, h * 0.67));
-  fig.add(PathSegment.Line(0, h * 0.67));
-  fig.add(PathSegment.Line(0, h * 0.33));
-  fig.add(PathSegment.Line(w * 0.33, h * 0.33));
   fig.add(PathSegment.Close());
   geo.add(fig);
   return geo;
@@ -819,17 +695,6 @@ defineFigure('Square', (shape, w, h) => {
   geo.add(fig);
   // 官方 Square geometry.defaultStretch = 6（Uniform）
   geo.defaultStretch = 6;
-  return geo;
-});
-
-defineFigure('Bar', (shape, w, h) => {
-  const geo = new Geometry();
-  const fig = new PathFigure(0, 0);
-  fig.add(PathSegment.Line(w, 0));
-  fig.add(PathSegment.Line(w, h));
-  fig.add(PathSegment.Line(0, h));
-  fig.add(PathSegment.Close());
-  geo.add(fig);
   return geo;
 });
 
@@ -886,17 +751,6 @@ defineFigure('File', (shape, w, h) => {
   return geo;
 });
 
-defineFigure('Kite', (shape, w, h) => {
-  const geo = new Geometry();
-  const fig = new PathFigure(w / 2, 0);
-  fig.add(PathSegment.Line(w, h * 0.4));
-  fig.add(PathSegment.Line(w / 2, h));
-  fig.add(PathSegment.Line(0, h * 0.4));
-  fig.add(PathSegment.Close());
-  geo.add(fig);
-  return geo;
-});
-
 defineFigure('Document', (shape, w, h) => {
   const geo = new Geometry();
   const fig = new PathFigure(0, 0);
@@ -904,18 +758,6 @@ defineFigure('Document', (shape, w, h) => {
   fig.add(PathSegment.Line(w, h * 0.85));
   fig.add(PathSegment.CubicBezier(w * 0.5, h * 0.65, w * 0.65, h, w * 0.5, h));
   fig.add(PathSegment.CubicBezier(w * 0.35, h, 0, h * 0.85, 0, h * 0.85));
-  fig.add(PathSegment.Close());
-  geo.add(fig);
-  return geo;
-});
-
-defineFigure('Shield', (shape, w, h) => {
-  const geo = new Geometry();
-  const fig = new PathFigure(0, 0);
-  fig.add(PathSegment.Line(w, 0));
-  fig.add(PathSegment.Line(w, h * 0.5));
-  fig.add(PathSegment.CubicBezier(w, h * 0.8, w * 0.5, h, w * 0.5, h));
-  fig.add(PathSegment.CubicBezier(w * 0.5, h, 0, h * 0.8, 0, h * 0.5));
   fig.add(PathSegment.Close());
   geo.add(fig);
   return geo;
@@ -931,20 +773,6 @@ defineFigure('DoubleArrow', (shape, w, h) => {
   fig.add(PathSegment.Line(w * 0.75, h));
   fig.add(PathSegment.Line(w * 0.5, h * 0.75));
   fig.add(PathSegment.Line(w * 0.25, h));
-  fig.add(PathSegment.Close());
-  geo.add(fig);
-  return geo;
-});
-
-defineFigure('ThinArrow', (shape, w, h) => {
-  const geo = new Geometry();
-  const fig = new PathFigure(w * 0.5, 0);
-  fig.add(PathSegment.Line(w, h / 2));
-  fig.add(PathSegment.Line(w * 0.5, h));
-  fig.add(PathSegment.Line(w * 0.5, h * 0.65));
-  fig.add(PathSegment.Line(0, h * 0.65));
-  fig.add(PathSegment.Line(0, h * 0.35));
-  fig.add(PathSegment.Line(w * 0.5, h * 0.35));
   fig.add(PathSegment.Close());
   geo.add(fig);
   return geo;
