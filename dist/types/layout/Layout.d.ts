@@ -72,6 +72,8 @@ export declare class Layout {
      * @param coll - A Diagram, Iterable<Part>, or array of Parts
      */
     collectParts(coll: any): List<Part>;
+    /** 官方 collectParts 内部的收集过程（对应官方私有 Ka 方法） */
+    private _collectInto;
     /**
      * Commit the layout by moving parts to their computed positions.
      * Called after the layout algorithm has computed positions.

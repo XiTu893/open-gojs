@@ -6625,17 +6625,29 @@ declare class LayoutEdge {
 
 /**
  * LayoutVertex - represents a node in the layout network.
+ *
+ * 本类以前只有 `width/height/centerX/centerY/addXxxEdge` 几个成员，官方
+ * `LayoutVertex` 的其余公开面（go.d.ts: class LayoutVertex）全缺，扩展一碰就挂：
+ * `RadialLayout.findDistances` 的 `least.edges.each(...)` →
+ * `Cannot read properties of undefined (reading 'each')`（实测 radialPartition）。
  */
 declare class LayoutVertex {
     static readonly className: string;
     /** The network this vertex belongs to */
     network: LayoutNetwork | null;
+    /** 官方 LayoutVertex.data：一般就是 Node/Link 的 data */
+    data: any;
     /** X position of the vertex center */
     x: number;
     /** Y position of the vertex center */
     y: number;
     /** Bounding rectangle of the vertex */
     bounds: Rect;
+    /**
+     * 官方 LayoutVertex.focus：bounds 左上角到「连接点」的偏移（像素）。
+     * `centerX`/`centerY` 就是 `bounds.x/y + focus`。
+     */
+    focus: Point;
     /**
      * 官方 `LayoutVertex.actualAngle`（度）：该 vertex 最终被摆放的角度。
      * CircularLayout 在环上定位时写入；子类（如 friendWheel 的 WheelLayout）
@@ -6670,14 +6682,33 @@ declare class LayoutVertex {
     addDestinationEdge(edge: LayoutEdge): void;
     /** Add an edge where this vertex is the source */
     addSourceEdge(edge: LayoutEdge): void;
+    /** 官方 LayoutVertex.deleteSourceEdge */
+    deleteSourceEdge(edge: LayoutEdge): void;
+    /** 官方 LayoutVertex.deleteDestinationEdge */
+    deleteDestinationEdge(edge: LayoutEdge): void;
     /** Delete an edge from both source and destination lists */
     deleteEdge(edge: LayoutEdge): void;
-    /** Get the center point of this vertex */
+    /** 官方 LayoutVertex.sourceVertexes：sourceEdges 另一端的顶点 */
+    get sourceVertexes(): any;
+    /** 官方 LayoutVertex.destinationVertexes */
+    get destinationVertexes(): any;
+    /** 官方 LayoutVertex.vertexes = sourceVertexes ∪ destinationVertexes */
+    get vertexes(): any;
+    /**
+     * 官方 LayoutVertex.edges：sourceEdges + destinationEdges 拼成的 List 的**迭代器**。
+     * 官方迭代器带 `each`，扩展（RadialLayout / ParallelLayout）直接 `v.edges.each(...)`。
+     */
+    get edges(): any;
+    /** 官方 LayoutVertex.edgesCount */
+    get edgesCount(): number;
+    /** 官方 LayoutVertex.commit()：把最终 bounds 写回 data.bounds（TreeVertex 覆写） */
+    commit(): void;
+    /** Get the center point of this vertex（官方 `bounds + focus`） */
     get center(): {
         x: number;
         y: number;
     };
-    /** 像素 focus：TreeVertex.focus(Point) 优先，其次 focusX/Y 分数 × 尺寸 */
+    /** 官方 LayoutVertex.focus：像素偏移（兼容老的 focusX/focusY 分数写法） */
     private _focusPx;
     /** 官方 LayoutVertex.centerX = bounds.x + focus.x */
     get centerX(): number;
@@ -6716,6 +6747,16 @@ declare class LayoutNetwork {
     addLink(link: Link): LayoutEdge | null;
     /** Add a node to the network, creating a vertex */
     addNode(node: Node): LayoutVertex;
+    /** 官方 LayoutNetwork.addParts(parts, toplevelonly?, pred?): void */
+    addParts(parts: any, toplevelonly?: boolean, pred?: ((a: any) => boolean) | null): void;
+    /** 官方 LayoutNetwork.deleteVertex(vertex) */
+    deleteVertex(vertex: LayoutVertex): void;
+    /** 官方 LayoutNetwork.deleteNode(node) */
+    deleteNode(node: Node): void;
+    /** 官方 LayoutNetwork.deleteLink(link) */
+    deleteLink(link: Link): void;
+    /** 官方 LayoutNetwork.findAllParts(): Set<Part> */
+    findAllParts(): Set<any>;
     /** Delete all artificial vertexes from the network */
     deleteArtificialVertexes(): void;
     /** Delete self-loop edges (where fromVertex === toVertex) */
@@ -6809,6 +6850,8 @@ declare class Layout {
      * @param coll - A Diagram, Iterable<Part>, or array of Parts
      */
     collectParts(coll: any): List<Part>;
+    /** 官方 collectParts 内部的收集过程（对应官方私有 Ka 方法） */
+    private _collectInto;
     /**
      * Commit the layout by moving parts to their computed positions.
      * Called after the layout algorithm has computed positions.

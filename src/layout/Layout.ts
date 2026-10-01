@@ -6,6 +6,7 @@ import { Set } from '../core/Set';
 import { Part } from '../view/Part';
 import { Node } from '../view/Node';
 import { Link } from '../view/Link';
+import { Group } from '../view/Group';
 import { LayoutNetwork } from './LayoutNetwork';
 import { LayoutVertex } from './LayoutVertex';
 
@@ -204,46 +205,67 @@ export class Layout {
 
     if (!coll) return parts;
 
-    // If it's a Diagram, collect all nodes and links
+    // 官方 Layout.collectParts（go.js: collectParts + 私有 Ka）：
+    //  - Diagram 入参：分别遍历 nodes / links / parts 三份，且**只收 isTopLevel** 的；
+    //  - Group 入参：遍历 memberParts，不做 top-level 过滤；
+    //  - 其它可迭代对象：直接遍历。
+    //  - 过滤条件是 canLayout()，**不是** isLayoutPositioned/visible；
+    //  - Node 里 isLinkLabel 跳过；`Group` 且 `layout === null` 时
+    //    **递归收它的成员**而不是收这个组本身。
+    //
+    // 以前我们是「遍历所有非临时层 + isLayoutPositioned && visible」，既没收窄到
+    // top-level、也不处理 Group 递归 —— flowgrammer 里组内成员被一起塞进网络，
+    // ParallelLayout.findSplitMerge 因此看到两个 Split 分类的节点并抛
+    // "Split node already exists in TreeLayout(...)"。
     if (coll._layers) {
       const diagram = coll as any;
-      for (const layer of diagram._layers) {
-        if (layer.isTemporary) continue;
-        const partsIt = layer.parts;
-        while (partsIt.next()) {
-          const part: Part = partsIt.value;
-          if (part.isLayoutPositioned && part.visible) {
-            parts.add(part);
-          }
-        }
-      }
       this._diagram = diagram;
+      this._collectInto(parts, diagram.nodes, true);
+      this._collectInto(parts, diagram.links, true);
+      this._collectInto(parts, diagram.parts, true);
       return parts;
     }
 
-    // If it has an iterator (Iterable<Part>)
-    if (typeof coll.iterator === 'function' || (coll.iterator && typeof coll.iterator.next === 'function')) {
-      const it = coll.iterator;
-      while (it.next()) {
-        const part = it.value;
-        if (part instanceof Part && part.isLayoutPositioned && part.visible) {
-          parts.add(part);
-        }
-      }
+    if (coll instanceof Group) {
+      this._collectInto(parts, (coll as any).memberParts, false);
       return parts;
     }
 
-    // If it's an array
-    if (Array.isArray(coll)) {
-      for (const part of coll) {
-        if (part instanceof Part && part.isLayoutPositioned && part.visible) {
-          parts.add(part);
-        }
-      }
-      return parts;
-    }
-
+    this._collectInto(parts, coll, false);
     return parts;
+  }
+
+  /** 官方 collectParts 内部的收集过程（对应官方私有 Ka 方法） */
+  private _collectInto(set: List<Part>, coll: any, toplevelonly: boolean): void {
+    if (!coll) return;
+    const it: any = (typeof coll.iterator === 'function')
+      ? coll.iterator()
+      : (coll.iterator && typeof coll.iterator.next === 'function' ? coll.iterator : null);
+    if (!it) return;
+    while (it.next()) {
+      const part: any = it.value;
+      if (!part) continue;
+      if (toplevelonly && part.isTopLevel === false) continue;
+      // 官方的 collectParts 不看 visible，但本项目里临时层（Adornment 等）的 part
+      // 也会被 diagram.parts 带进来；不排除不可见件会让布局凭空多出占位
+      // （实测 shapes 20.5% → 31.6%）。这里保留原有的 visible 过滤。
+      if (part.visible === false) continue;
+      if (typeof part.canLayout === 'function' && !part.canLayout()) continue;
+      if (part instanceof Node) {
+        if (part.isLinkLabel) continue;
+        if (part instanceof Group && (part as any).layout === null) {
+          this._collectInto(set, (part as any).memberParts, false);
+          continue;
+        }
+        if (typeof part.ensureBounds === 'function') part.ensureBounds();
+        set.add(part);
+      } else if (part instanceof Link) {
+        set.add(part);
+      } else {
+        if (typeof part.ensureBounds === 'function') part.ensureBounds();
+        set.add(part);
+      }
+    }
   }
 
   /**

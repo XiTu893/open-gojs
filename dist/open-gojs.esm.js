@@ -24754,17 +24754,29 @@ GraphObject.defineBuilder('Node', Node);
 
 /**
  * LayoutVertex - represents a node in the layout network.
+ *
+ * 本类以前只有 `width/height/centerX/centerY/addXxxEdge` 几个成员，官方
+ * `LayoutVertex` 的其余公开面（go.d.ts: class LayoutVertex）全缺，扩展一碰就挂：
+ * `RadialLayout.findDistances` 的 `least.edges.each(...)` →
+ * `Cannot read properties of undefined (reading 'each')`（实测 radialPartition）。
  */
 var LayoutVertex = /** @class */ (function () {
     function LayoutVertex() {
         /** The network this vertex belongs to */
         this.network = null;
+        /** 官方 LayoutVertex.data：一般就是 Node/Link 的 data */
+        this.data = null;
         /** X position of the vertex center */
         this.x = 0;
         /** Y position of the vertex center */
         this.y = 0;
         /** Bounding rectangle of the vertex */
         this.bounds = new Rect(0, 0, 0, 0);
+        /**
+         * 官方 LayoutVertex.focus：bounds 左上角到「连接点」的偏移（像素）。
+         * `centerX`/`centerY` 就是 `bounds.x/y + focus`。
+         */
+        this.focus = new Point(0, 0);
         /**
          * 官方 `LayoutVertex.actualAngle`（度）：该 vertex 最终被摆放的角度。
          * CircularLayout 在环上定位时写入；子类（如 friendWheel 的 WheelLayout）
@@ -24814,44 +24826,164 @@ var LayoutVertex = /** @class */ (function () {
     });
     /** Add an edge where this vertex is the destination */
     LayoutVertex.prototype.addDestinationEdge = function (edge) {
-        this.destinationEdges.add(edge);
+        if (edge === null || edge === undefined)
+            return;
+        if (!this.destinationEdges.contains(edge))
+            this.destinationEdges.add(edge);
     };
     /** Add an edge where this vertex is the source */
     LayoutVertex.prototype.addSourceEdge = function (edge) {
-        this.sourceEdges.add(edge);
+        if (edge === null || edge === undefined)
+            return;
+        if (!this.sourceEdges.contains(edge))
+            this.sourceEdges.add(edge);
+    };
+    /** 官方 LayoutVertex.deleteSourceEdge */
+    LayoutVertex.prototype.deleteSourceEdge = function (edge) {
+        if (edge === null || edge === undefined)
+            return;
+        this.sourceEdges.remove(edge);
+    };
+    /** 官方 LayoutVertex.deleteDestinationEdge */
+    LayoutVertex.prototype.deleteDestinationEdge = function (edge) {
+        if (edge === null || edge === undefined)
+            return;
+        this.destinationEdges.remove(edge);
     };
     /** Delete an edge from both source and destination lists */
     LayoutVertex.prototype.deleteEdge = function (edge) {
         this.sourceEdges.remove(edge);
         this.destinationEdges.remove(edge);
     };
-    Object.defineProperty(LayoutVertex.prototype, "center", {
-        /** Get the center point of this vertex */
+    Object.defineProperty(LayoutVertex.prototype, "sourceVertexes", {
+        /** 官方 LayoutVertex.sourceVertexes：sourceEdges 另一端的顶点 */
         get: function () {
-            return {
-                x: this.x + this.width * this.focusX,
-                y: this.y + this.height * this.focusY
-            };
+            var s = new Set$1();
+            var it = this.sourceEdges.iterator;
+            while (it.next()) {
+                var e = it.value;
+                if (e && e.fromVertex)
+                    s.add(e.fromVertex);
+            }
+            return s.iterator;
         },
         enumerable: false,
         configurable: true
     });
-    /** 像素 focus：TreeVertex.focus(Point) 优先，其次 focusX/Y 分数 × 尺寸 */
+    Object.defineProperty(LayoutVertex.prototype, "destinationVertexes", {
+        /** 官方 LayoutVertex.destinationVertexes */
+        get: function () {
+            var s = new Set$1();
+            var it = this.destinationEdges.iterator;
+            while (it.next()) {
+                var e = it.value;
+                if (e && e.toVertex)
+                    s.add(e.toVertex);
+            }
+            return s.iterator;
+        },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(LayoutVertex.prototype, "vertexes", {
+        /** 官方 LayoutVertex.vertexes = sourceVertexes ∪ destinationVertexes */
+        get: function () {
+            var s = new Set$1();
+            var it = this.sourceEdges.iterator;
+            while (it.next()) {
+                var e = it.value;
+                if (e && e.fromVertex)
+                    s.add(e.fromVertex);
+            }
+            it = this.destinationEdges.iterator;
+            while (it.next()) {
+                var e = it.value;
+                if (e && e.toVertex)
+                    s.add(e.toVertex);
+            }
+            return s.iterator;
+        },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(LayoutVertex.prototype, "edges", {
+        /**
+         * 官方 LayoutVertex.edges：sourceEdges + destinationEdges 拼成的 List 的**迭代器**。
+         * 官方迭代器带 `each`，扩展（RadialLayout / ParallelLayout）直接 `v.edges.each(...)`。
+         */
+        get: function () {
+            var e_1, _a, e_2, _b;
+            var l = new List();
+            try {
+                for (var _c = __values(this.sourceEdges), _d = _c.next(); !_d.done; _d = _c.next()) {
+                    var e = _d.value;
+                    l.add(e);
+                }
+            }
+            catch (e_1_1) { e_1 = { error: e_1_1 }; }
+            finally {
+                try {
+                    if (_d && !_d.done && (_a = _c.return)) _a.call(_c);
+                }
+                finally { if (e_1) throw e_1.error; }
+            }
+            try {
+                for (var _e = __values(this.destinationEdges), _f = _e.next(); !_f.done; _f = _e.next()) {
+                    var e = _f.value;
+                    l.add(e);
+                }
+            }
+            catch (e_2_1) { e_2 = { error: e_2_1 }; }
+            finally {
+                try {
+                    if (_f && !_f.done && (_b = _e.return)) _b.call(_e);
+                }
+                finally { if (e_2) throw e_2.error; }
+            }
+            return l.iterator;
+        },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(LayoutVertex.prototype, "edgesCount", {
+        /** 官方 LayoutVertex.edgesCount */
+        get: function () {
+            return this.sourceEdges.count + this.destinationEdges.count;
+        },
+        enumerable: false,
+        configurable: true
+    });
+    /** 官方 LayoutVertex.commit()：把最终 bounds 写回 data.bounds（TreeVertex 覆写） */
+    LayoutVertex.prototype.commit = function () {
+        var d = this.data;
+        if (d !== null && d !== undefined && d.bounds) {
+            var b = this.bounds;
+            var db = d.bounds;
+            db.x = b.x;
+            db.y = b.y;
+            db.width = b.width;
+            db.height = b.height;
+        }
+    };
+    Object.defineProperty(LayoutVertex.prototype, "center", {
+        /** Get the center point of this vertex（官方 `bounds + focus`） */
+        get: function () {
+            return { x: this.bounds.x + this.focus.x, y: this.bounds.y + this.focus.y };
+        },
+        enumerable: false,
+        configurable: true
+    });
+    /** 官方 LayoutVertex.focus：像素偏移（兼容老的 focusX/focusY 分数写法） */
     LayoutVertex.prototype._focusPx = function () {
-        var f = this.focus;
-        if (f && typeof f.x === 'number' && typeof f.y === 'number')
-            return { x: f.x, y: f.y };
-        return { x: this.focusX * this.bounds.width, y: this.focusY * this.bounds.height };
+        return { x: this.focus.x, y: this.focus.y };
     };
     Object.defineProperty(LayoutVertex.prototype, "centerX", {
         /** 官方 LayoutVertex.centerX = bounds.x + focus.x */
         get: function () {
-            return this.bounds.x + this._focusPx().x;
+            return this.bounds.x + this.focus.x;
         },
         set: function (val) {
-            var dx = val - this.centerX;
-            this.bounds.x += dx;
-            this.x += dx;
+            this.bounds.x = val - this.focus.x;
         },
         enumerable: false,
         configurable: true
@@ -24859,12 +24991,10 @@ var LayoutVertex = /** @class */ (function () {
     Object.defineProperty(LayoutVertex.prototype, "centerY", {
         /** 官方 LayoutVertex.centerY = bounds.y + focus.y */
         get: function () {
-            return this.bounds.y + this._focusPx().y;
+            return this.bounds.y + this.focus.y;
         },
         set: function (val) {
-            var dy = val - this.centerY;
-            this.bounds.y += dy;
-            this.y += dy;
+            this.bounds.y = val - this.focus.y;
         },
         enumerable: false,
         configurable: true
@@ -24992,9 +25122,118 @@ var LayoutNetwork = /** @class */ (function () {
         this.nodeToLayoutVertex.set(node, vertex);
         return vertex;
     };
+    /** 官方 LayoutNetwork.addParts(parts, toplevelonly?, pred?): void */
+    LayoutNetwork.prototype.addParts = function (parts, toplevelonly, pred) {
+        var _this = this;
+        var visit = function (coll) {
+            var e_1, _a;
+            if (!coll)
+                return;
+            if (typeof coll.iterator === 'function') {
+                var it = coll.iterator;
+                while (it.next())
+                    visit(it.value);
+                return;
+            }
+            if (typeof coll.next === 'function') {
+                while (coll.next())
+                    visit(coll.value);
+                return;
+            }
+            if (Array.isArray(coll)) {
+                try {
+                    for (var coll_1 = __values(coll), coll_1_1 = coll_1.next(); !coll_1_1.done; coll_1_1 = coll_1.next()) {
+                        var p = coll_1_1.value;
+                        visit(p);
+                    }
+                }
+                catch (e_1_1) { e_1 = { error: e_1_1 }; }
+                finally {
+                    try {
+                        if (coll_1_1 && !coll_1_1.done && (_a = coll_1.return)) _a.call(coll_1);
+                    }
+                    finally { if (e_1) throw e_1.error; }
+                }
+                return;
+            }
+            var part = coll;
+            if (part === null || part === undefined)
+                return;
+            if (pred !== null && pred !== undefined && typeof pred === 'function' && !pred(part))
+                return;
+            if (toplevelonly === true && typeof part.isTopLevel === 'boolean' && !part.isTopLevel)
+                return;
+            if (part instanceof Node)
+                _this.addNode(part);
+            else if (part instanceof Link)
+                _this.addLink(part);
+        };
+        visit(parts);
+    };
+    /** 官方 LayoutNetwork.deleteVertex(vertex) */
+    LayoutNetwork.prototype.deleteVertex = function (vertex) {
+        var e_2, _a;
+        if (!vertex)
+            return;
+        // 先摘掉相连的边
+        var edges = [];
+        var it = vertex.sourceEdges.iterator;
+        while (it.next())
+            edges.push(it.value);
+        it = vertex.destinationEdges.iterator;
+        while (it.next())
+            edges.push(it.value);
+        try {
+            for (var edges_1 = __values(edges), edges_1_1 = edges_1.next(); !edges_1_1.done; edges_1_1 = edges_1.next()) {
+                var e = edges_1_1.value;
+                this.deleteEdge(e);
+            }
+        }
+        catch (e_2_1) { e_2 = { error: e_2_1 }; }
+        finally {
+            try {
+                if (edges_1_1 && !edges_1_1.done && (_a = edges_1.return)) _a.call(edges_1);
+            }
+            finally { if (e_2) throw e_2.error; }
+        }
+        this.vertexes.remove(vertex);
+        if (vertex.node)
+            this.nodeToLayoutVertex.remove(vertex.node);
+    };
+    /** 官方 LayoutNetwork.deleteNode(node) */
+    LayoutNetwork.prototype.deleteNode = function (node) {
+        var v = this.findVertex(node);
+        if (v)
+            this.deleteVertex(v);
+    };
+    /** 官方 LayoutNetwork.deleteLink(link) */
+    LayoutNetwork.prototype.deleteLink = function (link) {
+        var e = this.findEdge(link);
+        if (e)
+            this.deleteEdge(e);
+    };
+    /** 官方 LayoutNetwork.findAllParts(): Set<Part> */
+    LayoutNetwork.prototype.findAllParts = function () {
+        var s = new Set$1();
+        var it = this.vertexes.iterator;
+        while (it.next()) {
+            var v = it.value;
+            if (v.node)
+                s.add(v.node);
+            else if (v.part)
+                s.add(v.part);
+        }
+        it = this.edges.iterator;
+        while (it.next()) {
+            var e = it.value;
+            if (e.link)
+                s.add(e.link);
+        }
+        return s;
+    };
     /** Delete all artificial vertexes from the network */
     LayoutNetwork.prototype.deleteArtificialVertexes = function () {
-        var e_1, _a, e_2, _b;
+        var e_3, _a, e_4, _b;
         var toRemove = [];
         var it = this.vertexes.iterator;
         while (it.next()) {
@@ -25017,32 +25256,32 @@ var LayoutNetwork = /** @class */ (function () {
                     edgesToRemove.push(dstIt.value);
                 }
                 try {
-                    for (var edgesToRemove_1 = (e_2 = void 0, __values(edgesToRemove)), edgesToRemove_1_1 = edgesToRemove_1.next(); !edgesToRemove_1_1.done; edgesToRemove_1_1 = edgesToRemove_1.next()) {
+                    for (var edgesToRemove_1 = (e_4 = void 0, __values(edgesToRemove)), edgesToRemove_1_1 = edgesToRemove_1.next(); !edgesToRemove_1_1.done; edgesToRemove_1_1 = edgesToRemove_1.next()) {
                         var e = edgesToRemove_1_1.value;
                         this.deleteEdge(e);
                     }
                 }
-                catch (e_2_1) { e_2 = { error: e_2_1 }; }
+                catch (e_4_1) { e_4 = { error: e_4_1 }; }
                 finally {
                     try {
                         if (edgesToRemove_1_1 && !edgesToRemove_1_1.done && (_b = edgesToRemove_1.return)) _b.call(edgesToRemove_1);
                     }
-                    finally { if (e_2) throw e_2.error; }
+                    finally { if (e_4) throw e_4.error; }
                 }
                 this.vertexes.remove(v);
             }
         }
-        catch (e_1_1) { e_1 = { error: e_1_1 }; }
+        catch (e_3_1) { e_3 = { error: e_3_1 }; }
         finally {
             try {
                 if (toRemove_1_1 && !toRemove_1_1.done && (_a = toRemove_1.return)) _a.call(toRemove_1);
             }
-            finally { if (e_1) throw e_1.error; }
+            finally { if (e_3) throw e_3.error; }
         }
     };
     /** Delete self-loop edges (where fromVertex === toVertex) */
     LayoutNetwork.prototype.deleteSelfEdges = function () {
-        var e_3, _a;
+        var e_5, _a;
         var toRemove = [];
         var it = this.edges.iterator;
         while (it.next()) {
@@ -25057,12 +25296,12 @@ var LayoutNetwork = /** @class */ (function () {
                 this.deleteEdge(e);
             }
         }
-        catch (e_3_1) { e_3 = { error: e_3_1 }; }
+        catch (e_5_1) { e_5 = { error: e_5_1 }; }
         finally {
             try {
                 if (toRemove_2_1 && !toRemove_2_1.done && (_a = toRemove_2.return)) _a.call(toRemove_2);
             }
-            finally { if (e_3) throw e_3.error; }
+            finally { if (e_5) throw e_5.error; }
         }
     };
     /** Find the vertex associated with a node */
@@ -25105,7 +25344,7 @@ var LayoutNetwork = /** @class */ (function () {
      * 导致 List 无限增长直至 `RangeError: Invalid array length`。
      */
     LayoutNetwork.prototype.splitIntoSubNetworks = function () {
-        var e_4, _a;
+        var e_6, _a;
         var result = new List();
         if (this.vertexes.count === 0)
             return result;
@@ -25148,12 +25387,12 @@ var LayoutNetwork = /** @class */ (function () {
                 result.add(component);
             }
         }
-        catch (e_4_1) { e_4 = { error: e_4_1 }; }
+        catch (e_6_1) { e_6 = { error: e_6_1 }; }
         finally {
             try {
                 if (starts_1_1 && !starts_1_1.done && (_a = starts_1.return)) _a.call(starts_1);
             }
-            finally { if (e_4) throw e_4.error; }
+            finally { if (e_6) throw e_6.error; }
         }
         return result;
     };
@@ -25422,68 +25661,78 @@ var Layout = /** @class */ (function () {
      * @param coll - A Diagram, Iterable<Part>, or array of Parts
      */
     Layout.prototype.collectParts = function (coll) {
-        var e_3, _a, e_4, _b;
         var parts = new List();
         if (!coll)
             return parts;
-        // If it's a Diagram, collect all nodes and links
+        // 官方 Layout.collectParts（go.js: collectParts + 私有 Ka）：
+        //  - Diagram 入参：分别遍历 nodes / links / parts 三份，且**只收 isTopLevel** 的；
+        //  - Group 入参：遍历 memberParts，不做 top-level 过滤；
+        //  - 其它可迭代对象：直接遍历。
+        //  - 过滤条件是 canLayout()，**不是** isLayoutPositioned/visible；
+        //  - Node 里 isLinkLabel 跳过；`Group` 且 `layout === null` 时
+        //    **递归收它的成员**而不是收这个组本身。
+        //
+        // 以前我们是「遍历所有非临时层 + isLayoutPositioned && visible」，既没收窄到
+        // top-level、也不处理 Group 递归 —— flowgrammer 里组内成员被一起塞进网络，
+        // ParallelLayout.findSplitMerge 因此看到两个 Split 分类的节点并抛
+        // "Split node already exists in TreeLayout(...)"。
         if (coll._layers) {
             var diagram = coll;
-            try {
-                for (var _c = __values(diagram._layers), _d = _c.next(); !_d.done; _d = _c.next()) {
-                    var layer = _d.value;
-                    if (layer.isTemporary)
-                        continue;
-                    var partsIt = layer.parts;
-                    while (partsIt.next()) {
-                        var part = partsIt.value;
-                        if (part.isLayoutPositioned && part.visible) {
-                            parts.add(part);
-                        }
-                    }
-                }
-            }
-            catch (e_3_1) { e_3 = { error: e_3_1 }; }
-            finally {
-                try {
-                    if (_d && !_d.done && (_a = _c.return)) _a.call(_c);
-                }
-                finally { if (e_3) throw e_3.error; }
-            }
             this._diagram = diagram;
+            this._collectInto(parts, diagram.nodes, true);
+            this._collectInto(parts, diagram.links, true);
+            this._collectInto(parts, diagram.parts, true);
             return parts;
         }
-        // If it has an iterator (Iterable<Part>)
-        if (typeof coll.iterator === 'function' || (coll.iterator && typeof coll.iterator.next === 'function')) {
-            var it = coll.iterator;
-            while (it.next()) {
-                var part = it.value;
-                if (part instanceof Part && part.isLayoutPositioned && part.visible) {
-                    parts.add(part);
-                }
-            }
+        if (coll instanceof Group) {
+            this._collectInto(parts, coll.memberParts, false);
             return parts;
         }
-        // If it's an array
-        if (Array.isArray(coll)) {
-            try {
-                for (var coll_2 = __values(coll), coll_2_1 = coll_2.next(); !coll_2_1.done; coll_2_1 = coll_2.next()) {
-                    var part = coll_2_1.value;
-                    if (part instanceof Part && part.isLayoutPositioned && part.visible) {
-                        parts.add(part);
-                    }
-                }
-            }
-            catch (e_4_1) { e_4 = { error: e_4_1 }; }
-            finally {
-                try {
-                    if (coll_2_1 && !coll_2_1.done && (_b = coll_2.return)) _b.call(coll_2);
-                }
-                finally { if (e_4) throw e_4.error; }
-            }
-            return parts;
-        }
+        this._collectInto(parts, coll, false);
         return parts;
+    };
+    /** 官方 collectParts 内部的收集过程（对应官方私有 Ka 方法） */
+    Layout.prototype._collectInto = function (set, coll, toplevelonly) {
+        if (!coll)
+            return;
+        var it = (typeof coll.iterator === 'function')
+            ? coll.iterator()
+            : (coll.iterator && typeof coll.iterator.next === 'function' ? coll.iterator : null);
+        if (!it)
+            return;
+        while (it.next()) {
+            var part = it.value;
+            if (!part)
+                continue;
+            if (toplevelonly && part.isTopLevel === false)
+                continue;
+            // 官方的 collectParts 不看 visible，但本项目里临时层（Adornment 等）的 part
+            // 也会被 diagram.parts 带进来；不排除不可见件会让布局凭空多出占位
+            // （实测 shapes 20.5% → 31.6%）。这里保留原有的 visible 过滤。
+            if (part.visible === false)
+                continue;
+            if (typeof part.canLayout === 'function' && !part.canLayout())
+                continue;
+            if (part instanceof Node) {
+                if (part.isLinkLabel)
+                    continue;
+                if (part instanceof Group && part.layout === null) {
+                    this._collectInto(set, part.memberParts, false);
+                    continue;
+                }
+                if (typeof part.ensureBounds === 'function')
+                    part.ensureBounds();
+                set.add(part);
+            }
+            else if (part instanceof Link) {
+                set.add(part);
+            }
+            else {
+                if (typeof part.ensureBounds === 'function')
+                    part.ensureBounds();
+                set.add(part);
+            }
+        }
     };
     /**
      * Commit the layout by moving parts to their computed positions.
@@ -25603,7 +25852,7 @@ var Layout = /** @class */ (function () {
     };
     Layout.prototype._findPlaceholder = function (group) {
         var search = function (obj) {
-            var e_5, _a;
+            var e_3, _a;
             if (!obj)
                 return null;
             if (obj._isPlaceholder)
@@ -25618,12 +25867,12 @@ var Layout = /** @class */ (function () {
                             return r;
                     }
                 }
-                catch (e_5_1) { e_5 = { error: e_5_1 }; }
+                catch (e_3_1) { e_3 = { error: e_3_1 }; }
                 finally {
                     try {
                         if (els_1_1 && !els_1_1.done && (_a = els_1.return)) _a.call(els_1);
                     }
-                    finally { if (e_5) throw e_5.error; }
+                    finally { if (e_3) throw e_3.error; }
                 }
             }
             return null;
@@ -25636,7 +25885,7 @@ var Layout = /** @class */ (function () {
             return o === target || (o._elements ? o._elements.some(function (c) { return contains(c); }) : false);
         };
         var acc = function (obj, px, py) {
-            var e_6, _a;
+            var e_4, _a;
             var els = obj._elements;
             if (!els)
                 return null;
@@ -25655,12 +25904,12 @@ var Layout = /** @class */ (function () {
                     }
                 }
             }
-            catch (e_6_1) { e_6 = { error: e_6_1 }; }
+            catch (e_4_1) { e_4 = { error: e_4_1 }; }
             finally {
                 try {
                     if (els_2_1 && !els_2_1.done && (_a = els_2.return)) _a.call(els_2);
                 }
-                finally { if (e_6) throw e_6.error; }
+                finally { if (e_4) throw e_4.error; }
             }
             return null;
         };

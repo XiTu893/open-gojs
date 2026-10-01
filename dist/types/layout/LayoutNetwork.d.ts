@@ -1,4 +1,5 @@
 import { List } from '../core/List';
+import { Set } from '../core/Set';
 import { Map } from '../core/Map';
 import { Node } from '../view/Node';
 import { Link } from '../view/Link';
@@ -32,6 +33,16 @@ export declare class LayoutNetwork {
     addLink(link: Link): LayoutEdge | null;
     /** Add a node to the network, creating a vertex */
     addNode(node: Node): LayoutVertex;
+    /** 官方 LayoutNetwork.addParts(parts, toplevelonly?, pred?): void */
+    addParts(parts: any, toplevelonly?: boolean, pred?: ((a: any) => boolean) | null): void;
+    /** 官方 LayoutNetwork.deleteVertex(vertex) */
+    deleteVertex(vertex: LayoutVertex): void;
+    /** 官方 LayoutNetwork.deleteNode(node) */
+    deleteNode(node: Node): void;
+    /** 官方 LayoutNetwork.deleteLink(link) */
+    deleteLink(link: Link): void;
+    /** 官方 LayoutNetwork.findAllParts(): Set<Part> */
+    findAllParts(): Set<any>;
     /** Delete all artificial vertexes from the network */
     deleteArtificialVertexes(): void;
     /** Delete self-loop edges (where fromVertex === toVertex) */

@@ -1,4 +1,5 @@
 import { List } from '../core/List';
+import { Set } from '../core/Set';
 import { Map } from '../core/Map';
 import { Node } from '../view/Node';
 import { Link } from '../view/Link';
@@ -96,6 +97,76 @@ export class LayoutNetwork {
     this.vertexes.add(vertex);
     this.nodeToLayoutVertex.set(node, vertex);
     return vertex;
+  }
+
+  /** 官方 LayoutNetwork.addParts(parts, toplevelonly?, pred?): void */
+  addParts(parts: any, toplevelonly?: boolean, pred?: ((a: any) => boolean) | null): void {
+    const visit = (coll: any): void => {
+      if (!coll) return;
+      if (typeof coll.iterator === 'function') {
+        const it = coll.iterator;
+        while (it.next()) visit(it.value);
+        return;
+      }
+      if (typeof coll.next === 'function') {
+        while (coll.next()) visit(coll.value);
+        return;
+      }
+      if (Array.isArray(coll)) {
+        for (const p of coll) visit(p);
+        return;
+      }
+      const part: any = coll;
+      if (part === null || part === undefined) return;
+      if (pred !== null && pred !== undefined && typeof pred === 'function' && !pred(part)) return;
+      if (toplevelonly === true && typeof part.isTopLevel === 'boolean' && !part.isTopLevel) return;
+      if (part instanceof Node) this.addNode(part);
+      else if (part instanceof Link) this.addLink(part);
+    };
+    visit(parts);
+  }
+
+  /** 官方 LayoutNetwork.deleteVertex(vertex) */
+  deleteVertex(vertex: LayoutVertex): void {
+    if (!vertex) return;
+    // 先摘掉相连的边
+    const edges: LayoutEdge[] = [];
+    let it = vertex.sourceEdges.iterator;
+    while (it.next()) edges.push(it.value);
+    it = vertex.destinationEdges.iterator;
+    while (it.next()) edges.push(it.value);
+    for (const e of edges) this.deleteEdge(e);
+    this.vertexes.remove(vertex);
+    if (vertex.node) this.nodeToLayoutVertex.remove(vertex.node);
+  }
+
+  /** 官方 LayoutNetwork.deleteNode(node) */
+  deleteNode(node: Node): void {
+    const v = this.findVertex(node);
+    if (v) this.deleteVertex(v);
+  }
+
+  /** 官方 LayoutNetwork.deleteLink(link) */
+  deleteLink(link: Link): void {
+    const e = this.findEdge(link);
+    if (e) this.deleteEdge(e);
+  }
+
+  /** 官方 LayoutNetwork.findAllParts(): Set<Part> */
+  findAllParts(): Set<any> {
+    const s = new Set<any>();
+    let it = this.vertexes.iterator;
+    while (it.next()) {
+      const v = it.value;
+      if (v.node) s.add(v.node);
+      else if (v.part) s.add(v.part);
+    }
+    it = this.edges.iterator as any;
+    while (it.next()) {
+      const e: any = it.value;
+      if (e.link) s.add(e.link);
+    }
+    return s;
   }
 
   /** Delete all artificial vertexes from the network */
