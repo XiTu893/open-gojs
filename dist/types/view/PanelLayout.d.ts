@@ -12,6 +12,7 @@ import { Rect } from '../core/Rect';
  * 直接抛 `Class extends value undefined is not a constructor`（实测 PanelLayoutFlow）。
  */
 export declare class PanelLayout {
+    static readonly className: string;
     private _name;
     get name(): string;
     set name(value: string);

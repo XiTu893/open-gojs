@@ -16598,6 +16598,7 @@ var PanelLayout = /** @class */ (function () {
             part.invalidateMeasure();
         }
     };
+    PanelLayout.className = "PanelLayout";
     return PanelLayout;
 }());
 
@@ -46396,48 +46397,607 @@ var CircularLayout = /** @class */ (function (_super) {
     return CircularLayout;
 }(Layout));
 
-var ForceDirectedNetwork = /** @class */ (function () {
-    function ForceDirectedNetwork(name) {
-        this.name = name;
-        this.nodeArray = [];
-        this.linkArray = [];
-        this.commentArray = [];
+/** 官方 `CircularVertex extends LayoutVertex`：多一个 diameter（由 CircularLayout 填） */
+var CircularVertex = /** @class */ (function (_super) {
+    __extends(CircularVertex, _super);
+    function CircularVertex(network) {
+        var _this = _super.call(this) || this;
+        _this._diameter = 0;
+        if (network !== undefined && network !== null) {
+            _this.network = network;
+        }
+        return _this;
     }
-    ForceDirectedNetwork.className = "ForceDirectedNetwork";
-    return ForceDirectedNetwork;
+    Object.defineProperty(CircularVertex.prototype, "diameter", {
+        get: function () { return this._diameter; },
+        set: function (value) { this._diameter = value; },
+        enumerable: false,
+        configurable: true
+    });
+    CircularVertex.className = "CircularVertex";
+    return CircularVertex;
+}(LayoutVertex));
+
+/** 官方 `CircularEdge extends LayoutEdge` */
+var CircularEdge = /** @class */ (function (_super) {
+    __extends(CircularEdge, _super);
+    function CircularEdge(network) {
+        var _this = _super.call(this) || this;
+        if (network !== undefined && network !== null) {
+            _this.network = network;
+        }
+        return _this;
+    }
+    CircularEdge.className = "CircularEdge";
+    return CircularEdge;
+}(LayoutEdge));
+
+/** 官方 `CircularNetwork extends LayoutNetwork`（go.d.ts） */
+var CircularNetwork = /** @class */ (function (_super) {
+    __extends(CircularNetwork, _super);
+    function CircularNetwork(layout) {
+        var _this = _super.call(this) || this;
+        if (layout !== undefined && layout !== null) {
+            _this.layout = layout;
+        }
+        return _this;
+    }
+    CircularNetwork.prototype.createVertex = function () {
+        return new CircularVertex(this);
+    };
+    CircularNetwork.prototype.createEdge = function () {
+        return new CircularEdge(this);
+    };
+    CircularNetwork.className = "CircularNetwork";
+    return CircularNetwork;
+}(LayoutNetwork));
+
+/**
+ * 官方 `Quadtree<T>`（go.d.ts: class Quadtree）——
+ * 四叉树空间索引，官方用于 `Diagram.findObjectsIn/near` 与 AvoidsNodesRouter。
+ */
+var Quadtree = /** @class */ (function () {
+    function Quadtree(x, y, w, h, maxObjects, maxLevels, level) {
+        if (maxObjects === void 0) { maxObjects = 8; }
+        if (maxLevels === void 0) { maxLevels = 8; }
+        if (level === void 0) { level = 0; }
+        this._objects = new Map$1();
+        this._northWest = null;
+        this._northEast = null;
+        this._southWest = null;
+        this._southEast = null;
+        this._bounds = new Rect(x, y, w, h);
+        this._maxObjects = maxObjects;
+        this._maxLevels = maxLevels;
+        this._level = level;
+        this._isLeaf = true;
+    }
+    Object.defineProperty(Quadtree.prototype, "bounds", {
+        get: function () { return this._bounds; },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(Quadtree.prototype, "level", {
+        get: function () { return this._level; },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(Quadtree.prototype, "isLeaf", {
+        get: function () { return this._isLeaf; },
+        enumerable: false,
+        configurable: true
+    });
+    /** 官方 Quadtree.clear() */
+    Quadtree.prototype.clear = function () {
+        this._objects.clear();
+        this._isLeaf = true;
+        this._northWest = this._northEast = this._southWest = this._southEast = null;
+    };
+    /** 官方 Quadtree.reinitialize(maxObjects?) */
+    Quadtree.prototype.reinitialize = function (maxObjects) {
+        this.clear();
+        if (maxObjects !== undefined && maxObjects > 0)
+            this._maxObjects = maxObjects;
+    };
+    /** 官方 Quadtree.resize(rect, inflate?) */
+    Quadtree.prototype.resize = function (rect, inflate) {
+        if (inflate === void 0) { inflate = 0; }
+        rect = rect.copy();
+        if (inflate > 0)
+            rect.inflate(inflate, inflate);
+        this._bounds = rect;
+    };
+    /** 官方 Quadtree.set(obj, bounds) —— 返回 false 表示 obj 与已有对象重叠 */
+    Quadtree.prototype.set = function (obj, bounds) {
+        return this.add(obj, bounds);
+    };
+    /** 官方 Quadtree.add(obj, bounds) */
+    Quadtree.prototype.add = function (obj, bounds) {
+        var e_1, _a;
+        if (!this._bounds.containsRect(bounds)) {
+            // 官方：超出根节点范围时直接忽略
+            return false;
+        }
+        if (this._isLeaf && this._objects.count < this._maxObjects) {
+            this._objects.set(obj, bounds.copy());
+            return true;
+        }
+        if (this._isLeaf) {
+            // 满了：下钻
+            if (this._level < this._maxLevels)
+                this._split();
+            else {
+                this._objects.set(obj, bounds.copy());
+                return true;
+            }
+        }
+        // 先把已有对象分到子节点，再放自己
+        var existing = [];
+        var it = this._objects.iterator;
+        while (it.next())
+            existing.push([it.key, it.value]);
+        this._objects.clear();
+        try {
+            for (var existing_1 = __values(existing), existing_1_1 = existing_1.next(); !existing_1_1.done; existing_1_1 = existing_1.next()) {
+                var _b = __read(existing_1_1.value, 2), o = _b[0], b = _b[1];
+                this._addToChild(o, b);
+            }
+        }
+        catch (e_1_1) { e_1 = { error: e_1_1 }; }
+        finally {
+            try {
+                if (existing_1_1 && !existing_1_1.done && (_a = existing_1.return)) _a.call(existing_1);
+            }
+            finally { if (e_1) throw e_1.error; }
+        }
+        return this._addToChild(obj, bounds);
+    };
+    /** 官方 Quadtree.setTo(obj, x, y, w?, h?) */
+    Quadtree.prototype.setTo = function (obj, x, y, w, h) {
+        if (w === void 0) { w = 0; }
+        if (h === void 0) { h = 0; }
+        return this.add(obj, new Rect(x, y, w, h));
+    };
+    /** 官方 Quadtree.find(r, result?) —— 找出与 r 相交（或包含 r）的对象 */
+    Quadtree.prototype.find = function (r, result) {
+        var e_2, _a;
+        var res = result || new Set$1();
+        if (!this._intersects(r))
+            return res;
+        var it = this._objects.iterator;
+        while (it.next()) {
+            var b = it.value;
+            if (b.intersectsRect(r) || r.intersectsRect(b))
+                res.add(it.key);
+        }
+        try {
+            for (var _b = __values([this._northWest, this._northEast, this._southWest, this._southEast]), _c = _b.next(); !_c.done; _c = _b.next()) {
+                var sub = _c.value;
+                if (sub)
+                    sub.find(r, res);
+            }
+        }
+        catch (e_2_1) { e_2 = { error: e_2_1 }; }
+        finally {
+            try {
+                if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
+            }
+            finally { if (e_2) throw e_2.error; }
+        }
+        return res;
+    };
+    /** 官方 Quadtree.findIn(x, y, w?, h?) */
+    Quadtree.prototype.findIn = function (x, y, w, h, result) {
+        if (w === void 0) { w = 0; }
+        if (h === void 0) { h = 0; }
+        return this.find(new Rect(x, y, w, h), result);
+    };
+    /** 官方 Quadtree.delete(obj, fast?) */
+    Quadtree.prototype.delete = function (obj, fast) {
+        var e_3, _a;
+        if (fast === void 0) { fast = false; }
+        if (this._objects.contains(obj)) {
+            this._objects.remove(obj);
+            if (fast)
+                this._isLeaf = true;
+            return true;
+        }
+        try {
+            for (var _b = __values([this._northWest, this._northEast, this._southWest, this._southEast]), _c = _b.next(); !_c.done; _c = _b.next()) {
+                var sub = _c.value;
+                if (sub && sub.delete(obj, fast))
+                    return true;
+            }
+        }
+        catch (e_3_1) { e_3 = { error: e_3_1 }; }
+        finally {
+            try {
+                if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
+            }
+            finally { if (e_3) throw e_3.error; }
+        }
+        return false;
+    };
+    /** 官方 Quadtree.remove(obj, fast?) */
+    Quadtree.prototype.remove = function (obj, fast) {
+        if (fast === void 0) { fast = false; }
+        return this.delete(obj, fast);
+    };
+    /** 官方 Quadtree.move(obj, rect, fast?) */
+    Quadtree.prototype.move = function (obj, rect, fast) {
+        if (fast === void 0) { fast = false; }
+        this.moveTo(obj, rect.x, rect.y, rect.width, rect.height, fast);
+    };
+    /** 官方 Quadtree.moveTo(obj, x, y, w, h, fast?) */
+    Quadtree.prototype.moveTo = function (obj, x, y, w, h, fast) {
+        if (fast === void 0) { fast = false; }
+        var old = this._find(obj);
+        if (old === null) {
+            this.add(obj, new Rect(x, y, w, h));
+            return;
+        }
+        old.setTo(x, y, w, h);
+        // 移出子树后就从旧位置删掉
+        this.delete(obj, fast);
+        if (!old.intersectsRect(this._bounds)) ;
+        else
+            this.add(obj, old.copy());
+    };
+    /** 官方 Quadtree.toMap(allObjects?) */
+    Quadtree.prototype.toMap = function (allObjects) {
+        var e_4, _a;
+        var res = allObjects || new Map$1();
+        var it = this._objects.iterator;
+        while (it.next())
+            res.set(it.key, it.value);
+        try {
+            for (var _b = __values([this._northWest, this._northEast, this._southWest, this._southEast]), _c = _b.next(); !_c.done; _c = _b.next()) {
+                var sub = _c.value;
+                if (sub)
+                    sub.toMap(res);
+            }
+        }
+        catch (e_4_1) { e_4 = { error: e_4_1 }; }
+        finally {
+            try {
+                if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
+            }
+            finally { if (e_4) throw e_4.error; }
+        }
+        return res;
+    };
+    // ---- internals ----
+    Quadtree.prototype._split = function () {
+        var b = this._bounds;
+        var hw = b.width / 2, hh = b.height / 2;
+        var l = this._level + 1;
+        var m = this._maxObjects, ml = this._maxLevels;
+        this._northWest = new Quadtree(b.x, b.y, hw, hh, m, ml, l);
+        this._northEast = new Quadtree(b.x + hw, b.y, hw, hh, m, ml, l);
+        this._southWest = new Quadtree(b.x, b.y + hh, hw, hh, m, ml, l);
+        this._southEast = new Quadtree(b.x + hw, b.y + hh, hw, hh, m, ml, l);
+        this._isLeaf = false;
+    };
+    Quadtree.prototype._intersects = function (r) {
+        return this._bounds.intersectsRect(r) || this._bounds.containsRect(r) || r.containsRect(this._bounds);
+    };
+    Quadtree.prototype._addToChild = function (obj, bounds) {
+        var e_5, _a;
+        try {
+            for (var _b = __values([this._northWest, this._northEast, this._southWest, this._southEast]), _c = _b.next(); !_c.done; _c = _b.next()) {
+                var sub = _c.value;
+                if (sub && sub._bounds.containsRect(bounds))
+                    return sub.add(obj, bounds);
+            }
+        }
+        catch (e_5_1) { e_5 = { error: e_5_1 }; }
+        finally {
+            try {
+                if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
+            }
+            finally { if (e_5) throw e_5.error; }
+        }
+        // 没有子节点能完整包含（跨界）：留在本节点
+        this._objects.set(obj, bounds.copy());
+        return true;
+    };
+    Quadtree.prototype._find = function (obj) {
+        var e_6, _a;
+        var b = this._objects.get(obj);
+        if (b !== undefined)
+            return b;
+        try {
+            for (var _b = __values([this._northWest, this._northEast, this._southWest, this._southEast]), _c = _b.next(); !_c.done; _c = _b.next()) {
+                var sub = _c.value;
+                if (sub) {
+                    var r = sub._find(obj);
+                    if (r)
+                        return r;
+                }
+            }
+        }
+        catch (e_6_1) { e_6 = { error: e_6_1 }; }
+        finally {
+            try {
+                if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
+            }
+            finally { if (e_6) throw e_6.error; }
+        }
+        return null;
+    };
+    Quadtree.className = "Quadtree";
+    return Quadtree;
 }());
 
-var ForceDirectedVertex = /** @class */ (function () {
-    function ForceDirectedVertex() {
-        this.key = null;
-        this.position = null;
-        this.comments = [];
-        this.linkConnected = [];
-        this.mass = 1;
-        this.charge = -30;
+/**
+ * 官方 `Themes`（go.d.ts: class Themes）—— ThemeManager 内置的 light / dark 两套主题。
+ * 值与官方 go.js 里的 `Themes.Light` / `Themes.Dark` 逐项一致。
+ */
+var Themes = /** @class */ (function () {
+    function Themes() {
     }
+    Themes.className = "Themes";
+    Themes.Light = {
+        colors: {
+            text: '#0a0a0a',
+            comment: '#ca8a04',
+            link: '#0a0a0a',
+            group: '#a3a3a344',
+            outline: '#a3a3a3',
+            selection: '#0ea5e9',
+            div: '#fff',
+            gridMinor: '#e5e5e5',
+            gridMajor: '#a3a3a3',
+            overviewBox: '#c026d3',
+            tempLink: '#2563eb',
+            tempPort: '#c026d3',
+            adornmentFill: '#0ea5e9',
+            adornmentStroke: '#1e40af',
+            dragSelect: '#c026d3'
+        },
+        fonts: { normal: '10pt sans-serif', bold: 'bold 12pt sans-serif' },
+        numbers: { group: 1, selection: 3 },
+        margins: { group: new Margin(5) },
+        arrowheads: { toArrow: 'Standard' }
+    };
+    Themes.Dark = {
+        colors: {
+            text: '#f5f5f5',
+            comment: '#facc15',
+            link: '#f5f5f5',
+            group: '#a3a3a388',
+            outline: '#a3a3a3',
+            selection: '#38bdf8',
+            div: '#171717',
+            gridMinor: '#262626',
+            gridMajor: '#404040',
+            overviewBox: '#e879f9',
+            tempLink: '#60a5fa',
+            tempPort: '#e879f9',
+            adornmentFill: '#38bdf8',
+            adornmentStroke: '#2563eb',
+            dragSelect: '#e879f9'
+        },
+        fonts: { normal: '10pt sans-serif', bold: 'bold 12pt sans-serif' },
+        numbers: { group: 1, selection: 3 },
+        margins: { group: new Margin(5) },
+        arrowheads: { toArrow: 'Standard' }
+    };
+    return Themes;
+}());
+
+/**
+ * 官方 `DraggingInfo`（go.d.ts: class DraggingInfo）—— 拖动过程中被拖对象的初始位置。
+ */
+var DraggingInfo = /** @class */ (function () {
+    function DraggingInfo(pt) {
+        this._point = pt ? pt.copy() : new Point(NaN, NaN);
+    }
+    Object.defineProperty(DraggingInfo.prototype, "point", {
+        get: function () { return this._point; },
+        set: function (value) {
+            this._point = value ? value.copy() : new Point(NaN, NaN);
+        },
+        enumerable: false,
+        configurable: true
+    });
+    DraggingInfo.className = "DraggingInfo";
+    return DraggingInfo;
+}());
+
+/**
+ * 官方 `DraggingOptions`（go.d.ts: class DraggingOptions）——
+ * DraggingTool / RelinkingTool / ResizingTool 共用的一组拖动选项。
+ */
+var DraggingOptions = /** @class */ (function () {
+    function DraggingOptions(init) {
+        var e_1, _a;
+        this.isGridSnapEnabled = false;
+        this.isGridSnapRealtime = true;
+        this.gridSnapCellSize = new Size(NaN, NaN);
+        this.gridSnapCellSpot = Spot.TopLeft.copy();
+        this.gridSnapOrigin = new Point(NaN, NaN);
+        this.dragsLink = false;
+        this.dragsTree = false;
+        this.groupsSnapMembers = false;
+        this.groupsAlwaysMove = true;
+        this.dragsMembers = false;
+        /** 官方 DraggingOptions.draggingInfo（可多个；工具内部用来记录拖动起点） */
+        this.draggingInfo = [];
+        if (init) {
+            try {
+                for (var _b = __values(Object.keys(init)), _c = _b.next(); !_c.done; _c = _b.next()) {
+                    var key = _c.value;
+                    var v = init[key];
+                    if (v !== undefined)
+                        this[key] = v;
+                }
+            }
+            catch (e_1_1) { e_1 = { error: e_1_1 }; }
+            finally {
+                try {
+                    if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
+                }
+                finally { if (e_1) throw e_1.error; }
+            }
+        }
+    }
+    DraggingOptions.prototype.copy = function () {
+        return new DraggingOptions(this);
+    };
+    DraggingOptions.className = "DraggingOptions";
+    return DraggingOptions;
+}());
+
+/**
+ * 官方 `ForceDirectedVertex`（go.d.ts: class ForceDirectedVertex extends LayoutVertex）
+ *
+ * 以前本文件是一个与 LayoutVertex **毫无关系**的空壳（key/position/mass/charge），
+ * 于是 `ForceDirectedLayout.doLayout` 与扩展（LinkLabelRouter 的 `LabelVertex extends
+ * go.ForceDirectedVertex`、`new go.ForceDirectedNetwork(this)`、`net.addVertex(v)`）
+ * 完全对不上——`net.addVertex is not a function` 就是这么来的。
+ */
+var ForceDirectedVertex = /** @class */ (function (_super) {
+    __extends(ForceDirectedVertex, _super);
+    function ForceDirectedVertex(network) {
+        var _this = _super.call(this) || this;
+        _this._isFixed = false;
+        _this._charge = -30;
+        _this._mass = 1;
+        _this._forceX = 0;
+        _this._forceY = 0;
+        if (network !== undefined && network !== null) {
+            _this.network = network;
+        }
+        // 官方默认：charge -30、mass 1
+        if (network && typeof network.defaultElectricalCharge === 'number') {
+            _this._charge = network.defaultElectricalCharge;
+        }
+        if (network && typeof network.defaultGravitationalMass === 'number') {
+            _this._mass = network.defaultGravitationalMass;
+        }
+        return _this;
+    }
+    Object.defineProperty(ForceDirectedVertex.prototype, "isFixed", {
+        get: function () { return this._isFixed; },
+        set: function (value) { this._isFixed = value; },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(ForceDirectedVertex.prototype, "charge", {
+        get: function () { return this._charge; },
+        set: function (value) { this._charge = value; },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(ForceDirectedVertex.prototype, "mass", {
+        get: function () { return this._mass; },
+        set: function (value) { this._mass = value; },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(ForceDirectedVertex.prototype, "forceX", {
+        get: function () { return this._forceX; },
+        set: function (value) { this._forceX = value; },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(ForceDirectedVertex.prototype, "forceY", {
+        get: function () { return this._forceY; },
+        set: function (value) { this._forceY = value; },
+        enumerable: false,
+        configurable: true
+    });
     ForceDirectedVertex.className = "ForceDirectedVertex";
     return ForceDirectedVertex;
-}());
+}(LayoutVertex));
 
-var ForceDirectedEdge = /** @class */ (function () {
-    function ForceDirectedEdge() {
-        this.from = null;
-        this.to = null;
-        this.label = '';
-        this.length = 100;
-        this.curvature = 0;
-        this.route = [];
-        this.stroke = 'blue';
-        this.strokeWidth = 1;
-        this.strokeDashArray = [];
-        this.strokeDashOffset = 0;
-        this.toArrow = 'Standard';
-        this.fromArrow = 'None';
+/**
+ * 官方 `ForceDirectedEdge`（go.d.ts: class ForceDirectedEdge extends LayoutEdge）
+ *
+ * 原来是与 LayoutEdge 无关的空壳（from/to/length/route/stroke…），
+ * `ForceDirectedLayout` 与扩展拿到的边没有 `fromVertex`/`toVertex`/`stiffness`。
+ */
+var ForceDirectedEdge = /** @class */ (function (_super) {
+    __extends(ForceDirectedEdge, _super);
+    function ForceDirectedEdge(network) {
+        var _this = _super.call(this) || this;
+        _this._stiffness = 0;
+        _this._springLength = 0;
+        _this.length = 0;
+        _this.weight = 0;
+        if (network !== undefined && network !== null) {
+            _this.network = network;
+            if (typeof network.defaultSpringLength === 'number') {
+                _this._springLength = network.defaultSpringLength;
+                _this.length = _this._springLength;
+            }
+        }
+        return _this;
     }
+    Object.defineProperty(ForceDirectedEdge.prototype, "stiffness", {
+        get: function () { return this._stiffness; },
+        set: function (value) { this._stiffness = value; },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(ForceDirectedEdge.prototype, "springLength", {
+        /** 弹簧的自然长度（官方默认取 network.defaultSpringLength） */
+        get: function () { return this._springLength; },
+        set: function (value) { this._springLength = value; },
+        enumerable: false,
+        configurable: true
+    });
     ForceDirectedEdge.className = "ForceDirectedEdge";
     return ForceDirectedEdge;
-}());
+}(LayoutEdge));
+
+/**
+ * 官方 `ForceDirectedNetwork extends LayoutNetwork`（go.d.ts）
+ *
+ * 原来 `src/core/ForceDirectedNetwork.ts` 只有 21 行、`nodeArray/linkArray/commentArray`
+ * 三个字段，和官方毫无关系；扩展 LinkLabelRouter 里
+ * `new go.ForceDirectedNetwork(this)` + `net.addVertex(v)` 因此直接炸掉。
+ */
+var ForceDirectedNetwork = /** @class */ (function (_super) {
+    __extends(ForceDirectedNetwork, _super);
+    function ForceDirectedNetwork(layout) {
+        var _this = _super.call(this) || this;
+        /** 官方 ForceDirectedNetwork.defaultSpringLength（默认弹簧长度） */
+        _this.defaultSpringLength = 50;
+        /** 官方 defaultElectricalCharge */
+        _this.defaultElectricalCharge = -30;
+        /** 官方 defaultGravitationalMass */
+        _this.defaultGravitationalMass = 1;
+        /** 官方 defaultCommentSpringLength */
+        _this.defaultCommentSpringLength = 10;
+        /** 官方 defaultCommentElectricalCharge */
+        _this.defaultCommentElectricalCharge = 0;
+        if (layout !== undefined && layout !== null) {
+            _this.layout = layout;
+            // 从布局上取默认值（官方 ForceDirectedLayout.doLayout 会先 set 好这些值）
+            if (typeof layout.defaultSpringLength === 'number')
+                _this.defaultSpringLength = layout.defaultSpringLength;
+            if (typeof layout.defaultElectricalCharge === 'number')
+                _this.defaultElectricalCharge = layout.defaultElectricalCharge;
+            if (typeof layout.defaultGravitationalMass === 'number')
+                _this.defaultGravitationalMass = layout.defaultGravitationalMass;
+            if (typeof layout.defaultCommentSpringLength === 'number')
+                _this.defaultCommentSpringLength = layout.defaultCommentSpringLength;
+            if (typeof layout.defaultCommentElectricalCharge === 'number')
+                _this.defaultCommentElectricalCharge = layout.defaultCommentElectricalCharge;
+        }
+        return _this;
+    }
+    ForceDirectedNetwork.prototype.createVertex = function () {
+        return new ForceDirectedVertex(this);
+    };
+    ForceDirectedNetwork.prototype.createEdge = function () {
+        return new ForceDirectedEdge(this);
+    };
+    ForceDirectedNetwork.className = "ForceDirectedNetwork";
+    return ForceDirectedNetwork;
+}(LayoutNetwork));
 
 var LayeredDigraphNetwork = /** @class */ (function () {
     function LayeredDigraphNetwork(name) {
@@ -46916,5 +47476,5 @@ var TextOverflow = {
     Ellipsis: OverflowEllipsis,
 };
 
-export { ActionTool, Adornment, AdornmentContextMenu, AdornmentLinkReshape, AdornmentRelink, AdornmentResize, AdornmentRotate, AdornmentSelection, AdornmentToolTip, Animation, AnimationDefault, AnimationEaseIn, AnimationEaseInOut, AnimationEaseOut, AnimationEaseOutBounce, AnimationLinear, AnimationManager, AnimationState, AnimationStyle, AnimationStyleAnimateLocations, AnimationStyleDefault, AnimationStyleNone, AnimationTrigger, Arrowheads, AutoScale, AutoScaleNone, AutoScaleUniform, AutoScaleUniformToFill, Binding, BindingMode, Brush, BrushLinear, BrushPattern, BrushRadial, BrushSolid, BrushType, Builders, CanvasRenderer, ChangeType, ChangedEvent, ChangedEventInsert, ChangedEventProperty, ChangedEventRemove, ChangedEventTransaction, CircularArrangement, CircularArrangementConstantAngle, CircularArrangementConstantDistance, CircularArrangementConstantRadius, CircularArrangementConstantSpacing, CircularArrangementPacked, CircularDirection, CircularDirectionBidirectionalLeft, CircularDirectionBidirectionalRight, CircularDirectionClockwise, CircularDirectionCounterclockwise, CircularLayout, CircularNodeDiameterFormula, CircularNodeDiameterFormulaCircular, CircularNodeDiameterFormulaPythagorean, CircularSorting, CircularSortingAscending, CircularSortingDescending, CircularSortingForwards, CircularSortingOptimized, CircularSortingReverse, ClickCreatingTool, ClickSelectingTool, CollapsePolicy, CollapsePolicyAllParents, CollapsePolicyAnyParents, CollapsePolicyTreeParent, Color, ColorSpace, ColorSpaceHSL, ColorSpaceLab, ColorSpaceOklch, CommandHandler, ContextMenuTool, Curve, CurveBezier, CurveJumpGap, CurveJumpOver, CurveNone, CycleAll, CycleDestinationTree, CycleMode, CycleNotDirected, CycleNotDirectedFast, CycleNotUndirected, CycleSourceTree, Diagram, DiagramEvent, DiagramEventAnimationFinished, DiagramEventAnimationStarting, DiagramEventChanged, DiagramEventClipboardChanged, DiagramEventGroupCollapsed, DiagramEventGroupExpanded, DiagramEventInitialAnimationStarting, DiagramEventInitialLayoutCompleted, DiagramEventLayoutCompleted, DiagramEventLinkDrawn, DiagramEventLinkRelinked, DiagramEventLinkReshaped, DiagramEventModelChanged, DiagramEventPartCreated, DiagramEventPartResized, DiagramEventPartRotated, DiagramEventSelectionCopied, DiagramEventSelectionDeleted, DiagramEventSelectionGrouped, DiagramEventSelectionMoved, DiagramEventSelectionMoved2, DiagramEventSelectionUngrouped, DiagramEventSubGraphCollapsed, DiagramEventSubGraphExpanded, DiagramEventTextEdited, DiagramEventUndoManagerStateChanged, DiagramEventViewportBoundsChanged, DragSelectingTool, DraggingTool, EnumValue, Figures, Flip, FlipBoth, FlipHorizontal, FlipNone, FlipVertical, ForceDirectedEdge, ForceDirectedLayout, ForceDirectedNetwork, ForceDirectedVertex, Geometry, GeometryStretch, GeometryStretchDefault, GeometryStretchFill, GeometryStretchNone, GeometryStretchUniform, GeometryStretchUniformToFill, GeometryType, GeometryTypeEllipse, GeometryTypeLine, GeometryTypePath, GeometryTypeRectangle, GestureMode, GestureModeCancel, GestureModeNone, GestureModeZoom, GraduatedPanCenter, GraduatedPanLeft, GraduatedPanNone, GraduatedPanRight, GraphLinksModel, GraphObject, GridAlignment, GridAlignmentLocation, GridAlignmentPosition, GridArrangement, GridArrangementBottomToTop, GridArrangementLeftToRight, GridArrangementRightToLeft, GridArrangementTopToBottom, GridLayout, GridLayoutCenter, GridLayoutLocation, GridSorting, GridSortingAscending, GridSortingDescending, GridSortingForwards, GridSortingReverse, GridWrappingFit, GridWrappingNone, Group, HTMLInfo, ImageStretch, ImageStretchFill, ImageStretchNone, ImageStretchUniform, ImageStretchUniformToFill, InputEvent, Layer, LayerAdornment, LayerBackground, LayerForeground, LayerGrid, LayerNames, LayerTool, LayeredDigraphAggressive, LayeredDigraphAggressiveAll, LayeredDigraphAggressiveHorizontal, LayeredDigraphAggressiveLess, LayeredDigraphAggressiveMore, LayeredDigraphAggressiveNone, LayeredDigraphAggressiveVertical, LayeredDigraphAlign, LayeredDigraphAlignAll, LayeredDigraphAlignBottom, LayeredDigraphAlignCenter, LayeredDigraphAlignLower, LayeredDigraphAlignLowerLeft, LayeredDigraphAlignLowerRight, LayeredDigraphAlignNone, LayeredDigraphAlignTop, LayeredDigraphAlignUpper, LayeredDigraphAlignUpperLeft, LayeredDigraphAlignUpperRight, LayeredDigraphCycleRemove, LayeredDigraphCycleRemoveDepthFirst, LayeredDigraphCycleRemoveFromLayers, LayeredDigraphCycleRemoveGreedy, LayeredDigraphDirection, LayeredDigraphDirectionDown, LayeredDigraphDirectionLeft, LayeredDigraphDirectionRight, LayeredDigraphDirectionUp, LayeredDigraphEdge, LayeredDigraphInit, LayeredDigraphInitDepthFirstIn, LayeredDigraphInitDepthFirstOut, LayeredDigraphInitNaive, LayeredDigraphLayering, LayeredDigraphLayeringLongestPathSink, LayeredDigraphLayeringLongestPathSource, LayeredDigraphLayeringOptimalLinkLength, LayeredDigraphLayout, LayeredDigraphNetwork, LayeredDigraphPack, LayeredDigraphPackAll, LayeredDigraphPackExpand, LayeredDigraphPackMaybeExpand, LayeredDigraphPackMedian, LayeredDigraphPackNone, LayeredDigraphPackStraighten, LayeredDigraphVertex, Layout, LayoutConditions, LayoutConditionsAdded, LayoutConditionsAll, LayoutConditionsGroupLayout, LayoutConditionsHidden, LayoutConditionsNodeReplaced, LayoutConditionsNodeSized, LayoutConditionsNone, LayoutConditionsRemoved, LayoutConditionsShown, LayoutConditionsStandard, LayoutEdge, LayoutNetwork, LayoutVertex, Link, LinkAdjusting, LinkAdjustingEnd, LinkAdjustingNone, LinkAdjustingScale, LinkAdjustingStretch, LinkReshapingTool, LinkingBaseTool, LinkingDirection, LinkingDirectionBackwardsOnly, LinkingDirectionEither, LinkingDirectionForwardsOnly, LinkingTool, List, Map$1 as Map, Margin, Model, Node, Orientation, OrientationAlong, OrientationMinus90, OrientationMinus90Upright, OrientationNone, OrientationOpposite, OrientationPlus180, OrientationPlus90, OrientationPlus90Upright, OrientationUpright, OrientationUpright45, Overflow, OverflowClip, OverflowEllipsis, Overview, Palette, Panel, PanelAuto, PanelGraduated, PanelGrid, PanelHorizontal, PanelLayout, PanelLink, PanelPosition, PanelSpot, PanelTable, PanelTableColumn, PanelTableRow, PanelTypes, PanelVertical, PanelViewbox, PanningTool, Part, PathFigure, PathSegment, PathSegmentArc, PathSegmentClose, PathSegmentCubicBezier, PathSegmentLine, PathSegmentMoveTo, PathSegmentQuadraticBezier, Picture, Placeholder, Point, PortSpreading, PortSpreadingEvenly, PortSpreadingNone, PortSpreadingPacked, Rect, RelinkingTool, ReshapingBehavior, ReshapingBehaviorAll, ReshapingBehaviorHorizontal, ReshapingBehaviorNone, ReshapingBehaviorVertical, ResizingTool, RotatingTool, Router, Routing, RoutingAvoidsNodes, RoutingAvoidsNodesStraight, RoutingNone, RoutingNormal, RoutingOrthogonal, RowColumnDefinition, ScrollDocument, ScrollInfinite, ScrollMode, SegmentOrientationAlong, SegmentOrientationNone, SegmentOrientationOpposite, SegmentOrientationOrthogonal, SegmentOrientationParallel, SegmentOrientationPerpendicular, SegmentType, SegmentTypeBezier, SegmentTypeMove, SegmentTypeSvgArc, Set$1 as Set, Shape, Size, Sizing, SizingAuto, SizingDefault, SizingNone, SizingProp, SizingProportionalExtra, Spot, Stretch, StretchDefault, StretchFill, StretchHorizontal, StretchNone, StretchUniform, StretchUniformToFill, StretchVertical, TextBlock, TextEditingAccept, TextEditingAcceptEnter, TextEditingAcceptLostFocus, TextEditingAcceptMouseDown, TextEditingAcceptTab, TextEditingStarting, TextEditingStartingDoubleClick, TextEditingStartingSingleClick, TextEditingStartingSingleClickSelected, TextEditingState, TextEditingStateActive, TextEditingStateEditing, TextEditingStateInvalid, TextEditingStateNone, TextEditingStateValidated, TextEditingStateValidating, TextEditingTool, TextFormat, TextFormatNone, TextFormatTrim, TextOverflow, ThemeBinding, ThemeManager, Tool, ToolManager, ToolNames, Transaction, TreeAlignment, TreeAlignmentBottomRightBus, TreeAlignmentBus, TreeAlignmentBusBranching, TreeAlignmentCenterChildren, TreeAlignmentCenterSubtrees, TreeAlignmentCustom, TreeAlignmentEnd, TreeAlignmentStart, TreeAlignmentTopLeftBus, TreeArrangement, TreeArrangementFixedRoots, TreeArrangementHorizontal, TreeArrangementVertical, TreeCompaction, TreeCompactionBlock, TreeCompactionNone, TreeEdge, TreeLayerStyle, TreeLayerStyleIndividual, TreeLayerStyleSiblings, TreeLayerStyleUniform, TreeLayout, TreeModel, TreeNetwork, TreePath, TreePathDefault, TreePathDestination, TreePathSource, TreeSorting, TreeSortingAscending, TreeSortingDescending, TreeSortingForwards, TreeSortingReverse, TreeStyle, TreeStyleAlternating, TreeStyleCompact, TreeStyleLastParents, TreeStyleLayered, TreeStyleRootOnly, TreeVertex, TriggerStart, TriggerStartBundled, TriggerStartDefault, TriggerStartImmediate, UndoManager, VerticalBottom, VerticalCenter, VerticalTop, ViewboxStretch, ViewboxStretchFill, ViewboxStretchNone, ViewboxStretchUniform, ViewboxStretchUniformToFill, WheelMode, WheelModeNone, WheelModeScroll, WheelModeZoom, Wrap, WrapBreakAll, WrapDesiredSize, WrapFit, WrapNone, figures, getFigureGeometry, version };
+export { ActionTool, Adornment, AdornmentContextMenu, AdornmentLinkReshape, AdornmentRelink, AdornmentResize, AdornmentRotate, AdornmentSelection, AdornmentToolTip, Animation, AnimationDefault, AnimationEaseIn, AnimationEaseInOut, AnimationEaseOut, AnimationEaseOutBounce, AnimationLinear, AnimationManager, AnimationState, AnimationStyle, AnimationStyleAnimateLocations, AnimationStyleDefault, AnimationStyleNone, AnimationTrigger, Arrowheads, AutoScale, AutoScaleNone, AutoScaleUniform, AutoScaleUniformToFill, Binding, BindingMode, Brush, BrushLinear, BrushPattern, BrushRadial, BrushSolid, BrushType, Builders, CanvasRenderer, ChangeType, ChangedEvent, ChangedEventInsert, ChangedEventProperty, ChangedEventRemove, ChangedEventTransaction, CircularArrangement, CircularArrangementConstantAngle, CircularArrangementConstantDistance, CircularArrangementConstantRadius, CircularArrangementConstantSpacing, CircularArrangementPacked, CircularDirection, CircularDirectionBidirectionalLeft, CircularDirectionBidirectionalRight, CircularDirectionClockwise, CircularDirectionCounterclockwise, CircularEdge, CircularLayout, CircularNetwork, CircularNodeDiameterFormula, CircularNodeDiameterFormulaCircular, CircularNodeDiameterFormulaPythagorean, CircularSorting, CircularSortingAscending, CircularSortingDescending, CircularSortingForwards, CircularSortingOptimized, CircularSortingReverse, CircularVertex, ClickCreatingTool, ClickSelectingTool, CollapsePolicy, CollapsePolicyAllParents, CollapsePolicyAnyParents, CollapsePolicyTreeParent, Color, ColorSpace, ColorSpaceHSL, ColorSpaceLab, ColorSpaceOklch, CommandHandler, ContextMenuTool, Curve, CurveBezier, CurveJumpGap, CurveJumpOver, CurveNone, CycleAll, CycleDestinationTree, CycleMode, CycleNotDirected, CycleNotDirectedFast, CycleNotUndirected, CycleSourceTree, Diagram, DiagramEvent, DiagramEventAnimationFinished, DiagramEventAnimationStarting, DiagramEventChanged, DiagramEventClipboardChanged, DiagramEventGroupCollapsed, DiagramEventGroupExpanded, DiagramEventInitialAnimationStarting, DiagramEventInitialLayoutCompleted, DiagramEventLayoutCompleted, DiagramEventLinkDrawn, DiagramEventLinkRelinked, DiagramEventLinkReshaped, DiagramEventModelChanged, DiagramEventPartCreated, DiagramEventPartResized, DiagramEventPartRotated, DiagramEventSelectionCopied, DiagramEventSelectionDeleted, DiagramEventSelectionGrouped, DiagramEventSelectionMoved, DiagramEventSelectionMoved2, DiagramEventSelectionUngrouped, DiagramEventSubGraphCollapsed, DiagramEventSubGraphExpanded, DiagramEventTextEdited, DiagramEventUndoManagerStateChanged, DiagramEventViewportBoundsChanged, DragSelectingTool, DraggingInfo, DraggingOptions, DraggingTool, EnumValue, Figures, Flip, FlipBoth, FlipHorizontal, FlipNone, FlipVertical, ForceDirectedEdge, ForceDirectedLayout, ForceDirectedNetwork, ForceDirectedVertex, Geometry, GeometryStretch, GeometryStretchDefault, GeometryStretchFill, GeometryStretchNone, GeometryStretchUniform, GeometryStretchUniformToFill, GeometryType, GeometryTypeEllipse, GeometryTypeLine, GeometryTypePath, GeometryTypeRectangle, GestureMode, GestureModeCancel, GestureModeNone, GestureModeZoom, GraduatedPanCenter, GraduatedPanLeft, GraduatedPanNone, GraduatedPanRight, GraphLinksModel, GraphObject, GridAlignment, GridAlignmentLocation, GridAlignmentPosition, GridArrangement, GridArrangementBottomToTop, GridArrangementLeftToRight, GridArrangementRightToLeft, GridArrangementTopToBottom, GridLayout, GridLayoutCenter, GridLayoutLocation, GridSorting, GridSortingAscending, GridSortingDescending, GridSortingForwards, GridSortingReverse, GridWrappingFit, GridWrappingNone, Group, HTMLInfo, ImageStretch, ImageStretchFill, ImageStretchNone, ImageStretchUniform, ImageStretchUniformToFill, InputEvent, Layer, LayerAdornment, LayerBackground, LayerForeground, LayerGrid, LayerNames, LayerTool, LayeredDigraphAggressive, LayeredDigraphAggressiveAll, LayeredDigraphAggressiveHorizontal, LayeredDigraphAggressiveLess, LayeredDigraphAggressiveMore, LayeredDigraphAggressiveNone, LayeredDigraphAggressiveVertical, LayeredDigraphAlign, LayeredDigraphAlignAll, LayeredDigraphAlignBottom, LayeredDigraphAlignCenter, LayeredDigraphAlignLower, LayeredDigraphAlignLowerLeft, LayeredDigraphAlignLowerRight, LayeredDigraphAlignNone, LayeredDigraphAlignTop, LayeredDigraphAlignUpper, LayeredDigraphAlignUpperLeft, LayeredDigraphAlignUpperRight, LayeredDigraphCycleRemove, LayeredDigraphCycleRemoveDepthFirst, LayeredDigraphCycleRemoveFromLayers, LayeredDigraphCycleRemoveGreedy, LayeredDigraphDirection, LayeredDigraphDirectionDown, LayeredDigraphDirectionLeft, LayeredDigraphDirectionRight, LayeredDigraphDirectionUp, LayeredDigraphEdge, LayeredDigraphInit, LayeredDigraphInitDepthFirstIn, LayeredDigraphInitDepthFirstOut, LayeredDigraphInitNaive, LayeredDigraphLayering, LayeredDigraphLayeringLongestPathSink, LayeredDigraphLayeringLongestPathSource, LayeredDigraphLayeringOptimalLinkLength, LayeredDigraphLayout, LayeredDigraphNetwork, LayeredDigraphPack, LayeredDigraphPackAll, LayeredDigraphPackExpand, LayeredDigraphPackMaybeExpand, LayeredDigraphPackMedian, LayeredDigraphPackNone, LayeredDigraphPackStraighten, LayeredDigraphVertex, Layout, LayoutConditions, LayoutConditionsAdded, LayoutConditionsAll, LayoutConditionsGroupLayout, LayoutConditionsHidden, LayoutConditionsNodeReplaced, LayoutConditionsNodeSized, LayoutConditionsNone, LayoutConditionsRemoved, LayoutConditionsShown, LayoutConditionsStandard, LayoutEdge, LayoutNetwork, LayoutVertex, Link, LinkAdjusting, LinkAdjustingEnd, LinkAdjustingNone, LinkAdjustingScale, LinkAdjustingStretch, LinkReshapingTool, LinkingBaseTool, LinkingDirection, LinkingDirectionBackwardsOnly, LinkingDirectionEither, LinkingDirectionForwardsOnly, LinkingTool, List, Map$1 as Map, Margin, Model, Node, Orientation, OrientationAlong, OrientationMinus90, OrientationMinus90Upright, OrientationNone, OrientationOpposite, OrientationPlus180, OrientationPlus90, OrientationPlus90Upright, OrientationUpright, OrientationUpright45, Overflow, OverflowClip, OverflowEllipsis, Overview, Palette, Panel, PanelAuto, PanelGraduated, PanelGrid, PanelHorizontal, PanelLayout, PanelLink, PanelPosition, PanelSpot, PanelTable, PanelTableColumn, PanelTableRow, PanelTypes, PanelVertical, PanelViewbox, PanningTool, Part, PathFigure, PathSegment, PathSegmentArc, PathSegmentClose, PathSegmentCubicBezier, PathSegmentLine, PathSegmentMoveTo, PathSegmentQuadraticBezier, Picture, Placeholder, Point, PortSpreading, PortSpreadingEvenly, PortSpreadingNone, PortSpreadingPacked, Quadtree, Rect, RelinkingTool, ReshapingBehavior, ReshapingBehaviorAll, ReshapingBehaviorHorizontal, ReshapingBehaviorNone, ReshapingBehaviorVertical, ResizingTool, RotatingTool, Router, Routing, RoutingAvoidsNodes, RoutingAvoidsNodesStraight, RoutingNone, RoutingNormal, RoutingOrthogonal, RowColumnDefinition, ScrollDocument, ScrollInfinite, ScrollMode, SegmentOrientationAlong, SegmentOrientationNone, SegmentOrientationOpposite, SegmentOrientationOrthogonal, SegmentOrientationParallel, SegmentOrientationPerpendicular, SegmentType, SegmentTypeBezier, SegmentTypeMove, SegmentTypeSvgArc, Set$1 as Set, Shape, Size, Sizing, SizingAuto, SizingDefault, SizingNone, SizingProp, SizingProportionalExtra, Spot, Stretch, StretchDefault, StretchFill, StretchHorizontal, StretchNone, StretchUniform, StretchUniformToFill, StretchVertical, TextBlock, TextEditingAccept, TextEditingAcceptEnter, TextEditingAcceptLostFocus, TextEditingAcceptMouseDown, TextEditingAcceptTab, TextEditingStarting, TextEditingStartingDoubleClick, TextEditingStartingSingleClick, TextEditingStartingSingleClickSelected, TextEditingState, TextEditingStateActive, TextEditingStateEditing, TextEditingStateInvalid, TextEditingStateNone, TextEditingStateValidated, TextEditingStateValidating, TextEditingTool, TextFormat, TextFormatNone, TextFormatTrim, TextOverflow, ThemeBinding, ThemeManager, Themes, Tool, ToolManager, ToolNames, Transaction, TreeAlignment, TreeAlignmentBottomRightBus, TreeAlignmentBus, TreeAlignmentBusBranching, TreeAlignmentCenterChildren, TreeAlignmentCenterSubtrees, TreeAlignmentCustom, TreeAlignmentEnd, TreeAlignmentStart, TreeAlignmentTopLeftBus, TreeArrangement, TreeArrangementFixedRoots, TreeArrangementHorizontal, TreeArrangementVertical, TreeCompaction, TreeCompactionBlock, TreeCompactionNone, TreeEdge, TreeLayerStyle, TreeLayerStyleIndividual, TreeLayerStyleSiblings, TreeLayerStyleUniform, TreeLayout, TreeModel, TreeNetwork, TreePath, TreePathDefault, TreePathDestination, TreePathSource, TreeSorting, TreeSortingAscending, TreeSortingDescending, TreeSortingForwards, TreeSortingReverse, TreeStyle, TreeStyleAlternating, TreeStyleCompact, TreeStyleLastParents, TreeStyleLayered, TreeStyleRootOnly, TreeVertex, TriggerStart, TriggerStartBundled, TriggerStartDefault, TriggerStartImmediate, UndoManager, VerticalBottom, VerticalCenter, VerticalTop, ViewboxStretch, ViewboxStretchFill, ViewboxStretchNone, ViewboxStretchUniform, ViewboxStretchUniformToFill, WheelMode, WheelModeNone, WheelModeScroll, WheelModeZoom, Wrap, WrapBreakAll, WrapDesiredSize, WrapFit, WrapNone, figures, getFigureGeometry, version };
 //# sourceMappingURL=open-gojs.esm.js.map

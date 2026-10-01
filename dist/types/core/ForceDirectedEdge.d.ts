@@ -1,28 +1,19 @@
-export declare class ForceDirectedEdge {
+import { LayoutEdge } from '../layout/LayoutEdge';
+import { ForceDirectedNetwork } from './ForceDirectedNetwork';
+/**
+ * 官方 `ForceDirectedEdge`（go.d.ts: class ForceDirectedEdge extends LayoutEdge）
+ *
+ * 原来是与 LayoutEdge 无关的空壳（from/to/length/route/stroke…），
+ * `ForceDirectedLayout` 与扩展拿到的边没有 `fromVertex`/`toVertex`/`stiffness`。
+ */
+export declare class ForceDirectedEdge extends LayoutEdge {
     static readonly className: string;
-    /** The from node of this edge. */
-    from: any;
-    /** The to node of this edge. */
-    to: any;
-    /** The label of this edge. */
-    label: string;
-    /** The length of this edge. */
-    length: number;
-    /** The curvature of this edge. */
-    curvature: number;
-    /** The route of this edge. */
-    route: any[];
-    /** The stroke of this edge. */
-    stroke: string;
-    /** The stroke width of this edge. */
-    strokeWidth: number;
-    /** The dash array of this edge. */
-    strokeDashArray: number[];
-    /** The dash offset of this edge. */
-    strokeDashOffset: number;
-    /** The arrow head of this edge. */
-    toArrow: string;
-    /** The from arrow head of this edge. */
-    fromArrow: string;
-    constructor();
+    private _stiffness;
+    private _springLength;
+    constructor(network?: ForceDirectedNetwork | null);
+    get stiffness(): number;
+    set stiffness(value: number);
+    /** 弹簧的自然长度（官方默认取 network.defaultSpringLength） */
+    get springLength(): number;
+    set springLength(value: number);
 }

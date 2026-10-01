@@ -6583,6 +6583,7 @@ declare class TextBlock extends GraphObject {
  * 直接抛 `Class extends value undefined is not a constructor`（实测 PanelLayoutFlow）。
  */
 declare class PanelLayout {
+    static readonly className: string;
     private _name;
     get name(): string;
     set name(value: string);
@@ -7845,63 +7846,256 @@ declare class TreeEdge extends LayoutEdge {
     relativePoint: Point;
 }
 
-declare class ForceDirectedNetwork {
+/** 官方 `CircularNetwork extends LayoutNetwork`（go.d.ts） */
+declare class CircularNetwork extends LayoutNetwork {
     static readonly className: string;
-    /** The name of this network. */
-    name: string;
-    /** The nodes in this network. */
-    nodeArray: any[];
-    /** The links in this network. */
-    linkArray: any[];
-    /** The comments in this network. */
-    commentArray: any[];
-    constructor(name: string);
+    constructor(layout?: any);
+    createVertex(): LayoutVertex;
+    createEdge(): LayoutEdge;
 }
 
-declare class ForceDirectedVertex {
+/** 官方 `CircularVertex extends LayoutVertex`：多一个 diameter（由 CircularLayout 填） */
+declare class CircularVertex extends LayoutVertex {
     static readonly className: string;
-    /** The name/key of this vertex. */
-    key: any;
-    /** The position of this vertex. */
-    position: any;
-    /** The comments for this vertex. */
-    comments: any[];
-    /** The links connected to this vertex. */
-    linkConnected: any[];
-    /** The mass of this vertex. */
-    mass: number;
-    /** The charge of this vertex */
-    charge: number;
-    constructor();
+    private _diameter;
+    constructor(network?: CircularNetwork | null);
+    get diameter(): number;
+    set diameter(value: number);
 }
 
-declare class ForceDirectedEdge {
+/** 官方 `CircularEdge extends LayoutEdge` */
+declare class CircularEdge extends LayoutEdge {
     static readonly className: string;
-    /** The from node of this edge. */
-    from: any;
-    /** The to node of this edge. */
-    to: any;
-    /** The label of this edge. */
-    label: string;
-    /** The length of this edge. */
-    length: number;
-    /** The curvature of this edge. */
-    curvature: number;
-    /** The route of this edge. */
-    route: any[];
-    /** The stroke of this edge. */
-    stroke: string;
-    /** The stroke width of this edge. */
-    strokeWidth: number;
-    /** The dash array of this edge. */
-    strokeDashArray: number[];
-    /** The dash offset of this edge. */
-    strokeDashOffset: number;
-    /** The arrow head of this edge. */
-    toArrow: string;
-    /** The from arrow head of this edge. */
-    fromArrow: string;
-    constructor();
+    constructor(network?: CircularNetwork | null);
+}
+
+/**
+ * 官方 `Quadtree<T>`（go.d.ts: class Quadtree）——
+ * 四叉树空间索引，官方用于 `Diagram.findObjectsIn/near` 与 AvoidsNodesRouter。
+ */
+declare class Quadtree<T = any> {
+    static readonly className: string;
+    private _bounds;
+    private _level;
+    private _maxObjects;
+    private _maxLevels;
+    private _isLeaf;
+    private _objects;
+    private _northWest;
+    private _northEast;
+    private _southWest;
+    private _southEast;
+    constructor(x: number, y: number, w: number, h: number, maxObjects?: number, maxLevels?: number, level?: number);
+    get bounds(): Rect;
+    get level(): number;
+    get isLeaf(): boolean;
+    /** 官方 Quadtree.clear() */
+    clear(): void;
+    /** 官方 Quadtree.reinitialize(maxObjects?) */
+    reinitialize(maxObjects?: number): void;
+    /** 官方 Quadtree.resize(rect, inflate?) */
+    resize(rect: Rect, inflate?: number): void;
+    /** 官方 Quadtree.set(obj, bounds) —— 返回 false 表示 obj 与已有对象重叠 */
+    set(obj: T, bounds: Rect): boolean;
+    /** 官方 Quadtree.add(obj, bounds) */
+    add(obj: T, bounds: Rect): boolean;
+    /** 官方 Quadtree.setTo(obj, x, y, w?, h?) */
+    setTo(obj: T, x: number, y: number, w?: number, h?: number): boolean;
+    /** 官方 Quadtree.find(r, result?) —— 找出与 r 相交（或包含 r）的对象 */
+    find(r: Rect, result?: Set<T>): Set<T>;
+    /** 官方 Quadtree.findIn(x, y, w?, h?) */
+    findIn(x: number, y: number, w?: number, h?: number, result?: Set<T>): Set<T>;
+    /** 官方 Quadtree.delete(obj, fast?) */
+    delete(obj: T, fast?: boolean): boolean;
+    /** 官方 Quadtree.remove(obj, fast?) */
+    remove(obj: T, fast?: boolean): boolean;
+    /** 官方 Quadtree.move(obj, rect, fast?) */
+    move(obj: T, rect: Rect, fast?: boolean): void;
+    /** 官方 Quadtree.moveTo(obj, x, y, w, h, fast?) */
+    moveTo(obj: T, x: number, y: number, w: number, h: number, fast?: boolean): void;
+    /** 官方 Quadtree.toMap(allObjects?) */
+    toMap(allObjects?: Map$1<T, Rect>): Map$1<T, Rect>;
+    private _split;
+    private _intersects;
+    private _addToChild;
+    private _find;
+}
+
+/**
+ * 官方 `Themes`（go.d.ts: class Themes）—— ThemeManager 内置的 light / dark 两套主题。
+ * 值与官方 go.js 里的 `Themes.Light` / `Themes.Dark` 逐项一致。
+ */
+declare class Themes {
+    static readonly className: string;
+    static readonly Light: {
+        colors: {
+            text: string;
+            comment: string;
+            link: string;
+            group: string;
+            outline: string;
+            selection: string;
+            div: string;
+            gridMinor: string;
+            gridMajor: string;
+            overviewBox: string;
+            tempLink: string;
+            tempPort: string;
+            adornmentFill: string;
+            adornmentStroke: string;
+            dragSelect: string;
+        };
+        fonts: {
+            normal: string;
+            bold: string;
+        };
+        numbers: {
+            group: number;
+            selection: number;
+        };
+        margins: {
+            group: Margin;
+        };
+        arrowheads: {
+            toArrow: string;
+        };
+    };
+    static readonly Dark: {
+        colors: {
+            text: string;
+            comment: string;
+            link: string;
+            group: string;
+            outline: string;
+            selection: string;
+            div: string;
+            gridMinor: string;
+            gridMajor: string;
+            overviewBox: string;
+            tempLink: string;
+            tempPort: string;
+            adornmentFill: string;
+            adornmentStroke: string;
+            dragSelect: string;
+        };
+        fonts: {
+            normal: string;
+            bold: string;
+        };
+        numbers: {
+            group: number;
+            selection: number;
+        };
+        margins: {
+            group: Margin;
+        };
+        arrowheads: {
+            toArrow: string;
+        };
+    };
+}
+
+/**
+ * 官方 `DraggingInfo`（go.d.ts: class DraggingInfo）—— 拖动过程中被拖对象的初始位置。
+ */
+declare class DraggingInfo {
+    static readonly className: string;
+    private _point;
+    constructor(pt?: Point);
+    get point(): Point;
+    set point(value: Point);
+}
+
+/**
+ * 官方 `DraggingOptions`（go.d.ts: class DraggingOptions）——
+ * DraggingTool / RelinkingTool / ResizingTool 共用的一组拖动选项。
+ */
+declare class DraggingOptions {
+    static readonly className: string;
+    isGridSnapEnabled: boolean;
+    isGridSnapRealtime: boolean;
+    gridSnapCellSize: Size;
+    gridSnapCellSpot: Spot;
+    gridSnapOrigin: Point;
+    dragsLink: boolean;
+    dragsTree: boolean;
+    groupsSnapMembers: boolean;
+    groupsAlwaysMove: boolean;
+    dragsMembers: boolean;
+    /** 官方 DraggingOptions.draggingInfo（可多个；工具内部用来记录拖动起点） */
+    draggingInfo: DraggingInfo[];
+    constructor(init?: Partial<DraggingOptions>);
+    copy(): DraggingOptions;
+}
+
+/**
+ * 官方 `ForceDirectedNetwork extends LayoutNetwork`（go.d.ts）
+ *
+ * 原来 `src/core/ForceDirectedNetwork.ts` 只有 21 行、`nodeArray/linkArray/commentArray`
+ * 三个字段，和官方毫无关系；扩展 LinkLabelRouter 里
+ * `new go.ForceDirectedNetwork(this)` + `net.addVertex(v)` 因此直接炸掉。
+ */
+declare class ForceDirectedNetwork extends LayoutNetwork {
+    static readonly className: string;
+    /** 官方 ForceDirectedNetwork.defaultSpringLength（默认弹簧长度） */
+    defaultSpringLength: number;
+    /** 官方 defaultElectricalCharge */
+    defaultElectricalCharge: number;
+    /** 官方 defaultGravitationalMass */
+    defaultGravitationalMass: number;
+    /** 官方 defaultCommentSpringLength */
+    defaultCommentSpringLength: number;
+    /** 官方 defaultCommentElectricalCharge */
+    defaultCommentElectricalCharge: number;
+    constructor(layout?: any);
+    createVertex(): LayoutVertex;
+    createEdge(): LayoutEdge;
+}
+
+/**
+ * 官方 `ForceDirectedVertex`（go.d.ts: class ForceDirectedVertex extends LayoutVertex）
+ *
+ * 以前本文件是一个与 LayoutVertex **毫无关系**的空壳（key/position/mass/charge），
+ * 于是 `ForceDirectedLayout.doLayout` 与扩展（LinkLabelRouter 的 `LabelVertex extends
+ * go.ForceDirectedVertex`、`new go.ForceDirectedNetwork(this)`、`net.addVertex(v)`）
+ * 完全对不上——`net.addVertex is not a function` 就是这么来的。
+ */
+declare class ForceDirectedVertex extends LayoutVertex {
+    static readonly className: string;
+    private _isFixed;
+    private _charge;
+    private _mass;
+    private _forceX;
+    private _forceY;
+    constructor(network?: ForceDirectedNetwork | null);
+    get isFixed(): boolean;
+    set isFixed(value: boolean);
+    get charge(): number;
+    set charge(value: number);
+    get mass(): number;
+    set mass(value: number);
+    get forceX(): number;
+    set forceX(value: number);
+    get forceY(): number;
+    set forceY(value: number);
+}
+
+/**
+ * 官方 `ForceDirectedEdge`（go.d.ts: class ForceDirectedEdge extends LayoutEdge）
+ *
+ * 原来是与 LayoutEdge 无关的空壳（from/to/length/route/stroke…），
+ * `ForceDirectedLayout` 与扩展拿到的边没有 `fromVertex`/`toVertex`/`stiffness`。
+ */
+declare class ForceDirectedEdge extends LayoutEdge {
+    static readonly className: string;
+    private _stiffness;
+    private _springLength;
+    constructor(network?: ForceDirectedNetwork | null);
+    get stiffness(): number;
+    set stiffness(value: number);
+    /** 弹簧的自然长度（官方默认取 network.defaultSpringLength） */
+    get springLength(): number;
+    set springLength(value: number);
 }
 
 declare class LayeredDigraphNetwork {
@@ -8343,5 +8537,5 @@ declare const TextOverflow: {
     Ellipsis: EnumValue;
 };
 
-export { ActionTool, Adornment, AdornmentContextMenu, AdornmentLinkReshape, AdornmentRelink, AdornmentResize, AdornmentRotate, AdornmentSelection, AdornmentToolTip, Animation, AnimationDefault, AnimationEaseIn, AnimationEaseInOut, AnimationEaseOut, AnimationEaseOutBounce, AnimationLinear, AnimationManager, AnimationState, AnimationStyle, AnimationStyleAnimateLocations, AnimationStyleDefault, AnimationStyleNone, AnimationTrigger, Arrowheads, AutoScale, AutoScaleNone, AutoScaleUniform, AutoScaleUniformToFill, Binding, BindingMode, Brush, BrushLinear, BrushPattern, BrushRadial, BrushSolid, BrushType, Builders, CanvasRenderer, ChangeType, ChangedEvent, ChangedEventInsert, ChangedEventProperty, ChangedEventRemove, ChangedEventTransaction, CircularArrangement, CircularArrangementConstantAngle, CircularArrangementConstantDistance, CircularArrangementConstantRadius, CircularArrangementConstantSpacing, CircularArrangementPacked, CircularDirection, CircularDirectionBidirectionalLeft, CircularDirectionBidirectionalRight, CircularDirectionClockwise, CircularDirectionCounterclockwise, CircularLayout, CircularNodeDiameterFormula, CircularNodeDiameterFormulaCircular, CircularNodeDiameterFormulaPythagorean, CircularSorting, CircularSortingAscending, CircularSortingDescending, CircularSortingForwards, CircularSortingOptimized, CircularSortingReverse, ClickCreatingTool, ClickSelectingTool, CollapsePolicy, CollapsePolicyAllParents, CollapsePolicyAnyParents, CollapsePolicyTreeParent, Color, ColorSpace, ColorSpaceHSL, ColorSpaceLab, ColorSpaceOklch, CommandHandler, ContextMenuTool, Curve, CurveBezier, CurveJumpGap, CurveJumpOver, CurveNone, CycleAll, CycleDestinationTree, CycleMode, CycleNotDirected, CycleNotDirectedFast, CycleNotUndirected, CycleSourceTree, Diagram, DiagramEvent, DiagramEventAnimationFinished, DiagramEventAnimationStarting, DiagramEventChanged, DiagramEventClipboardChanged, DiagramEventGroupCollapsed, DiagramEventGroupExpanded, DiagramEventInitialAnimationStarting, DiagramEventInitialLayoutCompleted, DiagramEventLayoutCompleted, DiagramEventLinkDrawn, DiagramEventLinkRelinked, DiagramEventLinkReshaped, DiagramEventModelChanged, DiagramEventPartCreated, DiagramEventPartResized, DiagramEventPartRotated, DiagramEventSelectionCopied, DiagramEventSelectionDeleted, DiagramEventSelectionGrouped, DiagramEventSelectionMoved, DiagramEventSelectionMoved2, DiagramEventSelectionUngrouped, DiagramEventSubGraphCollapsed, DiagramEventSubGraphExpanded, DiagramEventTextEdited, DiagramEventUndoManagerStateChanged, DiagramEventViewportBoundsChanged, DragSelectingTool, DraggingTool, EnumValue, Figures, Flip, FlipBoth, FlipHorizontal, FlipNone, FlipVertical, ForceDirectedEdge, ForceDirectedLayout, ForceDirectedNetwork, ForceDirectedVertex, Geometry, GeometryStretch, GeometryStretchDefault, GeometryStretchFill, GeometryStretchNone, GeometryStretchUniform, GeometryStretchUniformToFill, GeometryType, GeometryTypeEllipse, GeometryTypeLine, GeometryTypePath, GeometryTypeRectangle, GestureMode, GestureModeCancel, GestureModeNone, GestureModeZoom, GraduatedPanCenter, GraduatedPanLeft, GraduatedPanNone, GraduatedPanRight, GraphLinksModel, GraphObject, GridAlignment, GridAlignmentLocation, GridAlignmentPosition, GridArrangement, GridArrangementBottomToTop, GridArrangementLeftToRight, GridArrangementRightToLeft, GridArrangementTopToBottom, GridLayout, GridLayoutCenter, GridLayoutLocation, GridSorting, GridSortingAscending, GridSortingDescending, GridSortingForwards, GridSortingReverse, GridWrappingFit, GridWrappingNone, Group, HTMLInfo, ImageStretch, ImageStretchFill, ImageStretchNone, ImageStretchUniform, ImageStretchUniformToFill, InputEvent, Layer, LayerAdornment, LayerBackground, LayerForeground, LayerGrid, LayerNames, LayerTool, LayeredDigraphAggressive, LayeredDigraphAggressiveAll, LayeredDigraphAggressiveHorizontal, LayeredDigraphAggressiveLess, LayeredDigraphAggressiveMore, LayeredDigraphAggressiveNone, LayeredDigraphAggressiveVertical, LayeredDigraphAlign, LayeredDigraphAlignAll, LayeredDigraphAlignBottom, LayeredDigraphAlignCenter, LayeredDigraphAlignLower, LayeredDigraphAlignLowerLeft, LayeredDigraphAlignLowerRight, LayeredDigraphAlignNone, LayeredDigraphAlignTop, LayeredDigraphAlignUpper, LayeredDigraphAlignUpperLeft, LayeredDigraphAlignUpperRight, LayeredDigraphCycleRemove, LayeredDigraphCycleRemoveDepthFirst, LayeredDigraphCycleRemoveFromLayers, LayeredDigraphCycleRemoveGreedy, LayeredDigraphDirection, LayeredDigraphDirectionDown, LayeredDigraphDirectionLeft, LayeredDigraphDirectionRight, LayeredDigraphDirectionUp, LayeredDigraphEdge, LayeredDigraphInit, LayeredDigraphInitDepthFirstIn, LayeredDigraphInitDepthFirstOut, LayeredDigraphInitNaive, LayeredDigraphLayering, LayeredDigraphLayeringLongestPathSink, LayeredDigraphLayeringLongestPathSource, LayeredDigraphLayeringOptimalLinkLength, LayeredDigraphLayout, LayeredDigraphNetwork, LayeredDigraphPack, LayeredDigraphPackAll, LayeredDigraphPackExpand, LayeredDigraphPackMaybeExpand, LayeredDigraphPackMedian, LayeredDigraphPackNone, LayeredDigraphPackStraighten, LayeredDigraphVertex, Layout, LayoutConditions, LayoutConditionsAdded, LayoutConditionsAll, LayoutConditionsGroupLayout, LayoutConditionsHidden, LayoutConditionsNodeReplaced, LayoutConditionsNodeSized, LayoutConditionsNone, LayoutConditionsRemoved, LayoutConditionsShown, LayoutConditionsStandard, LayoutEdge, LayoutNetwork, LayoutVertex, Link, LinkAdjusting, LinkAdjustingEnd, LinkAdjustingNone, LinkAdjustingScale, LinkAdjustingStretch, LinkReshapingTool, LinkingBaseTool, LinkingDirection, LinkingDirectionBackwardsOnly, LinkingDirectionEither, LinkingDirectionForwardsOnly, LinkingTool, List, Map$1 as Map, Margin, Model, Node, Orientation, OrientationAlong, OrientationMinus90, OrientationMinus90Upright, OrientationNone, OrientationOpposite, OrientationPlus180, OrientationPlus90, OrientationPlus90Upright, OrientationUpright, OrientationUpright45, Overflow, OverflowClip, OverflowEllipsis, Overview, Palette, Panel, PanelAuto, PanelGraduated, PanelGrid, PanelHorizontal, PanelLayout, PanelLink, PanelPosition, PanelSpot, PanelTable, PanelTableColumn, PanelTableRow, PanelTypes, PanelVertical, PanelViewbox, PanningTool, Part, PathFigure, PathSegment, PathSegmentArc, PathSegmentClose, PathSegmentCubicBezier, PathSegmentLine, PathSegmentMoveTo, PathSegmentQuadraticBezier, Picture, Placeholder, Point, PortSpreading, PortSpreadingEvenly, PortSpreadingNone, PortSpreadingPacked, Rect, RelinkingTool, ReshapingBehavior, ReshapingBehaviorAll, ReshapingBehaviorHorizontal, ReshapingBehaviorNone, ReshapingBehaviorVertical, ResizingTool, RotatingTool, Router, Routing, RoutingAvoidsNodes, RoutingAvoidsNodesStraight, RoutingNone, RoutingNormal, RoutingOrthogonal, RowColumnDefinition, ScrollDocument, ScrollInfinite, ScrollMode, SegmentOrientationAlong, SegmentOrientationNone, SegmentOrientationOpposite, SegmentOrientationOrthogonal, SegmentOrientationParallel, SegmentOrientationPerpendicular, SegmentType, SegmentTypeBezier, SegmentTypeMove, SegmentTypeSvgArc, Set, Shape, Size, Sizing, SizingAuto, SizingDefault, SizingNone, SizingProp, SizingProportionalExtra, Spot, Stretch, StretchDefault, StretchFill, StretchHorizontal, StretchNone, StretchUniform, StretchUniformToFill, StretchVertical, TextBlock, TextEditingAccept, TextEditingAcceptEnter, TextEditingAcceptLostFocus, TextEditingAcceptMouseDown, TextEditingAcceptTab, TextEditingStarting, TextEditingStartingDoubleClick, TextEditingStartingSingleClick, TextEditingStartingSingleClickSelected, TextEditingState, TextEditingStateActive, TextEditingStateEditing, TextEditingStateInvalid, TextEditingStateNone, TextEditingStateValidated, TextEditingStateValidating, TextEditingTool, TextFormat, TextFormatNone, TextFormatTrim, TextOverflow, ThemeBinding, ThemeManager, Tool, ToolManager, ToolNames, Transaction, TreeAlignment, TreeAlignmentBottomRightBus, TreeAlignmentBus, TreeAlignmentBusBranching, TreeAlignmentCenterChildren, TreeAlignmentCenterSubtrees, TreeAlignmentCustom, TreeAlignmentEnd, TreeAlignmentStart, TreeAlignmentTopLeftBus, TreeArrangement, TreeArrangementFixedRoots, TreeArrangementHorizontal, TreeArrangementVertical, TreeCompaction, TreeCompactionBlock, TreeCompactionNone, TreeEdge, TreeLayerStyle, TreeLayerStyleIndividual, TreeLayerStyleSiblings, TreeLayerStyleUniform, TreeLayout, TreeModel, TreeNetwork, TreePath, TreePathDefault, TreePathDestination, TreePathSource, TreeSorting, TreeSortingAscending, TreeSortingDescending, TreeSortingForwards, TreeSortingReverse, TreeStyle, TreeStyleAlternating, TreeStyleCompact, TreeStyleLastParents, TreeStyleLayered, TreeStyleRootOnly, TreeVertex, TriggerStart, TriggerStartBundled, TriggerStartDefault, TriggerStartImmediate, UndoManager, VerticalBottom, VerticalCenter, VerticalTop, ViewboxStretch, ViewboxStretchFill, ViewboxStretchNone, ViewboxStretchUniform, ViewboxStretchUniformToFill, WheelMode, WheelModeNone, WheelModeScroll, WheelModeZoom, Wrap, WrapBreakAll, WrapDesiredSize, WrapFit, WrapNone, figures, getFigureGeometry, version };
+export { ActionTool, Adornment, AdornmentContextMenu, AdornmentLinkReshape, AdornmentRelink, AdornmentResize, AdornmentRotate, AdornmentSelection, AdornmentToolTip, Animation, AnimationDefault, AnimationEaseIn, AnimationEaseInOut, AnimationEaseOut, AnimationEaseOutBounce, AnimationLinear, AnimationManager, AnimationState, AnimationStyle, AnimationStyleAnimateLocations, AnimationStyleDefault, AnimationStyleNone, AnimationTrigger, Arrowheads, AutoScale, AutoScaleNone, AutoScaleUniform, AutoScaleUniformToFill, Binding, BindingMode, Brush, BrushLinear, BrushPattern, BrushRadial, BrushSolid, BrushType, Builders, CanvasRenderer, ChangeType, ChangedEvent, ChangedEventInsert, ChangedEventProperty, ChangedEventRemove, ChangedEventTransaction, CircularArrangement, CircularArrangementConstantAngle, CircularArrangementConstantDistance, CircularArrangementConstantRadius, CircularArrangementConstantSpacing, CircularArrangementPacked, CircularDirection, CircularDirectionBidirectionalLeft, CircularDirectionBidirectionalRight, CircularDirectionClockwise, CircularDirectionCounterclockwise, CircularEdge, CircularLayout, CircularNetwork, CircularNodeDiameterFormula, CircularNodeDiameterFormulaCircular, CircularNodeDiameterFormulaPythagorean, CircularSorting, CircularSortingAscending, CircularSortingDescending, CircularSortingForwards, CircularSortingOptimized, CircularSortingReverse, CircularVertex, ClickCreatingTool, ClickSelectingTool, CollapsePolicy, CollapsePolicyAllParents, CollapsePolicyAnyParents, CollapsePolicyTreeParent, Color, ColorSpace, ColorSpaceHSL, ColorSpaceLab, ColorSpaceOklch, CommandHandler, ContextMenuTool, Curve, CurveBezier, CurveJumpGap, CurveJumpOver, CurveNone, CycleAll, CycleDestinationTree, CycleMode, CycleNotDirected, CycleNotDirectedFast, CycleNotUndirected, CycleSourceTree, Diagram, DiagramEvent, DiagramEventAnimationFinished, DiagramEventAnimationStarting, DiagramEventChanged, DiagramEventClipboardChanged, DiagramEventGroupCollapsed, DiagramEventGroupExpanded, DiagramEventInitialAnimationStarting, DiagramEventInitialLayoutCompleted, DiagramEventLayoutCompleted, DiagramEventLinkDrawn, DiagramEventLinkRelinked, DiagramEventLinkReshaped, DiagramEventModelChanged, DiagramEventPartCreated, DiagramEventPartResized, DiagramEventPartRotated, DiagramEventSelectionCopied, DiagramEventSelectionDeleted, DiagramEventSelectionGrouped, DiagramEventSelectionMoved, DiagramEventSelectionMoved2, DiagramEventSelectionUngrouped, DiagramEventSubGraphCollapsed, DiagramEventSubGraphExpanded, DiagramEventTextEdited, DiagramEventUndoManagerStateChanged, DiagramEventViewportBoundsChanged, DragSelectingTool, DraggingInfo, DraggingOptions, DraggingTool, EnumValue, Figures, Flip, FlipBoth, FlipHorizontal, FlipNone, FlipVertical, ForceDirectedEdge, ForceDirectedLayout, ForceDirectedNetwork, ForceDirectedVertex, Geometry, GeometryStretch, GeometryStretchDefault, GeometryStretchFill, GeometryStretchNone, GeometryStretchUniform, GeometryStretchUniformToFill, GeometryType, GeometryTypeEllipse, GeometryTypeLine, GeometryTypePath, GeometryTypeRectangle, GestureMode, GestureModeCancel, GestureModeNone, GestureModeZoom, GraduatedPanCenter, GraduatedPanLeft, GraduatedPanNone, GraduatedPanRight, GraphLinksModel, GraphObject, GridAlignment, GridAlignmentLocation, GridAlignmentPosition, GridArrangement, GridArrangementBottomToTop, GridArrangementLeftToRight, GridArrangementRightToLeft, GridArrangementTopToBottom, GridLayout, GridLayoutCenter, GridLayoutLocation, GridSorting, GridSortingAscending, GridSortingDescending, GridSortingForwards, GridSortingReverse, GridWrappingFit, GridWrappingNone, Group, HTMLInfo, ImageStretch, ImageStretchFill, ImageStretchNone, ImageStretchUniform, ImageStretchUniformToFill, InputEvent, Layer, LayerAdornment, LayerBackground, LayerForeground, LayerGrid, LayerNames, LayerTool, LayeredDigraphAggressive, LayeredDigraphAggressiveAll, LayeredDigraphAggressiveHorizontal, LayeredDigraphAggressiveLess, LayeredDigraphAggressiveMore, LayeredDigraphAggressiveNone, LayeredDigraphAggressiveVertical, LayeredDigraphAlign, LayeredDigraphAlignAll, LayeredDigraphAlignBottom, LayeredDigraphAlignCenter, LayeredDigraphAlignLower, LayeredDigraphAlignLowerLeft, LayeredDigraphAlignLowerRight, LayeredDigraphAlignNone, LayeredDigraphAlignTop, LayeredDigraphAlignUpper, LayeredDigraphAlignUpperLeft, LayeredDigraphAlignUpperRight, LayeredDigraphCycleRemove, LayeredDigraphCycleRemoveDepthFirst, LayeredDigraphCycleRemoveFromLayers, LayeredDigraphCycleRemoveGreedy, LayeredDigraphDirection, LayeredDigraphDirectionDown, LayeredDigraphDirectionLeft, LayeredDigraphDirectionRight, LayeredDigraphDirectionUp, LayeredDigraphEdge, LayeredDigraphInit, LayeredDigraphInitDepthFirstIn, LayeredDigraphInitDepthFirstOut, LayeredDigraphInitNaive, LayeredDigraphLayering, LayeredDigraphLayeringLongestPathSink, LayeredDigraphLayeringLongestPathSource, LayeredDigraphLayeringOptimalLinkLength, LayeredDigraphLayout, LayeredDigraphNetwork, LayeredDigraphPack, LayeredDigraphPackAll, LayeredDigraphPackExpand, LayeredDigraphPackMaybeExpand, LayeredDigraphPackMedian, LayeredDigraphPackNone, LayeredDigraphPackStraighten, LayeredDigraphVertex, Layout, LayoutConditions, LayoutConditionsAdded, LayoutConditionsAll, LayoutConditionsGroupLayout, LayoutConditionsHidden, LayoutConditionsNodeReplaced, LayoutConditionsNodeSized, LayoutConditionsNone, LayoutConditionsRemoved, LayoutConditionsShown, LayoutConditionsStandard, LayoutEdge, LayoutNetwork, LayoutVertex, Link, LinkAdjusting, LinkAdjustingEnd, LinkAdjustingNone, LinkAdjustingScale, LinkAdjustingStretch, LinkReshapingTool, LinkingBaseTool, LinkingDirection, LinkingDirectionBackwardsOnly, LinkingDirectionEither, LinkingDirectionForwardsOnly, LinkingTool, List, Map$1 as Map, Margin, Model, Node, Orientation, OrientationAlong, OrientationMinus90, OrientationMinus90Upright, OrientationNone, OrientationOpposite, OrientationPlus180, OrientationPlus90, OrientationPlus90Upright, OrientationUpright, OrientationUpright45, Overflow, OverflowClip, OverflowEllipsis, Overview, Palette, Panel, PanelAuto, PanelGraduated, PanelGrid, PanelHorizontal, PanelLayout, PanelLink, PanelPosition, PanelSpot, PanelTable, PanelTableColumn, PanelTableRow, PanelTypes, PanelVertical, PanelViewbox, PanningTool, Part, PathFigure, PathSegment, PathSegmentArc, PathSegmentClose, PathSegmentCubicBezier, PathSegmentLine, PathSegmentMoveTo, PathSegmentQuadraticBezier, Picture, Placeholder, Point, PortSpreading, PortSpreadingEvenly, PortSpreadingNone, PortSpreadingPacked, Quadtree, Rect, RelinkingTool, ReshapingBehavior, ReshapingBehaviorAll, ReshapingBehaviorHorizontal, ReshapingBehaviorNone, ReshapingBehaviorVertical, ResizingTool, RotatingTool, Router, Routing, RoutingAvoidsNodes, RoutingAvoidsNodesStraight, RoutingNone, RoutingNormal, RoutingOrthogonal, RowColumnDefinition, ScrollDocument, ScrollInfinite, ScrollMode, SegmentOrientationAlong, SegmentOrientationNone, SegmentOrientationOpposite, SegmentOrientationOrthogonal, SegmentOrientationParallel, SegmentOrientationPerpendicular, SegmentType, SegmentTypeBezier, SegmentTypeMove, SegmentTypeSvgArc, Set, Shape, Size, Sizing, SizingAuto, SizingDefault, SizingNone, SizingProp, SizingProportionalExtra, Spot, Stretch, StretchDefault, StretchFill, StretchHorizontal, StretchNone, StretchUniform, StretchUniformToFill, StretchVertical, TextBlock, TextEditingAccept, TextEditingAcceptEnter, TextEditingAcceptLostFocus, TextEditingAcceptMouseDown, TextEditingAcceptTab, TextEditingStarting, TextEditingStartingDoubleClick, TextEditingStartingSingleClick, TextEditingStartingSingleClickSelected, TextEditingState, TextEditingStateActive, TextEditingStateEditing, TextEditingStateInvalid, TextEditingStateNone, TextEditingStateValidated, TextEditingStateValidating, TextEditingTool, TextFormat, TextFormatNone, TextFormatTrim, TextOverflow, ThemeBinding, ThemeManager, Themes, Tool, ToolManager, ToolNames, Transaction, TreeAlignment, TreeAlignmentBottomRightBus, TreeAlignmentBus, TreeAlignmentBusBranching, TreeAlignmentCenterChildren, TreeAlignmentCenterSubtrees, TreeAlignmentCustom, TreeAlignmentEnd, TreeAlignmentStart, TreeAlignmentTopLeftBus, TreeArrangement, TreeArrangementFixedRoots, TreeArrangementHorizontal, TreeArrangementVertical, TreeCompaction, TreeCompactionBlock, TreeCompactionNone, TreeEdge, TreeLayerStyle, TreeLayerStyleIndividual, TreeLayerStyleSiblings, TreeLayerStyleUniform, TreeLayout, TreeModel, TreeNetwork, TreePath, TreePathDefault, TreePathDestination, TreePathSource, TreeSorting, TreeSortingAscending, TreeSortingDescending, TreeSortingForwards, TreeSortingReverse, TreeStyle, TreeStyleAlternating, TreeStyleCompact, TreeStyleLastParents, TreeStyleLayered, TreeStyleRootOnly, TreeVertex, TriggerStart, TriggerStartBundled, TriggerStartDefault, TriggerStartImmediate, UndoManager, VerticalBottom, VerticalCenter, VerticalTop, ViewboxStretch, ViewboxStretchFill, ViewboxStretchNone, ViewboxStretchUniform, ViewboxStretchUniformToFill, WheelMode, WheelModeNone, WheelModeScroll, WheelModeZoom, Wrap, WrapBreakAll, WrapDesiredSize, WrapFit, WrapNone, figures, getFigureGeometry, version };
 export type { AnimationConfig, BrushLike, BrushStop, ChangedEventListener, IKeyValuePair, IMapIterator, Iterable$1 as Iterable, Iterator, MarginLike, ObjectData };
