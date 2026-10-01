@@ -20,7 +20,10 @@ export default [
       resolve(),
       commonjs(),
       typescript({ tsconfig: './tsconfig.json' }),
-      terser(),
+      // 官方 release 包保留类名/函数名：样例代码会用 `cls.name`、`constructor.name`
+      // 反射自己的 API（比如 classHierarchy 遍历 for (const k in go) 取 base.name 建树）。
+      // terser 默认会把类名压成 e/t/w，导致父子关系全丢。
+      terser({ keep_classnames: true, keep_fnames: true }),
     ],
   },
   // ESM build
