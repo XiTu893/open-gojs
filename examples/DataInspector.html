@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Data Inspector, Expedient Way to Implement HTML Editor of Data Properties of Selected Node</title>
+  <script src="../dist/open-gojs.umd.js"></script>
+  
+  <script src="https://cdn.jsdelivr.net/npm/gojs-extensions@latest/extensions/DataInspector.js"></script>
+  
+  <style>
+/* Default CSS for the Data inspector */
+  .inspector {
+    --inspector-bg: #eeeeee;
+    --inspector-text: #212121;
+    --inspector-field-bg: #ffffff;
+    --inspector-field-text: #212121; 
+    --inspector-disabled-bg: #bdbdbd;
+    --inspector-disabled-text: #616161;
+    --inspector-border: #bdbdbd;
+
+    display: inline-block;
+    font: bold 14px helvetica, sans-serif;
+    background-color: var(--inspector-bg);
+    border: solid 1px var(--inspector-border);
+    border-radius: 4px;
+    padding: 4px;
+    cursor: default;
+  }
+
+  /* Dark mode styling */
+  :root.dark .inspector {
+    --inspector-bg: #212121;
+    --inspector-text: #f5f5f5;
+    --inspector-field-bg: #424242;
+    --inspector-field-text: #f5f5f5; 
+    --inspector-disabled-bg: #616161;
+    --inspector-disabled-text: #bdbdbd;
+    --inspector-border: #616161;
+  }
+
+  .inspector table {
+    border-collapse: separate;
+    border-spacing: 2px;
+  }
+
+  .inspector td,
+  .inspector th {
+    color: var(--inspector-text);
+    padding: 2px;
+  }
+
+  .inspector input {
+    background-color: var(--inspector-field-bg);
+    color: var(--inspector-field-text);
+    font: bold 12px helvetica, sans-serif;
+    border: 0px;
+    padding: 2px;
+  }
+
+  .inspector input:disabled {
+    background-color: var(--inspector-disabled-bg);
+    color: var(--inspector-disabled-text);
+  }
+
+  .inspector select {
+    background-color: var(--inspector-field-bg);
+    color: var(--inspector-field-text);
+  }
+
+  .sample-layout {
+    display: flex;
+    gap: 1em;
+    align-items: flex-start;
+  }
+
+  #myDiagramDiv {
+    flex: 1;
+    min-width: 0;
+    height: 550px;
+    border: solid 1px black;
+  }
+
+  .sample-inspectors {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75em;
+  }
+
+  /* On narrow screens, drop the inspectors below the diagram as a wrapping row */
+  @media (max-width: 1024px) {
+    .sample-layout {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    #myDiagramDiv {
+      flex: none;
+      width: 100%;
+    }
+
+    .sample-inspectors {
+      width: 100%;
+      flex-direction: row;
+      flex-wrap: wrap;
+      gap: 0.75em 1.5em;
+    }
+  }
+  </style>
+</head>
+<body>
+<div class="sample-layout">
+    <div id="myDiagramDiv"></div>
+    <div class="sample-inspectors">
+      <div>
+        <p style="margin-bottom: .5em; margin-top: 0;">Selected Part:</p>
+        <div id="myInspectorDiv" class="inspector"></div>
+      </div>
+      <div>
+        <p style="margin-bottom: .5em; margin-top: 0;">First Node's data:</p>
+        <div id="myInspectorDiv2" class="inspector"></div>
+      </div>
+      <div>
+        <p style="margin-bottom: .5em; margin-top: 0;">Model.modelData:</p>
+        <div id="myInspectorDiv3" class="inspector"></div>
+      </div>
+    </div>
+  </div>
+  <div>
+    <p>This shows the contents of the model after each transaction:</p>
+
+    <textarea id="mySavedModel" style="height: 300px" readonly></textarea>
+  </div>
+  <div id="description">
+<p>
+    An HTML-based inspector that displays and allows editing of data for the
+    selected Part (if any), or for a particular JavaScript object, or for the
+    shared
+    <a href="https://gojs.net/latest/api/symbols/Model.html#modeldata" target="api">Model.modelData</a> object, which exists even if there are no nodes or
+    links.
+  </p>
+
+  <p>
+    The inspector code lies in
+    <a href="https://gojs.net/latest/extensions/DataInspector.js">DataInspector.js</a>.
+    This code is meant to
+    be a starting point for making your own model data inspector.
+  </p>
+
+  <p>
+    On browsers that support it, color types display a color picker. There are
+    various plugins and polyfills for this functionality if you wish to extend
+    the data inspector.
+  </p>
+  </div>
+  <script >
+function init() {
+    myDiagram = new go.Diagram('myDiagramDiv', {
+      'animationManager.isEnabled': false,
+      // allow double-click in background to create a new node
+      'clickCreatingTool.archetypeNodeData': { text: 'Node', color: 'white' },
+      // allow Ctrl-G to call groupSelection()
+      'commandHandler.archetypeGroupData': {
+        text: 'Group',
+        isGroup: true,
+        color: 'blue'
+      },
+      // enable undo & redo
+      'undoManager.isEnabled': true,
+      // automatically show the state of the diagram's model on the page
+      ModelChanged: e => {
+        if (e.isTransactionFinished) {
+          document.getElementById('mySavedModel').value =
+            myDiagram.model.toJson();
+        }
+      }
+    });
+
+    // These nodes have text surrounded by a rounded rectangle
+    // whose fill color is bound to the node data.
+    // The user can drag a node by dragging its TextBlock label.
+    // Dragging from the Shape will start drawing a new link.
+    myDiagram.nodeTemplate =
+      new go.Node('Auto', { locationSpot: go.Spot.Center })
+        .bindTwoWay('location', 'loc', go.Point.parse, go.Point.stringify)
+        .add(
+          new go.Shape('Rectangle', {
+              stroke: null,
+              strokeWidth: 0,
+              fill: 'white', // the default fill, if there is no data-binding
+              portId: '',
+              cursor: 'pointer', // the Shape is the port, not the whole Node
+              // allow all kinds of links from and to this port
+              fromLinkable: true,
+              fromLinkableSelfNode: true,
+              fromLinkableDuplicates: true,
+              toLinkable: true,
+              toLinkableSelfNode: true,
+              toLinkableDuplicates: true
+            })
+            .bind('fill', 'color'),
+          new go.TextBlock({
+              font: 'bold 18px sans-serif',
+              stroke: '#111',
+              margin: 8, // make some extra space for the shape around the text
+              isMultiline: false, // don't allow newlines in text
+              editable: true // allow in-place editing by user
+            })
+            .bindTwoWay('text', 'text')
+        );
+
+    // The link shape and arrowhead have their stroke brush data bound to the "color" property
+    myDiagram.linkTemplate =
+      new go.Link({
+          toShortLength: 3,
+          relinkableFrom: true,
+          relinkableTo: true
+        }) // allow the user to relink existing links
+        .add(
+          new go.Shape({ strokeWidth: 2 })
+            .bind('stroke', 'color'),
+          new go.Shape({ toArrow: 'Standard', stroke: null })
+            .bind('fill', 'color')
+        );
+
+    // Groups consist of a title in the color given by the group node data
+    // above a translucent gray rectangle surrounding the member parts
+    myDiagram.groupTemplate =
+      new go.Group('Vertical', {
+          selectionObjectName: 'PANEL', // selection handle goes around shape, not label
+          ungroupable: true
+        }) // enable Ctrl-Shift-G to ungroup a selected Group
+        .add(
+          new go.TextBlock({
+              font: 'bold 19px sans-serif',
+              isMultiline: false, // don't allow newlines in text
+              editable: true // allow in-place editing by user
+            })
+            .bindTwoWay('text', 'text')
+            .bind('stroke', 'color'),
+          new go.Panel('Auto', { name: 'PANEL' })
+            .add(
+              new go.Shape('Rectangle', { // the rectangular shape around the members
+                fill: 'rgba(128,128,128,0.2)',
+                stroke: 'gray',
+                strokeWidth: 3
+              }),
+              new go.Placeholder({ padding: 10 }) // represents where the members are
+            )
+        );
+
+    // Create the Diagram's Model:
+    const nodeDataArray = [
+      { key: 1, text: 'Alpha', color: '#B2DFDB', state: 'one' },
+      {
+        key: 2,
+        text: 'Beta',
+        color: '#B2B2DB',
+        state: 'two',
+        password: '1234'
+      },
+      {
+        key: 3,
+        text: 'Gamma',
+        color: '#1DE9B6',
+        state: 2,
+        group: 5,
+        flag: false,
+        choices: [1, 2, 3, 4, 5]
+      },
+      {
+        key: 4,
+        text: 'Delta',
+        color: '#00BFA5',
+        state: 'three',
+        group: 5,
+        flag: true
+      },
+      { key: 5, text: 'Epsilon', color: '#00BFA5', isGroup: true }
+    ];
+    const linkDataArray = [
+      { from: 1, to: 2, color: '#5E35B1' },
+      { from: 2, to: 2, color: '#5E35B1' },
+      { from: 3, to: 4, color: '#6200EA' },
+      { from: 3, to: 1, color: '#6200EA' }
+    ];
+    myDiagram.model = new go.GraphLinksModel(nodeDataArray, linkDataArray);
+
+    // some shared model data
+    myDiagram.model.modelData = { test: true, hello: 'world', version: 42 };
+
+    // select a Node, so that the first Inspector shows something
+    myDiagram.select(myDiagram.nodes.first());
+
+    // Declare which properties to show and how.
+    // By default, all properties on the model data objects are shown unless the inspector option "includesOwnProperties" is set to false.
+
+    // Show the primary selection's data, or blanks if no Part is selected:
+    const inspector =
+      new Inspector('myInspectorDiv', myDiagram, {
+        // allows for multiple nodes to be inspected at once
+        multipleSelection: true,
+        // max number of node properties will be shown when multiple selection is true
+        showSize: 4,
+        // when multipleSelection is true, when showUnionProperties is true it takes the union of properties
+        // otherwise it takes the intersection of properties
+        showUnionProperties: true,
+        // uncomment this line to only inspect the named properties below instead of all properties on each object:
+        // includesOwnProperties: false,
+        properties: {
+          text: {},
+          // key would be automatically added for nodes, but we want to declare it read-only also:
+          key: { readOnly: true, show: Inspector.showIfPresent },
+          // color would be automatically added for nodes, but we want to declare it a color also:
+          color: { show: Inspector.showIfPresent, type: 'color' },
+          // Comments and LinkComments are not in any node or link data (yet), so we add them here:
+          Comments: { show: Inspector.showIfNode },
+          LinkComments: { show: Inspector.showIfLink },
+          isGroup: { readOnly: true, show: Inspector.showIfPresent },
+          flag: { show: Inspector.showIfNode, type: 'checkbox' },
+          state: {
+            show: Inspector.showIfNode,
+            type: 'select',
+            choices: (node, propName) => {
+              if (Array.isArray(node.data.choices)) return node.data.choices;
+              return ['one', 'two', 'three', 'four', 'five'];
+            }
+          },
+          choices: { show: false }, // must not be shown at all
+          // an example of specifying the <input> type
+          password: { show: Inspector.showIfPresent, type: 'password' }
+        }
+      });
+
+    // Always show the first Node:
+    const inspector2 =
+      new Inspector('myInspectorDiv2', myDiagram, {
+        // By default the inspector works on the Diagram selection.
+        // This property lets us inspect a specific object by calling Inspector.inspectObject.
+        inspectSelection: false,
+        properties: {
+          text: {},
+          // This property we want to declare as a color, to show a color-picker:
+          color: { type: 'color' },
+          // key would be automatically added for node data, but we want to declare it read-only also:
+          key: { readOnly: true, show: Inspector.showIfPresent }
+        }
+      });
+    // If not inspecting a selection, you can programatically decide what to inspect (a Part, or a JavaScript object)
+    inspector2.inspectObject(myDiagram.nodes.first().data);
+
+    // Always show the model.modelData:
+    const inspector3 =
+      new Inspector('myInspectorDiv3', myDiagram, {
+        inspectSelection: false
+      });
+    inspector3.inspectObject(myDiagram.model.modelData);
+  }
+
+  window.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>

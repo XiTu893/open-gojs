@@ -1,131 +1,105 @@
-﻿
 <!DOCTYPE html>
-<html lang="en">
-  <head>
-    
-    <meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover"/>
-
-<meta name="description" content="Show the relationships of nodes and links and groups." />
-<meta itemprop="description" content="Show the relationships of nodes and links and groups." />
-<meta property="og:description" content="Show the relationships of nodes and links and groups." />
-<meta name="twitter:description" content="Show the relationships of nodes and links and groups." />
-
-
-<link rel="preconnect" href="https://rsms.me/">
-
-<!-- Copyright 1998-2026 by Northwoods Software Corporation. -->
-
-
-<meta itemprop="name" content="Programmatic Navigation Through Related Nodes/Links/Groups" />
-<meta property="og:title" content="Programmatic Navigation Through Related Nodes/Links/Groups" />
-<meta name="twitter:title" content="Programmatic Navigation Through Related Nodes/Links/Groups" />
-
-
-<meta property="og:image" content="https://gojs.net/latest/assets/images/screenshots/navigation.png" />
-<meta itemprop="image" content="https://gojs.net/latest/assets/images/screenshots/navigation.png" />
-<meta name="twitter:image" content="https://gojs.net/latest/assets/images/screenshots/navigation.png" />
-
-<meta property="og:url" content="https://gojs.net/latest/samples/navigation.html" />
-<meta property="twitter:url" content="https://gojs.net/latest/samples/navigation.html" />
-
-<meta name="twitter:card" content="summary_large_image" />
-<meta property="og:type" content="website" />
-<meta property="twitter:domain" content="gojs.net" />
-
-    <title>
-      Programmatic Navigation Through Related Nodes/Links/Groups | GoJS Diagramming Library
-    </title>
-  </head>
-
-  <body>
-    <!-- This top nav is not part of the sample code -->
-    <nav id="navTop" class=" w-full h-[var(--topnav-h)] z-30 bg-white border-b border-b-gray-200">
-  <div class="max-w-screen-xl mx-auto flex flex-wrap items-start justify-between px-4">
-    <a class="text-white bg-nwoods-primary font-bold !leading-[calc(var(--topnav-h)_-_1px)] my-0 px-2 text-4xl lg:text-5xl logo"
-       href="../">
-      GoJS
-    </a>
-    <div class="relative">
-      <button id="topnavButton" class="h-[calc(var(--topnav-h)_-_1px)] px-2 m-0 text-gray-900 bg-inherit shadow-none md:hidden hover:!bg-inherit hover:!text-nwoods-accent hover:!shadow-none" aria-label="Navigation">
-        <svg class="h-7 w-7 block" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </button>
-      <div id="topnavList" class="hidden md:block">
-        <div class="absolute right-0 z-30 flex flex-col items-end rounded border border-gray-200 p-4 pl-12 shadow bg-white text-gray-900 font-semibold
-                    md:flex-row md:space-x-4 md:items-start md:border-0 md:p-0 md:shadow-none md:bg-inherit">
-          <a href="../learn/">Learn</a>
-          <a href="../samples/">Samples</a>
-          <a href="../intro/">Intro</a>
-          <a href="../api/">API</a>
-          <a href="../download.html">Download</a>
-          <a href="https://forum.nwoods.com/c/gojs/11" target="_blank" rel="noopener">Forum</a>
-          <a id="tc" href="https://nwoods.com/contact.html"
-            target="_blank" rel="noopener" onclick="getOutboundLink('https://nwoods.com/contact.html', 'contact');">Contact</a>
-          <a id="tb" href="https://nwoods.com/sales/index.html"
-            target="_blank" rel="noopener" onclick="getOutboundLink('https://nwoods.com/sales/index.html', 'buy');">Buy</a>
-        </div>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Programmatic Navigation Through Related Nodes/Links/Groups</title>
+  <script src="../dist/open-gojs.umd.js"></script>
+  
+  
+  
+  <style>
+/* Diagram and controls side by side, stacking on narrow screens */
+  #displays {
+    display: flex;
+    width: 100%;
+    align-items: flex-start;
+    gap: 5px;
+  }
+  #myDiagramDiv {
+    border: solid 1px black;
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 560px;
+  }
+  #controls {
+    flex: 0 0 auto;
+  }
+  @media (max-width: 767px) {
+    #displays {
+      flex-direction: column;
+    }
+    #myDiagramDiv {
+      width: 100%;
+      height: 400px;
+    }
+    #controls {
+      width: 100%;
+    }
+  }
+  </style>
+</head>
+<body>
+<div id="displays">
+    <div id="myDiagramDiv"></div>
+    <div id="controls">
+      <div id="buttons" style="border-radius: 10px; border: solid 1px gray; margin: 5px; padding: 5px;">
+        <b style="margin: 5px">Related Parts Highlighted</b> <br />
+        <label><input type="radio" name="highlight" onclick="updateHighlights(this)" id="None" />Unhighlight All</label><br />
+        <label><input type="radio" name="highlight" onclick="updateHighlights(this)" id="linksIn" />Links Into</label><br />
+        <label><input type="radio" name="highlight" onclick="updateHighlights(this)" id="linksOut" />Links Out Of</label><br />
+        <label><input type="radio" name="highlight" onclick="updateHighlights(this)" id="linksAll" />Links Connected</label><br />
+        <label><input type="radio" name="highlight" onclick="updateHighlights(this)" id="nodesIn" />Nodes Into</label><br />
+        <label><input type="radio" name="highlight" onclick="updateHighlights(this)" id="nodesOut" />Nodes Out Of</label><br />
+        <label><input type="radio" name="highlight" onclick="updateHighlights(this)" id="nodesConnect" />Nodes Connected</label><br />
+        <label><input type="radio" name="highlight" onclick="updateHighlights(this)" id="nodesReach" checked="checked" />Nodes Reachable</label><br />
+        <label><input type="radio" name="highlight" onclick="updateHighlights(this)" id="group" />Containing Group (Parent)</label><br />
+        <label><input type="radio" name="highlight" onclick="updateHighlights(this)" id="groupsAll" />Containing Groups (All)</label><br />
+        <label><input type="radio" name="highlight" onclick="updateHighlights(this)" id="nodesMember" />Member Nodes (Children)</label><br />
+        <label><input type="radio" name="highlight" onclick="updateHighlights(this)" id="nodesMembersAll" />Member Nodes (All)</label><br />
+        <label><input type="radio" name="highlight" onclick="updateHighlights(this)" id="linksMember" />Member Links (Children)</label><br />
+        <label><input type="radio" name="highlight" onclick="updateHighlights(this)" id="linksMembersAll" />Member Links (All)</label><br />
+      </div>
+      <div id="colorKey" style="border-radius: 10px; border: solid 1px gray; margin: 5px; padding: 5px;">
+        <b style="margin: 5px">Relationship Colors</b>
+        <table>
+          <tr>
+            <td><div style="float: left; margin: 5px; height: 20px; width: 20px; background-color: black"></div></td>
+            <td>Not related</td>
+          </tr>
+          <tr>
+            <td><div style="float: left; margin: 5px; height: 20px; width: 20px; background-color: blue"></div></td>
+            <td>Directly related</td>
+          </tr>
+          <tr>
+            <td><div style="float: left; margin: 5px; height: 20px; width: 20px; background-color: green"></div></td>
+            <td>2 relationships apart</td>
+          </tr>
+          <tr>
+            <td><div style="float: left; margin: 5px; height: 20px; width: 20px; background-color: orange"></div></td>
+            <td>3 relationships apart</td>
+          </tr>
+          <tr>
+            <td><div style="float: left; margin: 5px; height: 20px; width: 20px; background-color: red"></div></td>
+            <td>4 relationships apart</td>
+          </tr>
+          <tr>
+            <td><div style="float: left; margin: 5px; height: 20px; width: 20px; background-color: purple"></div></td>
+            <td>Very indirectly related</td>
+          </tr>
+        </table>
       </div>
     </div>
   </div>
-</nav>
-<script>
-  window.addEventListener("DOMContentLoaded", function () {
-    // topnav
-    var topButton = document.getElementById("topnavButton");
-    var topnavList = document.getElementById("topnavList");
-    if (topButton && topnavList) {
-      topButton.addEventListener("click", function (e) {
-        topnavList
-          .classList
-          .toggle("hidden");
-        e.stopPropagation();
-      });
-      document.addEventListener("click", function (e) {
-        // if the clicked element isn't the list, close the list
-        if (!topnavList.classList.contains("hidden") && !e.target.closest("#topnavList")) {
-          topButton.click();
-        }
-      });
-
-      // set active <a> element
-      var url = window
-        .location
-        .href
-        .toLowerCase();
-      var aTags = topnavList.getElementsByTagName('a');
-      for (var i = 0; i < aTags.length; i++) {
-        var lowerhref = aTags[i]
-          .href
-          .toLowerCase();
-        if (lowerhref.endsWith('.html')) 
-          lowerhref = lowerhref.slice(0, -5);
-        if (url.startsWith(lowerhref)) {
-          aTags[i]
-            .classList
-            .add('active');
-          break;
-        }
-      }
-    }
-  });
-</script>
-    <div class="flex flex-col prose">
-      <div class="w-full max-w-screen-xl mx-auto">
-        <!-- * * * * * * * * * * * * * -->
-        <!-- Start of GoJS sample code -->
-        <script src="../dist/open-gojs.umd.js"></script>
-
-        
-
-        <div id="allSampleContent" class="p-4 w-full">
-          
-            
-            
-
-<script id="code">
-  function init() {
+  <div id="description">
+<p>This sample displays relationships between different parts of a diagram.</p>
+  <p>
+    Select a node or link and one of the radio buttons to highlight parts with a certain relationship to the one selected. The highlighting color depends on
+    the "distance" between the parts.
+  </p>
+  </div>
+  <script >
+function init() {
     myDiagram = new go.Diagram('myDiagramDiv', {
       maxSelectionCount: 1 // no more than 1 element can be selected at a time
     });
@@ -581,135 +555,6 @@
   }
 
   window.addEventListener('DOMContentLoaded', init);
-</script>
-
-<div id="sample">
-  <div id="displays" style="width: 100%; white-space: nowrap;">
-    <div id="myDiagramDiv" style="border: solid 1px black; height: 560px; display: inline-block; vertical-align: top; width: 70%"></div>
-    <div id="controls" style="border: solid 1px black; display: inline-block; vertical-align: top">
-      <div id="buttons" style="border-radius: 10px; border: solid 1px gray; background-color: #eaeaea; margin: 5px">
-        <b style="margin: 5px">Related Parts Highlighted</b> <br />
-        <label><input type="radio" name="highlight" onclick="updateHighlights(this)" id="None" />Unhighlight All</label><br />
-        <label><input type="radio" name="highlight" onclick="updateHighlights(this)" id="linksIn" />Links Into</label><br />
-        <label><input type="radio" name="highlight" onclick="updateHighlights(this)" id="linksOut" />Links Out Of</label><br />
-        <label><input type="radio" name="highlight" onclick="updateHighlights(this)" id="linksAll" />Links Connected</label><br />
-        <label><input type="radio" name="highlight" onclick="updateHighlights(this)" id="nodesIn" />Nodes Into</label><br />
-        <label><input type="radio" name="highlight" onclick="updateHighlights(this)" id="nodesOut" />Nodes Out Of</label><br />
-        <label><input type="radio" name="highlight" onclick="updateHighlights(this)" id="nodesConnect" />Nodes Connected</label><br />
-        <label><input type="radio" name="highlight" onclick="updateHighlights(this)" id="nodesReach" checked="checked" />Nodes Reachable</label><br />
-        <label><input type="radio" name="highlight" onclick="updateHighlights(this)" id="group" />Containing Group (Parent)</label><br />
-        <label><input type="radio" name="highlight" onclick="updateHighlights(this)" id="groupsAll" />Containing Groups (All)</label><br />
-        <label><input type="radio" name="highlight" onclick="updateHighlights(this)" id="nodesMember" />Member Nodes (Children)</label><br />
-        <label><input type="radio" name="highlight" onclick="updateHighlights(this)" id="nodesMembersAll" />Member Nodes (All)</label><br />
-        <label><input type="radio" name="highlight" onclick="updateHighlights(this)" id="linksMember" />Member Links (Children)</label><br />
-        <label><input type="radio" name="highlight" onclick="updateHighlights(this)" id="linksMembersAll" />Member Links (All)</label><br />
-      </div>
-      <div id="colorKey" style="border-radius: 10px; border: solid 1px gray; background-color: #eaeaea; margin: 5px">
-        <b style="margin: 5px">Relationship Colors</b>
-        <table>
-          <tr>
-            <td><div style="float: left; margin: 5px; height: 20px; width: 20px; background-color: black"></div></td>
-            <td>Not related</td>
-          </tr>
-          <tr>
-            <td><div style="float: left; margin: 5px; height: 20px; width: 20px; background-color: blue"></div></td>
-            <td>Directly related</td>
-          </tr>
-          <tr>
-            <td><div style="float: left; margin: 5px; height: 20px; width: 20px; background-color: green"></div></td>
-            <td>2 relationships apart</td>
-          </tr>
-          <tr>
-            <td><div style="float: left; margin: 5px; height: 20px; width: 20px; background-color: orange"></div></td>
-            <td>3 relationships apart</td>
-          </tr>
-          <tr>
-            <td><div style="float: left; margin: 5px; height: 20px; width: 20px; background-color: red"></div></td>
-            <td>4 relationships apart</td>
-          </tr>
-          <tr>
-            <td><div style="float: left; margin: 5px; height: 20px; width: 20px; background-color: purple"></div></td>
-            <td>Very indirectly related</td>
-          </tr>
-        </table>
-      </div>
-    </div>
-  </div>
-  <div>
-    <p>This sample displays relationships between different parts of a diagram.</p>
-    <p>
-      Select a node or link and one of the radio buttons to highlight parts with a certain relationship to the one selected. The highlighting color depends on
-      the "distance" between the parts.
-    </p>
-  </div>
-</div>
-
-          
-        </div>
-        <!-- * * * * * * * * * * * * * -->
-        <!--  End of GoJS sample code  -->
-      </div>
-
-      <div id="allTagDescriptions" class="p-4 w-full max-w-screen-xl mx-auto">
-        <hr/>
-        <h3 class="text-xl">GoJS Features in this sample</h3>
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Collections</h4>
-<p>
-<b>GoJS</b> provides its own collection classes: <a href="../api/symbols/List.html" target="api">List</a>, <a href="../api/symbols/Set.html" target="api">Set</a>, and <a href="../api/symbols/Map.html" target="api">Map</a>.
-You can iterate over a collection by using an <a href="../api/symbols/Iterator.html" target="api">Iterator</a>.
-More information can be found in the <a href="../intro/collections.html">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#collections">Related samples</a>
-            </p>
-            <hr>
-          
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Groups</h4>
-<p>
-The <a href="../api/symbols/Group.html" target="api">Group</a> class is used to treat a collection of <a href="../api/symbols/Node.html" target="api">Node</a>s and <a href="../api/symbols/Link.html" target="api">Link</a>s as if they were a single <a href="../api/symbols/Node.html" target="api">Node</a>.
-Those nodes and links are members of the group; together they constitute a subgraph.
-</p>
-<p>
-A subgraph is <em>not</em> another <a href="../api/symbols/Diagram.html" target="api">Diagram</a>, so there is no separate HTML Div element for the subgraph of a group.
-All of the <a href="../api/symbols/Part.html" target="api">Part</a>s that are members of a <a href="../api/symbols/Group.html" target="api">Group</a> belong to the same Diagram as the Group.
-There can be links between member nodes and nodes outside of the group as well as links between the group itself and other nodes.
-There can even be links between member nodes and the containing group itself.
-</p>
-<p>
-More information can be found in the <a href="../intro/groups.html">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#groups">Related samples</a>
-            </p>
-            <hr>
-          
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>ToolTips</h4>
-<p>
-A tooltip is an <a href="../api/symbols/Adornment.html" target="api">Adornment</a> that is shown when the mouse hovers over an object that has its <a href="../api/symbols/GraphObject.html#toolTip" target="api">GraphObject.toolTip</a> set.
-The tooltip part is bound to the same data as the part itself.
-</p>
-<p>
-It is typical to implement a tooltip as a "ToolTip" Panel holding a <a href="../api/symbols/TextBlock.html" target="api">TextBlock</a> or a Panel of TextBlocks and other objects.
-Each "ToolTip" is just an "Auto" Panel <a href="../api/symbols/Adornment.html" target="api">Adornment</a> that is shadowed, and where the border is a rectangular <a href="../api/symbols/Shape.html" target="api">Shape</a> with a light gray fill.
-However you can implement the tooltip as any arbitrarily complicated Adornment.
-</p>
-<p>
-More information can be found in the <a href="../intro/tooltips.html">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#tooltips">Related samples</a>
-            </p>
-            <hr>
-          
-        </div>
-    </div>
-  </body>
-  <!--  This script is part of the gojs.net website, and is not needed to run the sample -->
-  
+  </script>
+</body>
 </html>

@@ -1,132 +1,41 @@
-﻿
 <!DOCTYPE html>
-<html lang="en">
-  <head>
-    
-    <meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover"/>
-
-<meta name="description" content="Showing bands for the layers in a diagram." />
-<meta itemprop="description" content="Showing bands for the layers in a diagram." />
-<meta property="og:description" content="Showing bands for the layers in a diagram." />
-<meta name="twitter:description" content="Showing bands for the layers in a diagram." />
-
-
-<link rel="preconnect" href="https://rsms.me/">
-
-<!-- Copyright 1998-2026 by Northwoods Software Corporation. -->
-
-
-<meta itemprop="name" content="Organizing Layers Visually with Bands" />
-<meta property="og:title" content="Organizing Layers Visually with Bands" />
-<meta name="twitter:title" content="Organizing Layers Visually with Bands" />
-
-
-<meta property="og:image" content="https://gojs.net/latest/assets/images/screenshots/swimbands.png" />
-<meta itemprop="image" content="https://gojs.net/latest/assets/images/screenshots/swimbands.png" />
-<meta name="twitter:image" content="https://gojs.net/latest/assets/images/screenshots/swimbands.png" />
-
-<meta property="og:url" content="https://gojs.net/latest/samples/swimBands.html" />
-<meta property="twitter:url" content="https://gojs.net/latest/samples/swimBands.html" />
-
-<meta name="twitter:card" content="summary_large_image" />
-<meta property="og:type" content="website" />
-<meta property="twitter:domain" content="gojs.net" />
-
-    <title>
-      Organizing Layers Visually with Bands | GoJS Diagramming Library
-    </title>
-  </head>
-
-  <body>
-    <!-- This top nav is not part of the sample code -->
-    <nav id="navTop" class=" w-full h-[var(--topnav-h)] z-30 bg-white border-b border-b-gray-200">
-  <div class="max-w-screen-xl mx-auto flex flex-wrap items-start justify-between px-4">
-    <a class="text-white bg-nwoods-primary font-bold !leading-[calc(var(--topnav-h)_-_1px)] my-0 px-2 text-4xl lg:text-5xl logo"
-       href="../">
-      GoJS
-    </a>
-    <div class="relative">
-      <button id="topnavButton" class="h-[calc(var(--topnav-h)_-_1px)] px-2 m-0 text-gray-900 bg-inherit shadow-none md:hidden hover:!bg-inherit hover:!text-nwoods-accent hover:!shadow-none" aria-label="Navigation">
-        <svg class="h-7 w-7 block" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </button>
-      <div id="topnavList" class="hidden md:block">
-        <div class="absolute right-0 z-30 flex flex-col items-end rounded border border-gray-200 p-4 pl-12 shadow bg-white text-gray-900 font-semibold
-                    md:flex-row md:space-x-4 md:items-start md:border-0 md:p-0 md:shadow-none md:bg-inherit">
-          <a href="../learn/">Learn</a>
-          <a href="../samples/">Samples</a>
-          <a href="../intro/">Intro</a>
-          <a href="../api/">API</a>
-          <a href="../download.html">Download</a>
-          <a href="https://forum.nwoods.com/c/gojs/11" target="_blank" rel="noopener">Forum</a>
-          <a id="tc" href="https://nwoods.com/contact.html"
-            target="_blank" rel="noopener" onclick="getOutboundLink('https://nwoods.com/contact.html', 'contact');">Contact</a>
-          <a id="tb" href="https://nwoods.com/sales/index.html"
-            target="_blank" rel="noopener" onclick="getOutboundLink('https://nwoods.com/sales/index.html', 'buy');">Buy</a>
-        </div>
-      </div>
-    </div>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Organizing Layers Visually with Bands</title>
+  <script src="../dist/open-gojs.umd.js"></script>
+  
+  
+  
+  
+</head>
+<body>
+<div id="myDiagramDiv" style="border: solid 1px black; width: 100%; height: 600px"></div>
+  <div id="description">
+<p>
+    Unlike swim lane diagrams where the nodes are supposed to stay in their lanes, layer bands run
+    perpendicular to the growth direction of the layout.
+  </p>
+  <p>
+    This sample uses a custom <a href="https://gojs.net/latest/api/symbols/TreeLayout.html" target="api">TreeLayout</a> that overrides the
+    <a href="https://gojs.net/latest/api/symbols/TreeLayout.html#commitlayers" target="api">TreeLayout.commitLayers</a> method in order to specify the position and size of each "band"
+    that surrounds a layer of the tree. The "bands" are held in a single Part that is bound to a
+    particular node data object whose key is "_BANDS". The headers, and potentially any other
+    information that you might want to display in the headers, are stored in this "_BANDS" object in
+    an Array.
+  </p>
+  <p>
+    This sample can be adapted to use a <a href="https://gojs.net/latest/api/symbols/GraphLinksModel.html" target="api">GraphLinksModel</a> instead of a <a href="https://gojs.net/latest/api/symbols/TreeModel.html" target="api">TreeModel</a> and a
+    <a href="https://gojs.net/latest/api/symbols/LayeredDigraphLayout.html" target="api">LayeredDigraphLayout</a> instead of a <a href="https://gojs.net/latest/api/symbols/TreeLayout.html" target="api">TreeLayout</a>.
+  </p>
   </div>
-</nav>
-<script>
-  window.addEventListener("DOMContentLoaded", function () {
-    // topnav
-    var topButton = document.getElementById("topnavButton");
-    var topnavList = document.getElementById("topnavList");
-    if (topButton && topnavList) {
-      topButton.addEventListener("click", function (e) {
-        topnavList
-          .classList
-          .toggle("hidden");
-        e.stopPropagation();
-      });
-      document.addEventListener("click", function (e) {
-        // if the clicked element isn't the list, close the list
-        if (!topnavList.classList.contains("hidden") && !e.target.closest("#topnavList")) {
-          topButton.click();
-        }
-      });
-
-      // set active <a> element
-      var url = window
-        .location
-        .href
-        .toLowerCase();
-      var aTags = topnavList.getElementsByTagName('a');
-      for (var i = 0; i < aTags.length; i++) {
-        var lowerhref = aTags[i]
-          .href
-          .toLowerCase();
-        if (lowerhref.endsWith('.html')) 
-          lowerhref = lowerhref.slice(0, -5);
-        if (url.startsWith(lowerhref)) {
-          aTags[i]
-            .classList
-            .add('active');
-          break;
-        }
-      }
-    }
-  });
-</script>
-    <div class="flex flex-col prose">
-      <div class="w-full max-w-screen-xl mx-auto">
-        <!-- * * * * * * * * * * * * * -->
-        <!-- Start of GoJS sample code -->
-        <script src="../dist/open-gojs.umd.js"></script>
-
-        
-
-        <div id="allSampleContent" class="p-4 w-full">
-          
-            
-            
-
-<script id="code">
-  // this controls whether the layout is horizontal and the layer bands are vertical, or vice-versa:
+  <script >
+// this controls whether the layout is horizontal and the layer bands are vertical, or vice-versa:
   var HORIZONTAL = true; // this constant parameter can only be set here, not dynamically
+
+  const TEXT_STROKE = '#080f17';
+  const HEADER_SIZE = 26; // the breadth reserved for the band headers
 
   // Perform a TreeLayout where commitLayers is overridden to modify the background Part whose key is "_BANDS".
   class SimpleBandedTreeLayout extends go.TreeLayout {
@@ -155,7 +64,7 @@
         for (var i = 0; i < layerRects.length; i++) {
           var itemdata = arr[i];
           if (itemdata) {
-            model.setDataProperty(itemdata, 'bounds', layerRects[i]);
+            model.set(itemdata, 'bounds', layerRects[i]);
           }
         }
       }
@@ -175,8 +84,8 @@
     myDiagram.nodeTemplate =
       new go.Node(go.Panel.Auto)
         .add(
-          new go.Shape('Rectangle', { fill: 'white' }),
-          new go.TextBlock({ margin: 5 })
+          new go.Shape('Capsule', { fill: 'white', stroke: 'lightgray' }),
+          new go.TextBlock({ margin: 4, stroke: TEXT_STROKE })
             .bind('text', 'key')
         );
 
@@ -190,30 +99,39 @@
     myDiagram.nodeTemplateMap.add('Bands',
       new go.Part('Position', {
           isLayoutPositioned: false, // but still in document bounds
-          locationSpot: new go.Spot(0, 0, HORIZONTAL ? 0 : 16, HORIZONTAL ? 16 : 0), // account for header height
+          locationSpot: new go.Spot(0, 0, HORIZONTAL ? 0 : HEADER_SIZE, HORIZONTAL ? HEADER_SIZE : 0), // account for header height
           layerName: 'Background',
           pickable: false,
           selectable: false,
+          isShadowed: true,
+          background: 'white',
+          shadowOffset: new go.Point(0, 0),
           itemTemplate:
             new go.Panel(HORIZONTAL ? 'Vertical' : 'Horizontal')
               .bind('position', 'bounds', b => b.position)
               .add(
-                new go.TextBlock({
+                // the band header: a swatch of the band's color next to its name,
+                // centered along the band and rotated to read sideways when vertical
+                new go.Panel('Horizontal', {
                     angle: HORIZONTAL ? 0 : 270,
-                    textAlign: 'center',
-                    wrap: go.Wrap.None,
-                    font: 'bold 11pt sans-serif',
-                    background: new go.Brush('Linear', { 0: 'aqua', 1: go.Brush.darken('aqua') })
+                    height: HEADER_SIZE, // the angle rotates this into the reserved breadth
+                    alignment: go.Spot.Center
                   })
-                  .bind('text')
-                  // always bind "width" because the angle does the rotation
-                  .bind('width', 'bounds', r => HORIZONTAL ? r.width : r.height),
+                  .add(
+                    new go.Shape('Diamond', { width: 8, height: 8, fill: 'white', stroke: null })
+                      .bind('fill', 'color'),
+                    new go.TextBlock({
+                        font: 'bold 13pt sans-serif',
+                        wrap: go.Wrap.None,
+                        margin: new go.Margin(2, 0, 0, 4),
+                        stroke: TEXT_STROKE
+                      })
+                      .bind('text')
+                  ),
                 // option 1: rectangular bands:
-                new go.Shape({ stroke: null, strokeWidth: 0 })
+                new go.Shape({ fill: 'white', stroke: null, strokeWidth: 0 })
                   .bind('desiredSize', 'bounds', r => r.size)
-                  .bindObject('fill', 'itemIndex', i =>
-                    i % 2 == 0 ? 'whitesmoke' : go.Brush.darken('whitesmoke')
-                  )
+                  .bind('fill', 'color')
                 // option 2: separator lines:
                 // (HORIZONTAL
                 //  ? new go.Shape("LineV",
@@ -230,8 +148,12 @@
     );
 
     myDiagram.linkTemplate =
-      new go.Link()
-        .add(new go.Shape()); // simple black line, no arrowhead needed
+      new go.Link({ corner: 5, toShortLength: 5 })
+        .add(
+          new go.Shape({ stroke: 'lightgray', isPanelMain: true, strokeWidth: 2 }),
+          new go.Shape({ stroke: 'white', isPanelMain: true }),
+          new go.Shape({ toArrow: 'Chevron', fill: 'white', stroke: 'lightgray', strokeWidth: 0.5 })
+        );
 
     // define the tree node data
     var nodearray = [
@@ -240,12 +162,12 @@
         key: '_BANDS',
         category: 'Bands',
         itemArray: [
-          { text: 'Zero' },
-          { text: 'One' },
-          { text: 'Two' },
-          { text: 'Three' },
-          { text: 'Four' },
-          { text: 'Five' }
+          { text: 'Zero', color: 'lightblue' },
+          { text: 'One', color: 'lightgreen' },
+          { text: 'Two', color: 'lightyellow' },
+          { text: 'Three', color: 'orange' },
+          { text: 'Four', color: 'lightblue' },
+          { text: 'Five', color: 'lightgreen' }
         ]
       },
       // these are the regular nodes in the TreeModel
@@ -265,84 +187,6 @@
   }
 
   window.addEventListener('DOMContentLoaded', init);
-</script>
-
-<div id="sample">
-  <div id="myDiagramDiv" style="border: solid 1px black; width: 100%; height: 600px"></div>
-  <p>
-    Unlike swim lane diagrams where the nodes are supposed to stay in their lanes, layer bands run
-    perpendicular to the growth direction of the layout.
-  </p>
-  <p>
-    This sample uses a custom <a>TreeLayout</a> that overrides the
-    <a>TreeLayout.commitLayers</a> method in order to specify the position and size of each "band"
-    that surrounds a layer of the tree. The "bands" are held in a single Part that is bound to a
-    particular node data object whose key is "_BANDS". The headers, and potentially any other
-    information that you might want to display in the headers, are stored in this "_BANDS" object in
-    an Array.
-  </p>
-  <p>
-    This sample can be adapted to use a <a>GraphLinksModel</a> instead of a <a>TreeModel</a> and a
-    <a>LayeredDigraphLayout</a> instead of a <a>TreeLayout</a>.
-  </p>
-</div>
-
-          
-        </div>
-        <!-- * * * * * * * * * * * * * -->
-        <!--  End of GoJS sample code  -->
-      </div>
-
-      <div id="allTagDescriptions" class="p-4 w-full max-w-screen-xl mx-auto">
-        <hr/>
-        <h3 class="text-xl">GoJS Features in this sample</h3>
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Item Arrays</h4>
-<p>
-It is sometimes useful to display a variable number of elements in a node by data binding to a JavaScript Array.
-In GoJS, this is simply achieved by binding (or setting) <a href="../api/symbols/Panel.html#itemArray" target="api">Panel.itemArray</a>.
-The <a href="../api/symbols/Panel.html" target="api">Panel</a> will create an element in the panel for each value in the Array.
-More information can be found in the <a href="../intro/itemArrays.html">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#itemarrays">Related samples</a>
-            </p>
-            <hr>
-          
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Tree Layout</h4>
-<p>
-This predefined layout is used for placing Nodes of a tree-structured graph in layers (rows or columns).
-For discussion and examples of the most commonly used properties of the <a href="../api/symbols/TreeLayout.html">TreeLayout</a>,
-see the <a href="../intro/trees.html">Trees</a> page in the Introduction.
-More information can be found in the <a href="../intro/layouts.html#TreeLayout">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#treelayout">Related samples</a>
-            </p>
-            <hr>
-          
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Custom Layouts</h4>
-<p>
-  GoJS allows for the creation of custom layouts to meet specific needs. 
-</p>
-<p>
-There are also many layouts that are extensions -- not predefined in the <code>go.js</code> or <code>go-debug.js</code> library,
-but available as source code in one of the three extension directories, with some documentation and corresponding samples.
-More information can be found in the <a href="../intro/layouts.html#CustomLayouts">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#customlayout">Related samples</a>
-            </p>
-            <hr>
-          
-        </div>
-    </div>
-  </body>
-  <!--  This script is part of the gojs.net website, and is not needed to run the sample -->
-  
+  </script>
+</body>
 </html>

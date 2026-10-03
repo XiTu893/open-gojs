@@ -315,7 +315,7 @@ export class LayeredDigraphLayout extends Layout {
   }
 
   copy(): LayeredDigraphLayout {
-    const copy = new LayeredDigraphLayout();
+    const copy = new (this.constructor as new () => any)();
     this.cloneProtected(copy);
     copy._direction = this._direction;
     copy._layerSpacing = this._layerSpacing;

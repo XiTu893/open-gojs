@@ -16,6 +16,7 @@ import { Spot } from '../core/Spot';
 import { Margin } from '../core/Margin';
 import { Brush, BrushLike, Color } from '../core/Brush';
 import { Geometry } from '../core/Geometry';
+import { PathFigure } from '../core/PathFigure';
 import { computePathPoints, interpolatePath } from '../core/PathSampling';
 import { getFigureGeometry } from '../figures/Figures';
 import {
@@ -281,7 +282,11 @@ export class CanvasRenderer {
     const points = link.points;
     if (!points || points.count < 2) return;
 
-    // Draw each child element of the link panel
+    // 子元素 actualBounds 是 route-local（z − or.origin），绘制时加 link 文档原点
+    const lgb = link.getDocumentBounds();
+    const ox = lgb.x;
+    const oy = lgb.y;
+
     const elements = (link as any)._elements as GraphObject[];
     // In Link panels, the first Shape is automatically the main shape
     // (unless another Shape has isPanelMain=true)
@@ -310,13 +315,12 @@ export class CanvasRenderer {
           this._renderArrow(shape, link);
         } else {
           // Other shapes on the link
-          this.renderGraphObject(elem, 0, 0);
+          this.renderGraphObject(elem, ox, oy);
         }
-      } else if (elem instanceof TextBlock) {
-        // Render label at midpoint
-        this._renderLinkLabel(elem as TextBlock, link);
       } else {
-        this.renderGraphObject(elem, 0, 0);
+        // TextBlock/Panel 等标签：走通用渲染（measure 已把 actualBounds 排到位），
+        // 早先的 _renderLinkLabel 特例会自行在文档坐标 re-arrange，帧与语义双重错位。
+        this.renderGraphObject(elem, ox, oy);
       }
     }
   }
@@ -726,84 +730,6 @@ export class CanvasRenderer {
     ctx.restore();
   }
 
-  private _renderLinkLabel(tb: TextBlock, link: Link): void {
-    const ctx = this.ctx;
-    if (!ctx) return;
-
-    const ab = tb.actualBounds;
-    if (ab.width === 0 && ab.height === 0) return;
-
-    const segIdx = (tb as any).segmentIndex;
-    const segFrac = (tb as any).segmentFraction;
-    const segOff = (tb as any).segmentOffset;
-    const segOrient = (tb as any).segmentOrientation;
-
-    const points = link.points;
-    if (!points || points.count < 2) return;
-
-    const arr = points.toArray();
-    let labelX: number = 0, labelY: number = 0, angle: number = 0;
-
-    const si = (segIdx !== undefined && segIdx !== null && !isNaN(segIdx)) ? segIdx : -1;
-    const sf = (segFrac !== undefined && segFrac !== null && !isNaN(segFrac)) ? segFrac : 0.5;
-
-    if (si >= 0 && si < arr.length - 1) {
-      const a = arr[si];
-      const b = arr[si + 1];
-      labelX = a.x + (b.x - a.x) * sf;
-      labelY = a.y + (b.y - a.y) * sf;
-      angle = Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI;
-    } else {
-      let totalLen = 0;
-      const segLens: number[] = [];
-      for (let i = 0; i < arr.length - 1; i++) {
-        const dx = arr[i + 1].x - arr[i].x;
-        const dy = arr[i + 1].y - arr[i].y;
-        const len = Math.sqrt(dx * dx + dy * dy);
-        segLens.push(len);
-        totalLen += len;
-      }
-      let targetDist = totalLen * sf;
-      let cumDist = 0;
-      for (let i = 0; i < segLens.length; i++) {
-        if (cumDist + segLens[i] >= targetDist) {
-          const t = segLens[i] > 0 ? (targetDist - cumDist) / segLens[i] : 0;
-          labelX = arr[i].x + (arr[i + 1].x - arr[i].x) * t;
-          labelY = arr[i].y + (arr[i + 1].y - arr[i].y) * t;
-          angle = Math.atan2(arr[i + 1].y - arr[i].y, arr[i + 1].x - arr[i].x) * 180 / Math.PI;
-          break;
-        }
-        cumDist += segLens[i];
-      }
-      if (totalLen === 0) {
-        labelX = arr[0].x;
-        labelY = arr[0].y;
-      }
-    }
-
-    const offX = (segOff && typeof segOff.x === 'number' && isFinite(segOff.x)) ? segOff.x : 0;
-    const offY = (segOff && typeof segOff.y === 'number' && isFinite(segOff.y)) ? segOff.y : 0;
-    labelX += offX;
-    labelY += offY;
-
-    const mb = tb.measuredBounds;
-    const af = tb.alignmentFocus;
-    const alignOffX = af ? af.offsetX - af.x * mb.width : 0;
-    const alignOffY = af ? af.offsetY - af.y * mb.height : 0;
-
-    tb._arrange(new Rect(labelX - mb.width / 2 + alignOffX, labelY - mb.height / 2 + alignOffY, mb.width, mb.height));
-
-    ctx.save();
-    if (segOrient !== undefined && segOrient !== null && segOrient !== 0) {
-      ctx.translate(labelX, labelY);
-      ctx.rotate(angle * Math.PI / 180);
-      ctx.translate(-labelX, -labelY);
-    }
-
-    this.renderTextBlock(tb, 0, 0);
-    ctx.restore();
-  }
-
   /** Render any GraphObject by dispatching to the appropriate handler */
   renderGraphObject(obj: GraphObject, offsetX: number, offsetY: number): void {
     if (!obj.visible) return;
@@ -1082,24 +1008,29 @@ export class CanvasRenderer {
       ctx.translate(-geoBounds.x, -geoBounds.y);
     }
 
-    // Fill
-    if (shape.fill) {
-      ctx.fillStyle = this._applyBrush(ctx, shape.fill, new Rect(0, 0, geoBounds.width, geoBounds.height));
-      this._drawGeometry(ctx, geo);
-      ctx.fill();
+    // 官方逐 figure 提交路径（endPath(p) 的 p 即 figure 序号），
+    // 且只在该 figure 自身 isFilled 为真时填充。
+    const geoRect = new Rect(0, 0, geoBounds.width, geoBounds.height);
+    const doFill = !!shape.fill;
+    const doStroke = !!shape.stroke && shape.strokeWidth > 0;
+    if (doStroke && shape.strokeDashArray) {
+      ctx.setLineDash(shape.strokeDashArray);
     }
-
-    // Stroke
-    if (shape.stroke && shape.strokeWidth > 0) {
-      ctx.strokeStyle = this._applyBrush(ctx, shape.stroke, new Rect(0, 0, geoBounds.width, geoBounds.height));
-      ctx.lineWidth = shape.strokeWidth / Math.max(scaleX, scaleY);
-      ctx.lineCap = shape.strokeCap as CanvasLineCap;
-      ctx.lineJoin = shape.strokeJoin as CanvasLineJoin;
-      if (shape.strokeDashArray) {
-        ctx.setLineDash(shape.strokeDashArray);
+    const figIt = geo.figures.iterator;
+    while (figIt.next()) {
+      const fig = figIt.value;
+      this._drawFigure(ctx, fig);
+      if (doFill && fig.isFilled) {
+        ctx.fillStyle = this._applyBrush(ctx, shape.fill as string, geoRect);
+        ctx.fill();
       }
-      this._drawGeometry(ctx, geo);
-      ctx.stroke();
+      if (doStroke) {
+        ctx.strokeStyle = this._applyBrush(ctx, shape.stroke as string, geoRect);
+        ctx.lineWidth = shape.strokeWidth / Math.max(scaleX, scaleY);
+        ctx.lineCap = shape.strokeCap as CanvasLineCap;
+        ctx.lineJoin = shape.strokeJoin as CanvasLineJoin;
+        ctx.stroke();
+      }
     }
 
     ctx.restore();
@@ -1179,19 +1110,30 @@ export class CanvasRenderer {
     const picW = ab.width;
     const picH = ab.height;
 
+    // source 可以是 url（走 _loadedImage），也可以直接是 <canvas>/<img>/<video>（官方 4.x）。
+    const canvasSrc = ((pic as any)._canvasSource ||
+      ((pic as any).element && (pic as any).element.tagName !== 'IMG' ? (pic as any).element : null)) as CanvasImageSource | null;
     const loadedImage = (pic as any)._loadedImage as HTMLImageElement | null;
+    const src: CanvasImageSource | null =
+      canvasSrc || (loadedImage && loadedImage.complete && loadedImage.naturalWidth > 0 ? loadedImage : null);
 
-    if (loadedImage && loadedImage.complete && loadedImage.naturalWidth > 0) {
-      const imgW = loadedImage.naturalWidth;
-      const imgH = loadedImage.naturalHeight;
+    if (src) {
+      const srcW = canvasSrc
+        ? ((canvasSrc as HTMLCanvasElement).width ?? 0)
+        : (loadedImage as HTMLImageElement).naturalWidth;
+      const srcH = canvasSrc
+        ? ((canvasSrc as HTMLCanvasElement).height ?? 0)
+        : (loadedImage as HTMLImageElement).naturalHeight;
+      const imgW = srcW > 0 ? srcW : picW;
+      const imgH = srcH > 0 ? srcH : picH;
       const stretch = pic.imageStretch;
 
       ctx.save();
 
       if (stretch === ImageStretchNone) {
-        ctx.drawImage(loadedImage, picX, picY, imgW, imgH);
+        ctx.drawImage(src, picX, picY, imgW, imgH);
       } else if (stretch === ImageStretchFill) {
-        ctx.drawImage(loadedImage, picX, picY, picW, picH);
+        ctx.drawImage(src, picX, picY, picW, picH);
       } else if (stretch === ImageStretchUniform) {
         const scaleX = picW / imgW;
         const scaleY = picH / imgH;
@@ -1200,7 +1142,7 @@ export class CanvasRenderer {
         const drawH = imgH * scale;
         const drawX = picX + (picW - drawW) / 2;
         const drawY = picY + (picH - drawH) / 2;
-        ctx.drawImage(loadedImage, drawX, drawY, drawW, drawH);
+        ctx.drawImage(src, drawX, drawY, drawW, drawH);
       } else if (stretch === ImageStretchUniformToFill) {
         const scaleX = picW / imgW;
         const scaleY = picH / imgH;
@@ -1212,7 +1154,7 @@ export class CanvasRenderer {
         ctx.beginPath();
         ctx.rect(picX, picY, picW, picH);
         ctx.clip();
-        ctx.drawImage(loadedImage, drawX, drawY, drawW, drawH);
+        ctx.drawImage(src, drawX, drawY, drawW, drawH);
       }
 
       ctx.restore();
@@ -1674,7 +1616,26 @@ export class CanvasRenderer {
     ctx.beginPath();
     const it = geo.figures.iterator;
     while (it.next()) {
-      const fig = it.value;
+      this._drawFigureSegments(ctx, it.value);
+    }
+  }
+
+  /**
+   * 开一条新路径并画单个 figure。
+   *
+   * 官方 Geometry（type 4）是**逐 figure** 提交的：`... endPath(p)` 里的 `p` 就是
+   * figure 序号，所以「填不填」是按 figure 自己判定的。本项目以前把整个 geometry
+   * 当成一条路径统一 fill，导致 `PathFigure(..., false)` 的图形（CircleLine、
+   * Curve1/2、AsteriskLine、Terminator…）被涂色，与官方差一大片。
+   */
+  private _drawFigure(ctx: CanvasRenderingContext2D, fig: PathFigure): void {
+    ctx.beginPath();
+    this._drawFigureSegments(ctx, fig);
+  }
+
+  /** 把单个 figure 的线段追加到当前路径（不 beginPath） */
+  private _drawFigureSegments(ctx: CanvasRenderingContext2D, fig: PathFigure): void {
+    {
       let curX = fig.startX;
       let curY = fig.startY;
       ctx.moveTo(fig.startX, fig.startY);
@@ -1699,8 +1660,15 @@ export class CanvasRenderer {
             break;
           case 'Arc':
             this._drawArcSegment(ctx, curX, curY, seg);
-            curX = seg.endX;
-            curY = seg.endY;
+            // 「按角度」圆弧的 endX/endY 在官方里存的是角度值，用我们另存的真实终点推进当前点；
+            // SVG 弧（PathSegment.Arc）则 endX/endY 就是终点。
+            if (!isNaN(seg.arcEndX)) {
+              curX = seg.arcEndX;
+              curY = seg.arcEndY;
+            } else {
+              curX = seg.endX;
+              curY = seg.endY;
+            }
             break;
           case 'MoveTo':
             ctx.moveTo(seg.endX, seg.endY);
@@ -1732,7 +1700,7 @@ export class CanvasRenderer {
     // 官方「按角度」圆弧：new PathSegment(SegmentType.Arc, startAngle, sweepAngle, cx, cy, rx, ry)
     if (!isNaN(seg.startAngle) && !isNaN(seg.centerX)) {
       const rX = Math.abs(rx);
-      const rY = Math.abs(ry === 0 ? rx : ry);
+      const rY = Math.abs(ry); // 官方「按角度」形式的 radiusY 可以合法为 0
       if (rX <= 0 || rY <= 0) {
         ctx.lineTo(endX, endY);
         return;

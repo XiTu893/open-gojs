@@ -103,6 +103,8 @@ export declare class Link extends Part {
     private static _normalizeAngle;
     /** 把 `Orientation.*` 枚举值（或数字）映射到官方 computeAngle 的分支码 */
     private static _orientationCode;
+    /** 供 Panel._measureLink 使用的 orientation 分支码（官方 measure 里 `L` 的值） */
+    static orientationCode(o: any): number;
     /** 官方 `G.u`（近似相等，用于正交路由的共线判定） */
     private static _approx;
     /** 官方 `G.H`（近似等于 0） */
@@ -152,6 +154,19 @@ export declare class Link extends Part {
     set fromPortId(val: string);
     get toPortId(): string;
     set toPortId(val: string);
+    /** 官方 `Node.OS/ES → ne(port)`：连线端点变更时清空端口 knot 缓存 */
+    private _ggPort;
+    /**
+     * 官方 `Link.dg()`：按两端点的公共 containingGroup 更新本 Link 的从属关系。
+     * 官方 Link 的 containment 不是模型 group 数据直接给的，而是
+     * `fromNode.findCommonContainingGroup(toNode)` 的结果（嵌套组时取最深公共祖先）；
+     * 两端都在同一 Group 内的连线 `isTopLevel === false`，
+     * 布局收集（Layout.collectParts 的 toplevelonly 过滤）才不会把组内连线
+     * 及其端点塞进顶层网络 —— 否则 ParallelLayout.findSplitMerge 会看到
+     * 组内的多个 Split 节点而抛 "Split node already exists"（flowgrammer）。
+     * 由 fromNode/toNode setter 与 Part.containingGroup 变更传播调用。
+     */
+    updateContainingGroup(): void;
     /** 官方 `Link.isTreeLink`（默认 true） */
     get isTreeLink(): boolean;
     set isTreeLink(val: boolean);
@@ -195,7 +210,10 @@ export declare class Link extends Part {
     getLinkPointToPort(port: GraphObject, spot: Spot): Point;
     /** Compute the route points for this link */
     computePoints(): boolean;
-    private _applyShortLengths;
+    /** 官方 `Link.r4` 的 curviness 中点插入（非 Bezier 快路径，显式设置 curviness 时） */
+    private _r4Mid;
+    /** 官方 `Link.o4`：Bezier 快路径插入两个控制点并重算端点 */
+    private _o4;
     /** Resolve the effective fromSpot for this link */
     private _resolveFromSpot;
     private _resolveToSpot;
@@ -290,8 +308,12 @@ export declare class Link extends Part {
     private _resolveLinkSpot;
     /** 官方 `Link.computeShortLength(isFrom)` */
     computeShortLength(isFrom: boolean): number;
-    /** 官方 `Link.computeEndSegmentLength(node, port, spot, isFrom, dir?)`（本项目无 Knot，跳过 side-spot 分支） */
+    /** 官方 `Link.computeEndSegmentLength(node, port, spot, isFrom, dir?)` */
     computeEndSegmentLength(node: Node | null, port: GraphObject | null, spot: Spot, isFrom: boolean, dir?: number): number;
+    /** 官方 `Link.l4(port, link)`：只查已有 knot，不创建 */
+    private _l4;
+    /** 官方 `Link.YS(port)`：取（必要时创建）端口 Knot 中本连线的 LinkInfo */
+    private _ys;
     /** 官方 `Link.computeOtherPoint(othernode, otherport, otherspot?, from?, result?)` */
     computeOtherPoint(othernode: Node, otherport: GraphObject, otherspot?: Spot, from?: boolean, result?: Point): Point;
     /** 官方 `Link.getLinkPointFromPoint(node, port, focus, p, from, result?)` */
@@ -300,7 +322,9 @@ export declare class Link extends Part {
     getLinkPoint(node: Node | null, port: GraphObject, spot: Spot, from: boolean, ortho: boolean, othernode: Node | null, otherport: GraphObject, result?: Point): Point;
     /** 官方 `Link.getLinkDirection(node, port, linkpoint, spot, from, ortho, othernode, otherport)` */
     getLinkDirection(node: Node | null, port: GraphObject | null, linkpoint: Point, spot: Spot, from: boolean, ortho: boolean, othernode: Node | null, otherport: GraphObject | null): number;
-    /** 官方 `G.Sx(null, spot.x, spot.y)`：spot → 方向角 */
+    /** 官方 `Link.h4(...)`（getLinkDirection 内核） */
+    private _h4;
+    /** 官方 `G.Sx(null, spot.x, spot.y)`：点位 spot → 方向角（含 45/135/225/315 对角方向） */
     private static _spotDirection;
     /** 官方 `Link.computeSpacing()` */
     computeSpacing(): number;
@@ -356,10 +380,17 @@ export declare class Link extends Part {
     invalidateGeometry(): void;
     /** 官方 `Link.geometry` */
     get geometry(): Geometry;
+    /**
+     * 官方 `Link.wc(t, isFrom, ref)`：把几何端点沿首/末线段向内缩短
+     * `computeShortLength`（2 点时上限为半段长，多点时上限为整段长）。
+     * 官方在 makeGeometry 内对几何做短化（link.points 本身不含短化）。
+     * 经官方坐标系（平移到 min、ref=min/0,0）化简后等价于对原始坐标直接缩短。
+     */
+    private _wcPoint;
     /** 官方 `Link.makeGeometry()`（本项目无 Transform 矩阵，按点列构造折线/贝塞尔几何） */
     makeGeometry(): Geometry;
-    /** 官方 `Link.adjustPoints(start, end, p1, p2)` */
-    adjustPoints(start: number, end: number, p1: Point, p2: Point): boolean;
+    /** 官方 `Link.adjustPoints(start, p1, end, p2)` */
+    adjustPoints(start: number, p1: Point, end: number, p2: Point): boolean;
     /** 官方 `Link.f4`（LinkAdjusting.Scale：保持形状的仿射变换） */
     private _adjustScale;
     /** 官方 `Link.u4`（LinkAdjusting.Stretch：端点对齐的拉伸） */
@@ -372,9 +403,13 @@ export declare class Link extends Part {
     computeMidOrthoPosition(fromX: number, fromY: number, toX: number, toY: number, vertical: boolean): number;
     /**
      * 官方 `Link.addOrthoPoints(startFrom, fromDir, endTo, toDir, fromnode, tonode)`。
-     * 官方是约 90 行的分情况折线表；本项目用等价的最少拐点正交连接（只补中间点，不含 startFrom/endTo）。
+     * 逐分支转译自 go-debug.js 778104..784083（含 fA/sA/nA 路由状态与尾部两点追加）。
      */
     addOrthoPoints(startFrom: Point, fromDir: number, endTo: Point, toDir: number, fromnode: Node, tonode: Node): void;
+    /** 官方 Link 路由状态字段：fA=toDir 被吸附, sA=fromDir 吸附值, nA=toDir 吸附值 */
+    private _fA;
+    private _sA;
+    private _nA;
     /** 官方 `Link.invalidateOtherJumpOvers(bounds)`（本项目不做 jump 几何缓存，仅让同批 JumpOver/Gap 失效） */
     invalidateOtherJumpOvers(bounds: Rect): void;
     copy(): Link;

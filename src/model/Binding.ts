@@ -18,8 +18,12 @@ export class Binding {
   public mode: EnumValue;
   public sourceObject: string | null;
   public name: string = '';
-  /** 官方 ThemeBinding.themeConverter：主题取值后的转换（在普通 converter 之前） */
+  /** 官方 ThemeBinding.themeConverter：findValue 之后的转换 */
   public themeConverter: ((value: any, targetObject: any, model?: any) => any) | null;
+  /** 官方 ThemeBinding.themeSource：findValue 的 theme 子路径（'colors' / 'levels' ...） */
+  public themeSource: string | null;
+  /** 官方 theme()/themeObject()/themeData()/themeModel() 建立的主题绑定（flags&16） */
+  public isThemeBinding: boolean;
 
   constructor(
     targetProperty?: string,
@@ -34,6 +38,8 @@ export class Binding {
     this.mode = Binding.OneWay;
     this.sourceObject = null;
     this.themeConverter = null;
+    this.themeSource = null;
+    this.isThemeBinding = false;
   }
 
   get isTwoWay(): boolean {
@@ -71,20 +77,18 @@ export class Binding {
   }
 
   getValueFromSource(data: any, targetObject: any, model: any): any {
-    let value: any;
     if (this.isToTheme) {
-      // 官方 ThemeBinding：主题取值 → themeConverter → converter
-      const diagram = targetObject ? (targetObject as any).diagram : null;
-      const tm = diagram ? diagram.themeManager : null;
-      value = tm ? tm.findValue(this.sourceProperty, null, this.targetProperty) : undefined;
-      if (value === undefined) return undefined;
-      if (this.themeConverter) value = this.themeConverter(value, targetObject, model);
-      if (this.conversion) value = this.conversion(value, targetObject, model);
-      return value;
-    } else if (this.isFromModel) {
+      return this._getThemeValue(data, targetObject, model);
+    }
+
+    let value: any;
+    if (this.isFromModel) {
       value = model ? model.modelData[this.sourceProperty] : undefined;
     } else if (this.sourceObject !== null) {
-      value = undefined;
+      // 官方 ofObject：源是某个 GraphObject（sourceName 特殊值都指“绑定面板”本身）
+      const srcObj = this._findSourceObject(targetObject);
+      if (srcObj === null || srcObj === undefined) return undefined;
+      value = this.sourceProperty === '' ? srcObj : srcObj[this.sourceProperty];
     } else {
       value = data ? (this.sourceProperty === '' ? data : data[this.sourceProperty]) : undefined;
     }
@@ -93,6 +97,61 @@ export class Binding {
       value = this.conversion(value, targetObject, model);
     }
     return value;
+  }
+
+  /**
+   * 官方 ThemeBinding 求值（GraphObject.qo - Binding.updateTarget - ThemeBinding.pv）：
+   *  - theme()（sourceObject === 'theme'，官方 PT 标志）：key 直接用 sourceProperty，
+   *    findValue 后接 themeConverter；
+   *  - themeObject()/themeData()/themeModel()：先按 source 求源值，源值 undefined 整段跳过，
+   *    再跑 converter 得到主题 key，findValue 后接 themeConverter。
+   */
+  private _getThemeValue(data: any, targetObject: any, model: any): any {
+    const diagram = targetObject ? (targetObject as any).diagram : null;
+    const tm = diagram ? diagram.themeManager : null;
+    if (!tm) return undefined;
+
+    let key: any;
+    if (this.sourceObject === 'theme') {
+      key = this.sourceProperty;
+    } else {
+      let srcObj: any;
+      if (this.sourceObject === null) srcObj = data; // themeData：源 = data
+      else if (this.sourceObject === 'model') srcObj = model ? model.modelData : undefined;
+      else srcObj = this._findSourceObject(targetObject); // themeObject
+      if (srcObj === null || srcObj === undefined) return undefined;
+      let v: any = this.sourceProperty === '' ? srcObj : srcObj[this.sourceProperty];
+      if (v === undefined) return undefined;
+      if (this.conversion) v = this.conversion(v, targetObject, model);
+      key = v;
+    }
+
+    const out = tm.findValue(key, this.themeSource, this.targetProperty);
+    if (out === undefined) return undefined;
+    return this.themeConverter ? this.themeConverter(out, targetObject, model) : out;
+  }
+
+  /**
+   * 官方 GraphObject.CD(sourceName) + freezeBindings(Ut) 语义：
+   * 官方在模板冻结时把所有子对象的绑定收集进 part.Xs，求值时 RN/DD 的 `this`=part，
+   * 因此 sourceName='' → DD('')=this=**part**（实测官方 updateTarget 收到的源对象是 Node）。
+   * 官方 RN 末尾的覆盖：'/'→elt.part、'.'→elt、'..'→elt.panel；
+   * 本实现中绑定就挂在 elt（owner）上，故 ''/'/' 取 part、'.' 取自身、'..' 取所在面板。
+   * 具名对象从 part.findObject(name) 找。
+   */
+  private _findSourceObject(targetObject: any): any {
+    const name = this.sourceObject;
+    if (name === '' || name === '/') {
+      const part = targetObject ? (targetObject.part || null) : null;
+      return part || targetObject || null;
+    }
+    if (name === '.') return targetObject || null;
+    if (name === '..') {
+      return targetObject ? (targetObject.panel || targetObject.part || null) : null;
+    }
+    const part = targetObject ? targetObject.part : null;
+    if (part && typeof part.findObject === 'function') return part.findObject(name);
+    return null;
   }
 
   getValueFromTarget(targetValue: any, data: any, model: any): any {
@@ -158,9 +217,9 @@ export class Binding {
     return this.sourceObject !== null && this.sourceObject !== 'model' && !this.isToTheme;
   }
 
-  /** 官方 Binding.isToTheme：theme() 建立的主题绑定（sourceObject === 'theme'） */
+  /** 官方 Binding.isToTheme：theme/themeObject/themeData/themeModel 的主题绑定（flags&16） */
   get isToTheme(): boolean {
-    return this.sourceObject === 'theme';
+    return this.isThemeBinding || this.sourceObject === 'theme';
   }
 
   /** 官方 Binding.cloneProtected */
@@ -172,6 +231,8 @@ export class Binding {
     copy.converter = this.converter;
     copy.backConverter = this.backConverter;
     copy.themeConverter = this.themeConverter;
+    copy.themeSource = this.themeSource;
+    copy.isThemeBinding = this.isThemeBinding;
     copy.mode = this.mode;
     copy.name = this.name;
   }

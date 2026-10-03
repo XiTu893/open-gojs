@@ -1,133 +1,76 @@
-﻿
 <!DOCTYPE html>
-<html lang="en">
-  <head>
-    
-    <meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover"/>
-
-<meta name="description" content="A simple block diagram editor that includes context menus for changing shapes and colors." />
-<meta itemprop="description" content="A simple block diagram editor that includes context menus for changing shapes and colors." />
-<meta property="og:description" content="A simple block diagram editor that includes context menus for changing shapes and colors." />
-<meta name="twitter:description" content="A simple block diagram editor that includes context menus for changing shapes and colors." />
-
-
-<link rel="preconnect" href="https://rsms.me/">
-
-<!-- Copyright 1998-2026 by Northwoods Software Corporation. -->
-
-
-<meta itemprop="name" content="Block Diagram Editor, Drawing Nodes and Links with Different Shapes and Colors" />
-<meta property="og:title" content="Block Diagram Editor, Drawing Nodes and Links with Different Shapes and Colors" />
-<meta name="twitter:title" content="Block Diagram Editor, Drawing Nodes and Links with Different Shapes and Colors" />
-
-
-<meta property="og:image" content="https://gojs.net/latest/assets/images/screenshots/blockeditor.png" />
-<meta itemprop="image" content="https://gojs.net/latest/assets/images/screenshots/blockeditor.png" />
-<meta name="twitter:image" content="https://gojs.net/latest/assets/images/screenshots/blockeditor.png" />
-
-<meta property="og:url" content="https://gojs.net/latest/samples/blockEditor.html" />
-<meta property="twitter:url" content="https://gojs.net/latest/samples/blockEditor.html" />
-
-<meta name="twitter:card" content="summary_large_image" />
-<meta property="og:type" content="website" />
-<meta property="twitter:domain" content="gojs.net" />
-
-    <title>
-      Block Diagram Editor, Drawing Nodes and Links with Different Shapes and Colors | GoJS Diagramming Library
-    </title>
-  </head>
-
-  <body>
-    <!-- This top nav is not part of the sample code -->
-    <nav id="navTop" class=" w-full h-[var(--topnav-h)] z-30 bg-white border-b border-b-gray-200">
-  <div class="max-w-screen-xl mx-auto flex flex-wrap items-start justify-between px-4">
-    <a class="text-white bg-nwoods-primary font-bold !leading-[calc(var(--topnav-h)_-_1px)] my-0 px-2 text-4xl lg:text-5xl logo"
-       href="../">
-      GoJS
-    </a>
-    <div class="relative">
-      <button id="topnavButton" class="h-[calc(var(--topnav-h)_-_1px)] px-2 m-0 text-gray-900 bg-inherit shadow-none md:hidden hover:!bg-inherit hover:!text-nwoods-accent hover:!shadow-none" aria-label="Navigation">
-        <svg class="h-7 w-7 block" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </button>
-      <div id="topnavList" class="hidden md:block">
-        <div class="absolute right-0 z-30 flex flex-col items-end rounded border border-gray-200 p-4 pl-12 shadow bg-white text-gray-900 font-semibold
-                    md:flex-row md:space-x-4 md:items-start md:border-0 md:p-0 md:shadow-none md:bg-inherit">
-          <a href="../learn/">Learn</a>
-          <a href="../samples/">Samples</a>
-          <a href="../intro/">Intro</a>
-          <a href="../api/">API</a>
-          <a href="../download.html">Download</a>
-          <a href="https://forum.nwoods.com/c/gojs/11" target="_blank" rel="noopener">Forum</a>
-          <a id="tc" href="https://nwoods.com/contact.html"
-            target="_blank" rel="noopener" onclick="getOutboundLink('https://nwoods.com/contact.html', 'contact');">Contact</a>
-          <a id="tb" href="https://nwoods.com/sales/index.html"
-            target="_blank" rel="noopener" onclick="getOutboundLink('https://nwoods.com/sales/index.html', 'buy');">Buy</a>
-        </div>
-      </div>
-    </div>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Block Diagram Editor</title>
+  <script src="../dist/open-gojs.umd.js"></script>
+  
+  <script src="https://cdn.jsdelivr.net/npm/gojs-extensions@latest/extensions/Figures.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/gojs-extensions@latest/extensions/DrawCommandHandler.js"></script>
+  
+  
+</head>
+<body>
+<div id="myDiagramDiv" style="border: solid 1px black; width: 100%; height: 600px"></div>
+  <div style="margin-block: .5em;">
+    <button id="SaveButton" onclick="save()">Save</button>
+    <button onclick="load()">Load</button>
+    Diagram Model saved in JSON format:
   </div>
-</nav>
-<script>
-  window.addEventListener("DOMContentLoaded", function () {
-    // topnav
-    var topButton = document.getElementById("topnavButton");
-    var topnavList = document.getElementById("topnavList");
-    if (topButton && topnavList) {
-      topButton.addEventListener("click", function (e) {
-        topnavList
-          .classList
-          .toggle("hidden");
-        e.stopPropagation();
-      });
-      document.addEventListener("click", function (e) {
-        // if the clicked element isn't the list, close the list
-        if (!topnavList.classList.contains("hidden") && !e.target.closest("#topnavList")) {
-          topButton.click();
-        }
-      });
-
-      // set active <a> element
-      var url = window
-        .location
-        .href
-        .toLowerCase();
-      var aTags = topnavList.getElementsByTagName('a');
-      for (var i = 0; i < aTags.length; i++) {
-        var lowerhref = aTags[i]
-          .href
-          .toLowerCase();
-        if (lowerhref.endsWith('.html')) 
-          lowerhref = lowerhref.slice(0, -5);
-        if (url.startsWith(lowerhref)) {
-          aTags[i]
-            .classList
-            .add('active');
-          break;
-        }
-      }
-    }
-  });
-</script>
-    <div class="flex flex-col prose">
-      <div class="w-full max-w-screen-xl mx-auto">
-        <!-- * * * * * * * * * * * * * -->
-        <!-- Start of GoJS sample code -->
-        <script src="../dist/open-gojs.umd.js"></script>
-
-        
-
-        <div id="allSampleContent" class="p-4 w-full">
-          
-            
-            
-
-
-
-<script id="code">
-  function init() {
+  <textarea id="mySavedModel" style="width: 100%; height: 300px">
+{ "class": "GraphLinksModel",
+  "pointsDigits": 0,
+  "nodeDataArray": [
+{"text":"Find Problem","key":-9,"loc":"-20 -140","color":"#3358ff","fill":"white","figure":"Procedure","thickness":3},
+{"text":"What do we want?","key":-10,"loc":"-110 -320","group":-16,"figure":"Ellipse","fill":"white"},
+{"text":"What do our users want?","key":-11,"loc":"70 -320","group":-20,"figure":"Ellipse","fill":"#ffffff","color":"black"},
+{"text":"Meetings","key":-12,"loc":"-110 -440","group":-16,"figure":"TriangleDown","fill":"#ffffff"},
+{"text":"Reviews","key":-13,"loc":"70 -440","group":-20,"figure":"TriangleDown","fill":"#ffffff","color":"black"},
+{"text":"Can we solve it?","key":-14,"loc":"190 -140","color":"#7d33ff","fill":"#ffffff","figure":"Diamond","size":"140 80","thickness":3},
+{"text":"Design Prototype","key":-7,"loc":"337.191 -440","color":"black","fill":"#f2dfe0","group":-17,"figure":"Procedure","size":"140 80"},
+{"text":"Does it work?","key":-8,"loc":"337.191 -300","color":"black","fill":"#f2dfe0","group":-17,"figure":"Diamond","size":"140 80"},
+{"text":"Market/Sell\nSolution","key":-15,"loc":"470 -157.5","color":"#25ad23","fill":"#ffffff","group":-19,"figure":"Rectangle","size":"120 60"},
+{"isGroup":true,"text":"Problem-Solving Process","key":-17,"loc":"365.40458203125 -370","fill":"#fcbbbd","thickness":3,"color":"#000000"},
+{"text":"Implement \nSolution","key":-18,"loc":"470 -82.5","color":"#25ad23","fill":"#ffffff","group":-19,"figure":"Rectangle","size":"120 60"},
+{"isGroup":true,"text":"Internal","key":-16,"loc":"-110 -380","fill":"#d5ebff","dash":null,"thickness":1,"group":-22},
+{"isGroup":true,"text":"External","key":-20,"loc":"70 -380","fill":"#d5ebff","dash":null,"thickness":1,"group":-22},
+{"isGroup":true,"text":"Distribute Solution","key":-19,"loc":"470 -120","fill":"#b3e6b3","thickness":2,"dash":[4,4]},
+{"text":"Yes!","key":-21,"loc":"350 -120","size":"60 40","figure":"ManualOperation","fill":"#ffffff","color":"#25ad23","thickness":3},
+{"isGroup":true,"text":"Sources","key":-22,"loc":"-20 -388.66328125","fill":"#a5d2fa","dash":[4,4],"color":"#3358ff"}
+  ],
+    "linkDataArray": [
+{"from":-12,"to":-10,"points":[-110,-410,-110,-400,-110,-380,-110,-380,-110,-360,-110,-350],"dash":null,"dir":1},
+{"from":-13,"to":-11,"points":[70,-410,70,-400,70,-380,70,-380,70,-360,70,-350],"dash":null,"color":"#000000","dir":1},
+{"from":-10,"to":-9,"points":[-110,-290,-110,-280,-110,-230,-40,-230,-40,-180,-40,-170],"dir":2,"dash":[4,4]},
+{"from":-11,"to":-9,"points":[70,-290,70,-280,70,-230,0,-230,0,-180,0,-170],"dash":[4,4],"dir":2},
+{"from":-9,"to":-14,"points":[40,-140,50,-140,80,-140,80,-140,110,-140,120,-140],"dir":1,"color":"#3358ff"},
+{"from":-14,"to":-9,"points":[190,-100,190,-90,190,-72.39579391479492,-20,-72.39579391479492,-20,-100,-20,-110],"fromSpot":"BottomSide","toSpot":"BottomSide","text":"No","color":"#ff3333","thickness":2,"dir":1},
+{"from":-14,"to":-7,"points":[190,-180,190,-190,190,-440,223.5955,-440,257.191,-440,267.191,-440],"fromSpot":"TopSide","toSpot":"LeftSide","color":"#7d33ff","dir":1},
+{"from":-7,"to":-8,"points":[337.191,-400,337.191,-390,337.191,-370,337.191,-370,337.191,-350,337.191,-340],"dir":1},
+{"from":-8,"to":-15,"points":[360.5243333333333,-260,360.5243333333333,-250,360.5243333333333,-157.5,380.26216666666664,-157.5,400,-157.5,410,-157.5],"toSpot":"LeftSide","dir":1},
+{"from":-8,"to":-18,"points":[313.85766666666666,-260,313.85766666666666,-242,313.85766666666666,-82.5,356.92883333333333,-82.5,400,-82.5,410,-82.5],"toSpot":"LeftSide","fromSpot":"BottomSide","text":"","dir":1},
+{"from":-8,"to":-7,"points":[407.191,-300,417.191,-300,443,-300,443,-440,417.191,-440,407.191,-440],"toSpot":"RightSide","fromSpot":"RightSide","text":"No\n","color":"#ff3333","dir":1},
+{"from":-15,"to":-13,"points":[530,-157.5,540,-157.5,563.3333740234375,-157.5,563.3333740234375,-557.7291679382324,182.66668701171875,-557.7291679382324,182.66668701171875,-440,140,-440,130,-440],"toSpot":"RightSide","fromSpot":"RightSide","dash":[2,4],"dir":1},
+{"from":-18,"to":-12,"points":[530,-82.5,540,-82.5,587.3333740234375,-82.5,587.3333740234375,-579.0624961853027,-238.66665649414062,-579.0624961853027,-238.66665649414062,-440,-180,-440,-170,-440],"fromSpot":"RightSide","toSpot":"LeftSide","dash":[2,4],"dir":1}
+  ]}
+  </textarea>
+  <div id="description">
+<p>
+    Double-click in the background to create a new node. Create groups by selecting nodes and
+    invoking Ctrl-G; Ctrl-Shift-G to ungroup a selected group. A selected node will have four orange
+    triangles that when clicked will automatically copy the node and link to it. Use the context
+    menu to change the shape, color, thickness, and dashed-ness.
+  </p>
+  <p>
+    Links can be drawn by dragging from the side of each node. A selected link can be reconnected by
+    dragging an end handle. Use the context menu to change the color, thickness, dashed-ness, and
+    which side the link should connect with. Press the F2 key to start editing the label of a
+    selected link.
+  </p>
+  </div>
+  <script >
+function init() {
     // Colors are predefined to allow easy manipulation of themes
     const colors = {
       red: '#ff3333',
@@ -197,6 +140,17 @@
         }
       },
       'undoManager.isEnabled': true
+    });
+
+    myDiagram.addDiagramListener('Modified', e => {
+      const button = document.getElementById('SaveButton');
+      if (button) button.disabled = !myDiagram.isModified;
+      const idx = document.title.indexOf('*');
+      if (myDiagram.isModified) {
+        if (idx < 0) document.title += '*';
+      } else {
+        if (idx >= 0) document.title = document.title.slice(0, idx);
+      }
     });
 
     // Node template
@@ -837,125 +791,6 @@
   }
 
   window.addEventListener('DOMContentLoaded', init);
-</script>
-
-<div id="sample">
-  <div id="myDiagramDiv" style="border: solid 1px black; width: 100%; height: 600px"></div>
-  <p>
-    Double-click in the background to create a new node. Create groups by selecting nodes and
-    invoking Ctrl-G; Ctrl-Shift-G to ungroup a selected group. A selected node will have four orange
-    triangles that when clicked will automatically copy the node and link to it. Use the context
-    menu to change the shape, color, thickness, and dashed-ness.
-  </p>
-  <p>
-    Links can be drawn by dragging from the side of each node. A selected link can be reconnected by
-    dragging an end handle. Use the context menu to change the color, thickness, dashed-ness, and
-    which side the link should connect with. Press the F2 key to start editing the label of a
-    selected link.
-  </p>
-  <div id="buttons">
-    <button id="loadModel" onclick="load()">Load</button>
-    <button id="saveModel" onclick="save()">Save</button>
-  </div>
-  <textarea id="mySavedModel" style="width: 100%; height: 300px">
-{ "class": "GraphLinksModel",
-  "pointsDigits": 0,
-  "nodeDataArray": [
-{"text":"Find Problem","key":-9,"loc":"-20 -140","color":"#3358ff","fill":"white","figure":"Procedure","thickness":3},
-{"text":"What do we want?","key":-10,"loc":"-110 -320","group":-16,"figure":"Ellipse","fill":"white"},
-{"text":"What do our users want?","key":-11,"loc":"70 -320","group":-20,"figure":"Ellipse","fill":"#ffffff","color":"black"},
-{"text":"Meetings","key":-12,"loc":"-110 -440","group":-16,"figure":"TriangleDown","fill":"#ffffff"},
-{"text":"Reviews","key":-13,"loc":"70 -440","group":-20,"figure":"TriangleDown","fill":"#ffffff","color":"black"},
-{"text":"Can we solve it?","key":-14,"loc":"190 -140","color":"#7d33ff","fill":"#ffffff","figure":"Diamond","size":"140 80","thickness":3},
-{"text":"Design Prototype","key":-7,"loc":"337.191 -440","color":"black","fill":"#f2dfe0","group":-17,"figure":"Procedure","size":"140 80"},
-{"text":"Does it work?","key":-8,"loc":"337.191 -300","color":"black","fill":"#f2dfe0","group":-17,"figure":"Diamond","size":"140 80"},
-{"text":"Market/Sell\nSolution","key":-15,"loc":"470 -157.5","color":"#25ad23","fill":"#ffffff","group":-19,"figure":"Rectangle","size":"120 60"},
-{"isGroup":true,"text":"Problem-Solving Process","key":-17,"loc":"365.40458203125 -370","fill":"#fcbbbd","thickness":3,"color":"#000000"},
-{"text":"Implement \nSolution","key":-18,"loc":"470 -82.5","color":"#25ad23","fill":"#ffffff","group":-19,"figure":"Rectangle","size":"120 60"},
-{"isGroup":true,"text":"Internal","key":-16,"loc":"-110 -380","fill":"#d5ebff","dash":null,"thickness":1,"group":-22},
-{"isGroup":true,"text":"External","key":-20,"loc":"70 -380","fill":"#d5ebff","dash":null,"thickness":1,"group":-22},
-{"isGroup":true,"text":"Distribute Solution","key":-19,"loc":"470 -120","fill":"#b3e6b3","thickness":2,"dash":[4,4]},
-{"text":"Yes!","key":-21,"loc":"350 -120","size":"60 40","figure":"ManualOperation","fill":"#ffffff","color":"#25ad23","thickness":3},
-{"isGroup":true,"text":"Sources","key":-22,"loc":"-20 -388.66328125","fill":"#a5d2fa","dash":[4,4],"color":"#3358ff"}
-  ],
-    "linkDataArray": [
-{"from":-12,"to":-10,"points":[-110,-410,-110,-400,-110,-380,-110,-380,-110,-360,-110,-350],"dash":null,"dir":1},
-{"from":-13,"to":-11,"points":[70,-410,70,-400,70,-380,70,-380,70,-360,70,-350],"dash":null,"color":"#000000","dir":1},
-{"from":-10,"to":-9,"points":[-110,-290,-110,-280,-110,-230,-40,-230,-40,-180,-40,-170],"dir":2,"dash":[4,4]},
-{"from":-11,"to":-9,"points":[70,-290,70,-280,70,-230,0,-230,0,-180,0,-170],"dash":[4,4],"dir":2},
-{"from":-9,"to":-14,"points":[40,-140,50,-140,80,-140,80,-140,110,-140,120,-140],"dir":1,"color":"#3358ff"},
-{"from":-14,"to":-9,"points":[190,-100,190,-90,190,-72.39579391479492,-20,-72.39579391479492,-20,-100,-20,-110],"fromSpot":"BottomSide","toSpot":"BottomSide","text":"No","color":"#ff3333","thickness":2,"dir":1},
-{"from":-14,"to":-7,"points":[190,-180,190,-190,190,-440,223.5955,-440,257.191,-440,267.191,-440],"fromSpot":"TopSide","toSpot":"LeftSide","color":"#7d33ff","dir":1},
-{"from":-7,"to":-8,"points":[337.191,-400,337.191,-390,337.191,-370,337.191,-370,337.191,-350,337.191,-340],"dir":1},
-{"from":-8,"to":-15,"points":[360.5243333333333,-260,360.5243333333333,-250,360.5243333333333,-157.5,380.26216666666664,-157.5,400,-157.5,410,-157.5],"toSpot":"LeftSide","dir":1},
-{"from":-8,"to":-18,"points":[313.85766666666666,-260,313.85766666666666,-242,313.85766666666666,-82.5,356.92883333333333,-82.5,400,-82.5,410,-82.5],"toSpot":"LeftSide","fromSpot":"BottomSide","text":"","dir":1},
-{"from":-8,"to":-7,"points":[407.191,-300,417.191,-300,443,-300,443,-440,417.191,-440,407.191,-440],"toSpot":"RightSide","fromSpot":"RightSide","text":"No\n","color":"#ff3333","dir":1},
-{"from":-15,"to":-13,"points":[530,-157.5,540,-157.5,563.3333740234375,-157.5,563.3333740234375,-557.7291679382324,182.66668701171875,-557.7291679382324,182.66668701171875,-440,140,-440,130,-440],"toSpot":"RightSide","fromSpot":"RightSide","dash":[2,4],"dir":1},
-{"from":-18,"to":-12,"points":[530,-82.5,540,-82.5,587.3333740234375,-82.5,587.3333740234375,-579.0624961853027,-238.66665649414062,-579.0624961853027,-238.66665649414062,-440,-180,-440,-170,-440],"fromSpot":"RightSide","toSpot":"LeftSide","dash":[2,4],"dir":1}
-  ]}
-  </textarea>
-</div>
-
-          
-        </div>
-        <!-- * * * * * * * * * * * * * -->
-        <!--  End of GoJS sample code  -->
-      </div>
-
-      <div id="allTagDescriptions" class="p-4 w-full max-w-screen-xl mx-auto">
-        <hr/>
-        <h3 class="text-xl">GoJS Features in this sample</h3>
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Geometry Path Strings</h4>
-<p>
-The <b>GoJS</b> <a href="../api/symbols/Geometry.html" target="api">Geometry</a> class controls the "shape" of a <a href="../api/symbols/Shape.html" target="api">Shape</a>,
-whereas the <a href="../api/symbols/Shape.html#fill" target="api">Shape.fill</a> and <a href="../api/symbols/Shape.html#stroke" target="api">Shape.stroke</a> and other shape properties control the colors and appearance of the shape.
-For common shape figures, there are predefined geometries that can be used by setting <a href="../api/symbols/Shape.html#figure" target="api">Shape.figure</a>.
-However one can also define custom geometries.
-</p>
-<p>
-One can construct any Geometry by allocating and initializing a <a href="../api/symbols/Geometry.html" target="api">Geometry</a> of at least one <a href="../api/symbols/PathFigure.html" target="api">PathFigure</a> holding some <a href="../api/symbols/PathSegment.html" target="api">PathSegment</a>s.
-But you may find that using the string representation of a Geometry is easier to write and save in a database.
-Use the static method <a href="../api/symbols/Geometry.html#parse" target="api">Geometry.parse</a> or the <a href="../api/symbols/Shape.html#geometryString" target="api">Shape.geometryString</a> property to transform a geometry path string into a <a href="../api/symbols/Geometry.html" target="api">Geometry</a> object.
-</p>
-<p>
-More information can be found in the <a href="../intro/geometry.html">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#geometries">Related samples</a>
-            </p>
-            <hr>
-          
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Commands</h4>
-<p>
-A <a href="../api/symbols/CommandHandler.html" target="api">CommandHandler</a> handles all default keyboard input events in a Diagram.
-There are many predefined methods on <a>CommandHandler</a> that implement common commands to operate on the Diagram or the current <a>Diagram.selection></a>.
-</p>
-<p>
-You can override <a>CommandHandler.doKeyDown</a> to handle additional keyboard shortcuts or to change which commands are invoked via the keyboard.
-<p>
-Your code can invoke a command by calling the appropriate method on the <a>Diagram.commandHandler</a>.
-Each command method has a corresponding <b>can...</b> predicate that your code can use to enable or disable any buttons that invoke the command.
-Your code can customize the behavior of a command by overriding the method on <a>CommandHandler</a>,
-or by setting properties on the <a>CommandHandler</a> or <a>Diagram</a> or <a>Part</a>s --
-see <a href="../intro/permissions.html">GoJS Permissions</a>.
-</p>
-<p>
-There are several CommandHandler extensions that provide additional functionality.
-<p>
-More information can be found in the <a href="../intro/commands.html">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#commands">Related samples</a>
-            </p>
-            <hr>
-          
-        </div>
-    </div>
-  </body>
-  <!--  This script is part of the gojs.net website, and is not needed to run the sample -->
-  
+  </script>
+</body>
 </html>

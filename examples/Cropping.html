@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cropping Tool for Interactive Cropping of Pictures</title>
+  <script src="../dist/open-gojs.umd.js"></script>
+  
+  <script src="https://cdn.jsdelivr.net/npm/gojs-extensions@latest/extensions/CroppingTool.js"></script>
+  
+  
+</head>
+<body>
+<div id="myDiagramDiv" style="border: solid 1px black; width: 100%; height: 600px"></div>
+  <p>
+    <button id="myCropButton">Crop Selected Picture</button>
+  </p>
+  <div id="description">
+<p>
+    The CroppingTool class lets the user crop an image by modifying the <a href="https://gojs.net/latest/api/symbols/Picture.html#sourcerect" target="api">Picture.sourceRect</a> of a <a href="https://gojs.net/latest/api/symbols/Picture.html" target="api">Picture</a> in a selected Part. It is defined in its
+    own file, as <a href="https://gojs.net/latest/extensions/CroppingTool.js">CroppingTool.js</a>.
+  </p>
+  <p>
+    Select a picture and click the "Crop" button or double-click to start cropping its picture. Drag the handles to change the cropped area, or drag within the highlighted
+    rectangle to move the cropped area around. Click the button again or click elsewhere in the diagram to finish. 
+    The new crop is applied to the frame's Picture in a transaction for compatibility with the <a href="https://gojs.net/latest/api/symbols/UndoManager.html" target="api">UndoManager</a>.
+  </p>
+  <p>
+    The tool shows the full image in a temporary Part held in the <code>"Adornment"</code> <a href="https://gojs.net/latest/api/symbols/Layer.html" target="api">Layer</a>. CroppingTool extends
+    <a href="https://gojs.net/latest/api/symbols/ResizingTool.html" target="api">ResizingTool</a>, overriding <code>canStart</code>, <code>updateAdornments</code>, and <code>makeAdornment</code> so that its handles appear only around the cropped
+    portion of that temporary Part, and overriding <code>resize</code> and <code>computeResize</code> so that dragging a handle changes the <a href="https://gojs.net/latest/api/symbols/Picture.html#sourcerect" target="api">Picture.sourceRect</a>.
+    The cropping handles are inversely scaled by the <a href="https://gojs.net/latest/api/symbols/Diagram.html#scale" target="api">Diagram.scale</a> so they keep a constant size on screen. The minimum size of the crop rectangle, <code>minViewSize</code>,
+    is measured in viewport pixels. The <code>aspectRatio</code> property locks crops to fixed proportions, holding down the Shift key while dragging maintains the crop's current proportions.
+  </p>
+  <p>
+    In this sample each node is a picture frame on a wall of photos. Several of the frames start out already cropped by setting the <code>view</code> property in the
+    model data. The frame displays its Picture in a <code>"Viewbox"</code> Panel, so the cropped image always fits within the frame, whose size the user can change
+    independently by resizing it.
+  </p>
+  </div>
+  <script >
+function init() {
+
+    myDiagram = new go.Diagram('myDiagramDiv', {
+      'undoManager.isEnabled': true // enable undo & redo
+    });
+
+    // install the CroppingTool as a mouse-down tool
+    myCroppingTool = new CroppingTool();
+    myDiagram.toolManager.mouseDownTools.insertAt(4, myCroppingTool);
+
+    // the picture frame finishes
+    const gold = new go.Brush('Linear', {
+      start: go.Spot.TopLeft, end: go.Spot.BottomRight,
+      0: '#e8c56f', 0.35: '#bd8f33', 0.7: '#e0b354', 1: '#8a5f1d'
+    });
+    const walnut = new go.Brush('Linear', {
+      start: go.Spot.TopLeft, end: go.Spot.BottomRight,
+      0: '#7a4a2b', 0.5: '#5a331a', 1: '#3f2312'
+    });
+
+    // each node is a picture frame on the family photo wall
+    myDiagram.nodeTemplate =
+      new go.Node('Auto', {
+        locationSpot: go.Spot.Center,
+        resizable: true, resizeObjectName: 'BOX',
+        selectionObjectName: 'IMG',
+        selectionAdorned: false,
+        doubleClick: (e, node) => {  // double-click on a frame to start cropping its picture
+          myCroppingTool.startCropping(node);
+          updateButton();
+        }
+      })
+        .bindTwoWay('location', 'loc', go.Point.parse, go.Point.stringify)
+        .add(
+          // the outer edge of the molding
+          new go.Shape('Rectangle', { fill: '#6b4a16', stroke: '#00000060', strokeWidth: 1, shadowVisible: true })
+            .bind('fill', 'frame', (f) => (f === 'walnut' ? '#2e1a0c' : '#6b4a16')),
+          new go.Panel('Auto', { margin: 2.5, shadowVisible: false })
+            .add(
+              // the main band of the molding
+              new go.Shape('Rectangle', { fill: walnut, strokeWidth: 0 }),
+              new go.Panel('Auto', { margin: 7 })
+                .add(
+                  // a thin bead where the molding meets the mat
+                  new go.Shape('Rectangle', { fill: '#f3dfa0', strokeWidth: 0 })
+                    .bind('fill', 'frame', (f) => (f === 'walnut' ? '#8a5a2b' : '#f3dfa0')),
+                  new go.Panel('Auto', { margin: 2 })
+                    .add(
+                      // the mat board
+                      new go.Shape('Rectangle', { fill: '#f6f1e6', stroke: '#00000015' }),
+                      new go.Panel('Vertical', { margin: 10 })
+                        .add(
+                          // a v-groove accent line cut into the mat around the picture
+                          new go.Panel('Auto')
+                            .add(
+                              new go.Shape('Rectangle', { fill: '#f6f1e6', stroke: '#c9b795', strokeWidth: 1 }),
+                              new go.Panel('Auto', { margin: 3 })
+                                .add(
+                                  // the dark bezel immediately around the picture
+                                  new go.Panel('Viewbox', { name: 'BOX', margin: 1 })
+                                    .bindTwoWay('desiredSize', 'size', go.Size.parse, go.Size.stringify)
+                                    .add(
+                                      // the CroppingTool operates on the Picture named by
+                                      // CroppingTool.croppedObjectName, which defaults to "IMG"
+                                      new go.Picture({
+                                          name: 'IMG',
+                                          imageStretch: go.ImageStretch.Uniform, imageAlignment: go.Spot.TopLeft
+                                        })
+                                        .bind('source', 'img')
+                                        .bindTwoWay('sourceRect', 'view', go.Rect.parse, go.Rect.stringify)
+                                    )
+                                )
+                            ),
+                          // a small brass name plate
+                          new go.Panel('Auto', { margin: new go.Margin(7, 0, 0, 0) })
+                            .add(
+                              new go.Shape('RoundedRectangle', { parameter1: 3, fill: gold, stroke: '#6b4a16', strokeWidth: 0.5 }),
+                              new go.TextBlock({ font: 'italic 9pt Georgia, serif', stroke: '#3f2a10', margin: new go.Margin(1, 8, 1, 8), editable: true })
+                                .bindTwoWay('text')
+                            )
+                        )
+                    )
+                )
+            )
+        );
+
+    // cropping may also stop because the user deselected the temporary cropping part,
+    // so keep the button's text up-to-date on any selection change
+    myDiagram.addDiagramListener('ChangedSelection', updateButton);
+
+    const IMG = '../samples/images/';
+    myDiagram.model = new go.GraphLinksModel(
+      [
+        { key: 1, text: 'Stella', img: IMG + 'hs1.jpg', size: '140 140', loc: '150 230', view: '30 20 100 100' },
+        { key: 2, text: 'Luke', img: IMG + 'hs2.jpg', size: '95 95', loc: '330 155' },
+        { key: 3, text: 'Maria', img: IMG + 'hs3.jpg', size: '70 70', loc: '330 330', view: '40 40 90 90' },
+        { key: 4, text: 'Henry', img: IMG + 'hs5.jpg', size: '110 110', loc: '490 205', view: '25 10 110 120' },
+        { key: 5, text: 'Grace', img: IMG + 'hs4.jpg', size: '85 85', loc: '480 385'}
+      ],
+      []);
+  }
+
+  const updateButton = () => document.getElementById('myCropButton').textContent = myCroppingTool.isCropping ? 'Finish Crop' : 'Crop Selected Picture';
+
+  window.addEventListener('DOMContentLoaded', () => {
+    init();
+    document.getElementById('myCropButton').addEventListener('click', () => {
+      if (myCroppingTool.isCropping) {
+        const node = myCroppingTool.nodeBeingCropped;
+        myCroppingTool.stopCropping();
+        myDiagram.select(node); // leave the frame selected after finishing the crop
+      } else {
+        myCroppingTool.startCropping();
+      }
+      updateButton();
+    });
+  });
+  </script>
+</body>
+</html>

@@ -1,0 +1,1701 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Business Process Model and Notation (BPMN) Editor</title>
+  <script src="../dist/open-gojs.umd.js"></script>
+  
+  <script src="https://cdn.jsdelivr.net/npm/gojs-extensions@latest/extensions/SwimLaneCompactLayout.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/gojs-extensions@latest/extensions/Figures.js"></script>
+  
+  <style>
+/* the left column stacks the collapsible palette sections */
+  #paletteColumn { display: flex; flex-direction: column; }
+  .palette-section { display: flex; flex-direction: column; flex: 0 0 auto; min-height: 0; }
+  .palette-section + .palette-section { border-top: 1px solid #ddd; }
+  /* the one open section grows to fill the remaining height */
+  .palette-section.open { flex: 1 1 auto; }
+  .palette-header {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 10px;
+    font: bold 12px sans-serif;
+    color: #222;
+    background: #f4f4f4;
+    cursor: pointer;
+    user-select: none;
+  }
+  .palette-header:hover { background: #e9e9e9; }
+  /* a caret that points right when collapsed and down when open */
+  .palette-header::before {
+    content: '▸';
+    font-size: 10px;
+    color: #666;
+    transition: transform 0.15s ease;
+  }
+  .palette-section.open .palette-header::before { transform: rotate(90deg); }
+  .palette-body { display: none; }
+  .palette-section.open .palette-body { display: block; flex: 1 1 auto; min-height: 0; }
+  </style>
+</head>
+<body>
+<div style="display: flex; width: 100%;">
+    <div id="paletteColumn" style="width: 200px; height: 700px; margin-right: 2px; border: solid 1px gray; background-color: white;">
+      <div class="palette-section open">
+        <div class="palette-header">Events &amp; Gateways</div>
+        <div id="myPaletteDiv1" class="palette-body"></div>
+      </div>
+      <div class="palette-section">
+        <div class="palette-header">Activities</div>
+        <div id="myPaletteDiv2" class="palette-body"></div>
+      </div>
+      <div class="palette-section">
+        <div class="palette-header">Pools, Data &amp; Artifacts</div>
+        <div id="myPaletteDiv3" class="palette-body"></div>
+      </div>
+    </div>
+    <div id="myDiagramDiv" style="flex-grow: 1; height: 700px; border: solid 1px gray; background-color: white;"></div>
+  </div>
+  <button style="margin-block: .5em;" onclick="arrangePools()">Layout Diagram</button>
+  <div style="margin-block: .5em;">
+    <button id="SaveButton" onclick="save()">Save</button>
+    <button onclick="load()">Load</button>
+    Diagram Model saved in JSON format:
+  </div>
+  <textarea id="mySavedModel" style="width: 100%; height: 300px"></textarea>
+  <div id="description">
+<p>
+    This sample demonstrates a BPMN (Business Process Model and Notation) diagram editor that uses 
+    resizable swimlane Groups (see <a href="swimLanes.html">Swim Lanes</a>) within pool Groups. Pools 
+    can be snapped to dynamic grid-like layout on demand via a custom <a href="https://gojs.net/latest/api/symbols/Layout.html" target="api">Layout</a> that organizes them 
+    in reading order and snaps them to the nearby non-conflicting cells relative to the first one.
+    Lanes are laid out in the pools with another custom Layout that also ensures their size and BPMN 
+    Nodes in the lanes are laid out with the <a href="samples/layouts?layout=swimLaneCompact&model=">Swim Lane Compact Layout</a> 
+    extension. It also features expandable Sub-Process Group nodes that arrange their member Nodes with their own 
+    <a href="https://gojs.net/latest/api/symbols/LayeredDigraphLayout.html" target="api">LayeredDigraphLayout</a> to integrate smaller processes into the larger layout flow. Nodes stay within their 
+    lane via a custom <a href="https://gojs.net/latest/api/symbols/Part.html#dragcomputation" target="api">Part.dragComputation</a>.
+  </p>
+  <p>
+    It also uses a custom <a href="https://gojs.net/latest/api/symbols/LinkingTool.html" target="api">LinkingTool</a> class that chooses one of three different <a href="https://gojs.net/latest/api/symbols/LinkTemplate.html" target="api">LinkTemplate</a>s 
+    depending on the nodes the user linked based on standard BPMN specifications (sequence flow within the same pool, 
+    message flow between pools, associations from artifacts). This tool also has a predicate 
+    <a href="https://gojs.net/latest/api/symbols/LinkingBaseTool.html#linkvalidation" target="api">LinkingBaseTool.linkValidation</a> function that prevents disallowed BPMN sequence flow 
+    (only flow objects, no flow out of end events, no flow into boundary or start events)
+    and message flow links (message eligible objects only). A <a href="https://gojs.net/latest/learn/linkLabels.html">Link Label</a> on 
+    the temporary link shows which type of flow is being drawn.
+  </p>
+  <p>
+    The sample features an accordion of <a href="https://gojs.net/latest/api/symbols/Palette.html" target="api">Palette</a>s that each contain different types of BPMN element 
+    Nodes. New pools can also be dragged from the Palette, and new lanes can be right clicking a pool and 
+    using the <a href="https://gojs.net/latest/api/symbols/GraphObject.html#contextmenu" target="api">GraphObject.contextMenu</a>. Users can layout Nodes within a single pool by using this context 
+    menu as well or layout the whole Diagram via either the <a href="https://gojs.net/latest/api/symbols/Diagram.html#contextmenu" target="api">Diagram.contextMenu</a> or the HTML button below. 
+    The model can be saved and loaded from a JSON text area.
+  </p>
+  </div>
+  <script >
+// --- CONSTANTS ---
+
+  // These parameters need to be set before defining the templates
+  const MINLENGTH = 200; // this controls the minimum length of any swimlane
+  const MINBREADTH = 20; // this controls the minimum breadth of any non-collapsed swimlane
+  const POOL_SPACING = 30; // gap between adjacent pools, used by the diagram's PoolSnapLayout
+  // the background fills available to Lane Groups
+  const LANE_COLORS = ['#eef6ff', '#eefaf0', '#fff8e6', '#f5eeff', '#edc5a6'];
+  // color constants
+  const TEXT_STROKE = '#080f17';
+  const SYMBOL_STROKE = '#333'; // color of BPMN marker/trigger icons
+
+  // nodes that connect only via association
+  const ASSOCIATION_CATEGORIES = ['annotation', 'group', 'dataObject', 'dataStore'];
+  // flow objects that connect via sequence
+  const SEQUENCE_FLOW_NODES = ['', 'subprocess', 'call', 'start', 'intermediate', 'boundary', 'end', 'gateway'];
+  // eligible message flow types
+  const MESSAGE_FLOW_NODES = ['', 'subprocess', 'call', 'start', 'intermediate', 'boundary', 'end', 'Pool'];
+
+  // Which Figures.js icon each task-type / trigger / gateway maps to, and whether it is
+  // drawn as a filled glyph (e.g. Send envelope, Terminate disc, X/+) vs. an outline.
+  const TASK_TYPE = {
+    user:    { figure: 'BpmnTaskUser',    filled: false },
+    service: { figure: 'Gear',            filled: false },
+    send:    { figure: 'BpmnTaskMessage', filled: false },
+    receive: { figure: 'BpmnTaskMessage', filled: false }
+  };
+  const EVENT_TRIGGER = {
+    message:     { figure: 'BpmnTaskMessage',      filled: false },
+    timer:       { figure: 'BpmnEventTimer',       filled: false },
+    error:       { figure: 'BpmnEventError',       filled: false },
+    escalation:  { figure: 'BpmnEventEscalation',  filled: false },
+    conditional: { figure: 'BpmnEventConditional', filled: false },
+    signal:      { figure: 'Triangle',             filled: false },
+    terminate:   { figure: 'Circle',               filled: true }
+  };
+  const GATEWAY_MARKER = {
+    exclusive:  { figure: 'ThinX',        filled: true },
+    parallel:   { figure: 'ThinCross',     filled: false },
+    inclusive:  { figure: 'Circle',       filled: false },
+    eventBased: { figure: 'Pentagon',     filled: false },
+    complex:    { figure: 'AsteriskLine', filled: false }
+  };
+
+
+
+  // --- UTILITY FUNCTIONS
+
+  // the Pool that ultimately contains this node, or null if it is not inside a Pool
+  function containingPool(node) {
+    let p = node;
+    while (p.containingGroup !== null) p = p.containingGroup;
+    return p.category === 'Pool' ? p : null;
+  }
+
+  // which BPMN connector a link between these two nodes should be
+  function linkCategoryFor(fromNode, toNode) {
+    if (ASSOCIATION_CATEGORIES.includes(fromNode.category) || ASSOCIATION_CATEGORIES.includes(toNode.category)) {
+      return 'association';
+    }
+    // endpoints in two different Pools are linked by message
+    const fromPool = containingPool(fromNode);
+    const toPool = containingPool(toNode);
+    if (fromPool !== null && toPool !== null && fromPool !== toPool) return 'message';
+    return 'sequence';
+  }
+
+  // validates sequence flow rules
+  function isValidSequenceFlow(fromNode, toNode) {
+    // only flow objects
+    if (!SEQUENCE_FLOW_NODES.includes(fromNode.category)) return false;
+    if (!SEQUENCE_FLOW_NODES.includes(toNode.category)) return false;
+    // within a single pool
+    if (containingPool(fromNode) !== containingPool(toNode)) return false;
+    // end events have no outgoing flow, start and boundary events have no incoming flow
+    if (fromNode.category === 'end') return false;
+    if (toNode.category === 'start' || toNode.category === 'boundary') return false;
+    return true;
+  }
+
+  // validates message flow rules
+  function isValidMessageFlow(fromNode, toNode) {
+    if (!MESSAGE_FLOW_NODES.includes(fromNode.category)) return false;
+    if (!MESSAGE_FLOW_NODES.includes(toNode.category)) return false;
+    return true;
+  }
+
+  // the next background for a lane added to this Pool, cycling so neighboring lanes differ
+  function nextLaneColor(pool) {
+    let count = 0;
+    pool.memberParts.each(m => {
+      if (m instanceof go.Group && m.category === 'Lane') count++;
+    });
+    return LANE_COLORS[count % LANE_COLORS.length];
+  }
+
+  // the Pool Group this part is, or the Pool that contains it, or null if neither
+  function findPool(part) {
+    if (part === null) return null;
+    if (part.category === 'Pool') return part;
+    const grp = part.containingGroup;
+    return grp !== null && grp.category === 'Pool' ? grp : null;
+  }
+
+  // the ancestor of this part that sits directly in a Lane, the part itself unless it is nested
+  // inside another subprocess, or null if it is not in a lane at all
+  function findLaneMember(part) {
+    let p = part;
+    while (p !== null) {
+      const g = p.containingGroup;
+      if (g === null) return null;
+      if (g.category === 'Lane') return p;
+      p = g;
+    }
+    return null;
+  }
+
+  // note where every node in this Lane sits so makeRoomInLane can put them back afterwards
+  function laneRows(lane) {
+    const rows = [];
+    if (lane !== null) lane.memberParts.each(n => { if (n instanceof go.Node) rows.push({ node: n, y: n.location.y }); });
+    return rows;
+  }
+
+  // adjust nodes in lanes where a subprocess has been expanded or collapsed
+  function makeRoomInLane(grp, before, rows) {
+    const lane = grp.containingGroup;
+    if (lane === null || lane.category !== 'Lane') return;
+    // restore nodes' vertical positions
+    rows.forEach(r => { if (r.node !== grp) r.node.moveTo(r.node.location.x, r.y, true); });
+    // pin the group's top-left corner
+    const now = grp.actualBounds;
+    grp.moveTo(grp.location.x + (before.x - now.x), grp.location.y + (before.y - now.y), true);
+    grp.ensureBounds();
+    const dw = grp.actualBounds.width - before.width;
+    if (Math.abs(dw) >= 1) {
+      // the rows the group covers before and after expandsion to move the same set of nodes both ways
+      const band = before.copy().unionRect(grp.actualBounds);
+      const left = grp.actualBounds.x;
+      lane.memberParts.each(node => {
+        if (!(node instanceof go.Node) || node === grp) return;
+        const b = node.actualBounds;
+        if (b.bottom < band.y || b.y > band.bottom) return; // in another row, so nothing is in its way
+        if (b.centerX < left) return; // to the left of the box, which never grows that way
+
+        node.moveTo(node.location.x + dw, node.location.y, true);
+      });
+    }
+    relayoutDiagram(grp.diagram);
+  }
+
+  // re-stack each Pool's lanes
+  function relayoutDiagram(diagram) {
+    diagram.findTopLevelGroups().each(g => {
+      if (g.category === 'Pool') g.layout.invalidateLayout();
+    });
+    diagram.layoutDiagram();
+  }
+
+  // arrange each pool's nodes with SwimLaneCompactLayout, re-stack the lanes, 
+  // then run the diagram's non-ongoing PoolSnapLayout to snap the pools into a grid
+  function arrangePools() {
+    myDiagram.findTopLevelGroups().each(pool => {
+      if (pool.category === 'Pool') arrangePoolNodes(pool);
+    });
+    myDiagram.layout.isValidLayout = false;
+    relayoutDiagram(myDiagram);
+    // ensure proper link routing
+    myDiagram.commit(d => {
+      d.links.each(l => { l.invalidateRoute(); l.updateRoute(); });
+    }, 'reroute');
+  }
+
+  // arrange just the member nodes and links of one pool with SwimLaneCompactLayout,
+  // re-stack that pool's lanes, and keep the pool itself in place
+  function arrangePoolNodes(pool) {
+    const parts = new go.Set();
+    pool.memberParts.each(m => {
+      if (m instanceof go.Group && m.category === 'Lane') {
+        m.memberParts.each(p => parts.add(p)); // member nodes and same-lane links
+      } else if (m instanceof go.Link) {
+        parts.add(m); // links that cross between lanes belong to the pool
+      }
+    });
+    if (parts.count === 0) return;
+    const compact = new SwimLaneCompactLayout({
+      laneProperty: 'group', // the node data 'group' names the lane the node belongs to
+      direction: 0,
+      setsPortSpots: true, // spots follow the flow: right/left along a lane, top/bottom across lanes
+      setsRoutePoints: false, // the lanes are re-stacked afterward, so let links re-route
+      layerSpacing: 40,
+      lanePadding: 12,
+      minColumnWidth: 60,
+      // get the bounds of the shape not the whole node to align links
+      boundsComputation: (part, layout, rect) => {
+        const shape = part.findObject('SHAPE');
+        return shape ? shape.getDocumentBounds(rect) : part.actualBounds;
+      }
+    });
+    compact.group = pool; // give the layout its diagram and origin without owning the pool
+    const diagram = pool.diagram;
+    diagram.startTransaction('arrangePoolNodes');
+    const loc = pool.location.copy(); // store the pool's location and translate it back afterward to stop it drifting on layout
+    compact.doLayout(parts); // position the member nodes within the lanes
+    pool.layout.doLayout(pool); // re-stack the lanes and re-fit the pool around them
+    pool.ensureBounds();
+    pool.move(loc, true); // move the pool and its members back to where it started
+    diagram.commitTransaction('arrangePoolNodes');
+  }
+
+  // make an array of eligible groups for a node to be dropped into with expanded subgroups coming first
+  function dropTargetRects(diagram) {
+    const lanes = [];
+    const subs = [];
+    diagram.findTopLevelGroups().each(pool => {
+      if (pool.category !== 'Pool') return;
+      pool.memberParts.each(lane => {
+        if (!(lane instanceof go.Group) || lane.category !== 'Lane') return;
+        const shape = lane.resizeObject;
+        if (shape !== null) lanes.push({ group: lane, rect: shape.getDocumentBounds().copy() });
+        lane.memberParts.each(m => {
+          if (m instanceof go.Group && m.category === 'subprocess' && m.isSubGraphExpanded) {
+            subs.push({ group: m, rect: m.actualBounds.copy() });
+          }
+        });
+      });
+    });
+    return subs.concat(lanes);
+  }
+
+  // find the Group whose snapshotted rectangle contains a document point, or null for none
+  function findDropTargetAt(rects, pt) {
+    for (const r of rects) {
+      if (r.rect.containsPoint(pt)) return r.group;
+    }
+    return null;
+  }
+
+  // hide links to or from any nodes invisible from a group collapse, recursive to get into subprocess groups
+  function updateCrossLaneLinks(group) {
+    group.findExternalLinksConnected().each(l => {
+      l.visible = l.fromNode.isVisible() && l.toNode.isVisible();
+    });
+    group.memberParts.each(m => {
+      if (m instanceof go.Group && m.category === 'subprocess') updateCrossLaneLinks(m);
+    });
+  }
+
+  // put each dropped node in the lane or subprocess group it is over, or remove group membership if dropped only over the diagram
+  // dragged is the dragging tool's map of dragged parts, rects is eligible groups
+  function relaneDroppedNodes(diagram, dragged, rects) {
+    if (dragged === null) return;
+    const strays = [];
+    const touched = new go.Set(); // lanes that gained or lost a member
+    dragged.each(kvp => {
+      const p = kvp.key;
+      if (!(p instanceof go.Node) || p.category === 'group' || p.category === 'annotation' ) return;
+      // Lanes and Pools are dragged to re-order them, never re-laned, a Sub-Process is
+      if (p instanceof go.Group && p.category !== 'subprocess') return;
+      // a member carried along by its own Sub-Process stays in it
+      if (p.containingGroup !== null && dragged.has(p.containingGroup)) return;
+      const target = findDropTargetAt(rects, p.actualBounds.center);
+      if (target === p.containingGroup) return; // stayed put
+      if (p.containingGroup !== null) touched.add(p.containingGroup);
+      if (target === null) {
+        strays.push(p); // dropped outside, let it go
+      } else if (target.addMembers([p], true)) {
+        touched.add(target); // dropped on a different lane, move it there
+      }
+    });
+    if (strays.length > 0) diagram.commandHandler.addTopLevelParts(strays, true);
+    // a link may have started or stopped crossing lanes, changing whether it should be visible
+    touched.each(grp => updateCrossLaneLinks(grp));
+    relayoutDiagram(diagram);
+  }
+
+  // compute the minimum size of a Pool Group needed to hold all of the Lane Groups
+  function computeMinPoolSize(pool) {
+    let len = MINLENGTH;
+    pool.memberParts.each(lane => {
+      // pools ought to only contain lanes, not plain Nodes
+      if (!(lane instanceof go.Group)) return;
+      const holder = lane.placeholder;
+      if (holder !== null) {
+        len = Math.max(len, holder.actualBounds.width);
+      }
+    });
+    return new go.Size(len, NaN);
+  }
+
+  // compute the minimum size for a particular Lane Group
+  function computeLaneSize(lane) {
+    const sz = computeMinLaneSize(lane);
+    if (lane.isSubGraphExpanded) {
+      const holder = lane.placeholder;
+      if (holder !== null) {
+        sz.height = Math.ceil(Math.max(sz.height, holder.actualBounds.height));
+      }
+    }
+    // minimum breadth needs to be big enough to hold the header
+    const hdr = lane.findObject('HEADER');
+    if (hdr !== null) sz.height = Math.ceil(Math.max(sz.height, hdr.actualBounds.height));
+    return sz;
+  }
+
+  // determine the minimum size of a Lane Group, even if collapsed
+  function computeMinLaneSize(lane) {
+    if (!lane.isSubGraphExpanded) return new go.Size(MINLENGTH, 1);
+    return new go.Size(MINLENGTH, MINBREADTH);
+  }
+
+  // checks for effective overlap between two rects
+  function poolsOverlap(a, b) {
+    return new go.Rect(a.x + 1, a.y + 1, a.width - 2, a.height - 2).intersectsRect(b);
+  }
+
+  // returns the point where rect b should go to not overlap with any pools
+  // placed is an array of Rects for the resized pools and just-placed pools
+  function clearOfPools(b, placed, spacing) {
+    const r = b.copy();
+    // move pools off of each neighboring pool
+    for (let i = 0; i <= placed.length; i++) {
+      const hits = placed.filter(nb => poolsOverlap(r, nb));
+      if (hits.length === 0) break; // no overlap
+      const cells = []; // the spots just past each neighbor
+      hits.forEach(nb => {
+        // find which direction a pool lies from its neighbor
+        const dx = (r.centerX - nb.centerX) / (r.width + nb.width);
+        const dy = (r.centerY - nb.centerY) / (r.height + nb.height);
+        const side = Math.abs(dx) >= Math.abs(dy) ? (dx >= 0 ? 0 : 1) : (dy >= 0 ? 2 : 3);
+        // push candidate locations, mark which location is the side the pool is already on
+        [ 
+          new go.Point(nb.right + spacing, r.y),       // to the right of that pool
+          new go.Point(nb.x - spacing - r.width, r.y), // left
+          new go.Point(r.x, nb.bottom + spacing),      // below
+          new go.Point(r.x, nb.y - spacing - r.height) // above
+        ].forEach((pt, k) => cells.push({ pt, keeps: k === side ? 1 : 0 }));
+      });
+      // prefer free spots that no other pool covers, then ones that keep the pools arranged
+      // as they were, then the smallest move
+      const free = cells.filter(c => !placed.some(nb => poolsOverlap(new go.Rect(c.pt.x, c.pt.y, r.width, r.height), nb)));
+      const options = free.length > 0 ? free : cells;
+      const moved = c => Math.pow(c.pt.x - b.x, 2) + Math.pow(c.pt.y - b.y, 2);
+      options.sort((c1, c2) => (c2.keeps - c1.keeps) || (moved(c1) - moved(c2)));
+      r.x = options[0].pt.x;
+      r.y = options[0].pt.y;
+      if (free.length > 0) break; // the chosen spot is already clear of everything
+    }
+    return new go.Point(r.x, r.y);
+  }
+
+  // fix resized pool locations (fixed array) and move other pools clear of them
+  function separatePools(diagram, fixed) {
+    const placed = []; // placed Rects that must stay uncovered, the fixed pools are inserted first
+    const movable = [];
+    diagram.findTopLevelGroups().each(g => {
+      if (g.category !== 'Pool' || g.memberParts.count === 0) return;
+      g.ensureBounds();
+      if (fixed.indexOf(g) >= 0) placed.push(g.actualBounds.copy()); else movable.push(g);
+    });
+    if (placed.length === 0 || movable.length === 0) return;
+    // settle the pools nearest the fixed ones first, so each pushed pool pushes those beyond it
+    const anchor = placed.reduce((r, b) => r.unionRect(b), placed[0].copy()).center;
+    const dist = pool => anchor.distanceSquaredPoint(pool.actualBounds.center);
+    movable.sort((a, b) => dist(a) - dist(b));
+    diagram.startTransaction('separatePools');
+    movable.forEach(pool => {
+      const b = pool.actualBounds.copy();
+      const pt = clearOfPools(b, placed, POOL_SPACING); // get point where the pool is clear of others
+      if (pt.x !== b.x || pt.y !== b.y) pool.moveTo(pt.x, pt.y); // moves the pool and its lanes
+      placed.push(new go.Rect(pt.x, pt.y, b.width, b.height));
+    });
+    diagram.commitTransaction('separatePools');
+  }
+
+  // this is a Part.dragComputation function for limiting where a Node may be dragged
+  function stayInGroup(part, pt, gridpt) {
+    // don't constrain top-level nodes
+    const grp = part.containingGroup;
+    if (grp === null) return pt;
+    // try to stay within the background Shape of the Group
+    const back = grp.resizeObject;
+    if (back === null) return pt;
+    // allow dragging a Node out of a Group if the Shift key is down
+    if (part.diagram.lastInput.shift) return pt;
+    const r = back.getDocumentBounds();
+    const b = part.actualBounds;
+    const loc = part.location;
+    // find the padding inside the group's placeholder that is around the member parts
+    const m = grp.placeholder.padding;
+    // offset from the node's top-left to its location, non-zero when locationSpot is not TopLeft
+    const dx = loc.x - b.x;
+    const dy = loc.y - b.y;
+    // now limit the location appropriately
+    const x =
+      Math.max(r.x + m.left, Math.min(pt.x - dx, r.right - m.right - b.width - 1)) + dx;
+    const y =
+      Math.max(r.y + m.top, Math.min(pt.y - dy, r.bottom - m.bottom - b.height - 1)) + dy;
+    return new go.Point(x, y);
+  }
+
+
+
+  // --- NODE TEMPLATE BUILDERS ---
+
+  // a linkable BPMN port Shape: the shape itself is the fromLinkable/toLinkable port
+  function portShape(figure, props) {
+    return new go.Shape(figure, Object.assign({
+      name: 'SHAPE',
+      portId: '',
+      cursor: 'pointer',
+      fromLinkable: true,
+      toLinkable: true,
+      fromSpot: go.Spot.AllSides,
+      toSpot: go.Spot.AllSides
+    }, props));
+  }
+
+  // an editable label placed below a small symbol node (events, gateways, data)
+  function belowLabel() {
+    return new go.TextBlock({ margin: new go.Margin(4, 0, 0, 0), stroke: TEXT_STROKE, editable: true, textAlign: 'center' })
+      .bindTwoWay('text')
+      .bind('background', 'group', groupKey => {
+        if (!groupKey) return null;
+        const group = myDiagram.findNodeForKey(groupKey);
+        if (!group || !group.data.color) return null;
+        return group.data.color;
+      });
+  }
+
+  // builds a rectangular bpmn activity node, also builds the subprocess group node
+  function bpmnActivity(opts) {
+    const minSize = opts.minSize || new go.Size(90, 50);
+    const shape = portShape('RoundedRectangle', {
+      fill: opts.fill, stroke: opts.stroke,
+      strokeWidth: opts.call ? 3 : 1.5 // Call Activity thick border
+    });
+    // task-type icon in the top-left corner, hidden by default, revealed by the binding only for a known task type
+    const icon = new go.Shape({ 
+      width: 15, height: 15, stroke: SYMBOL_STROKE, fill: 'transparent',
+      visible: false, alignment: new go.Spot(0, 0, 5, 5), alignmentFocus: go.Spot.TopLeft 
+    })
+      .bind('figure', 'taskType', t => (TASK_TYPE[t] || TASK_TYPE.user).figure)
+      .bind('visible', 'taskType', t => !!TASK_TYPE[t])
+      .bind('fill', 'taskType', t => (TASK_TYPE[t] || {}).filled ? SYMBOL_STROKE : 'transparent');
+    const label = new go.TextBlock({
+      name: 'LABEL', stroke: TEXT_STROKE, editable: true,
+      textAlign: 'center', verticalAlignment: go.Spot.Center
+    })
+      .bindTwoWay('text');
+    if (!opts.group) {
+      // the label's minimum size gives the plain Task box its size
+      label.margin = 8;
+      label.minSize = new go.Size(minSize.width - 12, minSize.height - 12);
+      return new go.Node('Spot', { dragComputation: stayInGroup, zOrder: 5, locationSpot: go.Spot.Center })
+        .bindTwoWay('location', 'loc', go.Point.parse, go.Point.stringify)
+        .add(new go.Panel('Auto').add(shape, label), icon);
+    }
+    label.minSize = new go.Size(minSize.width - 12, minSize.height - 22);
+    return new go.Group('Spot', {
+      dragComputation: stayInGroup,
+      zOrder: 0,
+      locationSpot: go.Spot.Center,
+      location: new go.Point(0, 0),
+      isSubGraphExpanded: false, // BPMN draws a Sub-Process collapsed, as a task box with a '+'
+      computesBoundsIncludingLocation: true, // anchors location if no nodes
+      computesBoundsAfterDrag: true, // don't re-fit the box until a member drag finishes
+      // arrange the sub-flow left-to-right, leaving the member ports' spots alone
+      layout: new go.LayeredDigraphLayout({
+        direction: 0, layerSpacing: 30, columnSpacing: 12, setsPortSpots: false
+      }),
+      // relayout lanes and update links on expand/collapse
+      subGraphExpandedChanged: grp => {
+        updateCrossLaneLinks(grp);
+        const diagram = grp.diagram;
+        if (diagram === null || diagram.undoManager.isUndoingRedoing) return;
+        relayoutDiagram(diagram);
+      }
+    })
+      .bindTwoWay('location', 'loc', go.Point.parse, go.Point.stringify)
+      .bindTwoWay('isSubGraphExpanded', 'expanded')
+      .add(
+        new go.Panel('Auto').add(
+          shape,
+          // stack the label above the sub-flow so the two never overlap
+          new go.Panel('Vertical', { margin: 8 }).add(
+            label,
+            new go.Placeholder({ padding: 6 })
+              .bindObject('visible', 'isSubGraphExpanded')
+          )
+        ),
+        icon,
+        go.GraphObject.build('SubGraphExpanderButton', {
+          margin: 5,
+          'ButtonBorder.stroke': 'lightgray',
+          'ButtonBorder.fill': 'white',
+          'ButtonIcon.stroke': TEXT_STROKE,
+          alignment: go.Spot.Bottom,
+          alignmentFocus: go.Spot.Bottom
+        })
+      );
+  }
+
+  // build a BPMN Event node
+  function bpmnEvent(opts) {
+    const isEnd = opts.dim === 'end';
+    const isDouble = opts.dim === 'intermediate' || opts.dim === 'boundary';
+    const isBoundary = opts.dim === 'boundary';
+    const dashBind = sh => { if (isBoundary) sh.bind('strokeDashArray', 'interrupting', i => i === false ? [4, 3] : null); return sh; };
+    const graphic = new go.Panel('Spot').add(
+      dashBind(portShape('Circle', { desiredSize: new go.Size(46, 46), fill: opts.fill, stroke: opts.stroke, strokeWidth: isEnd ? 4 : 2 }))
+    );
+    if (isDouble) {
+      graphic.add(dashBind(new go.Shape('Circle', { desiredSize: new go.Size(39, 39), fill: null, stroke: opts.stroke, strokeWidth: 1.5, alignment: go.Spot.Center })));
+    }
+    graphic.add(
+      // invisible shape makes easier to drag
+      new go.Shape('Circle', { width: 30, height: 30, alignment: go.Spot.Center, fill: 'transparent', stroke: null }),
+      // hidden by default, the binding does not fire when data.trigger is absent (plain event)
+      new go.Shape({ width: 20, height: 20, visible: false, alignment: go.Spot.Center, stroke: SYMBOL_STROKE, fill: 'transparent' })
+        .bind('figure', 'trigger', t => (EVENT_TRIGGER[t] || {}).figure || 'Circle')
+        .bind('visible', 'trigger', t => !!EVENT_TRIGGER[t])
+        .bind('fill', 'trigger', t => (EVENT_TRIGGER[t] || {}).filled ? SYMBOL_STROKE : 'transparent')
+    );
+    return new go.Node('Vertical', { dragComputation: stayInGroup, locationObjectName: 'SHAPE', locationSpot: go.Spot.Center, zOrder: 5 })
+      .bindTwoWay('location', 'loc', go.Point.parse, go.Point.stringify)
+      .add(graphic, belowLabel());
+  }
+
+  // build a BPMN Gateway node
+  function bpmnGateway(opts) {
+    const marker = new go.Shape('ThinX', { width: 20, height: 20, alignment: go.Spot.Center, stroke: SYMBOL_STROKE })
+      .bind('figure', 'gatewayType', t => (GATEWAY_MARKER[t] || GATEWAY_MARKER.exclusive).figure)
+      .bind('parameter1', 'gatewayType', t => t === 'parallel' ? 1 : NaN)
+      .bind('fill', 'gatewayType', t => (GATEWAY_MARKER[t] || GATEWAY_MARKER.exclusive).filled ? SYMBOL_STROKE : 'transparent')
+      .bind('strokeWidth', 'gatewayType', t => (GATEWAY_MARKER[t] || GATEWAY_MARKER.exclusive).filled ? 1 : 3)
+      .bind('desiredSize', 'gatewayType', t => t === 'eventBased' ? new go.Size(24, 24) : new go.Size(20, 20));
+    return new go.Node('Vertical', { dragComputation: stayInGroup, locationObjectName: 'SHAPE', locationSpot: go.Spot.Center, zOrder: 5 })
+      .bindTwoWay('location', 'loc', go.Point.parse, go.Point.stringify)
+      .add(
+        new go.Panel('Spot').add(
+          portShape('Diamond', { desiredSize: new go.Size(50, 50), fill: opts.fill, stroke: opts.stroke, strokeWidth: 1.5 }),
+          new go.Shape('Diamond', { width: 30, height: 30, alignment: go.Spot.Center, fill: 'transparent', stroke: null }),
+          marker
+        ),
+        belowLabel()
+      );
+  }
+
+  // build a BPMN Data node
+  function bpmnData(figure, opts) {
+    return new go.Node('Vertical', { dragComputation: stayInGroup, locationObjectName: 'SHAPE', locationSpot: go.Spot.Center, zOrder: 5 })
+      .bindTwoWay('location', 'loc', go.Point.parse, go.Point.stringify)
+      .add(
+        new go.Panel('Spot').add(
+          portShape(figure, { desiredSize: opts.size, fill: opts.fill, stroke: opts.stroke, strokeWidth: 1.5 }),
+          new go.Shape({ width: 25, height: 25, alignment: go.Spot.Center, fill: 'transparent', stroke: null })
+        ),
+        belowLabel()
+      );
+  }
+
+  // Text Annotation artifact node
+  function bpmnAnnotation() {
+    return new go.Node('Horizontal', { dragComputation: stayInGroup, zOrder: 5, locationSpot: go.Spot.Center, avoidable: false })
+      .bindTwoWay('location', 'loc', go.Point.parse, go.Point.stringify)
+      .add(
+        portShape('BpmnAnnotationBracket', { 
+          width: 6, stretch: go.Stretch.Vertical, fill: 'transparent', stroke: '#9aa0a6', strokeWidth: 1.5, 
+          fromSpot: go.Spot.Left, toSpot: go.Spot.Left, toLinkable: false
+        }),
+        new go.TextBlock({ margin: new go.Margin(4, 6, 4, 4), stroke: TEXT_STROKE, editable: true, textAlign: 'left' })
+          .bindTwoWay('text')
+      );
+  }
+
+  // Group artifact node, NOT a GoJS Group, only visually groups, can't be linked to, avoidable: false so AvoidsNodes router ignores them
+  function bpmnGroupArtifact() {
+    return new go.Node('Auto', { resizable: true, resizeObjectName: 'SHAPE', zOrder: -1 , locationSpot: go.Spot.Center, avoidable: false })
+      .bindTwoWay('location', 'loc', go.Point.parse, go.Point.stringify)
+      .bindTwoWay('desiredSize', 'size', go.Size.parse, go.Size.stringify)
+      .add(
+        new go.Shape('RoundedRectangle', { 
+          fill: '#ffffff90', stroke: '#9aa0a6', strokeWidth: 1.5, strokeDashArray: [10, 4, 2, 4], minSize: new go.Size(110, 70) 
+        }),
+        new go.TextBlock({ alignment: go.Spot.Top, alignmentFocus: go.Spot.Top, margin: 6, stroke: TEXT_STROKE, editable: true })
+          .bindTwoWay('text')
+      );
+  }
+
+
+
+  // --- CUSTOM TOOLS AND LAYOUTS ---
+
+  // custom linking tool that assigns link types based on BPMN rules and validates links
+  class BPMNLinkingTool extends go.LinkingTool {
+    constructor (init) {
+      super();
+      this.temporaryLink = 
+        new go.Link({ layerName: 'Tool', routing: go.Routing.Orthogonal }).add(
+          new go.Shape({ isPanelMain: true, stroke: 'blue', strokeWidth: 1.5 })
+            .theme('stroke', 'tempLink'),
+          new go.Panel('Auto')
+            .add(
+              new go.Shape('Rectangle', { fill: 'white', strokeWidth: 1.5 })
+                .theme('stroke', 'tempLink'),
+              new go.TextBlock({ name: 'TYPE', margin: 6, font: 'bold 11pt sans-serif', visible: false })
+            ),
+          new go.Shape({ toArrow: 'Standard', fill: 'blue', stroke: 'blue' })
+            .theme('fill', 'tempLink')
+            .theme('stroke', 'tempLink')
+        )
+      if (init) Object.assign(this, init);
+    }
+
+    // reject links that break BPMN rules
+    linkValidation(fromNode, fromPort, toNode, toPort, link) {
+      // partly-connected links during a drag, let the base tool decide
+      if (fromNode === null || toNode === null) return true;
+      const linkCategory = linkCategoryFor(fromNode, toNode);
+      if (linkCategory === 'message') return isValidMessageFlow(fromNode, toNode);
+      if (linkCategory === 'sequence') return isValidSequenceFlow(fromNode, toNode);
+      else return true;
+    }
+
+    insertLink(fromNode, fromPort, toNode, toPort) {
+      this.archetypeLinkData = { category: linkCategoryFor(fromNode, toNode) };
+      return super.insertLink(fromNode, fromPort, toNode, toPort);
+    }
+
+    // updates temporary link text label to show what type of link is being drawn
+    doMouseMove() {
+      super.doMouseMove();
+      const typeLabel = this.temporaryLink.findObject('TYPE');
+      if (!typeLabel) return;
+      const target = this.targetPort ? this.targetPort.part : null;
+      const fromNode = this.isForwards ? this.originalFromNode : target;
+      const toNode   = this.isForwards ? target : this.originalToNode;
+      const type = fromNode && toNode ? linkCategoryFor(fromNode, toNode) : null;
+      switch (type) {
+        case 'sequence':
+          if (typeLabel.visible === false) typeLabel.visible = true;
+          typeLabel.text = 'Sequence Flow'
+          break;
+        case 'message':
+          if (typeLabel.visible === false) typeLabel.visible = true;
+          typeLabel.text = 'Message Flow'
+          break;
+        case 'association':
+          if (typeLabel.visible === false) typeLabel.visible = true;
+          typeLabel.text = 'Association'
+          break;
+        default:
+          if (typeLabel.visible === true) typeLabel.visible = false;
+          typeLabel.text = '';
+      }
+    }
+
+    findTargetPort(toend) {
+      const firstCheck = super.findTargetPort(toend);
+      if (firstCheck) return firstCheck;
+      // look for nearby pools after looking for all other linkable nodes
+      const point = this.diagram.lastInput.documentPoint;
+      const objects = this.diagram.findLayer('Background').findObjectsNear(point, 20);
+      const pools = [];
+      objects.forEach(obj => {
+        if (obj instanceof go.Group && obj.category === 'Pool') pools.push(obj);
+      })
+      // don't link back into the pool the link already starts in
+      const fromPool = this.originalFromNode ? containingPool(this.originalFromNode) : null;
+      let closest = null;
+      let closestDist = Infinity;
+      pools.forEach(pool => {
+        if (pool === fromPool) return;
+        const dist = pool.actualBounds.center.distanceSquaredPoint(point);
+        if (dist < closestDist) {
+          closestDist = dist;
+          closest = pool;
+        }
+      });
+      return closest !== null ? closest.port : null;
+    }
+  } // end BPMNLinkingTool class
+
+  // used to snapshot the lanes when the drag starts
+  class LaneDraggingTool extends go.DraggingTool {
+    doActivate() {
+      super.doActivate();
+      this.targetRects = dropTargetRects(this.diagram);
+    }
+
+    doDropOnto(pt, obj) {
+      super.doDropOnto(pt, obj);
+      const fromPalette = this.copiedParts !== null; // palette shapes join a lane without Shift
+      if (!fromPalette && !this.diagram.lastInput.shift) return;
+      const rects = this.targetRects || dropTargetRects(this.diagram); // a palette drag never ran doActivate here
+      relaneDroppedNodes(this.diagram, this.copiedParts || this.draggedParts, rects);
+    }
+  } // end LaneDraggingTool class
+
+  // define a custom ResizingTool to limit how far one can shrink a lane Group
+  class LaneResizingTool extends go.ResizingTool {
+    constructor(init) {
+      super();
+      if (init) Object.assign(this, init);
+    }
+
+    isLengthening() {
+      return this.handle.alignment === go.Spot.Right;
+    }
+
+    // this tool is the diagram's resizingTool, so it also gets ordinary resizable Nodes
+    // (the Group artifact); only lanes get the lane-specific sizing rules below
+    isLane() {
+      const part = this.adornedObject !== null ? this.adornedObject.part : null;
+      return part instanceof go.Group && part.category === 'Lane';
+    }
+
+    computeMinSize() {
+      if (!this.isLane()) return super.computeMinSize();
+      const lane = this.adornedObject.part;
+      const msz = computeMinLaneSize(lane); // get the absolute minimum size
+      if (this.isLengthening()) {
+        // compute the minimum length of all lanes
+        const sz = computeMinPoolSize(lane.containingGroup);
+        msz.width = Math.max(msz.width, sz.width);
+      } else {
+        // find the minimum size of this single lane
+        const sz = computeLaneSize(lane);
+        msz.width = Math.max(msz.width, sz.width);
+        msz.height = Math.max(msz.height, sz.height);
+      }
+      return msz;
+    }
+
+    resize(newr) {
+      if (!this.isLane()) {
+        super.resize(newr);
+        return;
+      }
+      const lane = this.adornedObject.part;
+      if (this.isLengthening()) {
+        // changing the length of all of the lanes
+        lane.containingGroup.memberParts.each(lane => {
+          if (!(lane instanceof go.Group)) return;
+          const shape = lane.resizeObject;
+          if (shape !== null) {
+            // set its desiredSize length, but leave each breadth alone
+            shape.width = newr.width;
+          }
+        });
+      } else {
+        // changing the breadth of a single lane, PoolLayout leaves it alone
+        lane.userSizedBreadth = true;
+        super.resize(newr);
+      }
+      relayoutDiagram(this.diagram); // now that the lane has changed size, layout the pool again
+    }
+  } // end LaneResizingTool class
+
+  // extend the command handler to override subgraph toggling to measure subprocess nodes before and 
+  // after expansion and adjust accordingly
+  class BpmnCommandHandler extends go.CommandHandler {
+    collapseSubGraph(group) {
+      this.toggleSubGraph(group, () => super.collapseSubGraph(group), false);
+    }
+
+    expandSubGraph(group) {
+      this.toggleSubGraph(group, () => super.expandSubGraph(group), true);
+    }
+
+    // toggle is the base command, which collapses or expands either the given Group or the selection
+    toggleSubGraph(group, toggle, isExpanding) {
+      const diagram = this.diagram;
+      const targets = []; // each lane member about to resize, with the bounds and rows it has now
+      const pools = new Set();
+      const consider = part => {
+        if (!(part instanceof go.Group) || part.category !== 'subprocess') return;
+        // a nested subprocess resizes the box around it, and that box is what needs the room
+        const outer = findLaneMember(part);
+        if (outer !== null) {
+          targets.push({ part: outer, before: outer.actualBounds.copy(), rows: laneRows(outer.containingGroup) });
+          const lane = outer.containingGroup;
+          if (!lane || lane.category !== 'Lane') return;
+          const pool = lane.containingGroup;
+          if (pool && pool.category === 'Pool') pools.add(lane.containingGroup);
+        }
+      };
+      if (group) consider(group); else diagram.selection.each(consider);
+      if (targets.length === 0) { // nothing in a lane is toggling, so leave the command alone
+        toggle();
+        return;
+      }
+      // one transaction, so a toggle and the room made for it undo together
+      diagram.startTransaction('toggle Sub-Process');
+      toggle();
+      targets.forEach(t => {
+        t.part.ensureBounds();
+        makeRoomInLane(t.part, t.before, t.rows);
+      });
+      if (isExpanding) separatePools(diagram, [...pools]); // move other pools out of the way on expansion
+      diagram.commitTransaction('toggle Sub-Process');
+    }
+  } // end BpmnCommandHandler class
+
+  // define a custom grid layout that makes sure the length of each lane is the same
+  // and that each lane is broad enough to hold its subgraph
+  class PoolLayout extends go.GridLayout {
+    constructor(init) {
+      super();
+      this.cellSize = new go.Size(1, 1);
+      this.wrappingColumn = 1;
+      this.wrappingWidth = Infinity;
+      this.isRealtime = false; // don't continuously layout while dragging
+      this.alignment = go.GridAlignment.Position;
+      // This sorts based on the location of each Group.
+      // This is useful when Groups can be moved up and down in order to change their order.
+      this.comparer = (a, b) => {
+        const ay = a.location.y;
+        const by = b.location.y;
+        if (isNaN(ay) || isNaN(by)) return 0;
+        if (ay < by) return -1;
+        if (ay > by) return 1;
+        return 0;
+      };
+      this.boundsComputation = (part, layout, rect) => {
+        part.getDocumentBounds(rect);
+        rect.inflate(-1, -1); // negative strokeWidth of the border Shape
+        return rect;
+      };
+      if (init) Object.assign(this, init);
+    }
+
+    doLayout(coll) {
+      const diagram = this.diagram;
+      if (diagram === null) return;
+      diagram.startTransaction('PoolLayout');
+      const pool = this.group;
+      if (pool !== null && pool.category === 'Pool') {
+        // make sure all of the Group Shapes are big enough
+        const minsize = computeMinPoolSize(pool);
+        pool.memberParts.each(lane => {
+          if (!(lane instanceof go.Group)) return;
+          if (lane.category !== 'Pool') {
+            const shape = lane.resizeObject;
+            if (shape !== null) {
+              // the members re-measure before the lane does, or a lane holding a Sub-Process that
+              // just opened or shut reports a placeholder a pass behind and is left the wrong breadth
+              lane.memberParts.each(m => { if (m instanceof go.Node) m.ensureBounds(); });
+              lane.ensureBounds();
+              // change the desiredSize to be big enough in both directions
+              const sz = computeLaneSize(lane);
+              shape.width = isNaN(shape.width)
+                ? minsize.width
+                : Math.max(shape.width, minsize.width);
+              // if a user sized the lane, only expand, if autosized, contract back
+              shape.height = lane.userSizedBreadth && !isNaN(shape.height)
+                ? Math.max(shape.height, sz.height)
+                : sz.height;
+              const cell = lane.resizeCellSize;
+              if (!isNaN(shape.width) && !isNaN(cell.width) && cell.width > 0) {
+                shape.width = Math.ceil(shape.width / cell.width) * cell.width;
+              }
+              if (!isNaN(shape.height) && !isNaN(cell.height) && cell.height > 0) {
+                shape.height = Math.ceil(shape.height / cell.height) * cell.height;
+              }
+            }
+          }
+        });
+      }
+      // now do all of the usual stuff, according to whatever properties have been set on this GridLayout
+      super.doLayout(coll);
+      diagram.commitTransaction('PoolLayout');
+    }
+  } // end PoolLayout class
+
+  // the diagram's layout, only runs on demand, snaps the pool groups into a grid in top-to-bottom 
+  // then left to right order, set relative to the first pool
+  class PoolSnapLayout extends go.Layout {
+    constructor(init) {
+      super();
+      this.spacing = POOL_SPACING; // gap between adjacent pools
+      this.isOngoing = false; // only run on demand, not on every change
+      this.isInitial = false; // don't auto-run on load, arrangePools runs it deliberately after pool loc/order is set
+      if (init) Object.assign(this, init);
+    }
+
+    doLayout(coll) {
+      const diagram = this.diagram;
+      if (diagram === null) return;
+      // the top-level pools to arrange
+      const pools = [];
+      diagram.findTopLevelGroups().each(g => {
+        if (g.category === 'Pool' && g.memberParts.count > 0) pools.push(g);
+      });
+      if (pools.length === 0) return;
+      const ordered = this.readingOrder(pools); // top-left pool first, then across and down
+      this.arrangementOrigin = this.initialOrigin(this.arrangementOrigin);
+      diagram.startTransaction('PoolSnapLayout');
+      const placed = []; // Rects of the pools positioned so far this layout
+      ordered.forEach(pool => {
+        const b = pool.actualBounds;
+        // the first pool keeps its place (fall back to the origin if it has no position yet)
+        const target = placed.length === 0
+          ? new go.Point(isNaN(b.x) ? this.arrangementOrigin.x : b.x, isNaN(b.y) ? this.arrangementOrigin.y : b.y)
+          : this.snapCell(b, placed);
+        pool.moveTo(target.x, target.y); // moves the pool and all its lanes/nodes
+        placed.push(new go.Rect(target.x, target.y, b.width, b.height));
+      });
+      diagram.commitTransaction('PoolSnapLayout');
+    }
+
+    // put the pools in reading order: top rows first and left-to-right within each row, 
+    // so the grid grows from the top-left pool
+    readingOrder(pools) {
+      const byTop = pools.slice().sort((a, b) => a.actualBounds.y - b.actualBounds.y);
+      const rows = [];
+      byTop.forEach(p => {
+        const pb = p.actualBounds;
+        let row = rows.find(r => r.some(q => {
+          const qb = q.actualBounds;
+          return pb.y < qb.bottom && qb.y < pb.bottom; // their vertical extents overlap
+        }));
+        if (!row) { row = []; rows.push(row); }
+        row.push(p);
+      });
+      rows.forEach(r => r.sort((a, b) => a.actualBounds.x - b.actualBounds.x));
+      return rows.flat();
+    }
+
+    // pick the empty grid cell (as a top-left Point) adjacent to an already-placed pool that is
+    // closest to the pool's current top-left corner, b is the pool's current bounds, placed is
+    // the array of positioned Rects
+    snapCell(b, placed) {
+      const spacing = this.spacing;
+      const w = b.width, h = b.height;
+      const cells = [];
+      placed.forEach(nb => {
+        cells.push(
+          new go.Point(nb.right + spacing, nb.y),  // to the right of that pool
+          new go.Point(nb.x - spacing - w, nb.y),  // to the left
+          new go.Point(nb.x, nb.bottom + spacing), // below
+          new go.Point(nb.x, nb.y - spacing - h)   // above
+        );
+      });
+      // prefer cells that no already-placed pool occupies (shrink so mere touching doesn't count)
+      const free = cells.filter(c => !placed.some(nb => new go.Rect(c.x + 1, c.y + 1, w - 2, h - 2).intersectsRect(nb)));
+      const options = free.length > 0 ? free : cells;
+      let best = options[0], bestDist = Infinity;
+      options.forEach(c => {
+        const d = Math.pow(c.x - b.x, 2) + Math.pow(c.y - b.y, 2);
+        if (d < bestDist) { bestDist = d; best = c; }
+      });
+      return best;
+    }
+  } // end PoolSnapLayout class
+
+
+
+  // --- INIT ----
+
+  function init() {
+    // initialize the diagram
+    myDiagram = new go.Diagram('myDiagramDiv', {
+      // use a custom ResizingTool (along with a custom ResizeAdornment on each Group)
+      resizingTool: new LaneResizingTool(),
+      // puts each dropped node in the lane it was released over, or outside every pool if it
+      // was released clear of the lanes
+      draggingTool: new LaneDraggingTool(),
+      // a custom on-demand layout that snaps the top-level Pool Groups into a dynamic grid,
+      // runs only when the "Layout Diagram" button is pressed
+      layout: new PoolSnapLayout(),
+      // makes the lane-mates of a Sub-Process step aside as it opens, and close back up as it shuts
+      commandHandler: new BpmnCommandHandler(),
+      // custom linking tool for BPMN validation and link typing
+      linkingTool: new BPMNLinkingTool(),
+      // a clipboard copied node is pasted into the original node's group (i.e. lane).
+      'commandHandler.copiesGroupKey': true,
+      // automatically re-layout the swim lanes after dragging the selection
+      // (LaneDraggingTool has already released any node dropped clear of the lanes)
+      SelectionMoved: e => relayoutDiagram(e.diagram),
+      SelectionCopied: e => relayoutDiagram(e.diagram),
+      // resize lanes when any node is deleted
+      SelectionDeleted: e => relayoutDiagram(e.diagram),
+      // check if a pool was resized, then move other pools out of the way of it
+      PartResized: e => {
+        const part = e.subject.part;
+        if (!(part instanceof go.Group)) return;
+        const pool = part.category === 'Pool' ? part : part.containingGroup;
+        if (pool === null || pool.category !== 'Pool') return;
+        const size = e.subject.desiredSize;
+        if (e.parameter instanceof go.Size && e.parameter.equals(size)) return; // nothing changed
+        separatePools(e.diagram, [pool]);
+      },
+      // when a Pool is dropped in from the palette, give it lanes, then re-fit the pool
+      ExternalObjectsDropped: e => {
+        e.subject.each(part => {
+          if (!(part instanceof go.Group) || part.data.category !== 'Pool') return;
+          const poolKey = part.data.key;
+          // add new starting lanes for new pool
+          const laneNames = ['Lane 1', 'Lane 2', 'Lane 3'];
+          const poolLoc = part.location;
+          laneNames.forEach((text, i) =>
+            e.diagram.model.addNodeData({
+              text, isGroup: true, category: 'Lane', group: poolKey, color: LANE_COLORS[i]
+            })
+          );
+          // layout diagram to calculate size with lanes, then move to where user's mouse was on drop
+          e.diagram.layoutDiagram();
+          part.location = new go.Point(poolLoc.x, poolLoc.y);
+          relayoutDiagram(e.diagram);
+        });
+      },
+      'animationManager.isEnabled': false,
+      // enable undo & redo
+      'undoManager.isEnabled': true,
+      padding: 20
+    });
+
+    // diagram context menu to relayout the diagram
+    myDiagram.contextMenu =
+      go.GraphObject.build("ContextMenu").add(
+        go.GraphObject.build("ContextMenuButton",
+            { click: (e, obj) => arrangePools(e.diagram) })
+          .add(new go.TextBlock("Layout Diagram"))
+      );
+
+    // tracks if changes have been made and makes the save button available
+    myDiagram.addDiagramListener('Modified', e => {
+      const button = document.getElementById('SaveButton');
+      if (button) button.disabled = !myDiagram.isModified;
+      const idx = document.title.indexOf('*');
+      if (myDiagram.isModified) {
+        if (idx < 0) document.title += '*';
+      } else {
+        if (idx >= 0) document.title = document.title.slice(0, idx);
+      }
+    });
+
+    // a left square bracket used by the Text Annotation artifact (open on the right)
+    go.Shape.defineFigureGenerator('BpmnAnnotationBracket', (shape, w, h) =>
+      new go.Geometry().add(
+        new go.PathFigure(w, 0, false)
+          .add(new go.PathSegment(go.SegmentType.Line, 0, 0))
+          .add(new go.PathSegment(go.SegmentType.Line, 0, h))
+          .add(new go.PathSegment(go.SegmentType.Line, w, h))));
+
+    // --- NODE TEMPLATES ---
+
+    // Activities
+    myDiagram.nodeTemplateMap.add('', bpmnActivity({ fill: 'white', stroke: 'lightgray', minSize: new go.Size(90, 50) }));
+    myDiagram.groupTemplateMap.add('subprocess', bpmnActivity({ fill: 'white', stroke: 'lightgray', group: true, minSize: new go.Size(110, 60) }));
+    myDiagram.nodeTemplateMap.add('call', bpmnActivity({ fill: 'white', stroke: '#7a7a7a', call: true, minSize: new go.Size(90, 50) }));
+    // Events (border thickness/count set by dim; trigger icon by data.trigger)
+    myDiagram.nodeTemplateMap.add('start',        bpmnEvent({ dim: 'start',        fill: '#e6f4ea', stroke: '#448756' }));
+    myDiagram.nodeTemplateMap.add('intermediate', bpmnEvent({ dim: 'intermediate', fill: '#fef7e6', stroke: '#b8860b' }));
+    myDiagram.nodeTemplateMap.add('boundary',     bpmnEvent({ dim: 'boundary',     fill: '#fef7e6', stroke: '#b8860b' }));
+    myDiagram.nodeTemplateMap.add('end',          bpmnEvent({ dim: 'end',          fill: '#fbeaea', stroke: '#b53e40' }));
+    // Gateway (internal marker by data.gatewayType, default Exclusive)
+    myDiagram.nodeTemplateMap.add('gateway', bpmnGateway({ fill: '#fff8e1', stroke: '#c9a227' }));
+    // Data
+    myDiagram.nodeTemplateMap.add('dataObject', bpmnData('File',     { fill: '#f4f6f8', stroke: '#7a7a7a', size: new go.Size(36, 46) }));
+    myDiagram.nodeTemplateMap.add('dataStore',  bpmnData('Database', { fill: '#f4f6f8', stroke: '#7a7a7a', size: new go.Size(46, 46) }));
+    // Artifacts
+    myDiagram.nodeTemplateMap.add('annotation', bpmnAnnotation());
+    myDiagram.nodeTemplateMap.add('group', bpmnGroupArtifact());
+
+    paletteNodeTemplate = new go.Map();
+    myDiagram.nodeTemplateMap.forEach((val, key) => paletteNodeTemplate.add(key, val));
+
+    paletteGroupTemplate = new go.Map();
+    paletteGroupTemplate.add('Pool', 
+      new go.Group('Auto', { locationSpot: go.Spot.Center })
+        .add(
+          new go.Shape('Rectangle', { fill: 'white', stroke: 'lightgray' }),
+          new go.TextBlock('Pool', {
+            font: 'bold 16pt sans-serif',
+            editable: true,
+            margin: 6,
+            stroke: TEXT_STROKE
+          })
+        )
+    );
+    paletteGroupTemplate.add('subprocess', bpmnActivity({ fill: 'white', stroke: 'lightgray', group: true, minSize: new go.Size(110, 60) }));
+
+    // --- POOL/LANE GROUPS + ADORNMENT TEMPLATES ---
+
+    // shown when right-clicking either a Pool or one of its Lanes, always acting on the Pool
+    const poolContextMenu =
+      go.GraphObject.build('ContextMenu')
+        .add(
+          go.GraphObject.build('ContextMenuButton', {
+              click: (e, obj) => {
+                const pool = findPool(obj.part.adornedPart);
+                if (pool) arrangePoolNodes(pool); // relayout just this pool
+              }
+            })
+            .add(new go.TextBlock('Re-Layout Nodes')),
+          go.GraphObject.build('ContextMenuButton', {
+              click: (e, obj) => {
+                const pool = findPool(obj.part.adornedPart);
+                if (pool === null) return;
+                e.diagram.commit(d => {
+                  d.model.addNodeData({
+                    text: 'New Lane', isGroup: true, category: 'Lane',
+                    group: pool.key, color: nextLaneColor(pool)
+                  });
+                  d.layoutDiagram();
+                  separatePools(d, [pool]);
+                }, 'add lane');
+              }
+            })
+            .add(new go.TextBlock('New Lane'))
+        );
+
+    function groupStyle(grp) {
+      // common settings for both Lane and Pool Groups
+      grp.layerName = 'Background'; // all pools and lanes are always behind all nodes and links
+      grp.background = 'transparent'; // can grab anywhere in bounds
+      grp.movable = true; // allows users to re-order by dragging
+      grp.copyable = false; // can't copy lanes or pools
+      grp.avoidable = false; // don't impede AvoidsNodes routed Links
+      grp.contextMenu = poolContextMenu; // right-clicking a Lane acts on its Pool too
+      grp.bindTwoWay('location', 'loc', go.Point.parse, go.Point.stringify);
+    }
+
+    // Each Lane group is a swimlane, its member nodes are arranged on demand by arrangePools() via SwimLaneCompactLayout
+    // It still has an inert Layout so the pool re-layout preserves that arrangement
+    myDiagram.groupTemplateMap.add('Lane',
+      new go.Group('Horizontal')
+        .apply(groupStyle)
+        .set({
+          minLocation: new go.Point(NaN, -Infinity), // only allow vertical dragging
+          maxLocation: new go.Point(NaN, Infinity),
+          selectionObjectName: 'SHAPE', // selecting a lane causes the body of the lane to be highlit, not the label
+          resizable: true,
+          resizeObjectName: 'SHAPE', // the custom resizeAdornmentTemplate only permits two kinds of resizing
+          // An inert layout that the lane must still own to prevent the pool's
+          // PoolLayout collapsing the SwimLaneCompactLayout arrangement into one column.
+          layout: new go.Layout({ isInitial: false, isOngoing: false }),
+          computesBoundsAfterDrag: true, // needed to prevent recomputing Group.placeholder bounds too soon
+          computesBoundsIncludingLinks: false, // to reduce occurrences of links going briefly outside the lane
+          computesBoundsIncludingLocation: true, // to support empty space at top-left corner of lane
+          // membership is decided by LaneDraggingTool, from where a node was actually released
+          subGraphExpandedChanged: grp => {
+            const shp = grp.resizeObject;
+            if (grp.diagram.undoManager.isUndoingRedoing) return;
+            if (grp.isSubGraphExpanded) {
+              shp.height = grp.data.savedBreadth;
+            } else {
+              if (!isNaN(shp.height)) grp.diagram.model.set(grp.data, 'savedBreadth', shp.height);
+              shp.height = NaN;
+            }
+            updateCrossLaneLinks(grp);
+          }
+        })
+        .bindTwoWay('location', 'loc', go.Point.parse, go.Point.stringify)
+        .bindTwoWay('isSubGraphExpanded', 'expanded')
+        .add(
+          // the lane header consisting of a Shape and a TextBlock
+          new go.Panel('Horizontal', {
+              name: 'HEADER',
+              angle: 270, // maybe rotate the header to read sideways going up
+              alignment: go.Spot.Center
+            })
+            .add(
+              new go.Panel('Horizontal') // this is hidden when the swimlane is collapsed
+                .bindObject('visible', 'isSubGraphExpanded')
+                .add(
+                  new go.Shape('Diamond', { width: 8, height: 8, fill: 'white', stroke: null })
+                    .bind('fill', 'color'),
+                  new go.TextBlock({
+                    font: 'bold 13pt sans-serif',
+                    editable: true,
+                    margin: new go.Margin(2, 0, 0, 0),
+                    stroke: TEXT_STROKE
+                  })
+                    .bindTwoWay('text')
+                ),
+              go.GraphObject.build('SubGraphExpanderButton', { // but this remains always visible!
+                margin: 5,
+                "ButtonBorder.stroke": "lightgray",
+                "ButtonBorder.fill": "white",
+                "ButtonIcon.stroke": TEXT_STROKE
+              })
+            ), // end Horizontal Panel
+          new go.Panel('Auto') // the lane consisting of a background Shape and a Placeholder representing the subgraph
+            .add(
+              new go.Shape('Rectangle', { // this is the resized object
+                name: 'SHAPE',
+                fill: 'white',
+                stroke: null
+              })
+                .bind('fill', 'color')
+                .bindTwoWay('desiredSize', 'size', go.Size.parse, go.Size.stringify),
+              new go.Placeholder({ padding: 12, alignment: go.Spot.Left }), // left-align the flow, but center it vertically in the lane
+              new go.TextBlock({
+                // this TextBlock is only seen when the swimlane is collapsed
+                name: 'LABEL',
+                font: 'bold 13pt sans-serif',
+                editable: true,
+                angle: 0,
+                alignment: go.Spot.TopLeft,
+                margin: new go.Margin(2, 0, 0, 4),
+                stroke: TEXT_STROKE
+              })
+                .bindObject('visible', 'isSubGraphExpanded', e => !e)
+                .bindTwoWay('text')
+            ) // end Auto Panel
+        )
+    ); // end Group
+
+    // define a custom resize adornment that has two resize handles if the group is expanded
+    myDiagram.groupTemplateMap.get('Lane').resizeAdornmentTemplate =
+      new go.Adornment('Spot')
+        .add(
+          new go.Placeholder(),
+          new go.Shape({
+            // for changing the length of a lane
+            alignment: go.Spot.Right,
+            desiredSize: new go.Size(7, 50),
+            fill: 'lightblue',
+            stroke: 'dodgerblue',
+            cursor: 'col-resize'
+          })
+            .bindObject('visible', '', ad => {
+              if (ad.adornedPart === null) return false;
+              return ad.adornedPart.isSubGraphExpanded;
+            }),
+          new go.Shape({
+            // for changing the breadth of a lane
+            alignment: go.Spot.Bottom,
+            desiredSize: new go.Size(50, 7),
+            fill: 'lightblue',
+            stroke: 'dodgerblue',
+            cursor: 'row-resize'
+          })
+            .bindObject('visible', '', ad => {
+              if (ad.adornedPart === null) return false;
+              return ad.adornedPart.isSubGraphExpanded;
+            })
+        );
+
+    myDiagram.groupTemplateMap.get('Lane').selectionAdornmentTemplate = 
+      new go.Adornment('Spot')
+        .add(
+          new go.Panel('Auto')
+            .add(
+              new go.Shape('Rectangle', {
+                fill: null,
+                stroke: '#0ea4e9',
+                strokeWidth: 3
+              }),
+              new go.Placeholder()
+            ),
+          new go.Panel('Auto', {
+            alignment: new go.Spot(0, 0.5, 15, 0),
+            angle: 270
+          })
+            .add(
+              new go.Shape('RoundedRectangle', {
+                fill: 'white',
+                stroke: null,
+                padding: 2
+              }),
+              // lane color selector panel
+              new go.Panel('Horizontal', {
+                itemTemplate:
+                  new go.Panel()
+                    .add(
+                      new go.Shape('RoundedRectangle', {
+                        width: 15,
+                        height: 15,
+                        cursor: 'pointer',
+                        isActionable: true,
+                        click: (e, thisObj) => {
+                          const lane = thisObj.part.adornedObject.part;
+                          if (!lane) return;
+                          myDiagram.model.set(lane.data, 'color', thisObj.fill);
+                          lane.updateTargetBindings();
+                          lane.memberParts.each(part => part.updateTargetBindings());
+                        }
+                      })
+                        .bind('fill', '')
+                        // outline the selector matching the lane's current color
+                        .bindObject('stroke', '', (ad, shape) =>
+                          ad.adornedPart && ad.adornedPart.data.color === shape.panel.data ? '#0ea4e9' : 'gray', null, '/')
+                        .bindObject('strokeWidth', '', (ad, shape) =>
+                          ad.adornedPart && ad.adornedPart.data.color === shape.panel.data ? 2 : 1, null, '/')
+                    ),
+                itemArray: LANE_COLORS
+              })
+            )
+        )
+
+    myDiagram.groupTemplateMap.add('Pool',
+      new go.Group('Auto')
+        .apply(groupStyle)
+        .set({
+          // use a simple layout that ignores links to stack the "lane" Groups on top of each other
+          layout: new PoolLayout({ spacing: new go.Size(0, 0) }), // no space between lanes
+          // revaluate crossing link visibility when collapsing and un-collapsing the pool
+          subGraphExpandedChanged: grp => {
+            grp.memberParts.each(lane => {
+              if (lane instanceof go.Group) updateCrossLaneLinks(lane);
+            });
+          },
+          locationSpot: go.Spot.Left
+        })
+        .bindTwoWay('location', 'loc', go.Point.parse, go.Point.stringify)
+        .add(
+          // can draw message flow links to pools, but can't draw links from pools
+          new go.Shape({ fill: 'white', stroke: 'lightgray', toLinkable: true, toSpot: go.Spot.AllSides })
+            .bind('fill', 'color'),
+          new go.Panel('Table', { defaultColumnSeparatorStroke: 'lightgray' })
+            .add(
+              new go.Panel('Horizontal', { column: 0, angle: 270 })
+                .add(
+                  new go.TextBlock({
+                    font: 'bold 16pt sans-serif',
+                    editable: true,
+                    margin: 6,
+                    stroke: TEXT_STROKE
+                  })
+                    .bindTwoWay('text'),
+                  go.GraphObject.build('SubGraphExpanderButton', {
+                    "ButtonBorder.stroke": "lightgray",
+                    "ButtonBorder.fill": "white",
+                    "ButtonIcon.stroke": TEXT_STROKE,
+                    margin: new go.Margin(0, 6, 0, 0)
+                  })
+                ),
+              new go.Placeholder({ column: 1 })
+            )
+        )
+    );
+
+    // --- LINK TEMPLATES ---
+
+    // BPMN sequence flow: solid line with a filled arrowhead
+    myDiagram.linkTemplateMap.add('sequence',
+      new go.Link({
+        zOrder: 0,
+        routing: go.Routing.AvoidsNodes,
+        relinkableFrom: true,
+        relinkableTo: true,
+        toShortLength: 6
+      })
+        .add(
+          new go.Shape({ stroke: SYMBOL_STROKE, strokeWidth: 1.5 }),
+          new go.Shape({ toArrow: 'Standard', fill: SYMBOL_STROKE, stroke: null })
+        )
+    );
+
+    // BPMN message flow: dotted line with an open arrowhead
+    myDiagram.linkTemplateMap.add('message',
+      new go.Link({
+        zOrder: 0,
+        routing: go.Routing.AvoidsNodes,
+        relinkableFrom: true,
+        relinkableTo: true,
+        toShortLength: 8,
+        fromShortLength: 8,
+      })
+        .add(
+          new go.Shape({ stroke: SYMBOL_STROKE, strokeWidth: 1.5, strokeDashArray: [8, 8] }),
+          new go.Shape({ fromArrow: 'Circle', fill: null, stroke: SYMBOL_STROKE }),
+          new go.Shape({ toArrow: 'Triangle', fill: null, stroke: SYMBOL_STROKE })
+        )
+    );
+
+    // BPMN association: finely dotted line with a line arrowhead
+    myDiagram.linkTemplateMap.add('association',
+      new go.Link({
+        zOrder: 0,
+        routing: go.Routing.AvoidsNodes,
+        relinkableFrom: true,
+        relinkableTo: true,
+        toShortLength: 6
+      })
+        .add(
+          new go.Shape({ stroke: SYMBOL_STROKE, strokeWidth: 1.5, strokeDashArray: [4, 4] }),
+          new go.Shape({ toArrow: 'OpenTriangle', fill: null, stroke: SYMBOL_STROKE })
+        )
+    );
+
+    // --- STARTING MODEL ---
+
+    // two sample BPMN processes, each laid out across the lanes of its own pool
+    myDiagram.model = new go.GraphLinksModel(
+      [
+        // --- Pool 1: the order process, four lanes
+        { key: 'Pool1', text: 'Order Process', isGroup: true, category: 'Pool', loc: '0 0' },
+        { key: 'Customer', text: 'Customer', isGroup: true, category: 'Lane', group: 'Pool1', color: '#eef6ff' },
+        { key: 'Sales', text: 'Sales', isGroup: true, category: 'Lane', group: 'Pool1', color: '#eefaf0' },
+        { key: 'Warehouse', text: 'Warehouse', isGroup: true, category: 'Lane', group: 'Pool1', color: '#fff8e6' },
+        { key: 'Finance', text: 'Finance', isGroup: true, category: 'Lane', group: 'Pool1', color: '#f5eeff' },
+        // Customer lane
+        { key: 'start', category: 'start', text: 'Need Goods', group: 'Customer' },
+        { key: 'placeOrder', text: 'Place Order', taskType: 'send', group: 'Customer' },
+        { key: 'receiveGoods', text: 'Receive Goods', taskType: 'receive', group: 'Customer' },
+        { key: 'payInvoice', text: 'Pay Invoice', taskType: 'user', group: 'Customer' },
+        { key: 'end', category: 'end', text: 'Order Complete', group: 'Customer' },
+        // Sales lane
+        { key: 'checkOrder', text: 'Check Order', taskType: 'user', group: 'Sales' },
+        { key: 'inStock', category: 'gateway', text: 'In Stock?', gatewayType: 'exclusive', group: 'Sales' },
+        { key: 'confirmOrder', text: 'Confirm Order', taskType: 'send', group: 'Sales' },
+        { key: 'notifyUnavailable', text: 'Notify Unavailable', taskType: 'send', group: 'Sales' },
+        { key: 'cancelled', category: 'end', text: 'Order Cancelled', trigger: 'terminate', group: 'Sales' },
+        // Warehouse lane
+        { key: 'pickGoods', text: 'Pick Goods', group: 'Warehouse' },
+        { key: 'packGoods', text: 'Pack Goods', group: 'Warehouse' },
+        { key: 'shipGoods', text: 'Ship Goods', taskType: 'service', group: 'Warehouse' },
+        // restock hand-off: request stock from the supplier pool and catch the delivery
+        { key: 'requestRestock', text: 'Request Restock', taskType: 'send', group: 'Warehouse' },
+        { key: 'stockReceived', category: 'intermediate', text: 'Stock Received', trigger: 'message', group: 'Warehouse' },
+        // Finance lane
+        { key: 'sendInvoice', text: 'Send Invoice', taskType: 'send', group: 'Finance' },
+        { key: 'paymentDue', category: 'intermediate', text: '30 Days', trigger: 'timer', group: 'Finance' },
+        { key: 'recordPayment', text: 'Record Payment', taskType: 'service', group: 'Finance' },
+        { key: 'ledger', category: 'dataStore', text: 'Ledger', group: 'Finance' },
+        { key: 'data', category: 'dataObject', text: 'Data', group: 'Finance' },
+
+        // --- Pool 2: the restocking process the supplier runs, three lanes
+        { key: 'Pool2', text: 'Restock Process', isGroup: true, category: 'Pool', loc: '0 500' },
+        { key: 'Purchasing', text: 'Purchasing', isGroup: true, category: 'Lane', group: 'Pool2', color: '#eef6ff' },
+        { key: 'Supplier', text: 'Supplier', isGroup: true, category: 'Lane', group: 'Pool2', color: '#fdeeee' },
+        { key: 'Logistics', text: 'Logistics', isGroup: true, category: 'Lane', group: 'Pool2', color: '#eefaf0' },
+        // Purchasing lane
+        { key: 'lowStock', category: 'start', text: 'Low Stock', trigger: 'message', group: 'Purchasing' },
+        { key: 'raisePO', text: 'Raise Purchase Order', taskType: 'send', group: 'Purchasing' },
+        { key: 'receiveStock', text: 'Receive Stock', taskType: 'receive', group: 'Purchasing' },
+        { key: 'updateInventory', text: 'Update Inventory', taskType: 'service', group: 'Purchasing' },
+        { key: 'restocked', category: 'end', text: 'Stock Replenished', group: 'Purchasing' },
+        // Supplier lane
+        { key: 'reviewPO', text: 'Review PO', taskType: 'user', group: 'Supplier' },
+        { key: 'hasCapacity', category: 'gateway', text: 'Capacity?', gatewayType: 'exclusive', group: 'Supplier' },
+        { key: 'manufacture', category: 'subprocess', isGroup: true, text: 'Manufacture Goods', group: 'Supplier' },
+        // the sub-flow inside the Manufacture Goods Sub-Process, hidden until it is expanded
+        {key: "mfgStart", category: "start", text: "Begin Build", group: "manufacture" },
+        {key: "assemble", text: "Assemble Units", group: "manufacture" },
+        {key: "qualityCheck", text: "Quality Check", taskType: "user", group: "manufacture" },
+        {key: "mfgEnd", category: "end", text: "Goods Built", group: "manufacture" },
+        // end sub-flow
+        { key: 'delay', category: 'intermediate', text: 'Delay', trigger: 'timer', group: 'Supplier' },
+        { key: 'notifyDelay', text: 'Notify Delay', taskType: 'send', group: 'Supplier' },
+        { key: 'delayNotified', category: 'end', text: 'Delay Notified', group: 'Supplier' },
+        { key: 'notifyEta', text: 'Notify ETA', taskType: 'send', group: 'Supplier' },
+        { key: 'backorder', text: 'Handle Backorder', taskType: 'user', group: 'Purchasing' },
+        { key: 'deferred', category: 'end', text: 'Order Deferred', trigger: 'terminate', group: 'Purchasing' },
+        // Logistics lane
+        { key: 'arrangeFreight', text: 'Arrange Freight', taskType: 'service', group: 'Logistics' },
+        { key: 'splitShipping', category: 'gateway', text: 'Split', gatewayType: 'parallel', group: 'Logistics' },
+        { key: 'dispatch', text: 'Dispatch Shipment', group: 'Logistics' },
+        { key: 'joinShipping', category: 'gateway', text: 'Join', gatewayType: 'parallel', group: 'Logistics' },
+
+        // Artifacts
+        { key: 'customerServiceGroup', category:'group', text: 'Customer Service', loc: '314.84177125645857 -418.9783504373137', size: '778 196' },
+        { key: 'financeLabel', category: 'annotation', text: 'Finance team independently \nhandles ledger throughout', loc: '88.63513223135948 -251.91786439651952' }
+      ],
+      [
+        // Pool 1 sequence flows
+        { from: 'start', to: 'placeOrder', category: 'sequence' },
+        { from: 'placeOrder', to: 'checkOrder', category: 'sequence' },
+        { from: 'checkOrder', to: 'inStock', category: 'sequence' },
+        { from: 'inStock', to: 'notifyUnavailable', category: 'sequence' },
+        { from: 'notifyUnavailable', to: 'cancelled', category: 'sequence' },
+        { from: 'inStock', to: 'confirmOrder', category: 'sequence' },
+        { from: 'confirmOrder', to: 'pickGoods', category: 'sequence' },
+        { from: 'pickGoods', to: 'packGoods', category: 'sequence' },
+        { from: 'packGoods', to: 'shipGoods', category: 'sequence' },
+        { from: 'shipGoods', to: 'receiveGoods', category: 'sequence' },
+        { from: 'shipGoods', to: 'sendInvoice', category: 'sequence' },
+        { from: 'sendInvoice', to: 'paymentDue', category: 'sequence' },
+        { from: 'receiveGoods', to: 'payInvoice', category: 'sequence' },
+        { from: 'paymentDue', to: 'payInvoice', category: 'sequence' },
+        { from: 'payInvoice', to: 'recordPayment', category: 'sequence' },
+        { from: 'recordPayment', to: 'end', category: 'sequence' },
+        { from: 'data', to: 'ledger', category: 'association' },
+        { from: 'financeLabel', to: 'data', category: 'association' },
+        // Pool 2 sequence flows
+        { from: 'lowStock', to: 'raisePO', category: 'sequence' },
+        { from: 'raisePO', to: 'reviewPO', category: 'sequence' },
+        { from: 'reviewPO', to: 'hasCapacity', category: 'sequence' },
+        { from: 'hasCapacity', to: 'backorder', category: 'sequence' },
+        { from: 'backorder', to: 'deferred', category: 'sequence' },
+        { from: 'hasCapacity', to: 'manufacture', category: 'sequence' },
+        { from: 'manufacture', to: 'arrangeFreight', category: 'sequence' },
+        { from: 'manufacture', to: 'delay', category: 'sequence' },
+        // the Manufacture Goods sub-flow
+        { from: 'mfgStart', to: 'assemble', category: 'sequence' },
+        { from: 'assemble', to: 'qualityCheck', category: 'sequence' },
+        { from: 'qualityCheck', to: 'mfgEnd', category: 'sequence' },
+        { from: 'delay', to: 'notifyDelay', category: 'sequence' },
+        { from: 'notifyDelay', to: 'delayNotified', category: 'sequence' },
+        { from: 'arrangeFreight', to: 'splitShipping', category: 'sequence' },
+        { from: 'splitShipping', to: 'dispatch', category: 'sequence' },
+        { from: 'splitShipping', to: 'notifyEta', category: 'sequence' },
+        { from: 'dispatch', to: 'joinShipping', category: 'sequence' },
+        { from: 'notifyEta', to: 'joinShipping', category: 'sequence' },
+        { from: 'joinShipping', to: 'receiveStock', category: 'sequence' },
+        { from: 'receiveStock', to: 'updateInventory', category: 'sequence' },
+        { from: 'updateInventory', to: 'restocked', category: 'sequence' },
+        // Warehouse restock hand-off branch (sequence)
+        { from: 'shipGoods', to: 'requestRestock', category: 'sequence' },
+        { from: 'requestRestock', to: 'stockReceived', category: 'sequence' },
+        // cross-pool message flows
+        { from: 'requestRestock', to: 'Pool2', category: 'message' },
+        { from: 'dispatch', to: 'stockReceived', category: 'message' }
+      ]
+    );
+
+    // --- PALETTES ---
+
+    // three collapsible Palettes on the left, one per section of the accordion below;
+    // drag a shape into a lane to add it
+    function makePalette(divId, nodeDataArray, cols) {
+      return new go.Palette(divId, {
+        nodeTemplateMap: paletteNodeTemplate,
+        groupTemplateMap: paletteGroupTemplate,
+        layout: new go.GridLayout({
+          wrappingColumn: cols,
+          cellSize: new go.Size(75, 75),
+          spacing: new go.Size(8, 8)
+        }),
+        model: new go.GraphLinksModel(nodeDataArray),
+      });
+    }
+
+    // data for palette nodes
+    const palettes = [
+      // Events & Gateways
+      makePalette('myPaletteDiv1', [
+        { category: 'start', text: 'Start' },
+        { category: 'start', text: 'Message', trigger: 'message' },
+        { category: 'start', text: 'Timer', trigger: 'timer' },
+        { category: 'intermediate', text: 'Intermediate' },
+        { category: 'intermediate', text: 'Timer', trigger: 'timer' },
+        { category: 'boundary', text: 'Error', trigger: 'error', interrupting: true },
+        { category: 'boundary', text: 'Timer', trigger: 'timer', interrupting: false },
+        { category: 'end', text: 'End' },
+        { category: 'end', text: 'Message', trigger: 'message' },
+        { category: 'end', text: 'Terminate', trigger: 'terminate' },
+        { category: 'gateway', text: 'Exclusive', gatewayType: 'exclusive' },
+        { category: 'gateway', text: 'Parallel', gatewayType: 'parallel' },
+        { category: 'gateway', text: 'Inclusive', gatewayType: 'inclusive' },
+        { category: 'gateway', text: 'Event', gatewayType: 'eventBased' }
+      ], 2),
+      // Activities
+      makePalette('myPaletteDiv2', [
+        { text: 'Task' },
+        { text: 'User', taskType: 'user' },
+        { text: 'Service', taskType: 'service' },
+        { text: 'Send', taskType: 'send' },
+        { text: 'Receive', taskType: 'receive' },
+        { category: 'subprocess', text: 'Sub-Process', isGroup: true },
+        { category: 'call', text: 'Call Activity' }
+      ], 1),
+      // Pools, Data & Artifacts
+      makePalette('myPaletteDiv3', [
+        { category: 'Pool', text: 'New Pool', isGroup: true },
+        { category: 'dataObject', text: 'Data' },
+        { category: 'dataStore', text: 'Data Store' },
+        { category: 'annotation', text: 'Annotation' },
+        { category: 'group', text: 'Group' }
+      ], 1)
+    ];
+
+    // accordion code: clicking a section header opens that palette and collapses the others,
+    // so only one is expanded at a time
+    const sections = Array.from(document.querySelectorAll('#paletteColumn .palette-section'));
+    function openSection(index) {
+      sections.forEach((section, i) => section.classList.toggle('open', i === index));
+      // the revealed div just changed size, redraw now
+      const pal = palettes[index];
+      if (pal) pal.requestUpdate();
+    }
+    sections.forEach((section, i) =>
+      section.querySelector('.palette-header').addEventListener('click', () => openSection(i)));
+    openSection(0); // start with the first section open
+
+    // --- INITIAL LAYOUT ---
+    myDiagram.skipsUndoManager = true;
+    arrangePools();
+    myDiagram.zoomToFit();
+    save();
+    myDiagram.skipsUndoManager = false;
+  } // end init
+
+  // Show the diagram's model in JSON format
+  function save() {
+    document.getElementById('mySavedModel').value = myDiagram.model.toJson();
+    myDiagram.isModified = false;
+  }
+  function load() {
+    myDiagram.model = go.Model.fromJson(document.getElementById('mySavedModel').value);
+    myDiagram.delayInitialization(arrangePools);
+  }
+
+  window.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>

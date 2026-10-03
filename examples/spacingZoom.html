@@ -1,132 +1,51 @@
-﻿
 <!DOCTYPE html>
-<html lang="en">
-  <head>
-    
-    <meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover"/>
-
-<meta name="description" content="Zooming only changes the distance between nodes, not the apparent size of each node." />
-<meta itemprop="description" content="Zooming only changes the distance between nodes, not the apparent size of each node." />
-<meta property="og:description" content="Zooming only changes the distance between nodes, not the apparent size of each node." />
-<meta name="twitter:description" content="Zooming only changes the distance between nodes, not the apparent size of each node." />
-
-
-<link rel="preconnect" href="https://rsms.me/">
-
-<!-- Copyright 1998-2026 by Northwoods Software Corporation. -->
-
-
-<meta itemprop="name" content="Zooming Changes Spaces Between Nodes without Changing Scale" />
-<meta property="og:title" content="Zooming Changes Spaces Between Nodes without Changing Scale" />
-<meta name="twitter:title" content="Zooming Changes Spaces Between Nodes without Changing Scale" />
-
-
-<meta property="og:image" content="https://gojs.net/latest/assets/images/screenshots/minimal.png" />
-<meta itemprop="image" content="https://gojs.net/latest/assets/images/screenshots/minimal.png" />
-<meta name="twitter:image" content="https://gojs.net/latest/assets/images/screenshots/minimal.png" />
-
-<meta property="og:url" content="https://gojs.net/latest/samples/spacingZoom.html" />
-<meta property="twitter:url" content="https://gojs.net/latest/samples/spacingZoom.html" />
-
-<meta name="twitter:card" content="summary_large_image" />
-<meta property="og:type" content="website" />
-<meta property="twitter:domain" content="gojs.net" />
-
-    <title>
-      Zooming Changes Spaces Between Nodes without Changing Scale | GoJS Diagramming Library
-    </title>
-  </head>
-
-  <body>
-    <!-- This top nav is not part of the sample code -->
-    <nav id="navTop" class=" w-full h-[var(--topnav-h)] z-30 bg-white border-b border-b-gray-200">
-  <div class="max-w-screen-xl mx-auto flex flex-wrap items-start justify-between px-4">
-    <a class="text-white bg-nwoods-primary font-bold !leading-[calc(var(--topnav-h)_-_1px)] my-0 px-2 text-4xl lg:text-5xl logo"
-       href="../">
-      GoJS
-    </a>
-    <div class="relative">
-      <button id="topnavButton" class="h-[calc(var(--topnav-h)_-_1px)] px-2 m-0 text-gray-900 bg-inherit shadow-none md:hidden hover:!bg-inherit hover:!text-nwoods-accent hover:!shadow-none" aria-label="Navigation">
-        <svg class="h-7 w-7 block" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </button>
-      <div id="topnavList" class="hidden md:block">
-        <div class="absolute right-0 z-30 flex flex-col items-end rounded border border-gray-200 p-4 pl-12 shadow bg-white text-gray-900 font-semibold
-                    md:flex-row md:space-x-4 md:items-start md:border-0 md:p-0 md:shadow-none md:bg-inherit">
-          <a href="../learn/">Learn</a>
-          <a href="../samples/">Samples</a>
-          <a href="../intro/">Intro</a>
-          <a href="../api/">API</a>
-          <a href="../download.html">Download</a>
-          <a href="https://forum.nwoods.com/c/gojs/11" target="_blank" rel="noopener">Forum</a>
-          <a id="tc" href="https://nwoods.com/contact.html"
-            target="_blank" rel="noopener" onclick="getOutboundLink('https://nwoods.com/contact.html', 'contact');">Contact</a>
-          <a id="tb" href="https://nwoods.com/sales/index.html"
-            target="_blank" rel="noopener" onclick="getOutboundLink('https://nwoods.com/sales/index.html', 'buy');">Buy</a>
-        </div>
-      </div>
-    </div>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zooming Changes Spaces Between Nodes without Changing Scale</title>
+  <script src="../dist/open-gojs.umd.js"></script>
+  
+  
+  
+  
+</head>
+<body>
+<div id="myDiagramDiv" style="border: solid 1px black; width: 100%; height: 400px"></div>
+  Spacing factor: <span id="SPACE">1.0</span>
+  <br />
+  <label><input type="checkbox" onclick="onIsYSpacedToggled()" checked="checked" />Is Y Axis Spaced?</label>
+  <div id="description">
+<p>
+    Click in the diagram and then try zooming in and out of the diagram by using control-mouse-wheel. If you don't want to hold down the control key, click the
+    mouse wheel button in the diagram to toggle between mouse wheel events zooming instead of scrolling.
+  </p>
+  <p>
+    This diagram uses a custom <a href="https://gojs.net/latest/api/symbols/CommandHandler.html" target="api">CommandHandler</a> to replace the standard zooming behavior. The <a href="https://gojs.net/latest/api/symbols/CommandHandler.html#decreasezoom" target="api">CommandHandler.decreaseZoom</a>,
+    <a href="https://gojs.net/latest/api/symbols/CommandHandler.html#increasezoom" target="api">CommandHandler.increaseZoom</a>, and <a href="https://gojs.net/latest/api/symbols/CommandHandler.html#resetzoom" target="api">CommandHandler.resetZoom</a> commands no longer change the <a href="https://gojs.net/latest/api/symbols/Diagram.html#scale" target="api">Diagram.scale</a>. Instead they change the
+    effective <a href="https://gojs.net/latest/api/symbols/Part.html#location" target="api">Part.location</a> for all of the <a href="https://gojs.net/latest/api/symbols/Node.html" target="api">Node</a>s by changing the value of the conversion function that is getting the location from the "loc"
+    property on the node data.
+  </p>
+  <p>
+    As the value of SpacingCommandHandler.space changes, all of the Bindings on "loc" are re-evaluated, causing the nodes to get new locations. The value of the
+    "loc" data property remains unchanged by the Binding. However the TwoWay Binding does cause the "loc" data property to be modified when the user drags a
+    node.
+  </p>
+  <p>
+    The conversion functions also depend on the SpacingCommandHandler.isYSpaced property, which can be toggled by the checkbox. When false the conversion
+    functions do not space along the Y axis, but only along the X axis.
+  </p>
+  <p>
+    Because the conversion functions are dependent on the particular Diagram, and because the node template depends on the conversion functions, the template
+    cannot be used by other Diagrams.
+  </p>
+  <p>
+    The SpacingCommandHandler.space property is duplicated on the <a href="https://gojs.net/latest/api/symbols/Model.html#modeldata" target="api">Model.modelData</a> object, both so that the information is saved in the model as well as
+    to support undo/redo.
+  </p>
   </div>
-</nav>
-<script>
-  window.addEventListener("DOMContentLoaded", function () {
-    // topnav
-    var topButton = document.getElementById("topnavButton");
-    var topnavList = document.getElementById("topnavList");
-    if (topButton && topnavList) {
-      topButton.addEventListener("click", function (e) {
-        topnavList
-          .classList
-          .toggle("hidden");
-        e.stopPropagation();
-      });
-      document.addEventListener("click", function (e) {
-        // if the clicked element isn't the list, close the list
-        if (!topnavList.classList.contains("hidden") && !e.target.closest("#topnavList")) {
-          topButton.click();
-        }
-      });
-
-      // set active <a> element
-      var url = window
-        .location
-        .href
-        .toLowerCase();
-      var aTags = topnavList.getElementsByTagName('a');
-      for (var i = 0; i < aTags.length; i++) {
-        var lowerhref = aTags[i]
-          .href
-          .toLowerCase();
-        if (lowerhref.endsWith('.html')) 
-          lowerhref = lowerhref.slice(0, -5);
-        if (url.startsWith(lowerhref)) {
-          aTags[i]
-            .classList
-            .add('active');
-          break;
-        }
-      }
-    }
-  });
-</script>
-    <div class="flex flex-col prose">
-      <div class="w-full max-w-screen-xl mx-auto">
-        <!-- * * * * * * * * * * * * * -->
-        <!-- Start of GoJS sample code -->
-        <script src="../dist/open-gojs.umd.js"></script>
-
-        
-
-        <div id="allSampleContent" class="p-4 w-full">
-          
-            
-            
-
-<script id="code">
-
-  // The custom CommandHandler that avoids changing the Diagram.scale
+  <script >
+// The custom CommandHandler that avoids changing the Diagram.scale
   class SpacingCommandHandler extends go.CommandHandler {
     constructor(init) {
       super();
@@ -186,7 +105,7 @@
         const diagram = this.diagram;
         if (diagram !== null) {
           // store in model too, and support undo
-          diagram.model.setDataProperty(diagram.model.modelData, 'space', val);
+          diagram.model.set(diagram.model.modelData, 'space', val);
         }
         this.updateAllLocations();
         // update the page showing the current value
@@ -315,81 +234,6 @@
   }
 
   window.addEventListener('DOMContentLoaded', init);
-</script>
-
-<div id="sample">
-  <div id="myDiagramDiv" style="border: solid 1px black; width: 400px; height: 400px"></div>
-  Spacing factor: <span id="SPACE">1.0</span>
-  <br />
-  <label><input type="checkbox" onclick="onIsYSpacedToggled()" checked="checked" />Is Y Axis Spaced?</label>
-  <br />
-  <p>
-    Click in the diagram and then try zooming in and out of the diagram by using control-mouse-wheel. If you don't want to hold down the control key, click the
-    mouse wheel button in the diagram to toggle between mouse wheel events zooming instead of scrolling.
-  </p>
-  <p>
-    This diagram uses a custom <a>CommandHandler</a> to replace the standard zooming behavior. The <a>CommandHandler.decreaseZoom</a>,
-    <a>CommandHandler.increaseZoom</a>, and <a>CommandHandler.resetZoom</a> commands no longer change the <a>Diagram.scale</a>. Instead they change the
-    effective <a>Part.location</a> for all of the <a>Node</a>s by changing the value of the conversion function that is getting the location from the "loc"
-    property on the node data.
-  </p>
-  <p>
-    As the value of SpacingCommandHandler.space changes, all of the Bindings on "loc" are re-evaluated, causing the nodes to get new locations. The value of the
-    "loc" data property remains unchanged by the Binding. However the TwoWay Binding does cause the "loc" data property to be modified when the user drags a
-    node.
-  </p>
-  <p>
-    The conversion functions also depend on the SpacingCommandHandler.isYSpaced property, which can be toggled by the checkbox. When false the conversion
-    functions do not space along the Y axis, but only along the X axis.
-  </p>
-  <p>
-    Because the conversion functions are dependent on the particular Diagram, and because the node template depends on the conversion functions, the template
-    cannot be used by other Diagrams.
-  </p>
-  <p>
-    The SpacingCommandHandler.space property is duplicated on the <a>Model.modelData</a> object, both so that the information is saved in the model as well as
-    to support undo/redo.
-  </p>
-</div>
-
-          
-        </div>
-        <!-- * * * * * * * * * * * * * -->
-        <!--  End of GoJS sample code  -->
-      </div>
-
-      <div id="allTagDescriptions" class="p-4 w-full max-w-screen-xl mx-auto">
-        <hr/>
-        <h3 class="text-xl">GoJS Features in this sample</h3>
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Commands</h4>
-<p>
-A <a href="../api/symbols/CommandHandler.html" target="api">CommandHandler</a> handles all default keyboard input events in a Diagram.
-There are many predefined methods on <a>CommandHandler</a> that implement common commands to operate on the Diagram or the current <a>Diagram.selection></a>.
-</p>
-<p>
-You can override <a>CommandHandler.doKeyDown</a> to handle additional keyboard shortcuts or to change which commands are invoked via the keyboard.
-<p>
-Your code can invoke a command by calling the appropriate method on the <a>Diagram.commandHandler</a>.
-Each command method has a corresponding <b>can...</b> predicate that your code can use to enable or disable any buttons that invoke the command.
-Your code can customize the behavior of a command by overriding the method on <a>CommandHandler</a>,
-or by setting properties on the <a>CommandHandler</a> or <a>Diagram</a> or <a>Part</a>s --
-see <a href="../intro/permissions.html">GoJS Permissions</a>.
-</p>
-<p>
-There are several CommandHandler extensions that provide additional functionality.
-<p>
-More information can be found in the <a href="../intro/commands.html">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#commands">Related samples</a>
-            </p>
-            <hr>
-          
-        </div>
-    </div>
-  </body>
-  <!--  This script is part of the gojs.net website, and is not needed to run the sample -->
-  
+  </script>
+</body>
 </html>

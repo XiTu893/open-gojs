@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Linking Via Repeated Clicks to Determine Path of New Link</title>
+  <script src="../dist/open-gojs.umd.js"></script>
+  
+  <script src="https://cdn.jsdelivr.net/npm/gojs-extensions@latest/extensions/PolylineLinkingTool.js"></script>
+  
+  
+</head>
+<body>
+<div id="myDiagramDiv" style="border: solid 1px black; width: 100%; height: 500px"></div>
+  <div style="margin-block: .5em;">
+    <button id="SaveButton" onclick="save()">Save</button>
+    <button onclick="load()">Load</button>
+    Diagram Model saved in JSON format:
+  </div>
+  <textarea id="mySavedModel" style="width: 100%; height: 300px">
+{ "class": "go.GraphLinksModel",
+  "pointsDigits": 1,
+  "nodeDataArray": [
+    { "key": 1, "text": "Node 1", "fill": "blueviolet", "loc": "100 100" },
+    { "key": 2, "text": "Node 2", "fill": "orange", "loc": "400 100" }
+  ],
+  "linkDataArray": [  ]
+}
+  </textarea>
+  <div id="description">
+<p>
+    This sample demonstrates the PolylineLinkingTool, which replaces the standard LinkingTool. The tool is defined in its own file, as
+    <a href="https://gojs.net/latest/extensions/PolylineLinkingTool.js">PolylineLinkingTool.js</a>.
+  </p>
+  <p>
+    The user starts drawing a new link from a node in the normal manner, by dragging from a port, which for feedback purposes has a "pointer" cursor. Normally
+    the user would have to release the mouse near the target port/node. However with the PolylineLinkingTool the user may click at various points to cause the
+    new link to be routed along those points. Clicking on the target port completes the new link. Press <b>Escape</b> to cancel, or <b>Z</b> to remove the last
+    point.
+  </p>
+  <p>
+    Furthermore, because <a href="https://gojs.net/latest/api/symbols/Link.html#resegmentable" target="api">Link.resegmentable</a> is true, the user can easily add or remove segments from the route of a selected link. To insert a segment,
+    the user can start dragging the small diamond resegmenting handle. To remove a segment, the user needs to move a regular reshaping handle to cause the
+    adjacent two segments to be in a straight line.
+  </p>
+  <p>
+    The PolylineLinkingTool also works with orthogonally routed links. To demonstrate this, uncomment the two lines that initialize <a href="https://gojs.net/latest/api/symbols/Link.html#routing" target="api">Link.routing</a> to be
+    <a href="https://gojs.net/latest/api/symbols/Routing.html#orthogonal" target="api">Routing.Orthogonal</a>.
+  </p>
+  </div>
+  <script >
+function init() {
+
+    myDiagram = new go.Diagram('myDiagramDiv', {
+      // install custom linking tool, defined in PolylineLinkingTool.js
+      linkingTool: new PolylineLinkingTool(),
+      'undoManager.isEnabled': true
+    });
+
+    myDiagram.addDiagramListener('Modified', e => {
+      const button = document.getElementById('SaveButton');
+      if (button) button.disabled = !myDiagram.isModified;
+      const idx = document.title.indexOf('*');
+      if (myDiagram.isModified) { if (idx < 0) document.title += '*'; }
+      else { if (idx >= 0) document.title = document.title.slice(0, idx); }
+    });
+
+    myDiagram.nodeTemplate =
+      new go.Node('Spot', { locationSpot: go.Spot.Center })
+        .bindTwoWay('location', 'loc', go.Point.parse, go.Point.stringify)
+        .add(
+          new go.Shape({
+              width: 100,
+              height: 100,
+              fill: 'lightgray',
+              portId: '',
+              cursor: 'pointer',
+              fromLinkable: true,
+              fromLinkableSelfNode: true,
+              fromLinkableDuplicates: true, // optional
+              toLinkable: true,
+              toLinkableSelfNode: true,
+              toLinkableDuplicates: true // optional
+            })
+            .bind('fill'),
+          new go.Shape({ width: 70, height: 70, fill: 'transparent', stroke: null }),
+          new go.TextBlock()
+            .bind('text')
+        );
+
+    myDiagram.linkTemplate =
+      new go.Link({
+          reshapable: true, resegmentable: true,
+          adjusting: go.LinkAdjusting.Stretch // optional
+        })
+        .bindTwoWay('points', 'points')
+        .add(
+          new go.Shape({ strokeWidth: 1.5 }),
+          new go.Shape({ toArrow: 'OpenTriangle' })
+        );
+
+    load(); // load a simple diagram from the textarea
+  }
+
+  // Show the diagram's model in JSON format
+  function save() {
+    document.getElementById('mySavedModel').value = myDiagram.model.toJson();
+    myDiagram.isModified = false;
+  }
+  function load() {
+    myDiagram.model = go.Model.fromJson(document.getElementById('mySavedModel').value);
+  }
+
+  window.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>

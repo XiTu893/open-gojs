@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Path Finder Animation of Nodes along AvoidsNodes Routed Paths</title>
+  <script src="../dist/open-gojs.umd.js"></script>
+  
+  
+  
+  
+</head>
+<body>
+<div id="myDiagramDiv" style="border: solid 1px black; width: 100%; height: 720px"></div>
+  <div style="margin-block: .5em;">
+    <button onclick="toggleBounds(this)">Toggle Boundaries</button>
+    <button onclick="toggleActivities(this)">Toggle Activities</button>
+    <button onclick="toggleLinks(this)">Toggle Links</button>
+  </div>
+  <div id="description">
+<p>
+    This sample uses the <a href="https://gojs.net/latest/api/symbols/Routing.html#avoidsnodes" target="api">Routing.AvoidsNodes</a> as a form of rudimentary path finding with
+    hidden <a href="https://gojs.net/latest/api/symbols/Link.html" target="api">Link</a>s and <a href="https://gojs.net/latest/api/symbols/Node.html" target="api">Node</a>s to move simulated people around a house. Each person will
+    pick a random unique activity and then add a new <a href="https://gojs.net/latest/api/symbols/Link.html" target="api">Link</a> to the diagram between them and the
+    activity. Then the <a href="https://gojs.net/latest/api/symbols/Node.html" target="api">Node</a> representing the person has their location changed to each point
+    in <a href="https://gojs.net/latest/api/symbols/Link.html#points" target="api">Link.Points</a>, this change uses an <a href="https://gojs.net/latest/api/symbols/Animation.html" target="api">Animation</a> with the easing function
+    <a href="https://gojs.net/latest/api/symbols/Animation.html#easelinear" target="api">Animation.EaseLinear</a> to appear like constant fluid motion.
+  </p>
+  <p>
+    Each activity also has a direction associated with it. So when a <a href="https://gojs.net/latest/api/symbols/Link.html" target="api">Link</a> is created between
+    two <a href="https://gojs.net/latest/api/symbols/Node.html" target="api">Node</a>s they will have their <a href="https://gojs.net/latest/api/symbols/GraphObject.html#tospot" target="api">GraphObject.toSpot</a> and
+    <a href="https://gojs.net/latest/api/symbols/GraphObject.html#fromspot" target="api">GraphObject.fromSpot</a> properties set so that the <a href="https://gojs.net/latest/api/symbols/Link.html" target="api">Link</a> will go in the correct
+    direction. This is important for the chairs so that people always get in and out of them without
+    going through the back of the chair. This also helps with small spaces like the pantry.
+  </p>
+  </div>
+  <script >
+class Person {
+    static #nPeople = 0;
+    static activites = [];
+
+    #activity = null;
+    #prevActivity = null;
+
+    speed = 75 + Math.random() * 50; // document units per seconds
+    dia = null;
+    number = -1;
+    data = {};
+    node = null;
+
+    constructor(diagram, color) {
+      this.dia = diagram;
+      this.number = Person.#nPeople++;
+      this.data = {
+        key: 'person' + this.number,
+        color: color,
+        // loc: new go.Point(500, 300), // inside "Formal Living"
+        loc: new go.Point(415 + Math.random() * 10 - 5, 630 + Math.random() * 10 - 5) // under the front door
+      };
+
+      this.dia.model.addNodeData(this.data);
+      this.node = this.dia.findNodeForKey(this.data.key);
+
+      let _loop = act => {
+        this.doActivity(_loop);
+        // if (act) console.log('finished ' + act.name);
+      };
+
+      // pause for a moment before starting the loop
+      setTimeout(() => {
+        _loop();
+      }, 750);
+      // this.doActivity(act => console.log('done ' + act.name));
+    }
+
+    // used for debugging
+    // str=activity name, idx=if multiple results which to look at, default 0
+    static findActivityForString(str, idx) {
+      str = str.toLowerCase();
+      return Person.activites.filter(act => act.name.toLowerCase() == str)[idx || 0];
+    }
+
+    // do specified activity, or a random one if none are specified
+    doActivity(onComplete, activity, idx) {
+      // get the activity, specified by string or activity object, otherwise pick a random one
+      const act =
+        (typeof activity == 'string' ? Person.findActivityForString(activity, idx) : activity) ||
+        this.pickRandomActivity();
+
+      const toNodeData = {
+        key: 'to' + this.number,
+        color: null,
+        loc: act.loc,
+        avoidable: true
+      };
+      const fromNodeData = {
+        key: 'from' + this.number,
+        color: null,
+        loc: this.node.location,
+        avoidable: true
+      };
+
+      const linkData = {
+        from: fromNodeData.key,
+        to: toNodeData.key
+      };
+
+      // remove the old nodes if they are still present
+      if (this.dia.findNodeForKey(toNodeData.key)) {
+        const pre_existing = this.dia.findNodeForKey(toNodeData.key);
+        this.dia.remove(pre_existing);
+        const pre_existing2 = this.dia.findNodeForKey(fromNodeData.key);
+        this.dia.remove(pre_existing2);
+      }
+
+      const dir_dict = {
+        LEFT: go.Spot.Left,
+        RIGHT: go.Spot.Right,
+        UP: go.Spot.Top,
+        DOWN: go.Spot.Bottom
+      };
+
+      this.dia.model.addNodeData(toNodeData);
+      this.dia.model.addNodeData(fromNodeData);
+
+      // set toSpot and fromSpot so people go the correct direction more often
+      this.dia.findNodeForKey(toNodeData.key).toSpot = dir_dict[act.dir];
+      if (this.#prevActivity) {
+        this.dia.findNodeForKey(fromNodeData.key).fromSpot = dir_dict[this.#prevActivity.dir];
+      }
+
+      // create a link between hidden nodes at the current position and end position
+      this.dia.model.addLinkData(linkData);
+
+      const link = this.dia.findLinkForData(linkData);
+
+      // follow the points in the link
+      let points;
+      const nextStep = i => {
+        if (i >= points.length) {
+          // once we reach the final point remove the hidden nodes
+          const toNode = this.dia.findNodeForKey(toNodeData.key);
+          this.dia.remove(toNode);
+          const fromNode = this.dia.findNodeForKey(fromNodeData.key);
+          this.dia.remove(fromNode);
+
+          // "do" the activity (wait specified time)
+          setTimeout(
+            () => {
+              this.completeActivity();
+              if (onComplete) onComplete(this.#prevActivity); // call the callback function if one is supplied
+            },
+            this.#activity.time * 1000 * 0.4 * (Math.random() + 0.5)
+          );
+          return;
+        }
+
+        // animate the motion between link points
+        const anim = new go.Animation();
+        anim.add(this.node, 'location', this.node.location, points[i]);
+        anim.easing = go.Animation.EaseLinear;
+        let dur =
+          (Math.sqrt(this.node.location.distanceSquaredPoint(points[i])) / this.speed) * 1000;
+        anim.duration = dur >= 1 ? dur : 1;
+        anim.finished = () => nextStep(++i);
+        anim.start();
+      };
+
+      // this makes sure the router finished before looking at the link points
+      window.requestAnimationFrame(() => {
+        points = [...link.points.iterator];
+        points.push(toNodeData.loc);
+        nextStep(0);
+      });
+    }
+
+    pickRandomActivity() {
+      let act = null;
+      do {
+        act = Person.activites[parseInt(Math.random() * Person.activites.length)];
+      } while (!act.isOpen || this.#prevActivity == act || this.#prevActivity?.name == act?.name);
+
+      this.#activity = act;
+      this.#activity.isOpen = false;
+      return this.#activity;
+    }
+
+    completeActivity() {
+      this.#activity.isOpen = true;
+      this.#prevActivity = this.#activity;
+      this.#activity = null;
+    }
+  }
+
+  const houseBounds = [
+    // main house bounds
+    { angle: 0, x: 540, y: 110, width: 250, height: 30 },
+    { angle: 0, x: 760, y: 130, width: 30, height: 430 },
+    { angle: 0, x: 20, y: 540, width: 370, height: 20 },
+    { angle: 0, x: 20, y: 120, width: 20, height: 420 },
+    { angle: 0, x: 20, y: 80, width: 80, height: 50 },
+    { angle: 0, x: 270, y: 90, width: 270, height: 80 },
+    { angle: 0, x: 130, y: 10, width: 110, height: 30 },
+    { angle: 53, x: 245, y: 2, width: 110, height: 30 },
+    { angle: 303, x: 70, y: 90, width: 100, height: 30 },
+    { angle: 0, x: 290, y: 170, width: 10, height: 240 },
+    { angle: 0, x: 300, y: 360, width: 30, height: 10 },
+    { angle: 0, x: 370, y: 360, width: 200, height: 10 },
+    { angle: 0, x: 610, y: 360, width: 160, height: 10 },
+    { angle: 0, x: 530, y: 370, width: 10, height: 170 },
+    { angle: 0, x: 290, y: 440, width: 10, height: 100 },
+    { angle: 0, x: 230, y: 440, width: 60, height: 10 },
+    { angle: 0, x: 150, y: 440, width: 50, height: 10 },
+    { angle: 0, x: 150, y: 450, width: 10, height: 90 },
+    { angle: 0, x: 170, y: 340, width: 10, height: 60 },
+    { angle: 0, x: 40, y: 340, width: 130, height: 10 },
+    { angle: 0, x: 40, y: 300, width: 170, height: 10 },
+    { angle: 0, x: 250, y: 300, width: 40, height: 10 },
+    { angle: 0, x: 170, y: 430, width: 10, height: 11 },
+    { angle: 0, x: 440, y: 540, width: 320, height: 20 },
+    { angle: 0, x: 130, y: 170, width: 40, height: 130 },
+
+    // chairs
+    { angle: 0, x: 570, y: 200, width: 10, height: 60 },
+
+    // tables
+    { angle: 0, x: 350, y: 240, width: 80, height: 40 },
+    { angle: 0, x: 630, y: 210, width: 40, height: 40 },
+    { angle: 0, x: 160, y: 80, width: 50, height: 50 },
+
+    // activites
+    {"angle":0,"x":163.66663074493408,"y":507.3333282470703,"width":10,"height":10,"data":{"type":"interactable","name":"toilet","time":15,"dir":"RIGHT"}},{"angle":0,"x":78.33332538604736,"y":323.3333282470703,"width":10,"height":10,"data":{"type":"interactable","name":"pantry","time":3,"dir":"RIGHT"}},{"angle":0,"x":256.20492238352756,"y":501.9566044981982,"width":10,"height":10,"data":{"type":"interactable","name":"sink","time":5,"dir":"LEFT"}},{"angle":0,"x":79.40614297593106,"y":511.17083706622554,"width":10,"height":10,"data":{"type":"interactable","name":"washer","time":15,"dir":"UP"}},{"angle":0,"x":52.915132075042955,"y":510.5949804835129,"width":10,"height":10,"data":{"type":"interactable","name":"dryer","time":15,"dir":"UP"}},{"angle":0,"x":63.857079383480226,"y":240.50174043451716,"width":10,"height":10,"data":{"type":"interactable","name":"oven","time":10,"dir":"RIGHT"}},{"angle":0,"x":632.3606159295472,"y":460.8227113576087,"width":10,"height":10,"data":{"type":"interactable","name":"chair","time":30,"dir":"LEFT"}},{"angle":0,"x":633.5123818194348,"y":506.31817578842066,"width":10,"height":10,"data":{"type":"interactable","name":"chair","time":30,"dir":"LEFT"}},{"angle":0,"x":583.4098011046093,"y":236.65353268663625,"width":10,"height":10,"data":{"type":"interactable","name":"chair","time":30,"dir":"RIGHT"}},{"angle":0,"x":583.0509459583972,"y":213.7596303763082,"width":10,"height":10,"data":{"type":"interactable","name":"chair","time":30,"dir":"RIGHT"}},{"angle":0,"x":629.5424521622729,"y":163.2627625730647,"width":10,"height":10,"data":{"type":"interactable","name":"chair","time":30,"dir":"DOWN"}},{"angle":0,"x":653.5933070668215,"y":162.62140154911776,"width":10,"height":10,"data":{"type":"interactable","name":"chair","time":30,"dir":"DOWN"}},{"angle":0,"x":62.13561526324199,"y":188.17259680012856,"width":10,"height":10,"data":{"type":"interactable","name":"sink","time":8,"dir":"RIGHT"}}
+
+  ];
+
+  function init() {
+    myDiagram = new go.Diagram('myDiagramDiv', {
+      'animationManager.isEnabled': true
+    });
+
+    // Create the Diagram's Model:
+    myDiagram.model = new go.GraphLinksModel([], []);
+    myDiagram.model.modelData = {
+      isLinkVisible: false,
+      isActivityVisible: false,
+      isBoundaryVisible: false
+    };
+
+    myDiagram.linkTemplate =
+      new go.Link({
+          routing: go.Routing.AvoidsNodes, // this is what performs the "path finding"
+          pickable: false,
+          layername: 'Background'
+        })
+        .add(
+          new go.Shape({
+              name: 'SHAPE',
+              strokeWidth: 2,
+              strokeDashArray: [10, 6]
+            })
+            .bindObject('stroke', 'fromNode', fromNode => // make the link the same color as the person
+              myDiagram.findNodeForKey('person' + fromNode.key.slice(4)).data.color
+            )
+            .bindModel('opacity', 'isLinkVisible', isVisible => isVisible ? 1 : 0)
+        );
+
+    // the background image, a floor plan
+    myDiagram.add(
+      new go.Part({
+          // this Part is not bound to any model data
+          width: 840,
+          height: 570,
+          layerName: 'Background',
+          position: new go.Point(0, 0),
+          selectable: false,
+          pickable: false,
+          avoidable: false
+        })
+        .add(
+          new go.Picture('https://upload.wikimedia.org/wikipedia/commons/9/9a/Sample_Floorplan.jpg')
+        )
+    );
+
+    // the Node representation of an activity
+    myDiagram.nodeTemplateMap.add('activity',
+      new go.Node({
+          layerName: 'Background',
+          pickable: false,
+          avoidable: false
+        })
+        .bind('location')
+        .bind('angle')
+        .add(
+          new go.Shape({
+              strokeWidth: 0,
+              fill: 'blue'
+            })
+            .bindModel('opacity', 'isActivityVisible', isVisible => isVisible ? 0.5 : 0)
+            .bind('width')
+            .bind('height')
+        )
+    );
+
+    // the Node representation of a boundary
+    myDiagram.nodeTemplateMap.add('bound',
+      new go.Node({
+          layerName: 'Background',
+          pickable: false,
+          avoidable: true
+        })
+        .bind('location')
+        .bind('angle')
+        .add(
+          new go.Shape({
+              strokeWidth: 0,
+              fill: 'black'
+            })
+            .bindModel('opacity', 'isBoundaryVisible', isVisible => isVisible ? 0.5 : 0)
+            .bind('width')
+            .bind('height')
+        )
+    );
+
+    // load all of the activites and boundaries
+    houseBounds.forEach(b => {
+      let nodeData = {
+        width: b.width,
+        height: b.height,
+        location: new go.Point(b.x, b.y),
+        angle: b.angle,
+        category: b.data?.type == 'interactable' ? 'activity' : 'bound'
+      };
+
+      if (b.data?.type == 'interactable') {
+        Person.activites.push(
+          Object.assign(
+            {
+              isOpen: true,
+              loc: new go.Point(b.x + b.width / 2, b.y + b.height / 2)
+            },
+            b.data
+          )
+        );
+      }
+
+      myDiagram.model.addNodeData(nodeData);
+    });
+
+    // default template for people
+    myDiagram.nodeTemplateMap.add('',
+      new go.Node({
+          locationSpot: go.Spot.Center,
+          avoidable: false,
+          layerName: 'Foreground'
+        })
+        .bindTwoWay('location', 'loc')
+        .bind('avoidable')
+        .bind('fromSpot')
+        .bind('toSpot')
+        .add(
+          new go.Shape('Ellipse', {
+              width: 18,
+              height: 18,
+              strokeWidth: 2
+            })
+            .bind('fill', 'color')
+            .bind('stroke', 'color', c => {
+              if (!c || c == 'rgba(0,0,0,0)') return null;
+              const br = typeof c == 'string' ? new go.Brush(c) : c;
+              br.isDark() ? br.lightenBy(0.3) : br.darkenBy(0.2);
+              return br;
+            })
+        )
+    );
+
+    ['red', 'green', 'blue', 'pink', 'lightgreen', 'lightblue'].forEach(c => {
+      new Person(myDiagram, c);
+    });
+  }
+  document.addEventListener('DOMContentLoaded', init);
+
+  function toggleButton(elem, isSelected) {
+    elem.style.filter = isSelected ? 'brightness(180%)' : '';
+  }
+
+  function toggleBounds(elem) {
+    isVisible = !myDiagram.model.modelData.isBoundaryVisible;
+    toggleButton(elem, isVisible);
+    myDiagram.model.set(myDiagram.model.modelData, 'isBoundaryVisible', isVisible);
+  }
+
+  function toggleActivities(elem) {
+    isVisible = !myDiagram.model.modelData.isActivityVisible;
+    toggleButton(elem, isVisible);
+    myDiagram.model.set(myDiagram.model.modelData, 'isActivityVisible', isVisible);
+  }
+
+  function toggleLinks(elem) {
+    isVisible = !myDiagram.model.modelData.isLinkVisible;
+    toggleButton(elem, isVisible);
+    myDiagram.model.set(myDiagram.model.modelData, 'isLinkVisible', isVisible);
+  }
+  </script>
+</body>
+</html>

@@ -5,6 +5,7 @@ import terser from '@rollup/plugin-terser';
 import dts from 'rollup-plugin-dts';
 
 const input = 'src/index.ts';
+const inputEsm = 'src/index-esm.ts';
 
 export default [
   // UMD build
@@ -26,9 +27,9 @@ export default [
       terser({ keep_classnames: true, keep_fnames: true }),
     ],
   },
-  // ESM build
+  // ESM build（带 default 导出，兼容官方 go.mjs 的 `import go from 'gojs'`）
   {
-    input,
+    input: inputEsm,
     output: {
       file: 'dist/open-gojs.esm.js',
       format: 'esm',

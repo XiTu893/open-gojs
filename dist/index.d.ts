@@ -321,6 +321,30 @@ declare const TextEditingStartingSingleClickSelected: EnumValue;
 declare const TextEditingStartingDoubleClick: EnumValue;
 declare const WheelModeScroll: EnumValue;
 declare const WheelModeNone: EnumValue;
+/** 官方 SegmentType = {Move, Line, Bezier, QuadraticBezier, Arc, SvgArc}。
+ * 本项目 PathSegment 内部的 MoveTo / Close 常量仍导出，但不进该命名空间。
+ * Bezier/Move 直接映射到内部的 CubicBezier/MoveTo，使官方代码创建的三次贝塞尔
+ * 与移动段能被所有内部绘制/序列化逻辑按 'CubicBezier'/'MoveTo' 处理。 */
+declare const SegmentType: {
+    Move: EnumValue;
+    Line: EnumValue;
+    Bezier: EnumValue;
+    QuadraticBezier: EnumValue;
+    Arc: EnumValue;
+    SvgArc: EnumValue;
+};
+declare const GeometryStretch: {
+    None: EnumValue;
+    Default: EnumValue;
+    Fill: EnumValue;
+    Uniform: EnumValue;
+};
+declare const GeometryType: {
+    Line: EnumValue;
+    Rectangle: EnumValue;
+    Ellipse: EnumValue;
+    Path: EnumValue;
+};
 
 declare const Flip: {
     None: EnumValue;
@@ -1514,9 +1538,25 @@ declare class PathSegment {
     sweepAngle: number;
     centerX: number;
     centerY: number;
+    /** 「按角度」圆弧的几何终点（由 center/radius/startAngle+sweepAngle 推出）。
+     *  官方没有这个字段：它保留 endX/endY 为角度值，需要终点的场合（如 Close 段）用 Eo 采样结果。 */
+    arcEndX: number;
+    arcEndY: number;
     /** 是否为相对坐标 */
     isRelative: boolean;
     constructor(type?: EnumValue, endX?: number, endY?: number, x1?: number, y1?: number, x2?: number, y2?: number);
+    /** 官方命名：第一个控制点 X（内部存储字段为 x1） */
+    get point1X(): number;
+    set point1X(val: number);
+    /** 官方命名：第一个控制点 Y（内部存储字段为 y1） */
+    get point1Y(): number;
+    set point1Y(val: number);
+    /** 官方命名：第二个控制点 X（内部存储字段为 x2） */
+    get point2X(): number;
+    set point2X(val: number);
+    /** 官方命名：第二个控制点 Y（内部存储字段为 y2） */
+    get point2Y(): number;
+    set point2Y(val: number);
     copy(): PathSegment;
     equals(seg: PathSegment): boolean;
     /** 创建直线段 */
@@ -1585,12 +1625,21 @@ declare class Geometry {
     fillRule: string;
     /** 图形名称（用于 figure 属性） */
     name: string;
-    /** Auto 面板内容定位用的左上锚点（官方 geometry.spot1） */
+    /** Auto 面板内容定位用的左上锚点（官方 geometry.spot1）。
+     *  官方 Geometry 构造即默认 Spot.TopLeft.copy()，这里保持一致。 */
     spot1: any;
-    /** Auto 面板内容定位用的右下锚点（官方 geometry.spot2） */
+    /** Auto 面板内容定位用的右下锚点（官方 geometry.spot2），官方默认 Spot.BottomRight.copy()。 */
     spot2: any;
     /** 官方 geometry.defaultStretch（0=None 2=Fill 4=Vertical 5=Horizontal 6=Uniform），默认 Fill */
     defaultStretch: number;
+    /** 官方 geometry 记录的图形生成尺寸（Shape 生成图形几何时写入 width/height）。
+     *  包围盒至少要覆盖 (0,0,width,height) 这个原始盒子 —— 官方 computeBounds 就是这么做的：
+     *  先用 (0,0,width,height) 起步再并入实际路径。
+     *  少了这一步，DataStorage 这类「原始路径比盒子窄」的图形会被按窄包围盒横向拉伸，
+     *  拐角处出现尖刺。 */
+    width: number;
+    /** 同 width：图形生成时的高度 */
+    height: number;
     /**
      * 官方 go.d.ts：`constructor(type?: GeometryType, init?: Partial<Geometry>)`
      * —— 第一个参数是**几何类型**（`go.GeometryType.Line` 等），不是 figures。
@@ -1613,6 +1662,8 @@ declare class Geometry {
     remove(fig: PathFigure): boolean;
     /** 清空图形 */
     clear(): this;
+    /** 记录图形生成尺寸（官方 `Shape` 图形几何入口的做法），并作废已缓存的包围盒。 */
+    setSize(w: number, h: number): void;
     /** 获取边界矩形 */
     get bounds(): Rect;
     /** 计算边界矩形 */
@@ -2115,8 +2166,12 @@ declare class Binding {
     mode: EnumValue;
     sourceObject: string | null;
     name: string;
-    /** 官方 ThemeBinding.themeConverter：主题取值后的转换（在普通 converter 之前） */
+    /** 官方 ThemeBinding.themeConverter：findValue 之后的转换 */
     themeConverter: ((value: any, targetObject: any, model?: any) => any) | null;
+    /** 官方 ThemeBinding.themeSource：findValue 的 theme 子路径（'colors' / 'levels' ...） */
+    themeSource: string | null;
+    /** 官方 theme()/themeObject()/themeData()/themeModel() 建立的主题绑定（flags&16） */
+    isThemeBinding: boolean;
     constructor(targetProperty?: string, sourceProperty?: string, conversion?: (value: any, targetObject: any, model: any) => any);
     get isTwoWay(): boolean;
     get isFromModel(): boolean;
@@ -2126,6 +2181,23 @@ declare class Binding {
     ofObject(name?: string): Binding;
     copy(): Binding;
     getValueFromSource(data: any, targetObject: any, model: any): any;
+    /**
+     * 官方 ThemeBinding 求值（GraphObject.qo - Binding.updateTarget - ThemeBinding.pv）：
+     *  - theme()（sourceObject === 'theme'，官方 PT 标志）：key 直接用 sourceProperty，
+     *    findValue 后接 themeConverter；
+     *  - themeObject()/themeData()/themeModel()：先按 source 求源值，源值 undefined 整段跳过，
+     *    再跑 converter 得到主题 key，findValue 后接 themeConverter。
+     */
+    private _getThemeValue;
+    /**
+     * 官方 GraphObject.CD(sourceName) + freezeBindings(Ut) 语义：
+     * 官方在模板冻结时把所有子对象的绑定收集进 part.Xs，求值时 RN/DD 的 `this`=part，
+     * 因此 sourceName='' → DD('')=this=**part**（实测官方 updateTarget 收到的源对象是 Node）。
+     * 官方 RN 末尾的覆盖：'/'→elt.part、'.'→elt、'..'→elt.panel；
+     * 本实现中绑定就挂在 elt（owner）上，故 ''/'/' 取 part、'.' 取自身、'..' 取所在面板。
+     * 具名对象从 part.findObject(name) 找。
+     */
+    private _findSourceObject;
     getValueFromTarget(targetValue: any, data: any, model: any): any;
     toString(): string;
     private _targetId;
@@ -2145,7 +2217,7 @@ declare class Binding {
     get isToModel(): boolean;
     /** 官方 Binding.isToObject：源是某个 GraphObject（theme 绑定不算） */
     get isToObject(): boolean;
-    /** 官方 Binding.isToTheme：theme() 建立的主题绑定（sourceObject === 'theme'） */
+    /** 官方 Binding.isToTheme：theme/themeObject/themeData/themeModel 的主题绑定（flags&16） */
     get isToTheme(): boolean;
     /** 官方 Binding.cloneProtected */
     cloneProtected(copy: Binding): void;
@@ -2598,6 +2670,10 @@ declare class Panel extends GraphObject {
     private _originX;
     private _originY;
     private _unionRect;
+    /** 官方 `PanelLayoutLink.or`：measure 算出的 route-local 并集帧（子元素 z 都相对它） */
+    private _linkOrRect;
+    /** 官方 `PanelLayoutLink.qf`：measure 时按固定顺序存下的子元素 z 矩形，arrange 按序消费 */
+    private _linkQfRects;
     private _defaultColumnSeparatorStroke;
     private _defaultColumnSeparatorStrokeWidth;
     private _defaultRowSeparatorStroke;
@@ -2823,7 +2899,33 @@ declare class Panel extends GraphObject {
     private _arrangeGraduated;
     /** 取 link 里「画线」的主图元：优先 isPanelMain，否则第一个同时有 fill/stroke 的 Shape */
     private _findLinkMainElement;
+    /**
+     * 官方 `PanelLayoutLink.measure(t, i, e, s, n, o, r)`（go-debug.js 全文解码）。
+     *
+     * 帧约定（已用官方探针数值验证）：
+     * - `or`：从 routeRect(0,0,w,h) 起，依次并入 path、各主 Shape、各子元素的 z，
+     *   最终 `union` 只取尺寸（x,y 归 0），link.position = routeBounds 原点 + or.origin。
+     * - `qf[i]`：与「可见元素顺序（path 单独在最前）」一一对应的 z 矩形（route-local），
+     *   arrange 时按同一顺序消费，child.actualBounds = z − or.origin。
+     * - 子元素锚点三分支：segmentIndex 为 NaN → 几何分数点；越界（含默认 -Infinity）→
+     *   路线中点；否则 → 点列线段插值。锚点均为 route-local（doc − routeBounds 原点）。
+     */
     private _measureLink;
+    /** 官方 `PanelLayoutLink.measureLinkPath(t, w, h, s)`：po(measuredBounds) + p3(naturalBounds) */
+    private _measureLinkPath;
+    /** 官方 `GraphObject.po(x,y,w,h)`：设 measuredBounds；scale/angle 非恒等时取变换后的轴对齐包围盒 */
+    private _linkPo;
+    /**
+     * 官方 Transform 链（所有 op 都是后乘，点按调用逆序受作用）：
+     * `Zs(-N.x,-N.y)` → `lt(sc)` → `Ns(a1,cx,cy)` → `Ns(a2,cx,cy)`
+     * 即点先绕 (cx,cy) 旋转（两个同中心旋转可合成 a1+a2），再按 sc 缩放（绕原点），最后平移。
+     */
+    private static _linkXf;
+    /**
+     * 官方 `PanelLayoutLink.arrange(t, i, e)`：按 measure 存下的 `qf` 顺序，
+     * child.actualBounds = z − or.origin（不再重算锚点/角度）；
+     * 收尾把 `t.location` 同步为 position + WD 偏移。
+     */
     private _arrangeLink;
     private _getPointAtDistance;
     private _getAngleAtDistance;
@@ -3149,6 +3251,14 @@ declare class Part extends Panel {
     get isVirtual(): boolean;
     get containingGroup(): any;
     set containingGroup(val: any);
+    /**
+     * 官方 Part.set containingGroup 尾部的连线传播：
+     * - 本 Part 是 Group（有 memberParts）：官方 `Part.Lh(n,this,!0,0,!0)` 收集本组
+     *   及其全部成员（递归下钻嵌套组），对其中每个 Node 的所有连线调用 `Link.dg`；
+     * - 本 Part 是 Node（含 Group 自身）：自身 linksConnected 与 labeledLink 也重算。
+     * 用鸭子类型代替 instanceof，避免 Part ↔ Node 的循环 import。
+     */
+    private _propagateContainingGroupToLinks;
     get adornmentStream(): Iterator<any>;
     /** Find a named GraphObject within this Part */
     findObject(name: string): GraphObject | null;
@@ -3360,6 +3470,8 @@ declare class GraphObject {
     private _toEndSegmentLength;
     private _fromShortLength;
     private _toShortLength;
+    /** 官方 `port.Vd`：side-spot 连线端口 Knot 缓存（见 LinkKnot.ts） */
+    private _knot;
     private _segmentIndex;
     private _segmentFraction;
     private _segmentOffset;
@@ -3451,8 +3563,13 @@ declare class GraphObject {
     set isActionable(val: boolean);
     get isPanelMain(): boolean;
     set isPanelMain(val: boolean);
-    get portId(): string;
-    set portId(val: string);
+    get portId(): string | null;
+    set portId(val: string | null);
+    /**
+     * 官方 `Node.ne(port)`：清空端口上的 side-spot knot 缓存。
+     * 由 Node.invalidateConnectedLinks / portId 变更 / link 端点变更触发。
+     */
+    invalidateConnectedLinksCache(): void;
     get contextMenu(): any;
     set contextMenu(val: any);
     get toolTip(): any;
@@ -3537,11 +3654,18 @@ declare class GraphObject {
     bindObject(targetProperty: string, sourceProperty: string, conversion?: (value: any, targetObject: any, model: any) => any, backConversion?: (value: any, sourceData: any, model: any) => any, sourceObject?: string): this;
     /** 官方 `GraphObject.bindTwoWay(targetprop, sourceprop?, conv?, backconv?)`：第 3 参为 source→target 转换 */
     bindTwoWay(targetProperty: string, sourceProperty?: string, conversion?: (value: any, targetObject: any, model: any) => any, backConversion?: (value: any, sourceData: any, model: any) => any): this;
-    /** 官方 GraphObject.theme(targetprop, sourceprop?, conv?, backconv?, themeconv?)：主题绑定（ThemeBinding） */
-    theme(targetProperty: string, sourceProperty?: string, conversion?: (value: any, targetObject: any, model: any) => any, backConversion?: (value: any, sourceData: any, model: any) => any, themeConverter?: (value: any, targetObject: any, model?: any) => any): this;
-    themeData(targetProperty: string, sourceProperty?: string, conversion?: (value: any, targetObject: any, model: any) => any): this;
-    themeModel(targetProperty: string, sourceProperty?: string, conversion?: (value: any, targetObject: any, model: any) => any): this;
-    themeObject(targetProperty: string, sourceProperty?: string, conversion?: (value: any, targetObject: any, model: any) => any, objectname?: string): this;
+    /**
+     * 官方 GraphObject.theme(targetprop, sourceprop?, themesource?, conv?, themeconv?)。
+     * 官方第 3 参是 themeSource、第 4 参才是 converter —— 旧签名把 converter 放在第 3 位，
+     * flowchart 的 .themeObject('stroke','isSelected',null,fn) 因此把 fn 当成了 sourceName，
+     * 描边永远停在默认黑色。
+     */
+    theme(targetProperty: string, sourceProperty?: string, themeSource?: string | null, converter?: (value: any, targetObject: any, model: any) => any, themeConverter?: (value: any, targetObject: any, model?: any) => any): this;
+    /** 官方 themeData：ofData —— 源是 part.data（旧版误设成 modelData） */
+    themeData(targetProperty: string, sourceProperty?: string, themeSource?: string | null, converter?: (value: any, targetObject: any, model: any) => any, themeConverter?: (value: any, targetObject: any, model?: any) => any): this;
+    themeModel(targetProperty: string, sourceProperty?: string, themeSource?: string | null, converter?: (value: any, targetObject: any, model: any) => any, themeConverter?: (value: any, targetObject: any, model?: any) => any): this;
+    /** 官方 themeObject：源是“绑定面板”（sourceName 默认 ''）上的属性 */
+    themeObject(targetProperty: string, sourceProperty?: string, themeSource?: string | null, converter?: (value: any, targetObject: any, model: any) => any, themeConverter?: (value: any, targetObject: any, model?: any) => any, sourceName?: string): this;
     bindModel(targetProperty: string, sourceProperty?: string, conversion?: (value: any, targetObject: any, model: any) => any): this;
     setProperties(props: Record<string, any>): this;
     /** Batch set properties */
@@ -3792,6 +3916,14 @@ declare class Shape extends GraphObject {
     get fromArrow(): string;
     set fromArrow(val: string);
     /**
+     * 官方 `Shape.lF()`：设置 toArrow/fromArrow 后的连带默认值。
+     * `JE()` 把 segmentOrientation 置为 Along(21)；toArrow 有效 → segmentIndex=-1、
+     * alignmentFocus=Spot.Right；否则 fromArrow 有效 → segmentIndex=0、Spot.Left。
+     * 官方在 undo/redo 期间跳过（`diagram.undoManager.isUndoingRedoing`）。
+     * 缺这一步时箭头元素在 measure 里走错锚点分支，箭头位置与官方不一致。
+     */
+    private _applyArrowLinkDefaults;
+    /**
      * 官方 `Shape.polygonContainsRect(b)`：本 Shape 的填充多边形是否包含给定矩形。
      *
      * 步骤与官方一致：① 所属 Part 的 `actualBounds` 必须包含 b；② 矩形四个角必须都在几何内部；
@@ -3991,6 +4123,8 @@ declare class Link extends Part {
     private static _normalizeAngle;
     /** 把 `Orientation.*` 枚举值（或数字）映射到官方 computeAngle 的分支码 */
     private static _orientationCode;
+    /** 供 Panel._measureLink 使用的 orientation 分支码（官方 measure 里 `L` 的值） */
+    static orientationCode(o: any): number;
     /** 官方 `G.u`（近似相等，用于正交路由的共线判定） */
     private static _approx;
     /** 官方 `G.H`（近似等于 0） */
@@ -4040,6 +4174,19 @@ declare class Link extends Part {
     set fromPortId(val: string);
     get toPortId(): string;
     set toPortId(val: string);
+    /** 官方 `Node.OS/ES → ne(port)`：连线端点变更时清空端口 knot 缓存 */
+    private _ggPort;
+    /**
+     * 官方 `Link.dg()`：按两端点的公共 containingGroup 更新本 Link 的从属关系。
+     * 官方 Link 的 containment 不是模型 group 数据直接给的，而是
+     * `fromNode.findCommonContainingGroup(toNode)` 的结果（嵌套组时取最深公共祖先）；
+     * 两端都在同一 Group 内的连线 `isTopLevel === false`，
+     * 布局收集（Layout.collectParts 的 toplevelonly 过滤）才不会把组内连线
+     * 及其端点塞进顶层网络 —— 否则 ParallelLayout.findSplitMerge 会看到
+     * 组内的多个 Split 节点而抛 "Split node already exists"（flowgrammer）。
+     * 由 fromNode/toNode setter 与 Part.containingGroup 变更传播调用。
+     */
+    updateContainingGroup(): void;
     /** 官方 `Link.isTreeLink`（默认 true） */
     get isTreeLink(): boolean;
     set isTreeLink(val: boolean);
@@ -4083,7 +4230,10 @@ declare class Link extends Part {
     getLinkPointToPort(port: GraphObject, spot: Spot): Point;
     /** Compute the route points for this link */
     computePoints(): boolean;
-    private _applyShortLengths;
+    /** 官方 `Link.r4` 的 curviness 中点插入（非 Bezier 快路径，显式设置 curviness 时） */
+    private _r4Mid;
+    /** 官方 `Link.o4`：Bezier 快路径插入两个控制点并重算端点 */
+    private _o4;
     /** Resolve the effective fromSpot for this link */
     private _resolveFromSpot;
     private _resolveToSpot;
@@ -4178,8 +4328,12 @@ declare class Link extends Part {
     private _resolveLinkSpot;
     /** 官方 `Link.computeShortLength(isFrom)` */
     computeShortLength(isFrom: boolean): number;
-    /** 官方 `Link.computeEndSegmentLength(node, port, spot, isFrom, dir?)`（本项目无 Knot，跳过 side-spot 分支） */
+    /** 官方 `Link.computeEndSegmentLength(node, port, spot, isFrom, dir?)` */
     computeEndSegmentLength(node: Node | null, port: GraphObject | null, spot: Spot, isFrom: boolean, dir?: number): number;
+    /** 官方 `Link.l4(port, link)`：只查已有 knot，不创建 */
+    private _l4;
+    /** 官方 `Link.YS(port)`：取（必要时创建）端口 Knot 中本连线的 LinkInfo */
+    private _ys;
     /** 官方 `Link.computeOtherPoint(othernode, otherport, otherspot?, from?, result?)` */
     computeOtherPoint(othernode: Node, otherport: GraphObject, otherspot?: Spot, from?: boolean, result?: Point): Point;
     /** 官方 `Link.getLinkPointFromPoint(node, port, focus, p, from, result?)` */
@@ -4188,7 +4342,9 @@ declare class Link extends Part {
     getLinkPoint(node: Node | null, port: GraphObject, spot: Spot, from: boolean, ortho: boolean, othernode: Node | null, otherport: GraphObject, result?: Point): Point;
     /** 官方 `Link.getLinkDirection(node, port, linkpoint, spot, from, ortho, othernode, otherport)` */
     getLinkDirection(node: Node | null, port: GraphObject | null, linkpoint: Point, spot: Spot, from: boolean, ortho: boolean, othernode: Node | null, otherport: GraphObject | null): number;
-    /** 官方 `G.Sx(null, spot.x, spot.y)`：spot → 方向角 */
+    /** 官方 `Link.h4(...)`（getLinkDirection 内核） */
+    private _h4;
+    /** 官方 `G.Sx(null, spot.x, spot.y)`：点位 spot → 方向角（含 45/135/225/315 对角方向） */
     private static _spotDirection;
     /** 官方 `Link.computeSpacing()` */
     computeSpacing(): number;
@@ -4244,10 +4400,17 @@ declare class Link extends Part {
     invalidateGeometry(): void;
     /** 官方 `Link.geometry` */
     get geometry(): Geometry;
+    /**
+     * 官方 `Link.wc(t, isFrom, ref)`：把几何端点沿首/末线段向内缩短
+     * `computeShortLength`（2 点时上限为半段长，多点时上限为整段长）。
+     * 官方在 makeGeometry 内对几何做短化（link.points 本身不含短化）。
+     * 经官方坐标系（平移到 min、ref=min/0,0）化简后等价于对原始坐标直接缩短。
+     */
+    private _wcPoint;
     /** 官方 `Link.makeGeometry()`（本项目无 Transform 矩阵，按点列构造折线/贝塞尔几何） */
     makeGeometry(): Geometry;
-    /** 官方 `Link.adjustPoints(start, end, p1, p2)` */
-    adjustPoints(start: number, end: number, p1: Point, p2: Point): boolean;
+    /** 官方 `Link.adjustPoints(start, p1, end, p2)` */
+    adjustPoints(start: number, p1: Point, end: number, p2: Point): boolean;
     /** 官方 `Link.f4`（LinkAdjusting.Scale：保持形状的仿射变换） */
     private _adjustScale;
     /** 官方 `Link.u4`（LinkAdjusting.Stretch：端点对齐的拉伸） */
@@ -4260,9 +4423,13 @@ declare class Link extends Part {
     computeMidOrthoPosition(fromX: number, fromY: number, toX: number, toY: number, vertical: boolean): number;
     /**
      * 官方 `Link.addOrthoPoints(startFrom, fromDir, endTo, toDir, fromnode, tonode)`。
-     * 官方是约 90 行的分情况折线表；本项目用等价的最少拐点正交连接（只补中间点，不含 startFrom/endTo）。
+     * 逐分支转译自 go-debug.js 778104..784083（含 fA/sA/nA 路由状态与尾部两点追加）。
      */
     addOrthoPoints(startFrom: Point, fromDir: number, endTo: Point, toDir: number, fromnode: Node, tonode: Node): void;
+    /** 官方 Link 路由状态字段：fA=toDir 被吸附, sA=fromDir 吸附值, nA=toDir 吸附值 */
+    private _fA;
+    private _sA;
+    private _nA;
     /** 官方 `Link.invalidateOtherJumpOvers(bounds)`（本项目不做 jump 几何缓存，仅让同批 JumpOver/Gap 失效） */
     invalidateOtherJumpOvers(bounds: Rect): void;
     copy(): Link;
@@ -4566,6 +4733,8 @@ declare class Picture extends GraphObject {
     private _source;
     private _image;
     private _loadedImage;
+    /** source 直接是 <canvas>/<img>/<video> 元素时的可绘制对象（官方 4.x 支持）。 */
+    private _canvasSource;
     private _imageStretch;
     private _imageAlignment;
     private _sourceRect;
@@ -4576,7 +4745,13 @@ declare class Picture extends GraphObject {
     constructor(source?: string | Partial<Picture>, init?: Partial<Picture>);
     get source(): string;
     set source(val: string);
-    get element(): HTMLImageElement | null;
+    /**
+     * 官方 4.x 的 `Picture.element`：直接给一个 <canvas>/<img>/<video> 元素来绘制
+     * （canvases 样例用 Chart.js 画到 canvas 上再 `.bind('element', 'datasets', fn)`）。
+     * 官方只接受 Image/Canvas/Video 三种，其他类型直接报错。
+     */
+    get element(): HTMLImageElement | HTMLCanvasElement | HTMLVideoElement | null;
+    set element(val: HTMLImageElement | HTMLCanvasElement | HTMLVideoElement | null);
     get image(): HTMLImageElement | null;
     set image(val: HTMLImageElement | null);
     get imageStretch(): EnumValue;
@@ -4640,7 +4815,6 @@ declare class CanvasRenderer {
     private _drawPathWithJumpGap;
     /** Render an arrowhead at the end of a link */
     private _renderArrow;
-    private _renderLinkLabel;
     /** Render any GraphObject by dispatching to the appropriate handler */
     renderGraphObject(obj: GraphObject, offsetX: number, offsetY: number): void;
     /** Render a Panel and its children */
@@ -4674,6 +4848,17 @@ declare class CanvasRenderer {
     _restoreTransform(): void;
     /** Trace a geometry path on the canvas context */
     _drawGeometry(ctx: CanvasRenderingContext2D, geo: Geometry): void;
+    /**
+     * 开一条新路径并画单个 figure。
+     *
+     * 官方 Geometry（type 4）是**逐 figure** 提交的：`... endPath(p)` 里的 `p` 就是
+     * figure 序号，所以「填不填」是按 figure 自己判定的。本项目以前把整个 geometry
+     * 当成一条路径统一 fill，导致 `PathFigure(..., false)` 的图形（CircleLine、
+     * Curve1/2、AsteriskLine、Terminator…）被涂色，与官方差一大片。
+     */
+    private _drawFigure;
+    /** 把单个 figure 的线段追加到当前路径（不 beginPath） */
+    private _drawFigureSegments;
     /** Draw an arc segment from current point using SVG arc parameterization */
     private _drawArcSegment;
     /** Resolve a BrushLike to a fill style string or CanvasGradient */
@@ -5071,10 +5256,13 @@ declare class PanningTool extends Tool {
 
 declare class Placeholder extends GraphObject {
     static readonly className: string;
+    /** 官方 Placeholder.padding：number 或 Margin（官方 setter 把 number 归一成 Margin） */
     private _padding;
     constructor(init?: Placeholder);
-    get padding(): number;
-    set padding(val: number);
+    get padding(): number | Margin;
+    set padding(val: number | Margin);
+    /** padding 的四边值（number 四边均匀；Margin 按 top/right/bottom/left） */
+    private _padSides;
     get _placeholderBounds(): Rect;
     /**
      * 官方 `Placeholder.computeMemberBounds(result)`：把所属 Group 的可见成员并集写入 `result`（原地修改并返回）。
@@ -5083,7 +5271,7 @@ declare class Placeholder extends GraphObject {
      */
     computeMemberBounds(result: Rect): Rect;
     /**
-     * 官方 `Placeholder.computeBorder(result)`：成员并集再按 `margin` 外扩，写入 `result`（原地修改并返回）。
+     * 官方 `Placeholder.computeBorder(result)`：成员并集再按 `padding`（Margin）外扩，写入 `result`。
      * - 子图折叠（`!isSubGraphExpanded`）时宽高为 0；
      * - `Group.computesBoundsIncludingLocation` 且 group.location 有效时，把 location 并入边界。
      */
@@ -6742,14 +6930,38 @@ declare class LayoutNetwork {
     createEdge(): LayoutEdge;
     /** Add a vertex to this network */
     addVertex(vertex: LayoutVertex): LayoutVertex;
+    /**
+     * 把一批顶点/边重新挂回本网络（不重复登记边到 vertex 上）。
+     *
+     * `splitIntoSubNetworks()` 是**破坏性**的：它把顶点/边从本网络搬到子网络，
+     * 拆完主网络就空了。但官方 CircularLayout 在 commitNodes()/commitLinks() 阶段
+     * `this.network` 仍然持有全部 vertexes/edges —— 样例（friendWheel 的 WheelLayout 等）
+     * 覆写里遍历 `this.network.vertexes` / `this.network.edges`，
+     * 一旦是空列表，径向旋转和 link.curviness 就都失效。拆分只是分组手段，
+     * 所以布局算完再挂回来。
+     */
+    reattach(vertexes: LayoutVertex[], edges: LayoutEdge[]): void;
     /** Add an edge to this network (官方：toVertex.addSourceEdge, fromVertex.addDestinationEdge) */
     addEdge(edge: LayoutEdge): LayoutEdge;
     /** Add a link to the network, creating an edge between the from/to vertexes */
     addLink(link: Link): LayoutEdge | null;
     /** Add a node to the network, creating a vertex */
     addNode(node: Node): LayoutVertex;
-    /** 官方 LayoutNetwork.addParts(parts, toplevelonly?, pred?): void */
-    addParts(parts: any, toplevelonly?: boolean, pred?: ((a: any) => boolean) | null): void;
+    /**
+     * 官方 LayoutNetwork.addParts(coll, toplevelonly?, pred?): void
+     * 官方是两阶段：先把**节点**入网（`Group.layout === null` 的组递归收成员，
+     * 且递归时用默认谓词），再处理**连线** —— 连线端点用 `findGroupVertex`
+     * 解析到「自身或网络中已有的最深祖先 vertex」，**不自动创建端点 vertex**；
+     * 任一侧解析为 null 则跳过该连线。这正是 flowgrammer 组内布局
+     * 不会把 L3→4 的端点 node4（属于嵌套组 -2）塞进组 -1 网络的原因。
+     */
+    addParts(coll: any, toplevelonly?: boolean, pred?: ((a: any) => boolean) | null): void;
+    /**
+     * 官方 LayoutNetwork.findGroupVertex(node)：
+     * 端点解析为「自身（findVisibleNode）的 vertex，否则沿 containingGroup 向上
+     * 找第一个已入网的祖先 vertex」，全都没有则 null。
+     */
+    findGroupVertex(node: any): LayoutVertex | null;
     /** 官方 LayoutNetwork.deleteVertex(vertex) */
     deleteVertex(vertex: LayoutVertex): void;
     /** 官方 LayoutNetwork.deleteNode(node) */
@@ -6766,8 +6978,11 @@ declare class LayoutNetwork {
     findVertex(node: Node): LayoutVertex | null;
     /** Find the edge associated with a link */
     findEdge(link: Link): LayoutEdge | null;
-    /** Create an edge connecting two vertexes */
-    linkVertexes(fromVertex: LayoutVertex, toVertex: LayoutEdge | LayoutVertex): LayoutEdge;
+    /**
+     * 官方 LayoutNetwork.linkVertexes(fromVertex, toVertex, link?)：
+     * 任一侧为 null 直接返回 null（不建点）；带 link 时登记 link→edge 映射。
+     */
+    linkVertexes(fromVertex: LayoutVertex | null, toVertex: LayoutVertex | null, link?: Link | null): LayoutEdge | null;
     /** Delete an edge from the network */
     deleteEdge(edge: LayoutEdge): void;
     /**
@@ -7759,6 +7974,9 @@ declare class CircularLayout extends Layout {
     private _comparer;
     private _nodeDiameterFormula;
     private _actualSpacing;
+    /** 最近一次布局产生的子网络（splitIntoSubNetworks 会把顶点搬进去，
+     *  主网络 vertexes 因此变空，commitNodes/commitLinks 需要遍历它们）。 */
+    private _lastSubNetworks;
     private _actualCenter;
     get radius(): number;
     set radius(val: number);
@@ -7808,6 +8026,8 @@ declare class CircularLayout extends Layout {
      */
     private _computeRadius;
     commitNodes(): void;
+    /** 提交时要遍历的网络：有子网络就遍历子网络，否则遍历主网络 */
+    private _commitNetworks;
     commitLinks(): void;
     static ConstantSpacing: EnumValue;
     static ConstantDistance: EnumValue;
@@ -8242,8 +8462,14 @@ declare class AnimationTrigger {
     copy(): AnimationTrigger;
 }
 
+/** 图形生成函数：与官方 `Shape.defineFigureGenerator` 的签名一致（shape 可能为 undefined）。 */
 type FigureGenerator = (shape: any, w: number, h: number) => Geometry;
+/**
+ * 全部图形生成器。值为生成函数，或另一个已注册图形名的字符串别名
+ * （官方 `defineFigureGenerator(name, 'Other')`，如 StoredData -> DataStorage）。
+ */
 declare const figures: Map$1<string, FigureGenerator | string>;
+/** 按图形名取几何；`p1/p2` 对应官方传入的 parameter1/parameter2。 */
 declare function getFigureGeometry(name: string, w: number, h: number, p1?: number, p2?: number, shape?: any): Geometry | null;
 
 /** 本包版本（官方 GoJS 同名导出 `go.version` 为 "4.0.4"，此处诚实地报告自身版本）。 */
@@ -8443,14 +8669,7 @@ declare const ChangeType: {
     Insert: EnumValue;
     Remove: EnumValue;
 };
-declare const SegmentType: {
-    Move: EnumValue;
-    Line: EnumValue;
-    Bezier: EnumValue;
-    QuadraticBezier: EnumValue;
-    Arc: EnumValue;
-    SvgArc: EnumValue;
-};
+
 declare const AnimationStyle: {
     Default: EnumValue;
     AnimateLocations: EnumValue;
@@ -8506,18 +8725,7 @@ declare const LayoutConditions: {
     Standard: number;
     All: number;
 };
-declare const GeometryStretch: {
-    None: EnumValue;
-    Default: EnumValue;
-    Fill: EnumValue;
-    Uniform: EnumValue;
-};
-declare const GeometryType: {
-    Line: EnumValue;
-    Rectangle: EnumValue;
-    Ellipse: EnumValue;
-    Path: EnumValue;
-};
+
 declare const LinkingDirection: {
     Either: EnumValue;
     ForwardsOnly: EnumValue;

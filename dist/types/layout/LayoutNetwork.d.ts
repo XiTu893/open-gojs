@@ -27,14 +27,38 @@ export declare class LayoutNetwork {
     createEdge(): LayoutEdge;
     /** Add a vertex to this network */
     addVertex(vertex: LayoutVertex): LayoutVertex;
+    /**
+     * 把一批顶点/边重新挂回本网络（不重复登记边到 vertex 上）。
+     *
+     * `splitIntoSubNetworks()` 是**破坏性**的：它把顶点/边从本网络搬到子网络，
+     * 拆完主网络就空了。但官方 CircularLayout 在 commitNodes()/commitLinks() 阶段
+     * `this.network` 仍然持有全部 vertexes/edges —— 样例（friendWheel 的 WheelLayout 等）
+     * 覆写里遍历 `this.network.vertexes` / `this.network.edges`，
+     * 一旦是空列表，径向旋转和 link.curviness 就都失效。拆分只是分组手段，
+     * 所以布局算完再挂回来。
+     */
+    reattach(vertexes: LayoutVertex[], edges: LayoutEdge[]): void;
     /** Add an edge to this network (官方：toVertex.addSourceEdge, fromVertex.addDestinationEdge) */
     addEdge(edge: LayoutEdge): LayoutEdge;
     /** Add a link to the network, creating an edge between the from/to vertexes */
     addLink(link: Link): LayoutEdge | null;
     /** Add a node to the network, creating a vertex */
     addNode(node: Node): LayoutVertex;
-    /** 官方 LayoutNetwork.addParts(parts, toplevelonly?, pred?): void */
-    addParts(parts: any, toplevelonly?: boolean, pred?: ((a: any) => boolean) | null): void;
+    /**
+     * 官方 LayoutNetwork.addParts(coll, toplevelonly?, pred?): void
+     * 官方是两阶段：先把**节点**入网（`Group.layout === null` 的组递归收成员，
+     * 且递归时用默认谓词），再处理**连线** —— 连线端点用 `findGroupVertex`
+     * 解析到「自身或网络中已有的最深祖先 vertex」，**不自动创建端点 vertex**；
+     * 任一侧解析为 null 则跳过该连线。这正是 flowgrammer 组内布局
+     * 不会把 L3→4 的端点 node4（属于嵌套组 -2）塞进组 -1 网络的原因。
+     */
+    addParts(coll: any, toplevelonly?: boolean, pred?: ((a: any) => boolean) | null): void;
+    /**
+     * 官方 LayoutNetwork.findGroupVertex(node)：
+     * 端点解析为「自身（findVisibleNode）的 vertex，否则沿 containingGroup 向上
+     * 找第一个已入网的祖先 vertex」，全都没有则 null。
+     */
+    findGroupVertex(node: any): LayoutVertex | null;
     /** 官方 LayoutNetwork.deleteVertex(vertex) */
     deleteVertex(vertex: LayoutVertex): void;
     /** 官方 LayoutNetwork.deleteNode(node) */
@@ -51,8 +75,11 @@ export declare class LayoutNetwork {
     findVertex(node: Node): LayoutVertex | null;
     /** Find the edge associated with a link */
     findEdge(link: Link): LayoutEdge | null;
-    /** Create an edge connecting two vertexes */
-    linkVertexes(fromVertex: LayoutVertex, toVertex: LayoutEdge | LayoutVertex): LayoutEdge;
+    /**
+     * 官方 LayoutNetwork.linkVertexes(fromVertex, toVertex, link?)：
+     * 任一侧为 null 直接返回 null（不建点）；带 link 时登记 link→edge 映射。
+     */
+    linkVertexes(fromVertex: LayoutVertex | null, toVertex: LayoutVertex | null, link?: Link | null): LayoutEdge | null;
     /** Delete an edge from the network */
     deleteEdge(edge: LayoutEdge): void;
     /**

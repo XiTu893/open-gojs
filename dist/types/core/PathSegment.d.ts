@@ -36,9 +36,25 @@ export declare class PathSegment {
     sweepAngle: number;
     centerX: number;
     centerY: number;
+    /** 「按角度」圆弧的几何终点（由 center/radius/startAngle+sweepAngle 推出）。
+     *  官方没有这个字段：它保留 endX/endY 为角度值，需要终点的场合（如 Close 段）用 Eo 采样结果。 */
+    arcEndX: number;
+    arcEndY: number;
     /** 是否为相对坐标 */
     isRelative: boolean;
     constructor(type?: EnumValue, endX?: number, endY?: number, x1?: number, y1?: number, x2?: number, y2?: number);
+    /** 官方命名：第一个控制点 X（内部存储字段为 x1） */
+    get point1X(): number;
+    set point1X(val: number);
+    /** 官方命名：第一个控制点 Y（内部存储字段为 y1） */
+    get point1Y(): number;
+    set point1Y(val: number);
+    /** 官方命名：第二个控制点 X（内部存储字段为 x2） */
+    get point2X(): number;
+    set point2X(val: number);
+    /** 官方命名：第二个控制点 Y（内部存储字段为 y2） */
+    get point2Y(): number;
+    set point2Y(val: number);
     copy(): PathSegment;
     equals(seg: PathSegment): boolean;
     /** 创建直线段 */

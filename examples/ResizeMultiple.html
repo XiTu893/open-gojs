@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Resize Multiple Nodes Simultaneously in Realtime</title>
+  <script src="../dist/open-gojs.umd.js"></script>
+  
+  <script src="https://cdn.jsdelivr.net/npm/gojs-extensions@latest/extensions/ResizeMultipleTool.js"></script>
+  
+  
+</head>
+<body>
+<!-- The DIV for the Diagram needs an explicit size or else we won't see anything.
+       Also add a border to help see the edges. -->
+  <div id="myDiagramDiv" style="border: solid 1px black; width: 100%; height: 400px"></div>
+  <div id="description">
+<p>
+    This sample demonstrates a custom <a href="https://gojs.net/latest/api/symbols/ResizingTool.html" target="api">ResizingTool</a> which allows the user to resize many selected objects at once. It is defined in its own file, as
+    <a href="https://gojs.net/latest/extensions/ResizeMultipleTool.js">ResizeMultipleTool.js</a>.
+  </p>
+  </div>
+  <script >
+function init() {
+
+    myDiagram = new go.Diagram('myDiagramDiv', {
+      'undoManager.isEnabled': true, // enable undo & redo
+      resizingTool: new ResizeMultipleTool() // defined in ResizeMultipleTool.js
+    });
+
+    // define a simple Node template
+    myDiagram.nodeTemplate =
+      new go.Node('Auto', { resizable: true })
+        .bindTwoWay('desiredSize', 'size', go.Size.parse, go.Size.stringify)
+        .bindTwoWay('location', 'location', go.Point.parse, go.Point.stringify)
+        .add(
+          new go.Shape('RoundedRectangle', { strokeWidth: 0 })
+            .bind('fill', 'color'), // Shape.fill is bound to Node.data.color
+          new go.TextBlock({ margin: 8 }) // some room around the text
+            .bind('text') // TextBlock.text is bound to Node.data.text
+        );
+
+    // but use the default Link template, by not setting Diagram.linkTemplate
+
+    // create the model data that will be represented by Nodes and Links
+    myDiagram.model = new go.GraphLinksModel(
+      [
+        { key: 1, text: 'Alpha', color: 'lightblue' },
+        { key: 2, text: 'Beta', color: 'orange' },
+        { key: 3, text: 'Gamma', color: 'lightgreen' },
+        { key: 4, text: 'Delta', color: 'pink' }
+      ],
+      [
+        { from: 1, to: 2 },
+        { from: 1, to: 3 },
+        { from: 2, to: 2 },
+        { from: 3, to: 4 },
+        { from: 4, to: 1 }
+      ]
+    );
+  }
+
+  window.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>

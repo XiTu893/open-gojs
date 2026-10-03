@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Wafer Map Analysis Diagram</title>
+  <script src="../dist/open-gojs.umd.js"></script>
+  
+  <script src="https://cdn.jsdelivr.net/npm/gojs-extensions@latest/extensions/Quadtree.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/gojs-extensions@latest/extensions/PackedLayout.js"></script>
+  
+  
+</head>
+<body>
+<div id="controls" style="margin-bottom: 8px;">
+    <table>
+      <tr>
+        <td><label for="dieWidth">Die width (mm)</label></td>
+        <td><label for="dieHeight">Die height (mm)</label></td>
+        <td><label for="waferSize">Wafer size (mm)</label></td>
+      </tr>
+      <tr>
+        <td><input id="dieWidth" type="number" min="1" step="1" value="10" style="width: 100%; padding: 4px;" /></td>
+        <td><input id="dieHeight" type="number" min="1" step="1" value="10" style="width: 100%; padding: 4px;" /></td>
+        <td><input id="waferSize" type="number" min="1" step="1" value="300" style="width: 100%; padding: 4px;" /></td>
+        <td><button id="calculate" type="button" onclick="calculateDPW()" style="padding-inline: 20px;">Calculate</button></td>
+      </tr>
+    </table>
+  </div>
+  <div
+    id="myDiagramDiv"
+    style="
+      border: solid 1px black;
+      background-color: #151c26;
+      width: 100%;
+      height: 650px;
+    "></div>
+  <div id="description">
+<p>
+    This sample depicts a wafer map diagram, a tool used in semiconductor manufacturing. It shows both the oxide thickness 
+    and usability of each die (chip) on the wafer via a <a href="https://gojs.net/latest/learn/tooltips">tool tip</a>, and the overview viewing modes can be toggled at the top right of the diagram. 
+    Enter the desired die dimensions and wafer size to calculate the die per wafer and see generated mock data.
+  </p>
+  <p>
+    It uses the <a href="https://gojs.net/latest/samples/PackedLayout">PackedLayout</a> extension to fit several die nodes into an optimal circle shape, and a <a href="https://gojs.net/latest/learn/groups">Group</a> 
+    to create the wafer border. The status of each die is stored in the node data array, and its color is determined 
+    by a corresponding <a href="https://gojs.net/latest/learn/dataBinding">data binding</a>.
+  </p>
+  </div>
+  <script >
+// Current display mode toggle for thickness or defects
+  let displayMode = "heat";
+  // Reference to viewport info Parts
+  let legendPart = null;
+  let statusPart = null;
+
+  // Die fill colors for the usable/defective view
+  const USABLE_COLOR = "#05fa2a";
+  const DEFECTIVE_COLOR = "#fa0505";
+
+  function init() {
+    myDiagram = new go.Diagram('myDiagramDiv', {
+      "toolManager.hoverDelay": 25,
+      // disable user scrolling and zooming
+      allowHorizontalScroll: false,
+      allowVerticalScroll: false,
+      allowZoom: false
+    });
+
+    // Default group template, creates the circle wafer outline
+    myDiagram.groupTemplate =
+      new go.Group("Spot", { 
+        // uses a custom layout to fit the die into a circle in as little space as possible
+        layout: new PackedLayout(),
+        movable: false,
+        selectable: false
+      })
+        .add(
+          new go.Placeholder(),   // measures group members
+          new go.Shape("Circle", {
+            fill: null,
+            stroke: "white",
+            strokeWidth: 3,
+            alignment: go.Spot.Center
+          })
+            .bind("width")
+            .bind("height", "width"),
+          new go.TextBlock({ 
+            alignment: new go.Spot(0.5, 0, 0, -10), 
+            alignmentFocus: go.Spot.Bottom,
+            stroke: "white"
+          })
+            .bind("text", "dpw", t => t + " DPW")
+            // font scales its size to look the same in the viewport regardless of diagram scale
+            .bind("font", "width", w => `${12 * (w / 300)}pt sans-serif`)
+        )
+
+    // Node template for die
+    myDiagram.nodeTemplate = 
+      new go.Node("Auto", {
+        movable: false,
+        selectable: false,
+        mouseEnter: (e, node) => {
+          const shape = node.findObject("SHAPE");
+          if (shape !== null) shape.stroke = "dodgerblue";
+        },
+        mouseLeave: (e, node) => {
+          const shape = node.findObject("SHAPE");
+          if (shape !== null) shape.stroke = "transparent";
+        },
+        toolTip: // shows oxide thickness and if its defective or usable on hover
+          go.GraphObject.build("ToolTip")
+            .add(
+              new go.Panel("Vertical").add(
+              new go.TextBlock({ margin: 4 })
+                .bind("text", "thickness", t => t + " Å"),
+              new go.TextBlock({ margin: 4 })
+                .bind("text", "status")                
+              )
+            ) 
+      })
+        .add(
+          new go.Shape("Rectangle", {
+            name: "SHAPE",
+            fill: "white",
+            stroke: "transparent",
+            strokeWidth: 1,   // the default, here for clarity
+            width: 20
+          })
+            .bind("fill")
+            // subtract dimensions by stroke width so layout uses the correct width
+            .bind("width", "width", w => w - 1)
+            .bind("height", "height", h => h - 1)
+        )
+
+    // Rescales the diagram to make the wafer appear the same size in the viewport
+    // and generates new data when a new wafer is calculated
+    myDiagram.addDiagramListener("LayoutCompleted", (e) => {
+      scaleToFitCircle(e.diagram);
+      generateData(e.diagram);
+    });
+
+    // Rescales and centers the wafer when the viewport changes
+    myDiagram.addDiagramListener("ViewportBoundsChanged", (e => {
+      scaleToFitCircle(e.diagram);
+    }))
+
+    // Initializes the model
+    myDiagram.model = new go.GraphLinksModel();
+
+    // Add the thickness key and status viewer before the first layout so the status
+    // viewer is measured (has a real naturalBounds) when scaleToFitCircle first runs
+    legendPart = makeLegend();
+    statusPart = makeStatusViewer();
+    myDiagram.add(legendPart);
+    myDiagram.add(statusPart);
+    // Give the status viewer an empty data object so its bindings are realized
+    statusPart.data = {};
+
+    // Calculate initial die per wafer and initialize nodes
+    calculateDPW();
+
+  } // end init
+
+  // Scale the wafer to a fraction of the viewport and center it, insetting to the left
+  // if a centered wafer would overlap the status viewer
+  function scaleToFitCircle(diagram) {
+    const group = diagram.findNodeForKey("main");
+    if (group === null) return;
+    const div = diagram.div;
+    if (div === null) return;
+
+    const vw = div.clientWidth;
+    const vh = div.clientHeight;
+    const waferDoc = group.data.width;  // wafer diameter, in document units
+
+    // Reserved screen width for the status viewer in pixels
+    const measured = statusPart !== null && statusPart.naturalBounds.isReal();
+    const statusPx = measured ? statusPart.naturalBounds.width : 0;
+    const reservePx = statusPx > 0 ? statusPx + 32 : 0;  // 16px box inset + 16px gap to wafer
+
+    // Fit to 85% of the viewport, if a centered wafer would overlap the status viewer,
+    // fit and center it in the space to the left of the viewer instead
+    const fullScale = 0.85 * Math.min(vw, vh) / waferDoc;
+    const overlaps = (vw + waferDoc * fullScale) / 2 > vw - reservePx;
+    let scale, targetCx;
+    if (overlaps && reservePx > 0) {
+      const availPx = Math.max(50, vw - reservePx);
+      scale = 0.85 * Math.min(availPx, vh) / waferDoc;
+      targetCx = availPx / 2;   // center within the space left of the viewer
+    } else {
+      scale = fullScale;
+      targetCx = vw / 2;        // center in the whole viewport
+    }
+
+    // Apply scale to wafer and use the diagram position to center
+    if (Math.abs(diagram.scale - scale) > 0.001) diagram.scale = scale;
+    const c = group.actualBounds.center;
+    diagram.position = new go.Point(c.x - targetCx / scale, c.y - vh / 2 / scale);
+  }
+
+  // Font and stroke for the status viewer
+  const STATUS_TEXT_FONT = { font: "12pt sans-serif", stroke: "white" };
+
+  // Format a modelData count for display; shows "—" before any data is generated
+  function countToText(n) {
+    return n == null ? "—" : String(n);
+  }
+
+  // Create a status viewer Part in the viewport layer to show number of defective die
+  function makeStatusViewer() {
+    return new go.Part("Auto", {
+      layerName: "ViewportForeground", // unaffected by zooming or scrolling
+      alignment: new go.Spot(1, 0, -16, 16),
+      alignmentFocus: go.Spot.TopRight,
+      selectable: false
+    })
+      .add(
+        new go.Shape("RoundedRectangle", {
+          fill: "#151c26",
+          stroke: "lightgray",
+          strokeWidth: 0.5
+        }),
+        new go.Panel("Table", {
+          padding: 12,
+          defaultAlignment: go.Spot.Left,
+          defaultColumnSeparatorStroke: null,
+          defaultRowSeparatorStroke: null
+        })
+          .addColumnDefinition(0, { stretch: go.Stretch.Horizontal })
+          .addColumnDefinition(1, { alignment: go.Spot.Right })
+          .addRowDefinition(1, {
+            separatorStroke: "lightgray",
+            separatorStrokeWidth: 1,
+            separatorPadding: new go.Margin(8, 0, 0, 0)
+          })
+          .add(
+            // table with text that is bound to the model
+            new go.TextBlock("Status", {
+              row: 0, column: 0, columnSpan: 2,
+              font: "bold 14pt sans-serif",
+              stroke: "white",
+              alignment: go.Spot.Left
+            }),
+            new go.TextBlock("Die Per Wafer", {
+              row: 1, column: 0, ...STATUS_TEXT_FONT,
+              margin: new go.Margin(3, 40, 3, 0)
+            }),
+            new go.TextBlock({
+              row: 1, column: 1, ...STATUS_TEXT_FONT,
+              margin: new go.Margin(3, 0)
+            })
+              .bindModel("text", "dpw", countToText),
+            new go.TextBlock("Usable", {
+              row: 2, column: 0, ...STATUS_TEXT_FONT,
+              margin: new go.Margin(3, 40, 3, 0)
+            }),
+            new go.TextBlock({
+              row: 2, column: 1, ...STATUS_TEXT_FONT,
+              margin: new go.Margin(3, 0)
+            })
+              .bindModel("text", "usable", countToText),
+            new go.TextBlock("Defective", {
+              row: 3, column: 0, ...STATUS_TEXT_FONT,
+              margin: new go.Margin(3, 40, 3, 0)
+            }),
+            new go.TextBlock({
+              row: 3, column: 1, ...STATUS_TEXT_FONT,
+              margin: new go.Margin(3, 0)
+            })
+              .bindModel("text", "defective", countToText),
+            go.GraphObject.build("Button", {    // button to switch viewing modes
+              row: 4, column: 0, columnSpan: 2,
+              stretch: go.Stretch.Horizontal,
+              margin: new go.Margin(10, 0, 0, 0),
+              click: (e, obj) => toggleMode(obj),
+              "ButtonBorder.fill": "white",
+              "ButtonBorder.stroke": "transparent",
+              "_buttonFillOver": "lightgray"
+            })
+              .add(
+                new go.TextBlock("See Defects", {
+                  name: "LABEL",
+                  stroke: "#151c26",
+                  font: "12pt sans-serif",
+                  margin: 5
+                })
+              )
+          )
+      );
+  }
+
+  // Oxide film thickness target in Angstroms
+  const TARGET_THICKNESS = 1000;
+
+  // Field shape amplitudes in Angstroms. Tuned so the total spread stays within a roughly +/-3% window
+  const RADIAL_AMP = 22;   // center-thick radial profile (peak-to-edge swing)
+  const EDGE_DROP = 14;    // additional sharp roll-off in the outer edge band
+  const TILT_AMP = 4;      // gentle wafer-wide tilt from chamber asymmetry
+  const NOISE_AMP = 5;     // spatially-correlated process noise (NOT per-die noise)
+  const EDGE_START = 0.85; // normalized radius where the edge roll-off begins (between 0 and 1)
+
+  // Thickness bounds in Angstroms for data generation
+  const MIN_THICKNESS = 958;
+  const MAX_THICKNESS = 1022;
+
+  // Map an oxide thickness onto a color scale
+  function thicknessToColor(thickness) {
+    let t = (thickness - MIN_THICKNESS) / (MAX_THICKNESS - MIN_THICKNESS);
+    t = Math.max(0, Math.min(1, t));
+    const hue = (1 - t) * 240; // 240 = blue (thin), 0 = red (thick)
+    return `hsl(${hue}, 100%, 50%)`;
+  }
+
+  // Builds a single row of the defect key
+  function makeKeyRow(color, text) {
+    return new go.Panel("Horizontal", { margin: new go.Margin(6, 0, 0, 0) })
+      .add(
+        new go.Shape("Rectangle", {
+          width: 22,
+          height: 22,
+          fill: color,
+          stroke: "lightgray",
+          strokeWidth: 0.5,
+          margin: new go.Margin(0, 10, 0, 0)
+        }),
+        new go.TextBlock(text, { stroke: "white", font: "15px sans-serif" })
+      );
+  }
+
+  // Builds the legend at the bottom right of the diagram, contains two panels "HEAT_KEY" and "DEFECT_KEY", 
+  // applyMode shows whichever matches the current displayMode
+  function makeLegend() {
+    // gradient brush matching thicknessToColor: blue (thin) at bottom, red (thick) at top
+    const grad = new go.Brush("Linear", { start: go.Spot.Bottom, end: go.Spot.Top });
+    const STOPS = 8;
+    for (let i = 0; i <= STOPS; i++) {
+      const f = i / STOPS;
+      grad.addColorStop(f, thicknessToColor(MIN_THICKNESS + f * (MAX_THICKNESS - MIN_THICKNESS)));
+    }
+    // fraction from top where the target thickness falls on the bar
+    const targetFrac = 1 - (TARGET_THICKNESS - MIN_THICKNESS) / (MAX_THICKNESS - MIN_THICKNESS);
+
+    return new go.Part("Auto", {
+      layerName: "ViewportForeground", // unaffected by zooming or scrolling
+      alignment: new go.Spot(1, 1, -16, -16),
+      alignmentFocus: go.Spot.BottomRight,
+      selectable: false,
+      pickable: false
+    })
+      .add(
+        new go.Shape("RoundedRectangle", {
+          fill: "#151c26",
+          stroke: "lightgray",
+          strokeWidth: 0.5
+        }),
+        new go.Panel("Vertical", { margin: 14, defaultAlignment: go.Spot.Left })
+          .add(
+            // thickness scale, shown in heat mode
+            new go.Panel("Vertical", { name: "HEAT_KEY", defaultAlignment: go.Spot.Left })
+              .add(
+                new go.TextBlock("Oxide thickness (Å)", {
+                  stroke: "white",
+                  font: "bold 16px sans-serif",
+                  margin: new go.Margin(0, 0, 10, 0)
+                }),
+                new go.Panel("Spot")
+                  .add(
+                    new go.Shape("Rectangle", {
+                      width: 26,
+                      height: 210,
+                      fill: grad,
+                      stroke: "lightgray",
+                      strokeWidth: 0.5
+                    }),
+                    // target tick mark across the bar
+                    new go.Shape("Rectangle", {
+                      width: 36,
+                      height: 3,
+                      fill: "white",
+                      stroke: null,
+                      alignment: new go.Spot(0.5, targetFrac)
+                    }),
+                    // value labels to the right of the bar
+                    new go.TextBlock(`${MAX_THICKNESS}`, {
+                      alignment: new go.Spot(1, 0, 10, 0),
+                      alignmentFocus: go.Spot.Left,
+                      stroke: "white",
+                      font: "15px sans-serif"
+                    }),
+                    new go.TextBlock(`${TARGET_THICKNESS} (target)`, {
+                      alignment: new go.Spot(1, targetFrac, 10, 0),
+                      alignmentFocus: go.Spot.Left,
+                      stroke: "white",
+                      font: "15px sans-serif"
+                    }),
+                    new go.TextBlock(`${MIN_THICKNESS}`, {
+                      alignment: new go.Spot(1, 1, 10, 0),
+                      alignmentFocus: go.Spot.Left,
+                      stroke: "white",
+                      font: "15px sans-serif"
+                    })
+                  )
+              ),
+            // usable/defective key, shown in defects mode
+            new go.Panel("Vertical", { name: "DEFECT_KEY", visible: false, defaultAlignment: go.Spot.Left })
+              .add(
+                new go.TextBlock("Die status", {
+                  stroke: "white",
+                  font: "bold 16px sans-serif",
+                  margin: new go.Margin(0, 0, 6, 0)
+                }),
+                makeKeyRow(USABLE_COLOR, "Usable"),
+                makeKeyRow(DEFECTIVE_COLOR, "Defective")
+              )
+          )
+      );
+  }
+
+  // Generate a realistic oxide film thickness for each die and store it on the die's data
+  function generateData(diagram) {
+    const chips = [];
+    diagram.nodes.each((node) => {
+      if (node instanceof go.Group) return;
+      chips.push(node);
+    });
+    if (chips.length === 0) return;
+
+    // find the wafer center (centroid) and radius (max die distance) after layout
+    let cx = 0, cy = 0;
+    chips.forEach((node) => {
+      const loc = node.location;
+      cx += loc.x;
+      cy += loc.y;
+    });
+    cx /= chips.length;
+    cy /= chips.length;
+    let maxR = 1;
+    chips.forEach((node) => {
+      const dx = node.location.x - cx;
+      const dy = node.location.y - cy;
+      maxR = Math.max(maxR, Math.sqrt(dx * dx + dy * dy));
+    });
+
+    // randomize the signature per run so each wafer looks different but plausible
+    const tiltAngle = Math.random() * Math.PI * 2;
+
+    // Spatially-correlated noise = sum of a few low-frequency plane-wave modes
+    // Low spatial frequency means adjacent dies share nearly the same value (a smooth field),
+    // unlike independent per-die noise, amplitudes split so the total stays ~+/-NOISE_AMP.
+    const NMODES = 4;
+    const modes = [];
+    for (let i = 0; i < NMODES; i++) {
+      modes.push({
+        fx: 1 + Math.random() * 2,            // ~1-1.5 wavelengths across the wafer
+        fy: 1 + Math.random() * 2,
+        phase: Math.random() * Math.PI * 2,
+        amp: NOISE_AMP / NMODES
+      });
+    }
+
+    let usable = 0, defective = 0;
+    diagram.model.commit((m) => {
+      chips.forEach((node) => {
+        const dx = (node.location.x - cx) / maxR;       // normalized -1..1
+        const dy = (node.location.y - cy) / maxR;
+        const r = Math.min(1, Math.sqrt(dx * dx + dy * dy));
+
+        // center-thick radial profile, centered so its disk mean is ~0
+        let dev = RADIAL_AMP * (0.5 - r * r);
+
+        // sharp edge roll-off only in the outer band, accelerating toward the rim
+        if (r > EDGE_START) {
+          const e = (r - EDGE_START) / (1 - EDGE_START); // 0..1 across the edge band
+          dev -= EDGE_DROP * e * e;
+        }
+
+        // gentle wafer-wide tilt
+        dev += TILT_AMP * (dx * Math.cos(tiltAngle) + dy * Math.sin(tiltAngle));
+
+        // smooth, spatially-correlated process noise
+        for (let i = 0; i < NMODES; i++) {
+          const md = modes[i];
+          dev += md.amp * Math.sin(md.fx * dx + md.fy * dy + md.phase);
+        }
+
+        // set thickness and usable/defective status on node data, coloring is handled by applyMode
+        const status = Math.random() < .05 ? "Defective" : "Usable";
+        if (status === "Defective") defective++; else usable++;
+        m.set(node.data, "thickness", Math.round(TARGET_THICKNESS + dev));
+        m.set(node.data, "status", status);
+      });
+
+      // store wafer-wide totals on the model so the status viewer can bind to them
+      m.set(m.modelData, "dpw", chips.length);
+      m.set(m.modelData, "usable", usable);
+      m.set(m.modelData, "defective", defective);
+    }, "generate data");
+
+    // color the die for the current display mode
+    applyMode(diagram);
+  }
+
+  // Recolor every die from the data already on each node according to the current displayMode
+  // "heat" uses oxide thickness and "defects" uses usable/defective status
+  function applyMode(diagram) {
+    diagram.model.commit((m) => {
+      diagram.nodes.each((node) => {
+        if (node instanceof go.Group) return;
+        const d = node.data;
+        const fill = displayMode === "heat"
+          ? thicknessToColor(d.thickness)
+          : (d.status === "Defective" ? DEFECTIVE_COLOR : USABLE_COLOR);
+        m.set(d, "fill", fill);
+      });
+    }, "apply mode");
+    // switch the legend between the thickness scale and the usable/defective key
+    if (legendPart !== null) {
+      const heatKey = legendPart.findObject("HEAT_KEY");
+      const defectKey = legendPart.findObject("DEFECT_KEY");
+      if (heatKey !== null) heatKey.visible = displayMode === "heat";
+      if (defectKey !== null) defectKey.visible = displayMode === "defects";
+    }
+  }
+
+  // Switch between heat map and defect views
+  function toggleMode(button) {
+    displayMode = displayMode === "heat" ? "defects" : "heat";
+    applyMode(myDiagram);
+    const label = button.findObject("LABEL");
+    if (label !== null) label.text = displayMode === "heat" ? "See Defects" : "See Thickness Map";
+  }
+
+  // Calculates the die per wafer from user input and creates a new node array
+  function calculateDPW() {
+    const dieWidth = parseFloat(document.getElementById('dieWidth').value) || 10;
+    const dieHeight = parseFloat(document.getElementById('dieHeight').value) || 10;
+    const waferDiameter = parseFloat(document.getElementById('waferSize').value) || 300;
+
+    // DPW formula
+    const diePerWafer = Math.floor(waferDiameter * Math.PI * ((waferDiameter / (4 * dieWidth * dieHeight)) - (1 / Math.sqrt(2 * dieWidth * dieHeight))));
+    if (diePerWafer > 10000) { // prevents very large layouts to avoid crashing
+      return
+    }
+
+    // creates a group node to make the wafer border
+    const chipArray = [{ key: "main", width: waferDiameter, dpw: diePerWafer, isGroup: true }];
+    // pushes each die to the node data array
+    for (let i = 0; i < diePerWafer; i++) {
+      chipArray.push({ group: "main", width: dieWidth, height: dieHeight })
+    }
+    // sets the new array to the model
+    myDiagram.model.nodeDataArray = chipArray;
+  }
+
+  // Initialize with the DOM loads
+  document.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>

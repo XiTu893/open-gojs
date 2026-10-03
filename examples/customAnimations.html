@@ -1,132 +1,15 @@
-﻿
 <!DOCTYPE html>
-<html lang="en">
-  <head>
-    
-    <meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover"/>
-
-<meta name="description" content="Custom animation examples for GoJS." />
-<meta itemprop="description" content="Custom animation examples for GoJS." />
-<meta property="og:description" content="Custom animation examples for GoJS." />
-<meta name="twitter:description" content="Custom animation examples for GoJS." />
-
-
-<link rel="preconnect" href="https://rsms.me/">
-
-<!-- Copyright 1998-2026 by Northwoods Software Corporation. -->
-
-
-<meta itemprop="name" content="Custom Node Animations Demonstration" />
-<meta property="og:title" content="Custom Node Animations Demonstration" />
-<meta name="twitter:title" content="Custom Node Animations Demonstration" />
-
-
-<meta property="og:image" content="https://gojs.net/latest/assets/images/screenshots/customanimations.png" />
-<meta itemprop="image" content="https://gojs.net/latest/assets/images/screenshots/customanimations.png" />
-<meta name="twitter:image" content="https://gojs.net/latest/assets/images/screenshots/customanimations.png" />
-
-<meta property="og:url" content="https://gojs.net/latest/samples/customAnimations.html" />
-<meta property="twitter:url" content="https://gojs.net/latest/samples/customAnimations.html" />
-
-<meta name="twitter:card" content="summary_large_image" />
-<meta property="og:type" content="website" />
-<meta property="twitter:domain" content="gojs.net" />
-
-    <title>
-      Custom Node Animations Demonstration | GoJS Diagramming Library
-    </title>
-  </head>
-
-  <body>
-    <!-- This top nav is not part of the sample code -->
-    <nav id="navTop" class=" w-full h-[var(--topnav-h)] z-30 bg-white border-b border-b-gray-200">
-  <div class="max-w-screen-xl mx-auto flex flex-wrap items-start justify-between px-4">
-    <a class="text-white bg-nwoods-primary font-bold !leading-[calc(var(--topnav-h)_-_1px)] my-0 px-2 text-4xl lg:text-5xl logo"
-       href="../">
-      GoJS
-    </a>
-    <div class="relative">
-      <button id="topnavButton" class="h-[calc(var(--topnav-h)_-_1px)] px-2 m-0 text-gray-900 bg-inherit shadow-none md:hidden hover:!bg-inherit hover:!text-nwoods-accent hover:!shadow-none" aria-label="Navigation">
-        <svg class="h-7 w-7 block" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </button>
-      <div id="topnavList" class="hidden md:block">
-        <div class="absolute right-0 z-30 flex flex-col items-end rounded border border-gray-200 p-4 pl-12 shadow bg-white text-gray-900 font-semibold
-                    md:flex-row md:space-x-4 md:items-start md:border-0 md:p-0 md:shadow-none md:bg-inherit">
-          <a href="../learn/">Learn</a>
-          <a href="../samples/">Samples</a>
-          <a href="../intro/">Intro</a>
-          <a href="../api/">API</a>
-          <a href="../download.html">Download</a>
-          <a href="https://forum.nwoods.com/c/gojs/11" target="_blank" rel="noopener">Forum</a>
-          <a id="tc" href="https://nwoods.com/contact.html"
-            target="_blank" rel="noopener" onclick="getOutboundLink('https://nwoods.com/contact.html', 'contact');">Contact</a>
-          <a id="tb" href="https://nwoods.com/sales/index.html"
-            target="_blank" rel="noopener" onclick="getOutboundLink('https://nwoods.com/sales/index.html', 'buy');">Buy</a>
-        </div>
-      </div>
-    </div>
-  </div>
-</nav>
-<script>
-  window.addEventListener("DOMContentLoaded", function () {
-    // topnav
-    var topButton = document.getElementById("topnavButton");
-    var topnavList = document.getElementById("topnavList");
-    if (topButton && topnavList) {
-      topButton.addEventListener("click", function (e) {
-        topnavList
-          .classList
-          .toggle("hidden");
-        e.stopPropagation();
-      });
-      document.addEventListener("click", function (e) {
-        // if the clicked element isn't the list, close the list
-        if (!topnavList.classList.contains("hidden") && !e.target.closest("#topnavList")) {
-          topButton.click();
-        }
-      });
-
-      // set active <a> element
-      var url = window
-        .location
-        .href
-        .toLowerCase();
-      var aTags = topnavList.getElementsByTagName('a');
-      for (var i = 0; i < aTags.length; i++) {
-        var lowerhref = aTags[i]
-          .href
-          .toLowerCase();
-        if (lowerhref.endsWith('.html')) 
-          lowerhref = lowerhref.slice(0, -5);
-        if (url.startsWith(lowerhref)) {
-          aTags[i]
-            .classList
-            .add('active');
-          break;
-        }
-      }
-    }
-  });
-</script>
-    <div class="flex flex-col prose">
-      <div class="w-full max-w-screen-xl mx-auto">
-        <!-- * * * * * * * * * * * * * -->
-        <!-- Start of GoJS sample code -->
-        <script src="../dist/open-gojs.umd.js"></script>
-
-        
-
-        <div id="allSampleContent" class="p-4 w-full">
-          
-            
-            
-
-
-<style>
-  .flex-container {
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Custom Node Animations Demonstration</title>
+  <script src="../dist/open-gojs.umd.js"></script>
+  
+  
+  
+  <style>
+.flex-container {
     display: flex;
     flex-wrap: nowrap;
     flex-direction: column;
@@ -134,10 +17,59 @@
   .flex-container > div {
     margin-bottom: 10px;
   }
-</style>
+  </style>
+</head>
+<body>
+<div id="myDiagramDiv" style="border: solid 1px black; width: 100%; height: 600px"></div>
 
-<script id="code">
-  function init() {
+  <div class="flex-container">
+    <p><strong>Options:</strong></p>
+    <div>
+      Creation Animation
+      <select id="creation">
+        <option value="spinIn">Spin In</option>
+        <option value="fadeIn">Fade In</option>
+        <option value="floatIn">Float In</option>
+        <option value="zoomIn">Zoom In</option>
+        <option>--None--</option>
+      </select>
+    </div>
+    <div>
+      Deletion Animation
+      <select id="deletion">
+        <option value="spinOut">Spin Out</option>
+        <option value="fadeOut">Fade Out</option>
+        <option value="floatOut">Float Out</option>
+        <option value="zoomOut">Zoom Out</option>
+        <option value="bounceOut">Bounce Out</option>
+        <option>--None--</option>
+      </select>
+    </div>
+    <div>
+      Drawn Link Style
+      <select id="links">
+        <option value="bezier">Bezier Curve</option>
+        <option value="orthogonal">Orthogonal Curve</option>
+        <option>Linear (no animation)</option>
+      </select>
+    </div>
+  </div>
+  <button id="addNode">Add Node + Link from selected Node</button>
+  <button id="reloadModel">Reload model</button>
+  <div id="description">
+<p>
+    This extension implements several custom animations within GoJS. It may be useful to copy some of them into your own project.
+  </p>
+  <ul>
+    <li>Double click in the Diagram background to create a node, or copy and paste nodes, to view creation animations.</li>
+    <li>Delete a node to view deletion animations.</li>
+    <li>Draw links to see new link creation animations.</li>
+    <li>Select a node and press the + button or the button below to see a link-and-node creation animation.</li>
+    <li>Reload the model using the button below to see the custom load animation</li>
+  </ul>
+  </div>
+  <script >
+function init() {
     myDiagram = new go.Diagram('myDiagramDiv', {
       'clickCreatingTool.archetypeNodeData': {
         color: 'palegreen',
@@ -483,89 +415,6 @@
   }
 
   window.addEventListener('DOMContentLoaded', init);
-</script>
-
-<div id="sample">
-  <div id="myDiagramDiv" style="border: solid 1px black; width: 700px; height: 600px"></div>
-
-  <div class="flex-container" style="width: 700px">
-    <p style="margin-bottom: 0">
-      This extension implements several custom animations within GoJS. It may be useful to copy some of them into your own project.
-    </p>
-    <ul>
-      <li>Double click in the Diagram background to create a node, or copy and paste nodes, to view creation animations.</li>
-      <li>Delete a node to view deletion animations.</li>
-      <li>Draw links to see new link creation animations.</li>
-      <li>Select a node and press the + button or the button below to see a link-and-node creation animation.</li>
-      <li>Reload the model using the button below to see the custom load animation</li>
-    </ul>
-  </div>
-
-  <div class="flex-container">
-    <p><strong>Options:</strong></p>
-    <div>
-      Creation Animation
-      <select id="creation">
-        <option value="spinIn">Spin In</option>
-        <option value="fadeIn">Fade In</option>
-        <option value="floatIn">Float In</option>
-        <option value="zoomIn">Zoom In</option>
-        <option>--None--</option>
-      </select>
-    </div>
-    <div>
-      Deletion Animation
-      <select id="deletion">
-        <option value="spinOut">Spin Out</option>
-        <option value="fadeOut">Fade Out</option>
-        <option value="floatOut">Float Out</option>
-        <option value="zoomOut">Zoom Out</option>
-        <option value="bounceOut">Bounce Out</option>
-        <option>--None--</option>
-      </select>
-    </div>
-    <div>
-      Drawn Link Style
-      <select id="links">
-        <option value="bezier">Bezier Curve</option>
-        <option value="orthogonal">Orthogonal Curve</option>
-        <option>Linear (no animation)</option>
-      </select>
-    </div>
-  </div>
-  <button id="addNode">Add Node + Link from selected Node</button>
-  <button id="reloadModel">Reload model</button>
-</div>
-
-          
-        </div>
-        <!-- * * * * * * * * * * * * * -->
-        <!--  End of GoJS sample code  -->
-      </div>
-
-      <div id="allTagDescriptions" class="p-4 w-full max-w-screen-xl mx-auto">
-        <hr/>
-        <h3 class="text-xl">GoJS Features in this sample</h3>
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Animation</h4>
-<p>
-  <b>GoJS</b> offers several built-in animations, enabled by default, as well as the ability to create arbitrary animations.
-</p>
-<p>
-  The <a href="../api/symbols/Diagram.html#animationManager" target="api">Diagram.animationManager</a> handles animations within a <a href="../api/symbols/Diagram.html" target="api">Diagram</a>.
-  The <a href="../api/symbols/AnimationManager.html" target="api">AnimationManager</a> automatically sets up and dispatches default animations, and has properties to customize and disable them.
-  Custom animations are possible by creating instances of <a href="../api/symbols/Animation.html" target="api">Animation</a> or <a href="../api/symbols/AnimationTrigger.html" target="api">AnimationTrigger</a>.
-  More information can be found in the <a href="../intro/animation.html">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#animation">Related samples</a>
-            </p>
-            <hr>
-          
-        </div>
-    </div>
-  </body>
-  <!--  This script is part of the gojs.net website, and is not needed to run the sample -->
-  
+  </script>
+</body>
 </html>

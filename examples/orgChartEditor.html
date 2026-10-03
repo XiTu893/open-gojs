@@ -1,136 +1,15 @@
-﻿﻿
 <!DOCTYPE html>
-<html lang="en">
-  <head>
-    
-    <meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover"/>
-
-<meta name="description" content="An organization chart editor -- edit details and change relationships." />
-<meta itemprop="description" content="An organization chart editor -- edit details and change relationships." />
-<meta property="og:description" content="An organization chart editor -- edit details and change relationships." />
-<meta name="twitter:description" content="An organization chart editor -- edit details and change relationships." />
-
-
-<link rel="preconnect" href="https://rsms.me/">
-
-<!-- Copyright 1998-2026 by Northwoods Software Corporation. -->
-
-
-<meta itemprop="name" content="Interactive Organizational Chart Diagram Editor" />
-<meta property="og:title" content="Interactive Organizational Chart Diagram Editor" />
-<meta name="twitter:title" content="Interactive Organizational Chart Diagram Editor" />
-
-
-<meta property="og:image" content="https://gojs.net/latest/assets/images/screenshots/orgcharteditor.png" />
-<meta itemprop="image" content="https://gojs.net/latest/assets/images/screenshots/orgcharteditor.png" />
-<meta name="twitter:image" content="https://gojs.net/latest/assets/images/screenshots/orgcharteditor.png" />
-
-<meta property="og:url" content="https://gojs.net/latest/samples/orgChartEditor.html" />
-<meta property="twitter:url" content="https://gojs.net/latest/samples/orgChartEditor.html" />
-
-<meta name="twitter:card" content="summary_large_image" />
-<meta property="og:type" content="website" />
-<meta property="twitter:domain" content="gojs.net" />
-
-    <title>
-      Interactive Organizational Chart Diagram Editor | GoJS Diagramming Library
-    </title>
-  </head>
-
-  <body>
-    <!-- This top nav is not part of the sample code -->
-    <nav id="navTop" class=" w-full h-[var(--topnav-h)] z-30 bg-white border-b border-b-gray-200">
-  <div class="max-w-screen-xl mx-auto flex flex-wrap items-start justify-between px-4">
-    <a class="text-white bg-nwoods-primary font-bold !leading-[calc(var(--topnav-h)_-_1px)] my-0 px-2 text-4xl lg:text-5xl logo"
-       href="../">
-      GoJS
-    </a>
-    <div class="relative">
-      <button id="topnavButton" class="h-[calc(var(--topnav-h)_-_1px)] px-2 m-0 text-gray-900 bg-inherit shadow-none md:hidden hover:!bg-inherit hover:!text-nwoods-accent hover:!shadow-none" aria-label="Navigation">
-        <svg class="h-7 w-7 block" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </button>
-      <div id="topnavList" class="hidden md:block">
-        <div class="absolute right-0 z-30 flex flex-col items-end rounded border border-gray-200 p-4 pl-12 shadow bg-white text-gray-900 font-semibold
-                    md:flex-row md:space-x-4 md:items-start md:border-0 md:p-0 md:shadow-none md:bg-inherit">
-          <a href="../learn/">Learn</a>
-          <a href="../samples/">Samples</a>
-          <a href="../intro/">Intro</a>
-          <a href="../api/">API</a>
-          <a href="../download.html">Download</a>
-          <a href="https://forum.nwoods.com/c/gojs/11" target="_blank" rel="noopener">Forum</a>
-          <a id="tc" href="https://nwoods.com/contact.html"
-            target="_blank" rel="noopener" onclick="getOutboundLink('https://nwoods.com/contact.html', 'contact');">Contact</a>
-          <a id="tb" href="https://nwoods.com/sales/index.html"
-            target="_blank" rel="noopener" onclick="getOutboundLink('https://nwoods.com/sales/index.html', 'buy');">Buy</a>
-        </div>
-      </div>
-    </div>
-  </div>
-</nav>
-<script>
-  window.addEventListener("DOMContentLoaded", function () {
-    // topnav
-    var topButton = document.getElementById("topnavButton");
-    var topnavList = document.getElementById("topnavList");
-    if (topButton && topnavList) {
-      topButton.addEventListener("click", function (e) {
-        topnavList
-          .classList
-          .toggle("hidden");
-        e.stopPropagation();
-      });
-      document.addEventListener("click", function (e) {
-        // if the clicked element isn't the list, close the list
-        if (!topnavList.classList.contains("hidden") && !e.target.closest("#topnavList")) {
-          topButton.click();
-        }
-      });
-
-      // set active <a> element
-      var url = window
-        .location
-        .href
-        .toLowerCase();
-      var aTags = topnavList.getElementsByTagName('a');
-      for (var i = 0; i < aTags.length; i++) {
-        var lowerhref = aTags[i]
-          .href
-          .toLowerCase();
-        if (lowerhref.endsWith('.html')) 
-          lowerhref = lowerhref.slice(0, -5);
-        if (url.startsWith(lowerhref)) {
-          aTags[i]
-            .classList
-            .add('active');
-          break;
-        }
-      }
-    }
-  });
-</script>
-    <div class="flex flex-col prose">
-      <div class="w-full max-w-screen-xl mx-auto">
-        <!-- * * * * * * * * * * * * * -->
-        <!-- Start of GoJS sample code -->
-        <script src="../dist/open-gojs.umd.js"></script>
-
-        
-
-        <div id="allSampleContent" class="p-4 w-full">
-          
-            
-            
-
-
-<link
-  href="https://fonts.googleapis.com/css?family=Inter:400,500,600&subset=latin,latin-ext"
-  rel="stylesheet"
-  type="text/css" />
-<style>
-  :modal {
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Interactive Organizational Chart Diagram Editor</title>
+  <script src="../dist/open-gojs.umd.js"></script>
+  
+  <script src="https://cdn.jsdelivr.net/npm/gojs-extensions@latest/extensions/DataInspector.js"></script>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:400,500,600&subset=latin,latin-ext">
+  <style>
+:modal {
     padding: 2rem;
     border-radius: 0.25rem;
     border-width: 0;
@@ -141,14 +20,158 @@
   }
 
   #hidden {
-    font: 500 18px Inter;
+    font: 500 0px Inter;
     opacity: 0;
   }
-</style>
 
+  .sample-layout {
+    display: flex;
+    gap: 1em;
+    align-items: flex-start;
+  }
 
-<script id="code">
-  function init() {
+  #myDiagramDiv {
+    flex: 1;
+    min-width: 0;
+    height: 625px;
+    border: solid 1px black;
+  }
+
+  .sample-controls {
+    flex: none;
+    width: 280px;
+  }
+
+  #inspectorContainer {
+    margin-top: 2em;
+  }
+
+  /* On narrow screens, stack the controls below the diagram */
+  @media (max-width: 1024px) {
+    .sample-layout {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    #myDiagramDiv {
+      flex: none;
+      width: 100%;
+    }
+
+    .sample-controls {
+      width: 100%;
+    }
+
+    #inspectorContainer {
+      margin-top: 1em;
+    }
+  }
+  </style>
+</head>
+<body>
+<div class="sample-layout">
+    <div id="myDiagramDiv"></div>
+    <div class="sample-controls">
+      <div style="display: inline;">
+        Theme:
+        <select id="theme" onchange="changeTheme()">
+          <option value="system">System</option>
+          <option value="light">Light</option>
+          <option value="dark" selected>Dark</option>
+        </select>
+        <div style="margin-block: .5em;">
+          <button id="zoomToFit">Zoom to Fit</button>
+          <button id="centerRoot">Center on root</button>
+        </div>
+      </div>
+      <div id="inspectorContainer">
+        Edit details:<br />
+        <div id="myInspector" style="margin-block: .5em"></div>
+      </div>
+    </div>
+  </div>
+  <div>
+    <div style="margin-block: .5em;">
+      <button id="SaveButton" onclick="save()">Save</button>
+      <button onclick="load()">Load</button>
+      Diagram Model saved in JSON format:
+    </div>
+    <textarea id="mySavedModel" style="width: 100%; height: 270px">
+{ "class": "go.TreeModel",
+  "nodeDataArray": [
+{"key":1, "name":"Stella Payne Diaz", "title":"CEO", "dept": "Management", "pic":"1.jpg", "email": "sdiaz@example.com", "phone": "(234) 555-6789" },
+{"key":2, "name":"Luke Warm", "title":"VP Marketing/Sales", "dept": "Management", "pic":"2.jpg", "email": "lwarm@example.com", "phone": "(234) 555-6789", "parent":1},
+{"key":3, "name":"Meg Meehan Hoffa", "title":"Sales", "dept": "Sales", "pic":"3.jpg", "email": "mhoffa@example.com", "phone": "(234) 555-6789", "parent":2},
+{"key":4, "name":"Peggy Flaming", "title":"VP Engineering", "dept": "Management", "pic":"4.jpg", "email": "pflaming@example.com", "phone": "(234) 555-6789", "parent":1},
+{"key":5, "name":"Saul Wellingood", "title":"Manufacturing", "dept": "Production", "pic":"5.jpg", "email": "swellingood@example.com", "phone": "(234) 555-6789", "parent":4},
+{"key":6, "name":"Al Ligori", "title":"Marketing", "dept": "Marketing", "pic":"6.jpg", "email": "aligori@example.com", "phone": "(234) 555-6789", "parent":2},
+{"key":7, "name":"Dot Stubadd", "title":"Sales Rep", "dept": "Sales", "pic":"7.jpg", "email": "dstubadd@example.com", "phone": "(234) 555-6789", "parent":3},
+{"key":8, "name":"Les Ismore", "title":"Project Mgr", "dept": "Production", "pic":"8.jpg", "email": "lismore@example.com", "phone": "(234) 555-6789", "parent":5},
+{"key":9, "name":"April Lynn Parris", "title":"Events Mgr", "dept": "Marketing", "pic":"9.jpg", "email": "aparris@example.com", "phone": "(234) 555-6789", "parent":6},
+{"key":10, "name":"Xavier Breath", "title":"Engineering", "dept": "Engineering", "pic":"10.jpg", "email": "xbreath@example.com", "phone": "(234) 555-6789", "parent":4},
+{"key":11, "name":"Anita Hammer", "title":"Process", "dept": "Production", "pic":"11.jpg", "email": "ahammer@example.com", "phone": "(234) 555-6789", "parent":5},
+{"key":12, "name":"Billy Aiken", "title":"Software", "dept": "Engineering", "pic":"12.jpg", "email": "baiken@example.com", "phone": "(234) 555-6789", "parent":10},
+{"key":13, "name":"Stan Wellback", "title":"Testing", "dept": "Engineering", "pic":"13.jpg", "email": "swellback@example.com", "phone": "(234) 555-6789", "parent":10},
+{"key":14, "name":"Marge Innovera", "title":"Hardware", "dept": "Engineering", "pic":"14.jpg", "email": "minnovera@example.com", "phone": "(234) 555-6789", "parent":10},
+{"key":15, "name":"Evan Elpus", "title":"Quality", "dept": "Production", "pic":"15.jpg", "email": "eelpus@example.com", "phone": "(234) 555-6789", "parent":5},
+{"key":16, "name":"Lotta B. Essen", "title":"Sales Rep", "dept": "Sales", "pic":"16.jpg", "email": "lessen@example.com", "phone": "(234) 555-6789", "parent":3}
+ ]
+}
+    </textarea>
+  </div>
+  <dialog>
+    <div style="display: flex; flex-direction: column">
+      <p></p>
+      <p>Click anywhere to close</p>
+    </div>
+  </dialog>
+  <p id="hidden">this forces the font to load in Chromium browsers</p>
+  <div id="description">
+<p>
+    This editable organizational chart sample color-codes the Nodes according to the tree level in
+    the hierarchy.
+  </p>
+  <p>
+    Select a node to edit its data values. This sample uses the
+    <a href="DataInspector.html">Data Inspector</a> extension to display and modify Part
+    data. Because this simple app is part of a static web site, there is no way to upload a
+    photograph for a person.
+  </p>
+  <p>
+    Double click in the diagram background to add a new boss. That uses the
+    <a href="https://gojs.net/latest/api/symbols/ClickCreatingTool.html" target="api">ClickCreatingTool</a> with a custom <a href="https://gojs.net/latest/api/symbols/ClickCreatingTool.html#insertpart" target="api">ClickCreatingTool.insertPart</a> to scroll to the new
+    node and start editing the <a href="https://gojs.net/latest/api/symbols/TextBlock.html" target="api">TextBlock</a> for its name .
+  </p>
+  <p>
+    Drag a node onto another in order to change relationships, if permitted. Right-click or tap-hold
+    a Node to bring up a context menu that allows you to:
+  </p>
+  <ul>
+    <li>Add Employee - add a new person as a direct report to this person</li>
+    <li>Vacate Position - remove the information specific to the current person in that role</li>
+    <li>
+      Remove Role - removes the person entirely and changes the direct reports to report to the
+      (former) boss
+    </li>
+    <li>Remove Department - removes the person and whole subtree</li>
+  </ul>
+  <p>
+    To learn how to build an org chart from scratch with GoJS, see the
+    <a href="https://gojs.net/latest/learn">Getting Started tutorial</a>.
+  </p>
+  <p>This sample is set to the dark theme by default.</p>
+  <p>
+    For this exact same sample but enhanced for screen readers, please examine the
+    <a href="Accessibility.html">Accessibility</a> sample.
+  </p>
+  <p>
+    If you want to have some "assistant" nodes on the side, above the regular reports, see the
+    <a href="orgChartAssistants.html">Org Chart Assistants</a> sample, which is a more simply styled
+    version of this sample that uses a custom <a href="https://gojs.net/latest/api/symbols/TreeLayout.html" target="api">TreeLayout</a> to position "assistants" that way.
+  </p>
+  </div>
+  <script >
+function init() {
     myDiagram = new go.Diagram('myDiagramDiv', {
       allowCopy: false,
       allowDelete: false,
@@ -304,7 +327,8 @@
           new go.Placeholder(),
           new go.Panel(go.Panel.Auto)
             .add(
-              new go.Shape('RoundedRectangle', { strokeWidth: 0, shadowVisible: true }).theme('fill', 'background'),
+              new go.Shape('RoundedRectangle', { strokeWidth: 0, shadowVisible: true })
+                .theme('fill', 'background'),
               new go.TextBlock({ margin: 2 })
                 .bindObject('text', 'adornedObject', toolTipTextConverter)
                 .theme('stroke', 'text')
@@ -672,223 +696,6 @@
       init();
     }, 300);
   });
-</script>
-
-<div id="sample">
-  <div id="myDiagramDiv" style="border: solid 1px black; height: 625px"></div>
-  Theme:
-  <select id="theme" onchange="changeTheme()">
-    <option value="system">System</option>
-    <option value="light">Light</option>
-    <option value="dark" selected>Dark</option>
-  </select>
-  <div>
-    Edit details:<br />
-    <div id="myInspector"></div>
-  </div>
-  <p><button id="zoomToFit">Zoom to Fit</button> <button id="centerRoot">Center on root</button></p>
-  <p>
-    This editable organizational chart sample color-codes the Nodes according to the tree level in
-    the hierarchy.
-  </p>
-  <p>
-    Select a node to edit its data values. This sample uses the
-    <a href="../samples/DataInspector.html">Data Inspector</a> extension to display and modify Part
-    data. Because this simple app is part of a static web site, there is no way to upload a
-    photograph for a person.
-  </p>
-  <p>
-    Double click in the diagram background to add a new boss. That uses the
-    <a>ClickCreatingTool</a> with a custom <a>ClickCreatingTool.insertPart</a> to scroll to the new
-    node and start editing the <a>TextBlock</a> for its name .
-  </p>
-  <p>
-    Drag a node onto another in order to change relationships, if permitted. Right-click or tap-hold
-    a Node to bring up a context menu that allows you to:
-  </p>
-  <ul>
-    <li>Add Employee - add a new person as a direct report to this person</li>
-    <li>Vacate Position - remove the information specific to the current person in that role</li>
-    <li>
-      Remove Role - removes the person entirely and changes the direct reports to report to the
-      (former) boss
-    </li>
-    <li>Remove Department - removes the person and whole subtree</li>
-  </ul>
-  <p>
-    To learn how to build an org chart from scratch with GoJS, see the
-    <a href="../learn/index.html">Getting Started tutorial</a>.
-  </p>
-  <p>This sample is set to the dark theme by default.</p>
-  <p>
-    For this exact same sample but enhanced for screen readers, please examine the
-    <a href="Accessibility.html">Accessibility</a> sample.
-  </p>
-  <p>
-    If you want to have some "assistant" nodes on the side, above the regular reports, see the
-    <a href="orgChartAssistants.html">Org Chart Assistants</a> sample, which is a more simply styled
-    version of this sample that uses a custom <a>TreeLayout</a> to position "assistants" that way.
-  </p>
-  <div>
-    <div>
-      <button id="SaveButton" onclick="save()">Save</button>
-      <button onclick="load()">Load</button>
-      Diagram Model saved in JSON format:
-    </div>
-    <textarea id="mySavedModel" style="width: 100%; height: 270px">
-{ "class": "go.TreeModel",
-  "nodeDataArray": [
-{"key":1, "name":"Stella Payne Diaz", "title":"CEO", "dept": "Management", "pic":"1.jpg", "email": "sdiaz@example.com", "phone": "(234) 555-6789" },
-{"key":2, "name":"Luke Warm", "title":"VP Marketing/Sales", "dept": "Management", "pic":"2.jpg", "email": "lwarm@example.com", "phone": "(234) 555-6789", "parent":1},
-{"key":3, "name":"Meg Meehan Hoffa", "title":"Sales", "dept": "Sales", "pic":"3.jpg", "email": "mhoffa@example.com", "phone": "(234) 555-6789", "parent":2},
-{"key":4, "name":"Peggy Flaming", "title":"VP Engineering", "dept": "Management", "pic":"4.jpg", "email": "pflaming@example.com", "phone": "(234) 555-6789", "parent":1},
-{"key":5, "name":"Saul Wellingood", "title":"Manufacturing", "dept": "Production", "pic":"5.jpg", "email": "swellingood@example.com", "phone": "(234) 555-6789", "parent":4},
-{"key":6, "name":"Al Ligori", "title":"Marketing", "dept": "Marketing", "pic":"6.jpg", "email": "aligori@example.com", "phone": "(234) 555-6789", "parent":2},
-{"key":7, "name":"Dot Stubadd", "title":"Sales Rep", "dept": "Sales", "pic":"7.jpg", "email": "dstubadd@example.com", "phone": "(234) 555-6789", "parent":3},
-{"key":8, "name":"Les Ismore", "title":"Project Mgr", "dept": "Production", "pic":"8.jpg", "email": "lismore@example.com", "phone": "(234) 555-6789", "parent":5},
-{"key":9, "name":"April Lynn Parris", "title":"Events Mgr", "dept": "Marketing", "pic":"9.jpg", "email": "aparris@example.com", "phone": "(234) 555-6789", "parent":6},
-{"key":10, "name":"Xavier Breath", "title":"Engineering", "dept": "Engineering", "pic":"10.jpg", "email": "xbreath@example.com", "phone": "(234) 555-6789", "parent":4},
-{"key":11, "name":"Anita Hammer", "title":"Process", "dept": "Production", "pic":"11.jpg", "email": "ahammer@example.com", "phone": "(234) 555-6789", "parent":5},
-{"key":12, "name":"Billy Aiken", "title":"Software", "dept": "Engineering", "pic":"12.jpg", "email": "baiken@example.com", "phone": "(234) 555-6789", "parent":10},
-{"key":13, "name":"Stan Wellback", "title":"Testing", "dept": "Engineering", "pic":"13.jpg", "email": "swellback@example.com", "phone": "(234) 555-6789", "parent":10},
-{"key":14, "name":"Marge Innovera", "title":"Hardware", "dept": "Engineering", "pic":"14.jpg", "email": "minnovera@example.com", "phone": "(234) 555-6789", "parent":10},
-{"key":15, "name":"Evan Elpus", "title":"Quality", "dept": "Production", "pic":"15.jpg", "email": "eelpus@example.com", "phone": "(234) 555-6789", "parent":5},
-{"key":16, "name":"Lotta B. Essen", "title":"Sales Rep", "dept": "Sales", "pic":"16.jpg", "email": "lessen@example.com", "phone": "(234) 555-6789", "parent":3}
- ]
-}
-    </textarea>
-  </div>
-  <dialog>
-    <div style="display: flex; flex-direction: column">
-      <p></p>
-      <p>Click anywhere to close</p>
-    </div>
-  </dialog>
-  <p id="hidden">this forces the font to load in Chromium browsers</p>
-</div>
-
-          
-        </div>
-        <!-- * * * * * * * * * * * * * -->
-        <!--  End of GoJS sample code  -->
-      </div>
-
-      <div id="allTagDescriptions" class="p-4 w-full max-w-screen-xl mx-auto">
-        <hr/>
-        <h3 class="text-xl">GoJS Features in this sample</h3>
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Table Panels</h4>
-<p>
-The "Table" Panel, <a href="../api/symbols/Panel.html#static-Table" target="api">Panel.Table</a>, arranges objects in rows and columns.
-Each object in a Table Panel is put into the cell indexed by the value of <a href="../api/symbols/GraphObject.html#row" target="api">GraphObject.row</a> and <a href="../api/symbols/GraphObject.html#column" target="api">GraphObject.column</a>.
-The panel will look at the rows and columns for all of the objects in the panel to determine how many rows and columns the table should have.
-More information can be found in the <a href="../intro/tablePanels.html">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#tables">Related samples</a>
-            </p>
-            <hr>
-          
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Tree Layout</h4>
-<p>
-This predefined layout is used for placing Nodes of a tree-structured graph in layers (rows or columns).
-For discussion and examples of the most commonly used properties of the <a href="../api/symbols/TreeLayout.html">TreeLayout</a>,
-see the <a href="../intro/trees.html">Trees</a> page in the Introduction.
-More information can be found in the <a href="../intro/layouts.html#TreeLayout">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#treelayout">Related samples</a>
-            </p>
-            <hr>
-          
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Context Menus</h4>
-<p>
-A GoJS context menu is an <a href="../api/symbols/Adornment.html" target="api">Adornment</a> that is shown when the user context-clicks (right mouse click or long touch hold)
-an object that has its <a href="../api/symbols/GraphObject.html#contextMenu" target="api">GraphObject.contextMenu</a> set.
-The context menu is bound to the same data as the part itself.
-</p>
-<p>
-It is typical to implement a context menu as a "ContextMenu" Panel containing "ContextMenuButton"s,
-as you can see in the code below in the assignment of the Node's <a href="../api/symbols/GraphObject.html#contextMenu" target="api">GraphObject.contextMenu</a> and <a href="../api/symbols/Diagram.html#contextMenu" target="api">Diagram.contextMenu</a> properties.
-Each "ContextMenu" is just a "Vertical" Panel <a href="../api/symbols/Adornment.html" target="api">Adornment</a> that is shadowed.
-Each "ContextMenuButton" is a Panel on which you can set the <a href="../api/symbols/GraphObject.html#click" target="api">GraphObject.click</a> event handler.
-In the event handler <code>obj.part</code> will be the whole context menu Adornment.
-<code>obj.part.adornedPart</code> will be the adorned Node or Link.
-The bound data is <code>obj.part.data</code>, which will be the same as <code>obj.part.adornedPart.data</code>.
-</p>
-<p>
-More information can be found in the <a href="../intro/contextMenus.html">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#contextmenus">Related samples</a>
-            </p>
-            <hr>
-          
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Buttons</h4>
-<p>
-GoJS defines several <a href="../api/symbols/Panel.html" target="api">Panel</a>s for common uses.
-These include "Button", "TreeExpanderButton", "SubGraphExpanderButton", "PanelExpanderButton", "ContextMenuButton", and "CheckBoxButton".
-"ContextMenuButton"s are typically used inside of "ContextMenu" Panels;
-"CheckBoxButton"s are used in the implementation of "CheckBox" Panels.
-</p>
-<p>
-These predefined panels can be used as if they were <a href="../api/symbols/Panel.html" target="api">Panel</a>-derived classes in calls to <a href="../api/symbols/GraphObject.html#build" target="api">GraphObject.build</a>.
-They are implemented as simple visual trees of <a href="../api/symbols/GraphObject.html" target="api">GraphObject</a>s in <a href="../api/symbols/Panel.html" target="api">Panel</a>s,
-with pre-set properties and event handlers.
-</p>
-<p>
-More information can be found in the <a href="../intro/buttons.html">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#buttons">Related samples</a>
-            </p>
-            <hr>
-          
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Data Inspector</h4>
-<p>Using a premade GoJS extension, you can create an HTML-based inspector that displays and allows editing of data for the selected Part (if any),
-or for a particular JavaScript object, or for the shared <a href="../api/symbols/Model.html#modelData" target="api">Model.modelData</a> object,
-which exists even if there are no nodes or links.
-</p>
-<p>The inspector code lies in <a href="../extensions/DataInspector.js">DataInspector.js</a>.
-This code is meant to be a starting point for making your own model data inspector.
-</p>
-<p>
-A generic demonstration of this extension can be found in the <a href="../samples/DataInspector.html">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#inspector">Related samples</a>
-            </p>
-            <hr>
-          
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Theming</h4>
-<p>
-  <b>GoJS</b> allows diagrams to be themed. This is commonly used to provide a light and dark mode for diagrams.
-</p>
-<p>
-  The <a href="../api/symbols/Diagram.html#themeManager" target="api">Diagram.themeManager</a> handles themes within a <a href="../api/symbols/Diagram.html" target="api">Diagram</a>.
-  The <a href="../api/symbols/ThemeManager.html" target="api">ThemeManager</a> can by shared by multiple diagrams,
-  and is responsible to managing the current theme and default theme, along with any theme updates.
-  More information can be found in the <a href="../intro/theming.html">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#theme">Related samples</a>
-            </p>
-            <hr>
-          
-        </div>
-    </div>
-  </body>
-  <!--  This script is part of the gojs.net website, and is not needed to run the sample -->
-  
+  </script>
+</body>
 </html>

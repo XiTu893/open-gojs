@@ -30,12 +30,21 @@ export class Geometry {
   public fillRule: string = 'evenodd';
   /** 图形名称（用于 figure 属性） */
   public name: string = '';
-  /** Auto 面板内容定位用的左上锚点（官方 geometry.spot1） */
-  public spot1: any = null;
-  /** Auto 面板内容定位用的右下锚点（官方 geometry.spot2） */
-  public spot2: any = null;
+  /** Auto 面板内容定位用的左上锚点（官方 geometry.spot1）。
+   *  官方 Geometry 构造即默认 Spot.TopLeft.copy()，这里保持一致。 */
+  public spot1: any = new Spot(0, 0, 0, 0);
+  /** Auto 面板内容定位用的右下锚点（官方 geometry.spot2），官方默认 Spot.BottomRight.copy()。 */
+  public spot2: any = new Spot(1, 1, 0, 0);
   /** 官方 geometry.defaultStretch（0=None 2=Fill 4=Vertical 5=Horizontal 6=Uniform），默认 Fill */
   public defaultStretch: number = 2;
+  /** 官方 geometry 记录的图形生成尺寸（Shape 生成图形几何时写入 width/height）。
+   *  包围盒至少要覆盖 (0,0,width,height) 这个原始盒子 —— 官方 computeBounds 就是这么做的：
+   *  先用 (0,0,width,height) 起步再并入实际路径。
+   *  少了这一步，DataStorage 这类「原始路径比盒子窄」的图形会被按窄包围盒横向拉伸，
+   *  拐角处出现尖刺。 */
+  public width: number = NaN;
+  /** 同 width：图形生成时的高度 */
+  public height: number = NaN;
 
   /**
    * 官方 go.d.ts：`constructor(type?: GeometryType, init?: Partial<Geometry>)`
@@ -120,6 +129,13 @@ export class Geometry {
     return this;
   }
 
+  /** 记录图形生成尺寸（官方 `Shape` 图形几何入口的做法），并作废已缓存的包围盒。 */
+  setSize(w: number, h: number): void {
+    this.width = w;
+    this.height = h;
+    this._bounds = null;
+  }
+
   /** 获取边界矩形 */
   get bounds(): Rect {
     if (this._bounds === null) {
@@ -131,6 +147,9 @@ export class Geometry {
   /** 计算边界矩形 */
   private computeBounds(): Rect {
     const acc = [Infinity, Infinity, -Infinity, -Infinity];
+    if (!isNaN(this.width) && !isNaN(this.height)) {
+      acc[0] = 0; acc[1] = 0; acc[2] = this.width; acc[3] = this.height;
+    }
     this._accumulatePathBounds(acc);
     if (!isFinite(acc[0])) {
       return new Rect(0, 0, 0, 0);
@@ -164,29 +183,27 @@ export class Geometry {
           if (!isNaN((seg as any).startAngle) && !isNaN((seg as any).centerX)) {
             // 官方「按角度」圆弧：直接把弧覆盖到的椭圆外框并入包围盒
             const rX = Math.abs(seg.radiusX);
-            const rY = Math.abs(seg.radiusY === 0 ? seg.radiusX : seg.radiusY);
             const cX = (seg as any).centerX as number;
             const cY = (seg as any).centerY as number;
             const a0 = ((seg as any).startAngle as number) * Math.PI / 180;
-            const sw = ((seg as any).sweepAngle as number) || 0;
-            const a1 = a0 + sw * Math.PI / 180;
-            // 扫掠跨越的整象限极值角
-            const lo = Math.min(a0, a1);
-            const hi = Math.max(a0, a1);
-            const kStart = Math.ceil((lo - Math.PI / 2) / Math.PI);
-            const kEnd = Math.floor((hi - Math.PI / 2) / Math.PI);
-            unionPoint(cX + rX * Math.cos(a0), cY + rY * Math.sin(a0));
-            unionPoint(cX + rX * Math.cos(a1), cY + rY * Math.sin(a1));
-            for (let k = kStart; k <= kEnd; k++) {
-              const ang = k * Math.PI + Math.PI / 2;
-              if (ang < lo || ang > hi) continue;
-              unionPoint(cX + rX * Math.cos(ang), cY + rY * Math.sin(ang));
-            }
-            if (Math.abs(sw) >= 360 - 1e-9) {
-              unionPoint(cX - rX, cY);
-              unionPoint(cX, cY - rY);
-              unionPoint(cX + rX, cY);
-              unionPoint(cX, cY + rY);
+            const swRad = (((seg as any).sweepAngle as number) || 0) * Math.PI / 180;
+            const a1 = a0 + swRad;
+            const rY2 = Math.abs(seg.radiusY === 0 ? seg.radiusX : seg.radiusY);
+            unionPoint(cX + rX * Math.cos(a0), cY + rY2 * Math.sin(a0));
+            unionPoint(cX + rX * Math.cos(a1), cY + rY2 * Math.sin(a1));
+            // 椭圆弧的极值只可能出现在 0 / π/2 / π / 3π/2 四个角上（x 或 y 方向的极值）。
+            // 以前这里只按 π 步长采 π/2 + kπ（只拿到上下极值），左右极值被漏掉，
+            // 包围盒宽度算小 → 渲染时 geometry 被横向拉伸，圆形端头被压成平边。
+            const TWO_PI = Math.PI * 2;
+            const total = Math.abs(swRad);
+            const dir = swRad >= 0 ? 1 : -1;
+            const full = total >= TWO_PI - 1e-9;
+            for (let e = 0; e < 4; e++) {
+              const ang = (e * Math.PI) / 2;
+              let d = (ang - a0) * dir;
+              d = ((d % TWO_PI) + TWO_PI) % TWO_PI;
+              if (!full && d > total + 1e-9) continue;
+              unionPoint(cX + rX * Math.cos(ang), cY + rY2 * Math.sin(ang));
             }
           } else {
             const cubics = Geometry._arcToCubics(cx, cy, seg);
@@ -284,6 +301,11 @@ export class Geometry {
     const geo = new Geometry();
     geo.fillRule = this.fillRule;
     geo.name = this.name;
+    geo.width = this.width;
+    geo.height = this.height;
+    geo.spot1 = this.spot1;
+    geo.spot2 = this.spot2;
+    geo.defaultStretch = this.defaultStretch;
     const it = this._figures.iterator;
     while (it.next()) {
       geo.add(it.value.copy());

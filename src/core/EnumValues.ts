@@ -505,3 +505,36 @@ export const TextEditingStartingDoubleClick = new EnumValue('DoubleClick');
 // ============ WheelMode ============
 export const WheelModeScroll = new EnumValue('Scroll');
 export const WheelModeNone = new EnumValue('None');
+
+// ============ 官方枚举命名空间 ============
+// 官方 go.js 里 SegmentType / GeometryType / GeometryStretch 是「枚举值组成的对象」
+// （`go.SegmentType.Line` 等）。它们放在这里而不是 index.ts，
+// 是为了让 src/figures/Figures.generated.ts（官方 extensions/Figures.js 的移植产物）
+// 能直接使用而不反向依赖 index.ts 形成循环引用。
+
+/** 官方 SegmentType = {Move, Line, Bezier, QuadraticBezier, Arc, SvgArc}。
+ * 本项目 PathSegment 内部的 MoveTo / Close 常量仍导出，但不进该命名空间。
+ * Bezier/Move 直接映射到内部的 CubicBezier/MoveTo，使官方代码创建的三次贝塞尔
+ * 与移动段能被所有内部绘制/序列化逻辑按 'CubicBezier'/'MoveTo' 处理。 */
+export const SegmentType = {
+  Move: PathSegmentMoveTo,
+  Line: PathSegmentLine,
+  Bezier: PathSegmentCubicBezier,
+  QuadraticBezier: PathSegmentQuadraticBezier,
+  Arc: PathSegmentArc,
+  SvgArc: SegmentTypeSvgArc,
+};
+
+export const GeometryStretch = {
+  None: GeometryStretchNone,
+  Default: GeometryStretchDefault,
+  Fill: GeometryStretchFill,
+  Uniform: GeometryStretchUniform,
+};
+
+export const GeometryType = {
+  Line: GeometryTypeLine,
+  Rectangle: GeometryTypeRectangle,
+  Ellipse: GeometryTypeEllipse,
+  Path: GeometryTypePath,
+};

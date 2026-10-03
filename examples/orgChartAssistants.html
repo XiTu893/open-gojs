@@ -1,134 +1,66 @@
-﻿
 <!DOCTYPE html>
-<html lang="en">
-  <head>
-    
-    <meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover"/>
-
-<meta name="description" content="An organization chart editor with assistants shown on the side -- edit details and change relationships." />
-<meta itemprop="description" content="An organization chart editor with assistants shown on the side -- edit details and change relationships." />
-<meta property="og:description" content="An organization chart editor with assistants shown on the side -- edit details and change relationships." />
-<meta name="twitter:description" content="An organization chart editor with assistants shown on the side -- edit details and change relationships." />
-
-
-<link rel="preconnect" href="https://rsms.me/">
-
-<!-- Copyright 1998-2026 by Northwoods Software Corporation. -->
-
-
-<meta itemprop="name" content="Org Chart with Assistants on the Side" />
-<meta property="og:title" content="Org Chart with Assistants on the Side" />
-<meta name="twitter:title" content="Org Chart with Assistants on the Side" />
-
-
-<meta property="og:image" content="https://gojs.net/latest/assets/images/screenshots/orgchartassistants.png" />
-<meta itemprop="image" content="https://gojs.net/latest/assets/images/screenshots/orgchartassistants.png" />
-<meta name="twitter:image" content="https://gojs.net/latest/assets/images/screenshots/orgchartassistants.png" />
-
-<meta property="og:url" content="https://gojs.net/latest/samples/orgChartAssistants.html" />
-<meta property="twitter:url" content="https://gojs.net/latest/samples/orgChartAssistants.html" />
-
-<meta name="twitter:card" content="summary_large_image" />
-<meta property="og:type" content="website" />
-<meta property="twitter:domain" content="gojs.net" />
-
-    <title>
-      Org Chart with Assistants on the Side | GoJS Diagramming Library
-    </title>
-  </head>
-
-  <body>
-    <!-- This top nav is not part of the sample code -->
-    <nav id="navTop" class=" w-full h-[var(--topnav-h)] z-30 bg-white border-b border-b-gray-200">
-  <div class="max-w-screen-xl mx-auto flex flex-wrap items-start justify-between px-4">
-    <a class="text-white bg-nwoods-primary font-bold !leading-[calc(var(--topnav-h)_-_1px)] my-0 px-2 text-4xl lg:text-5xl logo"
-       href="../">
-      GoJS
-    </a>
-    <div class="relative">
-      <button id="topnavButton" class="h-[calc(var(--topnav-h)_-_1px)] px-2 m-0 text-gray-900 bg-inherit shadow-none md:hidden hover:!bg-inherit hover:!text-nwoods-accent hover:!shadow-none" aria-label="Navigation">
-        <svg class="h-7 w-7 block" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </button>
-      <div id="topnavList" class="hidden md:block">
-        <div class="absolute right-0 z-30 flex flex-col items-end rounded border border-gray-200 p-4 pl-12 shadow bg-white text-gray-900 font-semibold
-                    md:flex-row md:space-x-4 md:items-start md:border-0 md:p-0 md:shadow-none md:bg-inherit">
-          <a href="../learn/">Learn</a>
-          <a href="../samples/">Samples</a>
-          <a href="../intro/">Intro</a>
-          <a href="../api/">API</a>
-          <a href="../download.html">Download</a>
-          <a href="https://forum.nwoods.com/c/gojs/11" target="_blank" rel="noopener">Forum</a>
-          <a id="tc" href="https://nwoods.com/contact.html"
-            target="_blank" rel="noopener" onclick="getOutboundLink('https://nwoods.com/contact.html', 'contact');">Contact</a>
-          <a id="tb" href="https://nwoods.com/sales/index.html"
-            target="_blank" rel="noopener" onclick="getOutboundLink('https://nwoods.com/sales/index.html', 'buy');">Buy</a>
-        </div>
-      </div>
-    </div>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Org Chart with Assistants on the Side</title>
+  <script src="../dist/open-gojs.umd.js"></script>
+  
+  <script src="https://cdn.jsdelivr.net/npm/gojs-extensions@latest/extensions/DataInspector.js"></script>
+  
+  
+</head>
+<body>
+<div id="myDiagramDiv" style="background-color: #f3f4f6; border: solid 1px black; height: 500px"></div>
+  <div>
+    Edit details:<br />
+    <div id="myInspector"></div>
   </div>
-</nav>
-<script>
-  window.addEventListener("DOMContentLoaded", function () {
-    // topnav
-    var topButton = document.getElementById("topnavButton");
-    var topnavList = document.getElementById("topnavList");
-    if (topButton && topnavList) {
-      topButton.addEventListener("click", function (e) {
-        topnavList
-          .classList
-          .toggle("hidden");
-        e.stopPropagation();
-      });
-      document.addEventListener("click", function (e) {
-        // if the clicked element isn't the list, close the list
-        if (!topnavList.classList.contains("hidden") && !e.target.closest("#topnavList")) {
-          topButton.click();
-        }
-      });
-
-      // set active <a> element
-      var url = window
-        .location
-        .href
-        .toLowerCase();
-      var aTags = topnavList.getElementsByTagName('a');
-      for (var i = 0; i < aTags.length; i++) {
-        var lowerhref = aTags[i]
-          .href
-          .toLowerCase();
-        if (lowerhref.endsWith('.html')) 
-          lowerhref = lowerhref.slice(0, -5);
-        if (url.startsWith(lowerhref)) {
-          aTags[i]
-            .classList
-            .add('active');
-          break;
-        }
-      }
-    }
-  });
-</script>
-    <div class="flex flex-col prose">
-      <div class="w-full max-w-screen-xl mx-auto">
-        <!-- * * * * * * * * * * * * * -->
-        <!-- Start of GoJS sample code -->
-        <script src="../dist/open-gojs.umd.js"></script>
-
-        
-
-        <div id="allSampleContent" class="p-4 w-full">
-          
-            
-            
-
-
-
-
-<script id="code">
-  function init() {
+  <div>
+    <div style="margin-block: .5em;">
+      <button id="SaveButton" onclick="save()">Save</button>
+      <button onclick="load()">Load</button>
+      Diagram Model saved in JSON format:
+    </div>
+    <textarea id="mySavedModel" style="width: 100%; height: 270px">
+{ "class": "go.TreeModel",
+  "nodeDataArray": [
+{"key":1, "name":"Stella Payne Diaz", "title":"CEO", "pic":"1.jpg"},
+{"key":2, "name":"Luke Warm", "title":"VP Marketing/Sales", "pic":"2.jpg", "parent":1},
+{"key":3, "name":"Meg Meehan Hoffa", "title":"Sales", "pic":"3.jpg", "parent":2},
+{"key":4, "name":"Peggy Flaming", "title":"VP Engineering", "pic":"4.jpg", "parent":1},
+{"key":5, "name":"Saul Wellingood", "title":"Manufacturing", "pic":"5.jpg", "parent":4},
+{"key":6, "name":"Al Ligori", "title":"Marketing", "pic":"6.jpg", "parent":2},
+{"key":7, "name":"Dot Stubadd", "title":"Sales Rep", "pic":"7.jpg", "parent":3},
+{"key":8, "name":"Les Ismore", "title":"Project Mgr", "pic":"8.jpg", "parent":5},
+{"key":9, "name":"April Lynn Parris", "title":"Events Mgr", "pic":"9.jpg", "parent":6},
+{"key":10, "name":"Xavier Breath", "title":"Engineering", "pic":"10.jpg", "parent":4},
+{"key":11, "name":"Anita Hammer", "title":"Process", "pic":"11.jpg", "parent":5},
+{"key":12, "name":"Billy Aiken", "title":"Software", "pic":"12.jpg", "parent":10},
+{"key":13, "name":"Stan Wellback", "title":"Testing", "pic":"13.jpg", "parent":10},
+{"key":14, "name":"Marge Innovera", "title":"Hardware", "pic":"14.jpg", "parent":10},
+{"key":15, "name":"Evan Elpus", "title":"Quality", "pic":"15.jpg", "parent":5},
+{"key":16, "name":"Lotta B. Essen", "title":"Sales Rep", "pic":"16.jpg", "parent":3},
+{"key":17, "name":"Joaquin Closet", "title":"Wardrobe Assistant", "isAssistant":true, "parent":1},
+{"key":18, "name":"Hannah Twomey", "title":"Engineering Assistant", "parent":10, "isAssistant":true}
+ ]
+}
+    </textarea>
+  </div>
+  <div id="description">
+<p>
+    This editable organizational chart sample is a simplified <a href="orgChartEditor.html">Org Chart Editor</a> that adds support for "assistant" nodes that are
+    laid out by a custom <a href="https://gojs.net/latest/api/symbols/TreeLayout.html" target="api">TreeLayout</a> below the side of the parent node and above the regular child nodes. See that sample for an org chart with more
+    stylized nodes.
+  </p>
+  <p>
+    Whether or not a node is considered to be an "assistant" node is determined by the <code>isAssistant</code> property of the node data. The user can modify
+    this data property via an additional context menu command.
+  </p>
+  <p>Assistant employees may themselves be bosses of their own employees. All of a boss's reports may be assistants.</p>
+  </div>
+  <script >
+function init() {
     myDiagram = new go.Diagram('myDiagramDiv', {
       allowCopy: false,
       allowDelete: false,
@@ -151,7 +83,7 @@
     });
 
     // when the document is modified, add a "*" to the title and enable the "Save" button
-    myDiagram.addDiagramListener('Modified', (e) => {
+    myDiagram.addDiagramListener('Modified', e => {
       const button = document.getElementById('SaveButton');
       if (button) button.disabled = !myDiagram.isModified;
       const idx = document.title.indexOf('*');
@@ -179,7 +111,7 @@
       // for sorting, have the Node.text be the data.name
       .bind('text', 'name')
       // bind the Part.layerName to control the Node's layer depending on whether it isSelected
-      .bindObject('layerName', 'isSelected', (sel) => (sel ? 'Foreground' : ''))
+      .bindObject('layerName', 'isSelected', sel => (sel ? 'Foreground' : ''))
       .add(
         // define the node's outer shape
         new go.Shape('Rectangle', {
@@ -232,14 +164,14 @@
                     }
                   ))
                   .bindTwoWay('text', 'title'),
-                new go.TextBlock(textStyle({ row: 2, column: 0 })).bind('text', 'key', (v) => 'ID: ' + v),
+                new go.TextBlock(textStyle({ row: 2, column: 0 }))
+                  .bind('text', 'key', v => 'ID: ' + v),
                 new go.TextBlock(
-                  textStyle({ name: 'boss', row: 2, column: 3 }) // we include a name so we can access this TextBlock when deleting Nodes/Links
-                )
-                  .bind('text', 'parent', (v) => 'Boss: ' + v),
+                    textStyle({ name: 'boss', row: 2, column: 3 }) // we include a name so we can access this TextBlock when deleting Nodes/Links
+                  )
+                  .bind('text', 'parent', v => 'Boss: ' + v),
                 new go.TextBlock(
-                  textStyle(
-                    {
+                  textStyle({
                       row: 3,
                       column: 0,
                       columnSpan: 5,
@@ -279,7 +211,7 @@
             const node = button.part.adornedPart;
             if (node !== null) {
               myDiagram.startTransaction('toggle assistant');
-              myDiagram.model.setDataProperty(node.data, 'isAssistant', !node.data.isAssistant);
+              myDiagram.model.set(node.data, 'isAssistant', !node.data.isAssistant);
               myDiagram.layout.invalidateLayout();
               myDiagram.commitTransaction('toggle assistant');
             }
@@ -610,7 +542,7 @@
                 const node = button.part.adornedPart;
                 if (node !== null) {
                   myDiagram.startTransaction('toggle assistant');
-                  myDiagram.model.setDataProperty(node.data, 'isAssistant', !node.data.isAssistant);
+                  myDiagram.model.set(node.data, 'isAssistant', !node.data.isAssistant);
                   myDiagram.layout.invalidateLayout();
                   myDiagram.commitTransaction('toggle assistant');
                 }
@@ -660,139 +592,6 @@
   }
 
   window.addEventListener('DOMContentLoaded', init);
-</script>
-
-<div id="sample">
-  <div id="myDiagramDiv" style="background-color: #f3f4f6; border: solid 1px black; height: 500px"></div>
-  <div>
-    Edit details:<br />
-    <div id="myInspector"></div>
-  </div>
-  <p>
-    This editable organizational chart sample is a simplified <a href="orgChartEditor.html">Org Chart Editor</a> that adds support for "assistant" nodes that are
-    laid out by a custom <a>TreeLayout</a> below the side of the parent node and above the regular child nodes. See that sample for an org chart with more
-    stylized nodes.
-  </p>
-  <p>
-    Whether or not a node is considered to be an "assistant" node is determined by the <code>isAssistant</code> property of the node data. The user can modify
-    this data property via an additional context menu command.
-  </p>
-  <p>Assistant employees may themselves be bosses of their own employees. All of a boss's reports may be assistants.</p>
-  <div>
-    <div>
-      <button id="SaveButton" onclick="save()">Save</button>
-      <button onclick="load()">Load</button>
-      Diagram Model saved in JSON format:
-    </div>
-    <textarea id="mySavedModel" style="width: 100%; height: 270px">
-{ "class": "go.TreeModel",
-  "nodeDataArray": [
-{"key":1, "name":"Stella Payne Diaz", "title":"CEO", "pic":"1.jpg"},
-{"key":2, "name":"Luke Warm", "title":"VP Marketing/Sales", "pic":"2.jpg", "parent":1},
-{"key":3, "name":"Meg Meehan Hoffa", "title":"Sales", "pic":"3.jpg", "parent":2},
-{"key":4, "name":"Peggy Flaming", "title":"VP Engineering", "pic":"4.jpg", "parent":1},
-{"key":5, "name":"Saul Wellingood", "title":"Manufacturing", "pic":"5.jpg", "parent":4},
-{"key":6, "name":"Al Ligori", "title":"Marketing", "pic":"6.jpg", "parent":2},
-{"key":7, "name":"Dot Stubadd", "title":"Sales Rep", "pic":"7.jpg", "parent":3},
-{"key":8, "name":"Les Ismore", "title":"Project Mgr", "pic":"8.jpg", "parent":5},
-{"key":9, "name":"April Lynn Parris", "title":"Events Mgr", "pic":"9.jpg", "parent":6},
-{"key":10, "name":"Xavier Breath", "title":"Engineering", "pic":"10.jpg", "parent":4},
-{"key":11, "name":"Anita Hammer", "title":"Process", "pic":"11.jpg", "parent":5},
-{"key":12, "name":"Billy Aiken", "title":"Software", "pic":"12.jpg", "parent":10},
-{"key":13, "name":"Stan Wellback", "title":"Testing", "pic":"13.jpg", "parent":10},
-{"key":14, "name":"Marge Innovera", "title":"Hardware", "pic":"14.jpg", "parent":10},
-{"key":15, "name":"Evan Elpus", "title":"Quality", "pic":"15.jpg", "parent":5},
-{"key":16, "name":"Lotta B. Essen", "title":"Sales Rep", "pic":"16.jpg", "parent":3},
-{"key":17, "name":"Joaquin Closet", "title":"Wardrobe Assistant", "isAssistant":true, "parent":1},
-{"key":18, "name":"Hannah Twomey", "title":"Engineering Assistant", "parent":10, "isAssistant":true}
- ]
-}
-    </textarea>
-  </div>
-</div>
-
-          
-        </div>
-        <!-- * * * * * * * * * * * * * -->
-        <!--  End of GoJS sample code  -->
-      </div>
-
-      <div id="allTagDescriptions" class="p-4 w-full max-w-screen-xl mx-auto">
-        <hr/>
-        <h3 class="text-xl">GoJS Features in this sample</h3>
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Table Panels</h4>
-<p>
-The "Table" Panel, <a href="../api/symbols/Panel.html#static-Table" target="api">Panel.Table</a>, arranges objects in rows and columns.
-Each object in a Table Panel is put into the cell indexed by the value of <a href="../api/symbols/GraphObject.html#row" target="api">GraphObject.row</a> and <a href="../api/symbols/GraphObject.html#column" target="api">GraphObject.column</a>.
-The panel will look at the rows and columns for all of the objects in the panel to determine how many rows and columns the table should have.
-More information can be found in the <a href="../intro/tablePanels.html">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#tables">Related samples</a>
-            </p>
-            <hr>
-          
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Tree Layout</h4>
-<p>
-This predefined layout is used for placing Nodes of a tree-structured graph in layers (rows or columns).
-For discussion and examples of the most commonly used properties of the <a href="../api/symbols/TreeLayout.html">TreeLayout</a>,
-see the <a href="../intro/trees.html">Trees</a> page in the Introduction.
-More information can be found in the <a href="../intro/layouts.html#TreeLayout">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#treelayout">Related samples</a>
-            </p>
-            <hr>
-          
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>ToolTips</h4>
-<p>
-A tooltip is an <a href="../api/symbols/Adornment.html" target="api">Adornment</a> that is shown when the mouse hovers over an object that has its <a href="../api/symbols/GraphObject.html#toolTip" target="api">GraphObject.toolTip</a> set.
-The tooltip part is bound to the same data as the part itself.
-</p>
-<p>
-It is typical to implement a tooltip as a "ToolTip" Panel holding a <a href="../api/symbols/TextBlock.html" target="api">TextBlock</a> or a Panel of TextBlocks and other objects.
-Each "ToolTip" is just an "Auto" Panel <a href="../api/symbols/Adornment.html" target="api">Adornment</a> that is shadowed, and where the border is a rectangular <a href="../api/symbols/Shape.html" target="api">Shape</a> with a light gray fill.
-However you can implement the tooltip as any arbitrarily complicated Adornment.
-</p>
-<p>
-More information can be found in the <a href="../intro/tooltips.html">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#tooltips">Related samples</a>
-            </p>
-            <hr>
-          
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Buttons</h4>
-<p>
-GoJS defines several <a href="../api/symbols/Panel.html" target="api">Panel</a>s for common uses.
-These include "Button", "TreeExpanderButton", "SubGraphExpanderButton", "PanelExpanderButton", "ContextMenuButton", and "CheckBoxButton".
-"ContextMenuButton"s are typically used inside of "ContextMenu" Panels;
-"CheckBoxButton"s are used in the implementation of "CheckBox" Panels.
-</p>
-<p>
-These predefined panels can be used as if they were <a href="../api/symbols/Panel.html" target="api">Panel</a>-derived classes in calls to <a href="../api/symbols/GraphObject.html#build" target="api">GraphObject.build</a>.
-They are implemented as simple visual trees of <a href="../api/symbols/GraphObject.html" target="api">GraphObject</a>s in <a href="../api/symbols/Panel.html" target="api">Panel</a>s,
-with pre-set properties and event handlers.
-</p>
-<p>
-More information can be found in the <a href="../intro/buttons.html">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#buttons">Related samples</a>
-            </p>
-            <hr>
-          
-        </div>
-    </div>
-  </body>
-  <!--  This script is part of the gojs.net website, and is not needed to run the sample -->
-  
+  </script>
+</body>
 </html>

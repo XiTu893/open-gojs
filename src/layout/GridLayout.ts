@@ -74,7 +74,7 @@ export class GridLayout extends Layout {
   set sorting(val: EnumValue) { this._sorting = val; this.invalidateLayout(); }
 
   copy(): GridLayout {
-    const copy = new GridLayout();
+    const copy = new (this.constructor as new () => any)();
     this.cloneProtected(copy);
     copy._wrappingWidth = this._wrappingWidth;
     copy._wrappingColumn = this._wrappingColumn;

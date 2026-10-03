@@ -289,14 +289,7 @@ export declare const ChangeType: {
     Insert: import("./core/EnumValues").EnumValue;
     Remove: import("./core/EnumValues").EnumValue;
 };
-export declare const SegmentType: {
-    Move: import("./core/EnumValues").EnumValue;
-    Line: import("./core/EnumValues").EnumValue;
-    Bezier: import("./core/EnumValues").EnumValue;
-    QuadraticBezier: import("./core/EnumValues").EnumValue;
-    Arc: import("./core/EnumValues").EnumValue;
-    SvgArc: import("./core/EnumValues").EnumValue;
-};
+export { SegmentType } from './core/EnumValues';
 export declare const AnimationStyle: {
     Default: import("./core/EnumValues").EnumValue;
     AnimateLocations: import("./core/EnumValues").EnumValue;
@@ -352,18 +345,7 @@ export declare const LayoutConditions: {
     Standard: number;
     All: number;
 };
-export declare const GeometryStretch: {
-    None: import("./core/EnumValues").EnumValue;
-    Default: import("./core/EnumValues").EnumValue;
-    Fill: import("./core/EnumValues").EnumValue;
-    Uniform: import("./core/EnumValues").EnumValue;
-};
-export declare const GeometryType: {
-    Line: import("./core/EnumValues").EnumValue;
-    Rectangle: import("./core/EnumValues").EnumValue;
-    Ellipse: import("./core/EnumValues").EnumValue;
-    Path: import("./core/EnumValues").EnumValue;
-};
+export { GeometryStretch, GeometryType } from './core/EnumValues';
 export declare const LinkingDirection: {
     Either: import("./core/EnumValues").EnumValue;
     ForwardsOnly: import("./core/EnumValues").EnumValue;

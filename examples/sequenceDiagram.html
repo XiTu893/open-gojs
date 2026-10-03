@@ -1,133 +1,60 @@
-﻿
 <!DOCTYPE html>
-<html lang="en">
-  <head>
-    
-    <meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover"/>
-
-<meta name="description" content="A sequence diagram editor." />
-<meta itemprop="description" content="A sequence diagram editor." />
-<meta property="og:description" content="A sequence diagram editor." />
-<meta name="twitter:description" content="A sequence diagram editor." />
-
-
-<link rel="preconnect" href="https://rsms.me/">
-
-<!-- Copyright 1998-2026 by Northwoods Software Corporation. -->
-
-
-<meta itemprop="name" content="Sequence Diagram with Actors, Lifelines, Activities, and Interactions" />
-<meta property="og:title" content="Sequence Diagram with Actors, Lifelines, Activities, and Interactions" />
-<meta name="twitter:title" content="Sequence Diagram with Actors, Lifelines, Activities, and Interactions" />
-
-
-<meta property="og:image" content="https://gojs.net/latest/assets/images/screenshots/sequencediagram.png" />
-<meta itemprop="image" content="https://gojs.net/latest/assets/images/screenshots/sequencediagram.png" />
-<meta name="twitter:image" content="https://gojs.net/latest/assets/images/screenshots/sequencediagram.png" />
-
-<meta property="og:url" content="https://gojs.net/latest/samples/sequenceDiagram.html" />
-<meta property="twitter:url" content="https://gojs.net/latest/samples/sequenceDiagram.html" />
-
-<meta name="twitter:card" content="summary_large_image" />
-<meta property="og:type" content="website" />
-<meta property="twitter:domain" content="gojs.net" />
-
-    <title>
-      Sequence Diagram with Actors, Lifelines, Activities, and Interactions | GoJS Diagramming Library
-    </title>
-  </head>
-
-  <body>
-    <!-- This top nav is not part of the sample code -->
-    <nav id="navTop" class=" w-full h-[var(--topnav-h)] z-30 bg-white border-b border-b-gray-200">
-  <div class="max-w-screen-xl mx-auto flex flex-wrap items-start justify-between px-4">
-    <a class="text-white bg-nwoods-primary font-bold !leading-[calc(var(--topnav-h)_-_1px)] my-0 px-2 text-4xl lg:text-5xl logo"
-       href="../">
-      GoJS
-    </a>
-    <div class="relative">
-      <button id="topnavButton" class="h-[calc(var(--topnav-h)_-_1px)] px-2 m-0 text-gray-900 bg-inherit shadow-none md:hidden hover:!bg-inherit hover:!text-nwoods-accent hover:!shadow-none" aria-label="Navigation">
-        <svg class="h-7 w-7 block" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </button>
-      <div id="topnavList" class="hidden md:block">
-        <div class="absolute right-0 z-30 flex flex-col items-end rounded border border-gray-200 p-4 pl-12 shadow bg-white text-gray-900 font-semibold
-                    md:flex-row md:space-x-4 md:items-start md:border-0 md:p-0 md:shadow-none md:bg-inherit">
-          <a href="../learn/">Learn</a>
-          <a href="../samples/">Samples</a>
-          <a href="../intro/">Intro</a>
-          <a href="../api/">API</a>
-          <a href="../download.html">Download</a>
-          <a href="https://forum.nwoods.com/c/gojs/11" target="_blank" rel="noopener">Forum</a>
-          <a id="tc" href="https://nwoods.com/contact.html"
-            target="_blank" rel="noopener" onclick="getOutboundLink('https://nwoods.com/contact.html', 'contact');">Contact</a>
-          <a id="tb" href="https://nwoods.com/sales/index.html"
-            target="_blank" rel="noopener" onclick="getOutboundLink('https://nwoods.com/sales/index.html', 'buy');">Buy</a>
-        </div>
-      </div>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sequence Diagram with Actors, Lifelines, Activities, and Interactions</title>
+  <script src="../dist/open-gojs.umd.js"></script>
+  
+  
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Source+Sans+Pro">
+  
+</head>
+<body>
+<div id="myDiagramDiv" style="border: solid 1px black; width: 100%; height: 400px"></div>
+  <div>
+    <div style="margin-block: .5em;">
+      <button id="SaveButton" onclick="save()">Save</button>
+      <button onclick="load()">Load</button>
+      Diagram Model saved in JSON format:
     </div>
+    <textarea id="mySavedModel" style="width: 100%; height: 240px">
+{ "class": "go.GraphLinksModel",
+  "nodeDataArray": [
+{"key":"Fred", "text":"Fred: Patron", "isGroup":true, "loc":"0 0", "duration":9},
+{"key":"Bob", "text":"Bob: Waiter", "isGroup":true, "loc":"100 0", "duration":9},
+{"key":"Hank", "text":"Hank: Cook", "isGroup":true, "loc":"200 0", "duration":9},
+{"key":"Renee", "text":"Renee: Cashier", "isGroup":true, "loc":"300 0", "duration":9},
+{"group":"Bob", "start":1, "duration":2},
+{"group":"Hank", "start":2, "duration":3},
+{"group":"Fred", "start":3, "duration":1},
+{"group":"Bob", "start":5, "duration":1},
+{"group":"Fred", "start":6, "duration":2},
+{"group":"Renee", "start":8, "duration":1}
+ ],
+  "linkDataArray": [
+{"from":"Fred", "to":"Bob", "text":"order", "time":1},
+{"from":"Bob", "to":"Hank", "text":"order food", "time":2},
+{"from":"Bob", "to":"Fred", "text":"serve drinks", "time":3},
+{"from":"Hank", "to":"Bob", "text":"finish cooking", "time":5},
+{"from":"Bob", "to":"Fred", "text":"serve food", "time":6},
+{"from":"Fred", "to":"Renee", "text":"pay", "time":8}
+ ]}
+    </textarea>
   </div>
-</nav>
-<script>
-  window.addEventListener("DOMContentLoaded", function () {
-    // topnav
-    var topButton = document.getElementById("topnavButton");
-    var topnavList = document.getElementById("topnavList");
-    if (topButton && topnavList) {
-      topButton.addEventListener("click", function (e) {
-        topnavList
-          .classList
-          .toggle("hidden");
-        e.stopPropagation();
-      });
-      document.addEventListener("click", function (e) {
-        // if the clicked element isn't the list, close the list
-        if (!topnavList.classList.contains("hidden") && !e.target.closest("#topnavList")) {
-          topButton.click();
-        }
-      });
-
-      // set active <a> element
-      var url = window
-        .location
-        .href
-        .toLowerCase();
-      var aTags = topnavList.getElementsByTagName('a');
-      for (var i = 0; i < aTags.length; i++) {
-        var lowerhref = aTags[i]
-          .href
-          .toLowerCase();
-        if (lowerhref.endsWith('.html')) 
-          lowerhref = lowerhref.slice(0, -5);
-        if (url.startsWith(lowerhref)) {
-          aTags[i]
-            .classList
-            .add('active');
-          break;
-        }
-      }
-    }
-  });
-</script>
-    <div class="flex flex-col prose">
-      <div class="w-full max-w-screen-xl mx-auto">
-        <!-- * * * * * * * * * * * * * -->
-        <!-- Start of GoJS sample code -->
-        <script src="../dist/open-gojs.umd.js"></script>
-
-        
-
-        <div id="allSampleContent" class="p-4 w-full">
-          
-            
-            
-
-<link href="https://fonts.googleapis.com/css?family=Source+Sans+Pro" rel="stylesheet" type="text/css" />
-<script id="code">
-
-  // a custom routed Link
+  <div id="description">
+<p>
+    A <em>sequence diagram</em> is an interaction diagram that shows how entities operate with one another and in what order. In this sample, we show the
+    interaction between different people in a restaurant.
+  </p>
+  <p>
+    The diagram uses the <a href="https://gojs.net/latest/api/symbols/Diagram.html#grouptemplate" target="api">Diagram.groupTemplate</a> for "lifelines," <a href="https://gojs.net/latest/api/symbols/Diagram.html#nodetemplate" target="api">Diagram.nodeTemplate</a> for "activities," and <a href="https://gojs.net/latest/api/symbols/Diagram.html#linktemplate" target="api">Diagram.linkTemplate</a> for
+    "messages" between the entities. Also featured are a custom Link class and custom <a href="https://gojs.net/latest/api/symbols/LinkingTool.html" target="api">LinkingTool</a> to draw links between lifelines and create activities
+    at the end of the new link. Nodes use a binding function on the location property to ensure they are anchored to their lifeline.
+  </p>
+  </div>
+  <script >
+// a custom routed Link
   class MessageLink extends go.Link {
     constructor(init) {
       super();
@@ -222,7 +149,7 @@
         const start = this.temporaryLink.time;
         const duration = 1;
         newlink.data.time = start;
-        model.setDataProperty(newlink.data, 'text', 'msg');
+        model.set(newlink.data, 'text', 'msg');
         // and create a new Activity node data in the "to" group data
         const newact = {
           group: newlink.data.to,
@@ -432,7 +359,7 @@
         if (!gr.isGroup) continue;
         if (max > gr.duration) {
           // this only extends, never shrinks
-          myDiagram.model.setDataProperty(gr, 'duration', max);
+          myDiagram.model.set(gr, 'duration', max);
         }
       }
     }
@@ -458,7 +385,7 @@
     return new go.Point(grouploc.x, convertTimeToY(act.start) - ActivityStart);
   }
   function backComputeActivityLocation(loc, act) {
-    myDiagram.model.setDataProperty(act, 'start', convertYToTime(loc.y + ActivityStart));
+    myDiagram.model.set(act, 'start', convertYToTime(loc.y + ActivityStart));
   }
 
   function computeActivityHeight(duration) {
@@ -487,145 +414,6 @@
   }
 
   window.addEventListener('DOMContentLoaded', init);
-</script>
-
-<div id="sample">
-  <div id="myDiagramDiv" style="border: solid 1px black; width: 100%; height: 400px"></div>
-  <p>
-    A <em>sequence diagram</em> is an interaction diagram that shows how entities operate with one another and in what order. In this sample, we show the
-    interaction between different people in a restaurant.
-  </p>
-  <p>
-    The diagram uses the <a>Diagram.groupTemplate</a> for "lifelines," <a>Diagram.nodeTemplate</a> for "activities," and <a>Diagram.linkTemplate</a> for
-    "messages" between the entities. Also featured are a custom Link class and custom <a>LinkingTool</a> to draw links between lifelines and create activities
-    at the end of the new link. Nodes use a binding function on the location property to ensure they are anchored to their lifeline.
-  </p>
-  <div>
-    <div>
-      <button id="SaveButton" onclick="save()">Save</button>
-      <button onclick="load()">Load</button>
-      Diagram Model saved in JSON format:
-    </div>
-    <textarea id="mySavedModel" style="width: 100%; height: 240px">
-{ "class": "go.GraphLinksModel",
-  "nodeDataArray": [
-{"key":"Fred", "text":"Fred: Patron", "isGroup":true, "loc":"0 0", "duration":9},
-{"key":"Bob", "text":"Bob: Waiter", "isGroup":true, "loc":"100 0", "duration":9},
-{"key":"Hank", "text":"Hank: Cook", "isGroup":true, "loc":"200 0", "duration":9},
-{"key":"Renee", "text":"Renee: Cashier", "isGroup":true, "loc":"300 0", "duration":9},
-{"group":"Bob", "start":1, "duration":2},
-{"group":"Hank", "start":2, "duration":3},
-{"group":"Fred", "start":3, "duration":1},
-{"group":"Bob", "start":5, "duration":1},
-{"group":"Fred", "start":6, "duration":2},
-{"group":"Renee", "start":8, "duration":1}
- ],
-  "linkDataArray": [
-{"from":"Fred", "to":"Bob", "text":"order", "time":1},
-{"from":"Bob", "to":"Hank", "text":"order food", "time":2},
-{"from":"Bob", "to":"Fred", "text":"serve drinks", "time":3},
-{"from":"Hank", "to":"Bob", "text":"finish cooking", "time":5},
-{"from":"Bob", "to":"Fred", "text":"serve food", "time":6},
-{"from":"Fred", "to":"Renee", "text":"pay", "time":8}
- ]}
-    </textarea>
-  </div>
-</div>
-
-          
-        </div>
-        <!-- * * * * * * * * * * * * * -->
-        <!--  End of GoJS sample code  -->
-      </div>
-
-      <div id="allTagDescriptions" class="p-4 w-full max-w-screen-xl mx-auto">
-        <hr/>
-        <h3 class="text-xl">GoJS Features in this sample</h3>
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Links</h4>
-<p>
-The <a href="../api/symbols/Link.html" target="api">Link</a> class is used to implement a visual relationship between nodes.
-Links are normally created by the presence of link data objects in the <a href="../api/symbols/GraphLinksModel.html#linkDataArray" target="api">GraphLinksModel.linkDataArray</a>
-or by a parent key reference as the value of the <a href="../api/symbols/TreeModel.html#nodeParentKeyProperty" target="api">TreeModel.nodeParentKeyProperty</a> of a node data object
-in a <a href="../api/symbols/TreeModel.html" target="api">TreeModel</a>.
-More information can be found in the <a href="../intro/links.html">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#links">Related samples</a>
-            </p>
-            <hr>
-          
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Groups</h4>
-<p>
-The <a href="../api/symbols/Group.html" target="api">Group</a> class is used to treat a collection of <a href="../api/symbols/Node.html" target="api">Node</a>s and <a href="../api/symbols/Link.html" target="api">Link</a>s as if they were a single <a href="../api/symbols/Node.html" target="api">Node</a>.
-Those nodes and links are members of the group; together they constitute a subgraph.
-</p>
-<p>
-A subgraph is <em>not</em> another <a href="../api/symbols/Diagram.html" target="api">Diagram</a>, so there is no separate HTML Div element for the subgraph of a group.
-All of the <a href="../api/symbols/Part.html" target="api">Part</a>s that are members of a <a href="../api/symbols/Group.html" target="api">Group</a> belong to the same Diagram as the Group.
-There can be links between member nodes and nodes outside of the group as well as links between the group itself and other nodes.
-There can even be links between member nodes and the containing group itself.
-</p>
-<p>
-More information can be found in the <a href="../intro/groups.html">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#groups">Related samples</a>
-            </p>
-            <hr>
-          
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Tools</h4>
-<p>
-<a href="../api/symbols/Tool.html" target="api">Tool</a>s handle all input events, such as mouse and keyboard interactions, in a Diagram.
-There are many kinds of predefined Tool classes that implement all of the common operations that users do.
-</p>
-<p>
-For flexibility and simplicity, all input events are canonicalized as <a href="../api/symbols/InputEvent.html" target="api">InputEvent</a>s and
-redirected by the diagram to go to the <a href="../api/symbols/Diagram.html#currentTool" target="api">Diagram.currentTool</a>.
-By default the Diagram.currentTool is an instance of <a href="../api/symbols/ToolManager.html" target="api">ToolManager</a> held as the <a href="../api/symbols/Diagram.html#toolManager" target="api">Diagram.toolManager</a>.
-The ToolManager implements support for all mode-less tools.
-The ToolManager is responsible for finding another tool that is ready to run and then making it the new current tool.
-This causes the new tool to process all of the input events (mouse, keyboard, and touch) until the tool decides that it is finished,
-at which time the diagram's current tool reverts back to the <a href="../api/symbols/Diagram.html#defaultTool" target="api">Diagram.defaultTool</a>, which is normally the ToolManager, again.
-</p>
-<p>
-More information can be found in the <a href="../intro/tools.html">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#tools">Related samples</a>
-            </p>
-            <hr>
-          
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Grid Patterns</h4>
-<p>
-<b>GoJS</b> provides functionality to display a grid of lines drawn at regular intervals.
-Grid Panels can also force dragged parts to be aligned on grid points, and resize parts to be multiples of the grid cell size.
-</p>
-<p>
-Grids are implemented using a type of <a href="../api/symbols/Panel.html" target="api">Panel</a>, <a href="../api/symbols/PanelLayout.html#Grid" target="api">Panel.Grid</a>.
-Grid Panels, like most other types of Panels, can be used within <a href="../api/symbols/Node.html" target="api">Node</a>s or any other kind of <a href="../api/symbols/Part.html" target="api">Part</a>.
-However when they are used as the <a href="../api/symbols/Diagram.html#grid" target="api">Diagram.grid</a>, they are effectively infinite in extent.
-</p>
-<p>
-More information can be found in the <a href="../intro/grids.html">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#grid">Related samples</a>
-            </p>
-            <hr>
-          
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-        </div>
-    </div>
-  </body>
-  <!--  This script is part of the gojs.net website, and is not needed to run the sample -->
-  
+  </script>
+</body>
 </html>

@@ -1394,11 +1394,13 @@ export class Diagram {
         template = this._nodeTemplate;
       }
     } else {
-      if (category && this._nodeTemplateMap.has(category)) {
-        template = this._nodeTemplateMap.get(category)!;
-      } else {
-        template = this._nodeTemplate;
-      }
+      // 官方 PartManager：nodeTemplateMap.get(category) → get('') → 内置默认。
+      // 以前 category 为空串/undefined 时直接掉到 this._nodeTemplate（无）→ 内置
+      // “红方块 40x40”，flowchart 这种 add('', template) 注册默认分类的样例全错。
+      const cat = category || '';
+      template = this._nodeTemplateMap.get(cat) ?? null;
+      if (!template && cat !== '') template = this._nodeTemplateMap.get('') ?? null;
+      if (!template) template = this._nodeTemplate;
     }
 
     const node = template!.copy() as Node;
@@ -1596,33 +1598,9 @@ export class Diagram {
   }
 
   private _resolveBindingValueCore(binding: Binding, obj: GraphObject, data: ObjectData, part: Part): any {
-    if (binding.isToTheme) {
-      // 官方 ThemeBinding：不走 data/ofObject，直接主题取值
-      return binding.getValueFromSource(data, obj, this._model);
-    } else if (binding.isFromModel) {
-      let val = this._model ? this._model.modelData[binding.sourceProperty] : undefined;
-      // 官方：源值 undefined → 跳过（不 convert、不赋值）
-      if (val !== undefined && binding.conversion) val = binding.conversion(val, obj, this._model);
-      return val;
-    } else if (binding.sourceObject !== null) {
-      const sourceName = binding.sourceObject;
-      let sourceObj: GraphObject | null = null;
-      if (sourceName === '') {
-        sourceObj = part as any;
-      } else {
-        sourceObj = part.findObject(sourceName);
-      }
-      let val: any;
-      if (sourceObj) {
-        val = binding.sourceProperty === '' ? sourceObj : (sourceObj as any)[binding.sourceProperty];
-      } else {
-        val = undefined;
-      }
-      if (val !== undefined && binding.conversion) val = binding.conversion(val, obj, this._model);
-      return val;
-    } else {
-      return binding.getValueFromSource(data, obj, this._model);
-    }
+    void part;
+    // 统一走 Binding.getValueFromSource —— 主题/对象/数据/模型四种源的官方语义都在里面
+    return binding.getValueFromSource(data, obj, this._model);
   }
 
   private _applyBindings(part: Part, data: ObjectData): void {
@@ -2031,12 +2009,11 @@ export class Diagram {
           if (measure) part.ensureBounds();
           const pos = part.position;
           const mb = part.measuredBounds;
-          // 节点的 actualBounds 以 position 为左上角；链接的以路线中点 position
-          // 为中心（官方 link actualBounds 关于链路中线对称）。统一按左上角排
-          // 会让 link 的包围盒整体偏移半个自身尺寸。
-          const arr = isLink
-            ? new Rect(pos.x - mb.width / 2, pos.y - mb.height / 2, mb.width, mb.height)
-            : new Rect(pos.x, pos.y, mb.width, mb.height);
+          // 官方 Part.ensureBounds/Ht：actualBounds 一律以 position 为左上角。
+          // 早先对 Link 特判「按路线中点居中」是错误简化 —— 官方 measure 里
+          // position = routeBounds 原点 + or.origin，配合 union(or) 起点正好覆盖子元素，
+          // 居中会让 link 包围盒偏移半个自身尺寸。
+          const arr = new Rect(pos.x, pos.y, mb.width, mb.height);
           part._arrange(arr);
           if (!isLink && typeof part.syncPositionFromLocation === 'function') {
             part.syncPositionFromLocation();

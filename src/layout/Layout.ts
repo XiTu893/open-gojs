@@ -201,6 +201,11 @@ export class Layout {
    * @param coll - A Diagram, Iterable<Part>, or array of Parts
    */
   collectParts(coll: any): List<Part> {
+    // 官方用的是 GSet：Diagram 入参时 nodes / links / parts 三份一起收，
+    // `parts` 里已经包含全部 node 与 link，靠 Set 去重才不会重复收集。
+    // 我们以前用 List，同一个 part 会被收两遍 —— friendWheel 的 60 节点 120 连线
+    // 变成 collectParts=360、网络里 240 条边，半径算错、link.curviness 被覆写两次。
+    const seen = new Set<Part>();
     const parts = new List<Part>();
 
     if (!coll) return parts;
@@ -220,23 +225,23 @@ export class Layout {
     if (coll._layers) {
       const diagram = coll as any;
       this._diagram = diagram;
-      this._collectInto(parts, diagram.nodes, true);
-      this._collectInto(parts, diagram.links, true);
-      this._collectInto(parts, diagram.parts, true);
+      this._collectInto(seen, parts, diagram.nodes, true);
+      this._collectInto(seen, parts, diagram.links, true);
+      this._collectInto(seen, parts, diagram.parts, true);
       return parts;
     }
 
     if (coll instanceof Group) {
-      this._collectInto(parts, (coll as any).memberParts, false);
+      this._collectInto(seen, parts, (coll as any).memberParts, false);
       return parts;
     }
 
-    this._collectInto(parts, coll, false);
+    this._collectInto(seen, parts, coll, false);
     return parts;
   }
 
   /** 官方 collectParts 内部的收集过程（对应官方私有 Ka 方法） */
-  private _collectInto(set: List<Part>, coll: any, toplevelonly: boolean): void {
+  private _collectInto(seen: Set<Part>, out: List<Part>, coll: any, toplevelonly: boolean): void {
     if (!coll) return;
     const it: any = (typeof coll.iterator === 'function')
       ? coll.iterator()
@@ -245,6 +250,7 @@ export class Layout {
     while (it.next()) {
       const part: any = it.value;
       if (!part) continue;
+      if (seen.contains(part)) continue; // diagram.parts 里已有的 node/link 不再收第二遍
       if (toplevelonly && part.isTopLevel === false) continue;
       // 官方的 collectParts 不看 visible，但本项目里临时层（Adornment 等）的 part
       // 也会被 diagram.parts 带进来；不排除不可见件会让布局凭空多出占位
@@ -254,16 +260,19 @@ export class Layout {
       if (part instanceof Node) {
         if (part.isLinkLabel) continue;
         if (part instanceof Group && (part as any).layout === null) {
-          this._collectInto(set, (part as any).memberParts, false);
+          this._collectInto(seen, out, (part as any).memberParts, false);
           continue;
         }
         if (typeof part.ensureBounds === 'function') part.ensureBounds();
-        set.add(part);
+        seen.add(part);
+        out.add(part);
       } else if (part instanceof Link) {
-        set.add(part);
+        seen.add(part);
+        out.add(part);
       } else {
         if (typeof part.ensureBounds === 'function') part.ensureBounds();
-        set.add(part);
+        seen.add(part);
+        out.add(part);
       }
     }
   }
@@ -314,7 +323,7 @@ export class Layout {
    * 官方：`const t = new this.constructor; return this.cloneProtected(t), t`
    */
   copy(): Layout {
-    const copy = new Layout();
+    const copy = new (this.constructor as new () => any)();
     this.cloneProtected(copy);
     return copy;
   }
@@ -472,12 +481,17 @@ invalidateLayout(): void {
       }
     }
 
-    // Add all links as edges
+    // Add all links as edges（官方 addParts 阶段 2：findGroupVertex 解析端点，
+    // 不自动建端点 vertex；任一侧为 null 则跳过）
     const linkIt = parts.iterator;
     while (linkIt.next()) {
       const part = linkIt.value;
       if (part instanceof Link) {
-        net.addLink(part as Link);
+        const link = part as Link;
+        const fn: any = link.fromNode;
+        const tn: any = link.toNode;
+        if (!fn || !tn || fn === tn) continue;
+        net.linkVertexes(net.findGroupVertex(fn), net.findGroupVertex(tn), link);
       }
     }
 

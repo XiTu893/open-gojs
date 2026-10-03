@@ -37,6 +37,10 @@ export class PathSegment {
   public sweepAngle: number;
   public centerX: number;
   public centerY: number;
+  /** 「按角度」圆弧的几何终点（由 center/radius/startAngle+sweepAngle 推出）。
+   *  官方没有这个字段：它保留 endX/endY 为角度值，需要终点的场合（如 Close 段）用 Eo 采样结果。 */
+  public arcEndX: number;
+  public arcEndY: number;
   /** 是否为相对坐标 */
   public isRelative: boolean;
 
@@ -54,6 +58,8 @@ export class PathSegment {
     this.type = type;
     this.endX = endX;
     this.endY = endY;
+    this.arcEndX = NaN;
+    this.arcEndY = NaN;
     this.x1 = x1;
     this.y1 = y1;
     this.x2 = x2;
@@ -73,22 +79,41 @@ export class PathSegment {
     // 官方 Arc 段的「按角度」构造形式：
     //   new PathSegment(SegmentType.Arc, startAngle, sweepAngle, centerX, centerY, radiusX, radiusY)
     // 本项目内部的 SVG 弧走 PathSegment.Arc() 静态方法（只传 endX/endY，x1..y2 保持 NaN），
-    // 因此「x1/y1/x2/y2 均为有限数」即可无歧义地识别官方形式。
+    // 因此识别条件放在 x2 上（见下方判断）。
+    // 官方构造器把可选数值参数一律缺省为 0，所以 6 参形式
+    // `new PathSegment(SegmentType.Arc, a0, sweep, cx, cy, rx)` 的 radiusY 就是 0（不是 NaN）。
+    // 因此识别条件放在 x2 上：给了 x2 就是「按角度」形式；PathSegment.Arc() 静态方法
+    // 只传 endX/endY，x1..y2 全为 NaN，仍走 SVG 弧分支。
     if (type === PathSegmentArc &&
-      !isNaN(x1) && !isNaN(y1) && !isNaN(x2) && !isNaN(y2)) {
+      !isNaN(x1) && !isNaN(y1) && !isNaN(x2)) {
       this.startAngle = endX;
       this.sweepAngle = endY;
       this.centerX = x1;
       this.centerY = y1;
       this.radiusX = x2;
-      this.radiusY = y2;
-      // endX/endY 置为弧的终点，便于沿路径推进与求包围盒
-      const a0 = (this.startAngle * Math.PI) / 180;
+      this.radiusY = isNaN(y2) ? 0 : y2; // 官方缺省为 0
+      if (isNaN(y2)) this.y2 = 0; // 同上：point2Y 也要与官方一致读到 0
+      // 官方在 endX/endY 里存的就是 startAngle/sweepAngle（不是几何终点）——
+      // 它的渲染器算圆弧只看 center/radius/startAngle/sweepAngle，Eo() 采样自己算终点。
+      // 我们额外存一份真实终点（arcEndX/arcEndY），供渲染器沿路径推进当前点。
       const a1 = ((this.startAngle + this.sweepAngle) * Math.PI) / 180;
-      this.endX = this.centerX + this.radiusX * Math.cos(a1);
-      this.endY = this.centerY + this.radiusY * Math.sin(a1);
+      this.arcEndX = this.centerX + this.radiusX * Math.cos(a1);
+      this.arcEndY = this.centerY + this.radiusY * Math.sin(a1);
     }
   }
+
+  /** 官方命名：第一个控制点 X（内部存储字段为 x1） */
+  get point1X(): number { return this.x1; }
+  set point1X(val: number) { this.x1 = val; }
+  /** 官方命名：第一个控制点 Y（内部存储字段为 y1） */
+  get point1Y(): number { return this.y1; }
+  set point1Y(val: number) { this.y1 = val; }
+  /** 官方命名：第二个控制点 X（内部存储字段为 x2） */
+  get point2X(): number { return this.x2; }
+  set point2X(val: number) { this.x2 = val; }
+  /** 官方命名：第二个控制点 Y（内部存储字段为 y2） */
+  get point2Y(): number { return this.y2; }
+  set point2Y(val: number) { this.y2 = val; }
 
   copy(): PathSegment {
     const seg = new PathSegment(this.type, this.endX, this.endY, this.x1, this.y1, this.x2, this.y2);
@@ -102,6 +127,8 @@ export class PathSegment {
     seg.sweepAngle = this.sweepAngle;
     seg.centerX = this.centerX;
     seg.centerY = this.centerY;
+    seg.arcEndX = this.arcEndX;
+    seg.arcEndY = this.arcEndY;
     seg.isRelative = this.isRelative;
     return seg;
   }

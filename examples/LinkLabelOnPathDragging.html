@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dragging Link Label along Path</title>
+  <script src="../dist/open-gojs.umd.js"></script>
+  
+  <script src="https://cdn.jsdelivr.net/npm/gojs-extensions@latest/extensions/LinkLabelOnPathDraggingTool.js"></script>
+  
+  
+</head>
+<body>
+<div id="myDiagramDiv" style="background-color: whitesmoke; border: solid 1px black; width: 100%; height: 600px"></div>
+  <div id="description">
+<p>
+    This sample demonstrates a custom Tool, LinkLabelOnPathDraggingTool, that allows the user to drag the label of a Link, but that keeps the label exactly on
+    the path of the link. The tool is defined at <a href="https://gojs.net/latest/extensions/LinkLabelOnPathDraggingTool.js">LinkLabelOnPathDraggingTool.js</a>.
+  </p>
+  <p>
+    The label on the link can be any arbitrarily complex object. It is positioned by the <a href="https://gojs.net/latest/api/symbols/GraphObject.html#segmentindex" target="api">GraphObject.segmentIndex</a> and
+    <a href="https://gojs.net/latest/api/symbols/GraphObject.html#segmentfraction" target="api">GraphObject.segmentFraction</a> properties. The segmentIndex is set to NaN such that the whole link path acts as the segment, and the segmentFraction is
+    set by the LinkLabelOnPathDraggingTool. A two-way data binding on segmentFraction automatically remembers any modified value on the link data object in the
+    model.
+  </p>
+  <p>
+    The tool is derived from a similar tool, <a href="https://gojs.net/latest/extensions/LinkLabelDraggingTool.js">LinkLabelDraggingTool.js</a>, that allows the user to drag the label in any
+    direction from the mid-point of the Link path.
+  </p>
+  </div>
+  <script >
+function init() {
+
+    myDiagram = new go.Diagram('myDiagramDiv', {
+      layout: new go.ForceDirectedLayout({ defaultSpringLength: 50, defaultElectricalCharge: 50 }),
+      'undoManager.isEnabled': true
+    });
+
+    // install the LinkLabelDraggingTool as a "mouse move" tool
+    myDiagram.toolManager.mouseMoveTools.insertAt(0, new LinkLabelOnPathDraggingTool());
+
+    myDiagram.nodeTemplate =
+      new go.Node('Auto', { locationSpot: go.Spot.Center })
+        .add(
+          new go.Shape({
+              fill: 'orange', // default fill color
+              portId: '',
+              fromLinkable: true,
+              fromSpot: go.Spot.AllSides,
+              toLinkable: true,
+              toSpot: go.Spot.AllSides,
+              cursor: 'pointer'
+            })
+            .bind('fill', 'color'),
+          new go.TextBlock({ margin: 10, font: 'bold 12pt sans-serif' })
+            .bind('text')
+        );
+
+    myDiagram.linkTemplate =
+      new go.Link({
+          routing: go.Routing.AvoidsNodes,
+          corner: 5,
+          relinkableFrom: true,
+          relinkableTo: true,
+          reshapable: true,
+          resegmentable: true
+        })
+        .add(
+          new go.Shape(),
+          new go.Shape({ toArrow: 'OpenTriangle' }),
+          new go.Panel('Auto', {
+              // mark this Panel as being a draggable label, and set default segment props
+              segmentIndex: NaN, segmentFraction: 0.5
+            })
+            .attach({ // GraphObject.attach() is used to set non-predefined properties
+              _isLinkLabel: true
+            })
+            // remember any modified segment properties in the link data object
+            .bindTwoWay('segmentFraction')
+            .add(
+              new go.Shape({ fill: 'white' }),
+              new go.TextBlock('?', { margin: 3 })
+                .bind('text', 'color')
+            )
+        );
+
+    // create a few nodes and links
+    myDiagram.model = new go.GraphLinksModel(
+      [
+        { key: 1, text: 'one', color: 'lightyellow' },
+        { key: 2, text: 'two', color: 'brown' },
+        { key: 3, text: 'three', color: 'green' },
+        { key: 4, text: 'four', color: 'slateblue' },
+        { key: 5, text: 'five', color: 'aquamarine' },
+        { key: 6, text: 'six', color: 'lightgreen' },
+        { key: 7, text: 'seven' }
+      ],
+      [
+        { from: 5, to: 6, color: 'orange' },
+        { from: 1, to: 2, color: 'red' },
+        { from: 1, to: 3, color: 'blue' },
+        { from: 1, to: 4, color: 'goldenrod' },
+        { from: 2, to: 5, color: 'fuchsia' },
+        { from: 3, to: 5, color: 'green' },
+        { from: 4, to: 5, color: 'black' },
+        { from: 6, to: 7 }
+      ]
+    );
+  }
+
+  window.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>

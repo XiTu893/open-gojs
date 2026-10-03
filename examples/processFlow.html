@@ -1,132 +1,76 @@
-﻿﻿
 <!DOCTYPE html>
-<html lang="en">
-  <head>
-    
-    <meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover"/>
-
-<meta name="description" content="A simple process flow or SCADA diagram editor, simulating equipment monitoring and control." />
-<meta itemprop="description" content="A simple process flow or SCADA diagram editor, simulating equipment monitoring and control." />
-<meta property="og:description" content="A simple process flow or SCADA diagram editor, simulating equipment monitoring and control." />
-<meta name="twitter:description" content="A simple process flow or SCADA diagram editor, simulating equipment monitoring and control." />
-
-
-<link rel="preconnect" href="https://rsms.me/">
-
-<!-- Copyright 1998-2026 by Northwoods Software Corporation. -->
-
-
-<meta itemprop="name" content="Process Flow SCADA Diagram with Tanks, Valves, Pipes and Animated Flow" />
-<meta property="og:title" content="Process Flow SCADA Diagram with Tanks, Valves, Pipes and Animated Flow" />
-<meta name="twitter:title" content="Process Flow SCADA Diagram with Tanks, Valves, Pipes and Animated Flow" />
-
-
-<meta property="og:image" content="https://gojs.net/latest/assets/images/screenshots/processflow.png" />
-<meta itemprop="image" content="https://gojs.net/latest/assets/images/screenshots/processflow.png" />
-<meta name="twitter:image" content="https://gojs.net/latest/assets/images/screenshots/processflow.png" />
-
-<meta property="og:url" content="https://gojs.net/latest/samples/processFlow.html" />
-<meta property="twitter:url" content="https://gojs.net/latest/samples/processFlow.html" />
-
-<meta name="twitter:card" content="summary_large_image" />
-<meta property="og:type" content="website" />
-<meta property="twitter:domain" content="gojs.net" />
-
-    <title>
-      Process Flow SCADA Diagram with Tanks, Valves, Pipes and Animated Flow | GoJS Diagramming Library
-    </title>
-  </head>
-
-  <body>
-    <!-- This top nav is not part of the sample code -->
-    <nav id="navTop" class=" w-full h-[var(--topnav-h)] z-30 bg-white border-b border-b-gray-200">
-  <div class="max-w-screen-xl mx-auto flex flex-wrap items-start justify-between px-4">
-    <a class="text-white bg-nwoods-primary font-bold !leading-[calc(var(--topnav-h)_-_1px)] my-0 px-2 text-4xl lg:text-5xl logo"
-       href="../">
-      GoJS
-    </a>
-    <div class="relative">
-      <button id="topnavButton" class="h-[calc(var(--topnav-h)_-_1px)] px-2 m-0 text-gray-900 bg-inherit shadow-none md:hidden hover:!bg-inherit hover:!text-nwoods-accent hover:!shadow-none" aria-label="Navigation">
-        <svg class="h-7 w-7 block" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </button>
-      <div id="topnavList" class="hidden md:block">
-        <div class="absolute right-0 z-30 flex flex-col items-end rounded border border-gray-200 p-4 pl-12 shadow bg-white text-gray-900 font-semibold
-                    md:flex-row md:space-x-4 md:items-start md:border-0 md:p-0 md:shadow-none md:bg-inherit">
-          <a href="../learn/">Learn</a>
-          <a href="../samples/">Samples</a>
-          <a href="../intro/">Intro</a>
-          <a href="../api/">API</a>
-          <a href="../download.html">Download</a>
-          <a href="https://forum.nwoods.com/c/gojs/11" target="_blank" rel="noopener">Forum</a>
-          <a id="tc" href="https://nwoods.com/contact.html"
-            target="_blank" rel="noopener" onclick="getOutboundLink('https://nwoods.com/contact.html', 'contact');">Contact</a>
-          <a id="tb" href="https://nwoods.com/sales/index.html"
-            target="_blank" rel="noopener" onclick="getOutboundLink('https://nwoods.com/sales/index.html', 'buy');">Buy</a>
-        </div>
-      </div>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Process Flow SCADA Diagram with Tanks, Valves, Pipes and Animated Flow</title>
+  <script src="../dist/open-gojs.umd.js"></script>
+  
+  <script src="https://cdn.jsdelivr.net/npm/gojs-extensions@latest/extensions/Figures.js"></script>
+  
+  
+</head>
+<body>
+<div id="myDiagramDiv" style="border: solid 1px black; width: 100%; height: 500px"></div>
+  <div>
+    <div style="margin-block: .5em;">
+      <button id="SaveButton" onclick="save()">Save</button>
+      <button onclick="load()">Load</button>
+      Diagram Model saved in JSON format:
     </div>
+    <textarea id="mySavedModel" style="width: 100%; height: 300px">
+{ "class": "GraphLinksModel",
+  "pointsDigits": 1,
+  "linkFromPortIdProperty": "fromPort",
+  "linkToPortIdProperty": "toPort",
+  "nodeDataArray": [
+{"key":"Tank1","category":"Tank","pos":"-30 200","text":"Feed Tank","height":100,"width":200,"fillLevel":"0.8"},
+{"key":"Valve1","category":"Valve","pos":"150 200","text":"Valve","angle":0,"isOn":true},
+{"key":"Tank2","category":"DistillationColumn","pos":"300 200","text":"Distillation Column","height":275,"width":75,"fillLevel":"0.15"},
+{"key":"Condenser1","category":"Condenser","pos":"390 0","text":"Condenser","isOn":true},
+{"key":"Tank3","category":"Tank","pos":"600 20","text":"Reflux Drum","height":75,"width":150,"fillLevel":"0.1"},
+{"key":"Pump1","category":"Pump","pos":"550 100","text":"Pump","isOn":true},
+{"key":"Boiler1","category":"Boiler","pos":"390 360","text":"Reboiler","isOn":true},
+{"key":"Valve2","category":"Valve","pos":"480 260","text":"Valve","angle":270,"isOn":true},
+{"key":"Tank4","category":"Tank","pos":"750 180","text":"Holding Tank","height":75,"width":120,"fillLevel":"0.8"},
+{"key":"Tank5","category":"Tank","pos":"750 380","text":"Holding Tank","height":75,"width":120,"fillLevel":"0.8"}
+],
+  "linkDataArray": [
+{"from":"Tank1","to":"Valve1","stroke":"rgba(117, 147, 175, 0.5)","points":[71.0,200.0,81.0,200.0,100.3,200.0,100.3,200.0,119.5,200.0,129.5,200.0]},
+{"from":"Valve1","to":"Tank2","stroke":"rgba(117, 147, 175, 0.5)","points":[170.5,200.0,180.5,200.0,203.5,200.0,203.5,200.0,226.5,200.0,236.5,200.0]},
+{"from":"Tank2","to":"Condenser1","points":[300.0,61.5,300.0,51.5,300.0,52.0,300.0,52.0,300.0,18.0,402.5,18.0,412.5,18.0]},
+{"from":"Condenser1","to":"Tank3","stroke":"rgba(117, 147, 175, 0.5)","points":[446.5,18.0,456.5,18.0,458.0,18.0,458.0,18.0,514.0,18.0,524.0,20.0]},
+{"from":"Tank3","to":"Pump1","stroke":"rgba(117, 147, 175, 0.5)","points":[600.0,58.5,600.0,68.5,600.0,79.3,570.6,79.3,570.6,90.0,570.6,100.0]},
+{"from":"Pump1","to":"Tank2","stroke":"rgba(117, 147, 175, 0.5)", "points":[561.0,116.5,551.0,116.5,548.0,116.5,548.0,66.4,333.6,66.4,326.5,73.5]},
+{"from":"Pump1","to":"Tank4","stroke":"rgba(117, 147, 175, 0.5)","text":"Overhead product","points":[586.0,116.5,596.0,116.5,596.0,116.5,596.0,180.0,679.0,180.0,689.0,180.0]},
+{"from":"Tank2","to":"Boiler1","stroke":"rgba(117, 147, 175, 0.5)", "points":[300.0,338.5,300.0,348.5,300.0,349.2,422.0,349.2,422.0,350.0,422.0,360.0]},
+{"from":"Boiler1","to":"Valve2","points":[422.0,360.0,422.0,350.0,422.0,320.3,480.0,320.3,480.0,290.5,480.0,280.5]},
+{"from":"Valve2","to":"Tank2","points":[480.0,239.5,480.0,229.5,480.0,200.0,426.8,200.0,373.5,200.0,363.5,200.0]},
+{"from":"Boiler1","to":"Tank5","stroke":"rgba(117, 147, 175, 0.5)","text":"Bottom product\n(condensate from reboiler)","points":[438.5,376.5,448.5,376.5,455.0,376.5,455.0,376.5,679.0,376.5,689.0,380.0]}
+]}
+    </textarea>
   </div>
-</nav>
-<script>
-  window.addEventListener("DOMContentLoaded", function () {
-    // topnav
-    var topButton = document.getElementById("topnavButton");
-    var topnavList = document.getElementById("topnavList");
-    if (topButton && topnavList) {
-      topButton.addEventListener("click", function (e) {
-        topnavList
-          .classList
-          .toggle("hidden");
-        e.stopPropagation();
-      });
-      document.addEventListener("click", function (e) {
-        // if the clicked element isn't the list, close the list
-        if (!topnavList.classList.contains("hidden") && !e.target.closest("#topnavList")) {
-          topButton.click();
-        }
-      });
-
-      // set active <a> element
-      var url = window
-        .location
-        .href
-        .toLowerCase();
-      var aTags = topnavList.getElementsByTagName('a');
-      for (var i = 0; i < aTags.length; i++) {
-        var lowerhref = aTags[i]
-          .href
-          .toLowerCase();
-        if (lowerhref.endsWith('.html')) 
-          lowerhref = lowerhref.slice(0, -5);
-        if (url.startsWith(lowerhref)) {
-          aTags[i]
-            .classList
-            .add('active');
-          break;
-        }
-      }
-    }
-  });
-</script>
-    <div class="flex flex-col prose">
-      <div class="w-full max-w-screen-xl mx-auto">
-        <!-- * * * * * * * * * * * * * -->
-        <!-- Start of GoJS sample code -->
-        <script src="../dist/open-gojs.umd.js"></script>
-
-        
-
-        <div id="allSampleContent" class="p-4 w-full">
-          
-            
-            
-
-
-<script id="code">
-  function init() {
+  <div id="description">
+<p>
+    A <em>process flow diagram</em> is commonly used in chemical and process engineering to indicate
+    the general flow of plant processes and equipment. A simple SCADA diagram, with animation of the
+    flow along the pipes, is implemented here. It shows a basic distillation process — more information available on
+    <a href='https://en.wikipedia.org/wiki/Reflux'>Wikipedia</a>.
+  </p>
+  <p>
+    The diagram displays the background grid layer by setting <b>grid.visible</b> to true, and also
+    allows snapping to the grid using <a href="https://gojs.net/latest/api/symbols/DraggingTool.html#isgridsnapenabled" target="api">DraggingTool.isGridSnapEnabled</a>,
+    <a href="https://gojs.net/latest/api/symbols/ResizingTool.html#isgridsnapenabled" target="api">ResizingTool.isGridSnapEnabled</a>, and <a href="https://gojs.net/latest/api/symbols/RotatingTool.html#snapanglemultiple" target="api">RotatingTool.snapAngleMultiple</a> alongside
+    <a href="https://gojs.net/latest/api/symbols/RotatingTool.html#snapangleepsilon" target="api">RotatingTool.snapAngleEpsilon</a>. It also makes use of
+    <a href="https://gojs.net/latest/learn/graduatedPanels">Graduated Panels</a> for the water effect inside the tanks.
+  </p>
+  <p>
+    There are two custom animations in this diagram: one that modifies the <a href="https://gojs.net/latest/api/symbols/Shape.html#strokedashoffset" target="api">Shape.strokeDashOffset</a> for each link
+    and one that uses <a href="https://gojs.net/latest/api/symbols/AnimationManager.html#defineanimationeffect" target="api">AnimationManager.defineAnimationEffect</a> to animate the waves in the tanks.
+  </p>
+  </div>
+  <script >
+function init() {
     const FONT = 'bold 13px InterVariable, sans-serif';
 		go.Shape.defineFigureGenerator('Wave', (shape, w, h) => {
 			const geo = new go.Geometry();
@@ -592,7 +536,7 @@
 
   //parameter1 isn't something you can animate by default :(
   //see documentation for more details: https://gojs.net/latest/api/symbols/AnimationManager.html#defineAnimationEffect
-  //also see the intro page on animations: https://gojs.net/latest/intro/animation.html
+  //also see the learn page on animations: https://gojs.net/learn/animation
   go.AnimationManager.defineAnimationEffect('waves', (obj, startValue, endValue, easing, currentTime, duration, animation) => {
     let value = easing(currentTime, startValue, endValue - startValue, duration);
     obj.parameter1 = value;
@@ -652,153 +596,6 @@
   }
 
   window.addEventListener('DOMContentLoaded', init);
-</script>
-
-<div id="sample">
-  <div id="myDiagramDiv" style="border: solid 1px black; width: 100%; height: 500px"></div>
-  <p>
-    A <em>process flow diagram</em> is commonly used in chemical and process engineering to indicate
-    the general flow of plant processes and equipment. A simple SCADA diagram, with animation of the
-    flow along the pipes, is implemented here. It shows a basic distillation process — more information available on
-    <a href='https://en.wikipedia.org/wiki/Reflux'>Wikipedia</a>.
-  </p>
-  <p>
-    The diagram displays the background grid layer by setting <b>grid.visible</b> to true, and also
-    allows snapping to the grid using <a>DraggingTool.isGridSnapEnabled</a>,
-    <a>ResizingTool.isGridSnapEnabled</a>, and <a>RotatingTool.snapAngleMultiple</a> alongside
-    <a>RotatingTool.snapAngleEpsilon</a>. It also makes use of
-    <a href="../intro/graduatedPanels.html">Graduated Panels</a> for the water effect inside the tanks.
-  </p>
-  <p>
-    There are two custom animations in this diagram: one that modifies the <a>Shape.strokeDashOffset</a> for each link
-    and one that uses <a>AnimationManager.defineAnimationEffect</a> to animate the waves in the tanks.
-  </p>
-  <div>
-    <div>
-      <button id="SaveButton" onclick="save()">Save</button>
-      <button onclick="load()">Load</button>
-      Diagram Model saved in JSON format:
-    </div>
-    <textarea id="mySavedModel" style="width: 100%; height: 300px">
-{ "class": "GraphLinksModel",
-  "pointsDigits": 1,
-  "linkFromPortIdProperty": "fromPort",
-  "linkToPortIdProperty": "toPort",
-  "nodeDataArray": [
-{"key":"Tank1","category":"Tank","pos":"-30 200","text":"Feed Tank","height":100,"width":200,"fillLevel":"0.8"},
-{"key":"Valve1","category":"Valve","pos":"150 200","text":"Valve","angle":0,"isOn":true},
-{"key":"Tank2","category":"DistillationColumn","pos":"300 200","text":"Distillation Column","height":275,"width":75,"fillLevel":"0.15"},
-{"key":"Condenser1","category":"Condenser","pos":"390 0","text":"Condenser","isOn":true},
-{"key":"Tank3","category":"Tank","pos":"600 20","text":"Reflux Drum","height":75,"width":150,"fillLevel":"0.1"},
-{"key":"Pump1","category":"Pump","pos":"550 100","text":"Pump","isOn":true},
-{"key":"Boiler1","category":"Boiler","pos":"390 360","text":"Reboiler","isOn":true},
-{"key":"Valve2","category":"Valve","pos":"480 260","text":"Valve","angle":270,"isOn":true},
-{"key":"Tank4","category":"Tank","pos":"750 180","text":"Holding Tank","height":75,"width":120,"fillLevel":"0.8"},
-{"key":"Tank5","category":"Tank","pos":"750 380","text":"Holding Tank","height":75,"width":120,"fillLevel":"0.8"}
-],
-  "linkDataArray": [
-{"from":"Tank1","to":"Valve1","stroke":"rgba(117, 147, 175, 0.5)","points":[71.0,200.0,81.0,200.0,100.3,200.0,100.3,200.0,119.5,200.0,129.5,200.0]},
-{"from":"Valve1","to":"Tank2","stroke":"rgba(117, 147, 175, 0.5)","points":[170.5,200.0,180.5,200.0,203.5,200.0,203.5,200.0,226.5,200.0,236.5,200.0]},
-{"from":"Tank2","to":"Condenser1","points":[300.0,61.5,300.0,51.5,300.0,52.0,300.0,52.0,300.0,18.0,402.5,18.0,412.5,18.0]},
-{"from":"Condenser1","to":"Tank3","stroke":"rgba(117, 147, 175, 0.5)","points":[446.5,18.0,456.5,18.0,458.0,18.0,458.0,18.0,514.0,18.0,524.0,20.0]},
-{"from":"Tank3","to":"Pump1","stroke":"rgba(117, 147, 175, 0.5)","points":[600.0,58.5,600.0,68.5,600.0,79.3,570.6,79.3,570.6,90.0,570.6,100.0]},
-{"from":"Pump1","to":"Tank2","stroke":"rgba(117, 147, 175, 0.5)", "points":[561.0,116.5,551.0,116.5,548.0,116.5,548.0,66.4,333.6,66.4,326.5,73.5]},
-{"from":"Pump1","to":"Tank4","stroke":"rgba(117, 147, 175, 0.5)","text":"Overhead product","points":[586.0,116.5,596.0,116.5,596.0,116.5,596.0,180.0,679.0,180.0,689.0,180.0]},
-{"from":"Tank2","to":"Boiler1","stroke":"rgba(117, 147, 175, 0.5)", "points":[300.0,338.5,300.0,348.5,300.0,349.2,422.0,349.2,422.0,350.0,422.0,360.0]},
-{"from":"Boiler1","to":"Valve2","points":[422.0,360.0,422.0,350.0,422.0,320.3,480.0,320.3,480.0,290.5,480.0,280.5]},
-{"from":"Valve2","to":"Tank2","points":[480.0,239.5,480.0,229.5,480.0,200.0,426.8,200.0,373.5,200.0,363.5,200.0]},
-{"from":"Boiler1","to":"Tank5","stroke":"rgba(117, 147, 175, 0.5)","text":"Bottom product\n(condensate from reboiler)","points":[438.5,376.5,448.5,376.5,455.0,376.5,455.0,376.5,679.0,376.5,689.0,380.0]}
-]}
-    </textarea>
-  </div>
-</div>
-
-          
-        </div>
-        <!-- * * * * * * * * * * * * * -->
-        <!--  End of GoJS sample code  -->
-      </div>
-
-      <div id="allTagDescriptions" class="p-4 w-full max-w-screen-xl mx-auto">
-        <hr/>
-        <h3 class="text-xl">GoJS Features in this sample</h3>
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Geometry Path Strings</h4>
-<p>
-The <b>GoJS</b> <a href="../api/symbols/Geometry.html" target="api">Geometry</a> class controls the "shape" of a <a href="../api/symbols/Shape.html" target="api">Shape</a>,
-whereas the <a href="../api/symbols/Shape.html#fill" target="api">Shape.fill</a> and <a href="../api/symbols/Shape.html#stroke" target="api">Shape.stroke</a> and other shape properties control the colors and appearance of the shape.
-For common shape figures, there are predefined geometries that can be used by setting <a href="../api/symbols/Shape.html#figure" target="api">Shape.figure</a>.
-However one can also define custom geometries.
-</p>
-<p>
-One can construct any Geometry by allocating and initializing a <a href="../api/symbols/Geometry.html" target="api">Geometry</a> of at least one <a href="../api/symbols/PathFigure.html" target="api">PathFigure</a> holding some <a href="../api/symbols/PathSegment.html" target="api">PathSegment</a>s.
-But you may find that using the string representation of a Geometry is easier to write and save in a database.
-Use the static method <a href="../api/symbols/Geometry.html#parse" target="api">Geometry.parse</a> or the <a href="../api/symbols/Shape.html#geometryString" target="api">Shape.geometryString</a> property to transform a geometry path string into a <a href="../api/symbols/Geometry.html" target="api">Geometry</a> object.
-</p>
-<p>
-More information can be found in the <a href="../intro/geometry.html">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#geometries">Related samples</a>
-            </p>
-            <hr>
-          
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Grid Patterns</h4>
-<p>
-<b>GoJS</b> provides functionality to display a grid of lines drawn at regular intervals.
-Grid Panels can also force dragged parts to be aligned on grid points, and resize parts to be multiples of the grid cell size.
-</p>
-<p>
-Grids are implemented using a type of <a href="../api/symbols/Panel.html" target="api">Panel</a>, <a href="../api/symbols/PanelLayout.html#Grid" target="api">Panel.Grid</a>.
-Grid Panels, like most other types of Panels, can be used within <a href="../api/symbols/Node.html" target="api">Node</a>s or any other kind of <a href="../api/symbols/Part.html" target="api">Part</a>.
-However when they are used as the <a href="../api/symbols/Diagram.html#grid" target="api">Diagram.grid</a>, they are effectively infinite in extent.
-</p>
-<p>
-More information can be found in the <a href="../intro/grids.html">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#grid">Related samples</a>
-            </p>
-            <hr>
-          
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Animation</h4>
-<p>
-  <b>GoJS</b> offers several built-in animations, enabled by default, as well as the ability to create arbitrary animations.
-</p>
-<p>
-  The <a href="../api/symbols/Diagram.html#animationManager" target="api">Diagram.animationManager</a> handles animations within a <a href="../api/symbols/Diagram.html" target="api">Diagram</a>.
-  The <a href="../api/symbols/AnimationManager.html" target="api">AnimationManager</a> automatically sets up and dispatches default animations, and has properties to customize and disable them.
-  Custom animations are possible by creating instances of <a href="../api/symbols/Animation.html" target="api">Animation</a> or <a href="../api/symbols/AnimationTrigger.html" target="api">AnimationTrigger</a>.
-  More information can be found in the <a href="../intro/animation.html">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#animation">Related samples</a>
-            </p>
-            <hr>
-          
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>SCADA Diagrams</h4>
-<p>
-  SCADA (supervisory control and data acquisition) diagrams are used to display, control, and supervise machines and processes. GoJS is used worldwide to build human-machine interface diagrams in monitoring and control software. GoJS SCADA applications include power plant and refinery monitoring, heavy industry management, building security monitoring, and more.
-</p>
-            <p>
-              <a href="../samples/index.html#scada">Related samples</a>
-            </p>
-            <hr>
-          
-        </div>
-    </div>
-  </body>
-  <!--  This script is part of the gojs.net website, and is not needed to run the sample -->
-  
+  </script>
+</body>
 </html>

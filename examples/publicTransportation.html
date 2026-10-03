@@ -1,0 +1,1146 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Public Transportation Map, the London Underground</title>
+  <script src="../dist/open-gojs.umd.js"></script>
+  
+  
+  
+  <style>
+#myDiagramDiv {
+    height: 700px;
+  }
+
+  @media (min-width: 1600px) {
+    #myDiagramDiv {
+      height: 1000px;
+    }
+  }
+  </style>
+</head>
+<body>
+<div id="myDiagramDiv" style="border: solid 1px black; width: 100%; background: #FFFDF5"></div>
+  <script type="application/json" id="tubeData">
+{
+  "stations": {
+    "Chesham": [18,16,"l"],
+    "Amersham": [-11,47,"b"],
+    "Chalfont &|Latimer": [75,48,"t"],
+    "Chorleywood": [162,59,"l"],
+    "Rickmansworth": [174,71,"l"],
+    "Watford": [185,27],
+    "Croxley": [185,52],
+    "Moor Park": [193,91],
+    "Northwood": [207,105],
+    "Northwood Hills": [219,117],
+    "Pinner": [230,128],
+    "North Harrow": [241,139],
+    "Harrow-|on-the-Hill": [288,170,"t"],
+    "Northwick|Park": [310,170,"b"],
+    "Preston|Road": [354,170,"t"],
+    "Wembley|Park": [406,176,"r",[-5,5]],
+    "Uxbridge": [7,126,"b"],
+    "Hillingdon": [36,126,"t"],
+    "Ickenham": [68,126,"b"],
+    "Ruislip": [121,126,"t"],
+    "Ruislip Manor": [164,139],
+    "Eastcote": [180,155],
+    "Rayners Lane": [195,170,"bl"],
+    "West Harrow": [248,170,"b"],
+    "South Harrow": [195,210],
+    "Sudbury Hill": [195,247],
+    "Sudbury Town": [195,297],
+    "Alperton": [195,357],
+    "Park Royal": [195,417,"l"],
+    "North Ealing": [195,431,"l"],
+    "Heathrow|Terminal 4": [0,686,"b"],
+    "Heathrow|Terminals 1, 2, 3": [0,660,"t"],
+    "Hatton Cross": [44,660,"br"],
+    "Hounslow West": [64,640],
+    "Hounslow Central": [79,625],
+    "Hounslow East": [93,611,"l"],
+    "Osterley": [108,596,"l"],
+    "Boston Manor": [123,581,"l"],
+    "Northfields": [141,563,"l"],
+    "South Ealing": [173,548,"tl"],
+    "Harrow &|Wealdstone": [330,93,"l"],
+    "Kenton": [330,124],
+    "South Kenton": [330,198,"l"],
+    "North Wembley": [330,209,"l"],
+    "Wembley Central": [330,221,"l"],
+    "Stonebridge Park": [330,232,"l"],
+    "Harlesden": [330,244,"l"],
+    "Willesden Junction": [330,257,"l"],
+    "Kensal Green": [341,284],
+    "Queen's Park": [352,295],
+    "Kilburn Park": [364,307],
+    "Maida Vale": [376,319,"l"],
+    "Warwick Avenue": [393,332,"l"],
+    "Edgeware|Road (Bakerloo)": [461,332,"t"],
+    "Marylebone": [509,332,"t"],
+    "Stanmore": [396,83],
+    "Canons Park": [396,104],
+    "Queensbury": [396,122],
+    "Kingsbury": [396,141],
+    "Neasden": [438,208,"tr"],
+    "Dollis Hill": [454,224,"tr"],
+    "Willesden Green": [470,240,"tr"],
+    "Kilburn": [486,256,"tr"],
+    "West|Hampstead": [500,270,"tr"],
+    "Finchley Road": [517,287,"tr",[-5,5]],
+    "Swiss Cottage": [534,304,"tr"],
+    "St. John's Wood": [546,316],
+    "West Ruislip": [94,104,"l"],
+    "Ruislip Gardens": [94,169,"l"],
+    "South Ruislip": [94,194,"l"],
+    "Northolt": [94,218,"l"],
+    "Greenford": [94,242,"l"],
+    "Perivale": [94,268,"l"],
+    "Hanger Lane": [143,351,"l"],
+    "West Acton": [222,443,"b"],
+    "North Acton": [253,443,"t"],
+    "East Acton": [277,443,"b"],
+    "White City": [303,443,"t"],
+    "Shepherd's Bush (Central)": [360,443,"b"],
+    "Holland Park": [380,443,"t"],
+    "Goldhawk Road": [330,501,"l"],
+    "Shepherd's Bush (H&C)": [330,479,"l"],
+    "Latimer Road": [330,406,"l"],
+    "Ladbroke Grove": [330,388,"l"],
+    "Westbourne Park": [340,370,"l"],
+    "Royal Oak": [358,352,"l"],
+    "Ealing Broadway": [127,445,"l"],
+    "Ealing Common": [195,493,"l"],
+    "Acton Town": [195,548,"tr"],
+    "Chiswick Park": [206,560,"bl"],
+    "Gunnersbury": [215,612],
+    "Kew Gardens": [215,660],
+    "Richmond": [215,693],
+    "Turnham|Green": [235,560,"b"],
+    "Stamford|Brook": [270,560,"b"],
+    "Ravenscourt|Park": [309,560,"b"],
+    "Hammersmith": [330,560,"tsl",[0,-6]],
+    "Barons|Court": [362,560,"ts",[0,-6]],
+    "West|Kensington": [387,560,"b"],
+    "Kensington|(Olympia)": [393,508,"l"],
+    "Earl's|Court": [408,560,"br",[0,-6]],
+    "West Brompton": [408,612],
+    "Fulham Broadway": [408,632],
+    "Parsons Green": [408,653],
+    "Putney Bridge": [408,670],
+    "East Putney": [408,714],
+    "Southfields": [408,740],
+    "Wimbledon Park": [408,769],
+    "Wimbledon": [408,796],
+    "Paddington": [432,344,"br",[0,-6]],
+    "Edgeware|Road (Circle)": [504,344,"b"],
+    "Baker Street": [556,344,"tr"],
+    "Great Portland|Street": [640,344,"t"],
+    "Euston Square": [705,344,"b"],
+    "Euston": [688,319,"l"],
+    "Farringdon": [764,366],
+    "King's Cross|St. Pancras": [743,344,"tl",[0,-8],[0,-16]],
+    "Barbican": [779,381],
+    "Moorgate": [817,408,"bl"],
+    "Liverpool|Street": [898,408,"t"],
+    "Aldgate": [898,465,"l"],
+    "Aldgate|East": [959,475,"tl"],
+    "Tower|Hill": [868,502,"b"],
+    "Monument": [838,502,"b"],
+    "Bank": [818,482,"tl"],
+    "Cannon Street": [790,502,"t"],
+    "Mansion|House": [770,513,"l"],
+    "Blackfriars": [751,532,"l"],
+    "Temple": [732,551,"l"],
+    "Embankment": [677,560,"br"],
+    "Westminster": [629,560,"bl"],
+    "St. James's|Park": [585,560,"t"],
+    "Victoria": [564,560,"bl"],
+    "Sloane|Square": [516,560,"t"],
+    "South|Kensington": [471,560,"b",[0,-6]],
+    "Gloucester|Road": [438,560,"ts",[0,-6]],
+    "High Street|Kensington": [408,482],
+    "Notting|Hill Gate": [408,443,"br"],
+    "Bayswater": [408,401],
+    "Queensway": [435,443,"t"],
+    "Lancaster|Gate": [460,443,"b"],
+    "Marble Arch": [486,443,"t"],
+    "Bond|Street": [556,443,"bl"],
+    "Oxford|Circus": [597,443,"tl"],
+    "Tottenham|Court Road": [677,443,"bl"],
+    "Regent's|Park": [597,388,"l"],
+    "Knightsbridge": [500,521,"l"],
+    "Hyde Park|Corner": [516,505,"l"],
+    "Green Park": [564,498,"tr"],
+    "Piccadilly|Circus": [640,498,"bl"],
+    "Leicester|Square": [677,479,"br"],
+    "Covent Garden": [695,461],
+    "Charing|Cross": [677,535,"bl"],
+    "Chancery|Lane": [743,443,"t"],
+    "Holborn": [713,443,"tl"],
+    "St. Paul's": [771,459,"tr"],
+    "Russell|Square": [725,403],
+    "Goodge|Street": [677,402],
+    "Warren Street": [677,358,"l"],
+    "Angel": [788,328,"tr"],
+    "Old Street": [817,366,"tr"],
+    "Waterloo": [677,621,"l"],
+    "Southwark": [726,621,"b"],
+    "London Bridge": [818,567,"tr"],
+    "Borough": [751,645],
+    "Elephant & Castle": [707,690,"br"],
+    "Lambeth|North": [688,671,"tr"],
+    "Kennington": [665,734],
+    "Oval": [651,748],
+    "Stockwell": [638,761,"l"],
+    "Clapham North": [612,787,"l"],
+    "Clapham Common": [595,804,"l"],
+    "Clapham South": [580,819,"l"],
+    "Balham": [565,834,"l"],
+    "Tooting Bec": [551,848,"l"],
+    "Tooting Broadway": [536,863,"l"],
+    "Colliers Wood": [521,878,"l"],
+    "South Wimbledon": [506,893,"l"],
+    "Morden": [491,908,"l"],
+    "Brixton": [677,799],
+    "Vauxhall": [587,709,"l"],
+    "Pimlico": [564,648,"l"],
+    "Edgware": [535,128,"l"],
+    "Burnt Oak": [551,144,"l"],
+    "Colindale": [566,159,"l"],
+    "Hampstead": [636,229,"l"],
+    "Hendon Central": [583,176,"l"],
+    "Brent Cross": [600,193,"l"],
+    "Golders Green": [619,212,"l"],
+    "Belsize Park": [651,244,"l"],
+    "Chalk Farm": [667,260,"l"],
+    "Camden Town": [689,282,"l"],
+    "Mornington|Crescent": [675,301,"l"],
+    "High Barnet": [747,71],
+    "Totteridge & Whetstone": [747,87],
+    "Woodside Park": [747,102],
+    "West Finchley": [747,117],
+    "Mill Hill East": [725,114,"l"],
+    "Finchley Central": [747,148],
+    "East Finchley": [747,164],
+    "Highgate": [747,180],
+    "Archway": [747,195],
+    "Tufnell Park": [747,213],
+    "Kentish Town": [734,241],
+    "Highbury &|Islington": [880,287,"br"],
+    "Finsbury Park": [891,211,"br",[-5,-5]],
+    "Seven|Sisters": [930,192,"t"],
+    "Tottenham|Hale": [950,192,"b"],
+    "Blackhorse|Road": [968,192,"t"],
+    "Walthamstow|Central": [986,192],
+    "Caledonian Road": [812,270,"l"],
+    "Holloway Road": [833,249,"l"],
+    "Arsenal": [854,228,"l"],
+    "Manor House": [897,185,"l"],
+    "Turnpike Lane": [897,169,"l"],
+    "Wood Green": [897,155,"l"],
+    "Bounds Green": [897,140,"l"],
+    "Arnos Grove": [897,125,"l"],
+    "Southgate": [897,110,"l"],
+    "Oakwood": [897,94,"l"],
+    "Cockfosters": [897,79,"l"],
+    "Bethnal|Green": [985,401,"t"],
+    "Mile End": [1040,413,"b",[0,-6]],
+    "Stratford": [1147,322,"tl"],
+    "Leyton": [1170,272,"l"],
+    "Leytonstone": [1170,240,"tl"],
+    "Snaresbrook": [1170,196,"l"],
+    "South Woodford": [1170,165,"l"],
+    "Woodford": [1170,134,"l"],
+    "Buckhurst Hill": [1193,59,"l"],
+    "Loughton": [1207,45,"l"],
+    "Debden": [1222,30,"l"],
+    "Theydon Bois": [1237,15,"l"],
+    "Epping": [1252,0,"l"],
+    "Wanstead": [1194,226,"b"],
+    "Redbridge": [1221,226,"t"],
+    "Gants|Hill": [1246,226,"b"],
+    "Newbury Park": [1273,207],
+    "Barkingside": [1273,187],
+    "Fairlop": [1273,169],
+    "Hainault": [1273,150],
+    "Grange Hill": [1273,133,"tr"],
+    "Chigwell": [1235,107,"t"],
+    "Roding|Valley": [1200,107,"t"],
+    "Shoreditch": [975,424,"t"],
+    "Whitechapel": [975,459],
+    "Stepney Green": [997,437],
+    "Bow|Road": [1080,413,"br"],
+    "Bromley-|by-Bow": [1126,413,"b"],
+    "West Ham": [1149,413,"br"],
+    "Plaistow": [1199,402,"tl"],
+    "Upton Park": [1217,384,"tl"],
+    "East Ham": [1235,366,"tl"],
+    "Barking": [1254,347,"tl"],
+    "Upney": [1270,331,"br"],
+    "Becontree": [1284,317,"br"],
+    "Dagenham|Heathway": [1299,302,"br"],
+    "Dagenham East": [1315,286,"br"],
+    "Elm Park": [1331,270,"br"],
+    "Hornchurch": [1347,254,"br"],
+    "Upminster|Bridge": [1363,238,"br"],
+    "Upminster": [1378,223],
+    "Bermondsey": [888,567,"b"],
+    "Canada|Water": [975,567,"bl"],
+    "Canary Wharf": [1082,567,"tl"],
+    "North|Greenwich": [1122,558,"br"],
+    "Canning Town": [1149,498,"tr"],
+    "Wapping": [975,520,"l"],
+    "Rotherhithe": [975,556,"l"],
+    "Surrey Quays": [974,677,"l"],
+    "New Cross Gate": [928,705,"b"],
+    "New Cross": [974,718],
+    "Tower|Gateway": [893,510,"b"],
+    "Shadwell": [975,498,"br"],
+    "Limehouse": [1005,498,"t"],
+    "Westferry": [1041,498,"t"],
+    "Poplar": [1080,498,"b"],
+    "West India|Quay": [1082,539,"l"],
+    "Heron Quays": [1082,583,"l"],
+    "South Quay": [1082,594,"l"],
+    "Crossharbour &|London Arena": [1082,608,"l"],
+    "Mudchute": [1082,621,"l"],
+    "Island Gardens": [1082,633,"l"],
+    "Cutty Sark": [1082,669],
+    "Greenwich": [1082,687],
+    "Deptford Bridge": [1082,704],
+    "Elverson Road": [1082,721],
+    "Lewisham": [1082,738],
+    "Pudding|Mill Lane": [1110,386],
+    "Devons Road": [1080,449],
+    "All Saints": [1080,464,"l"],
+    "Blackwall": [1112,498,"b"],
+    "East|India": [1127,498,"t"],
+    "Royal Victoria": [1231,514],
+    "Custom House": [1249,532],
+    "Prince Regent": [1266,549],
+    "Royal Albert": [1282,565],
+    "Beckton Park": [1299,582],
+    "Cyprus": [1315,598],
+    "Gallions Reach": [1330,613],
+    "Beckton": [1384,623,"b"]
+  },
+  "lines": {
+    "Bakerloo": {"color":"#B36305"},
+    "Central": {"color":"#E32017"},
+    "Circle": {"color":"#FFD300"},
+    "District": {"color":"#00782A"},
+    "East London": {"color":"#EE7C0E"},
+    "Hammersmith & City": {"color":"#F3A9BB"},
+    "Jubilee": {"color":"#A0A5A9"},
+    "Metropolitan": {"color":"#9B0056"},
+    "Northern": {"color":"#000000"},
+    "Piccadilly": {"color":"#003688"},
+    "Victoria": {"color":"#0098D4"},
+    "Waterloo & City": {"color":"#95CDBA"},
+    "Docklands Light Railway": {"color":"#00A4A7"}
+  },
+  "links": [
+    {"from":"Harrow &|Wealdstone","to":"Kenton","line":"Bakerloo","fromDir":"S","toDir":"N","time":2.5},
+    {"from":"Kenton","to":"South Kenton","line":"Bakerloo","fromDir":"S","toDir":"N","time":2},
+    {"from":"South Kenton","to":"North Wembley","line":"Bakerloo","fromDir":"S","toDir":"N","time":2},
+    {"from":"North Wembley","to":"Wembley Central","line":"Bakerloo","fromDir":"S","toDir":"N","time":2},
+    {"from":"Wembley Central","to":"Stonebridge Park","line":"Bakerloo","fromDir":"S","toDir":"N","time":2.5},
+    {"from":"Stonebridge Park","to":"Harlesden","line":"Bakerloo","fromDir":"S","toDir":"N","time":2.5},
+    {"from":"Harlesden","to":"Willesden Junction","line":"Bakerloo","fromDir":"S","toDir":"N","time":2},
+    {"from":"Willesden Junction","to":"Kensal Green","line":"Bakerloo","fromDir":"S","toDir":"NW","time":3},
+    {"from":"Kensal Green","to":"Queen's Park","line":"Bakerloo","fromDir":"SE","toDir":"NW","time":3},
+    {"from":"Queen's Park","to":"Kilburn Park","line":"Bakerloo","fromDir":"SE","toDir":"NW","time":2.5},
+    {"from":"Kilburn Park","to":"Maida Vale","line":"Bakerloo","fromDir":"SE","toDir":"NW","time":2},
+    {"from":"Maida Vale","to":"Warwick Avenue","line":"Bakerloo","fromDir":"SE","toDir":"W","time":1.5},
+    {"from":"Warwick Avenue","to":"Paddington","line":"Bakerloo","fromDir":"W","toDir":"NE","time":2,"toPort":"spread"},
+    {"from":"Paddington","to":"Edgeware|Road (Bakerloo)","line":"Bakerloo","fromDir":"NE","toDir":"SW","time":2,"fromPort":"spread"},
+    {"from":"Edgeware|Road (Bakerloo)","to":"Marylebone","line":"Bakerloo","fromDir":"E","toDir":"W","time":1},
+    {"from":"Marylebone","to":"Baker Street","line":"Bakerloo","fromDir":"E","toDir":"NW","time":1},
+    {"from":"Baker Street","to":"Regent's|Park","line":"Bakerloo","fromDir":"SE","toDir":"NW","time":2},
+    {"from":"Regent's|Park","to":"Oxford|Circus","line":"Bakerloo","fromDir":"S","toDir":"N","time":2},
+    {"from":"Oxford|Circus","to":"Piccadilly|Circus","line":"Bakerloo","fromDir":"S","toDir":"NW","time":2},
+    {"from":"Piccadilly|Circus","to":"Charing|Cross","line":"Bakerloo","fromDir":"SE","toDir":"NW","time":2},
+    {"from":"Charing|Cross","to":"Embankment","line":"Bakerloo","fromDir":"S","toDir":"N","time":1},
+    {"from":"Embankment","to":"Waterloo","line":"Bakerloo","fromDir":"S","toDir":"N","time":1.5},
+    {"from":"Waterloo","to":"Lambeth|North","line":"Bakerloo","fromDir":"S","toDir":"NW","time":2},
+    {"from":"Lambeth|North","to":"Elephant & Castle","line":"Bakerloo","fromDir":"SE","toDir":"NW","time":2},
+    {"from":"West Ruislip","to":"Ruislip Gardens","line":"Central","fromDir":"S","toDir":"N","time":2.5},
+    {"from":"Ruislip Gardens","to":"South Ruislip","line":"Central","fromDir":"S","toDir":"N","time":2},
+    {"from":"South Ruislip","to":"Northolt","line":"Central","fromDir":"S","toDir":"N","time":2.5},
+    {"from":"Northolt","to":"Greenford","line":"Central","fromDir":"S","toDir":"N","time":2.5},
+    {"from":"Greenford","to":"Perivale","line":"Central","fromDir":"S","toDir":"N","time":2},
+    {"from":"Perivale","to":"Hanger Lane","line":"Central","fromDir":"S","toDir":"NW","time":2.5},
+    {"from":"Hanger Lane","to":"North Acton","line":"Central","fromDir":"SE","toDir":"W","time":3},
+    {"from":"Ealing Broadway","to":"West Acton","line":"Central","fromDir":"E","toDir":"W","time":2.5},
+    {"from":"West Acton","to":"North Acton","line":"Central","fromDir":"E","toDir":"W","time":3},
+    {"from":"North Acton","to":"East Acton","line":"Central","fromDir":"E","toDir":"W","time":2},
+    {"from":"East Acton","to":"White City","line":"Central","fromDir":"E","toDir":"W","time":3},
+    {"from":"White City","to":"Shepherd's Bush (Central)","line":"Central","fromDir":"E","toDir":"W","time":3.5},
+    {"from":"Shepherd's Bush (Central)","to":"Holland Park","line":"Central","fromDir":"E","toDir":"W","time":2},
+    {"from":"Holland Park","to":"Notting|Hill Gate","line":"Central","fromDir":"E","toDir":"W","time":1.5},
+    {"from":"Notting|Hill Gate","to":"Queensway","line":"Central","fromDir":"E","toDir":"W","time":1.5},
+    {"from":"Queensway","to":"Lancaster|Gate","line":"Central","fromDir":"E","toDir":"W","time":2},
+    {"from":"Lancaster|Gate","to":"Marble Arch","line":"Central","fromDir":"E","toDir":"W","time":2},
+    {"from":"Marble Arch","to":"Bond|Street","line":"Central","fromDir":"E","toDir":"W","time":1.5},
+    {"from":"Bond|Street","to":"Oxford|Circus","line":"Central","fromDir":"E","toDir":"W","time":1.5},
+    {"from":"Oxford|Circus","to":"Tottenham|Court Road","line":"Central","fromDir":"E","toDir":"W","time":1.5},
+    {"from":"Tottenham|Court Road","to":"Holborn","line":"Central","fromDir":"E","toDir":"W","time":1.5},
+    {"from":"Holborn","to":"Chancery|Lane","line":"Central","fromDir":"E","toDir":"W","time":1},
+    {"from":"Chancery|Lane","to":"St. Paul's","line":"Central","fromDir":"E","toDir":"NW","time":2},
+    {"from":"St. Paul's","to":"Bank","line":"Central","fromDir":"SE","toDir":"W","time":2},
+    {"from":"Bank","to":"Liverpool|Street","line":"Central","fromDir":"E","toDir":"SW","time":2},
+    {"from":"Liverpool|Street","to":"Bethnal|Green","line":"Central","fromDir":"NE","toDir":"W","time":3},
+    {"from":"Bethnal|Green","to":"Mile End","line":"Central","fromDir":"E","toDir":"W","time":3,"toPort":"spread"},
+    {"from":"Mile End","to":"Stratford","line":"Central","fromDir":"NE","toDir":"SW","time":3.5,"fromPort":"spread"},
+    {"from":"Stratford","to":"Leyton","line":"Central","fromDir":"NE","toDir":"S","time":3},
+    {"from":"Leyton","to":"Leytonstone","line":"Central","fromDir":"N","toDir":"S","time":2.5},
+    {"from":"Leytonstone","to":"Snaresbrook","line":"Central","fromDir":"N","toDir":"S","time":3},
+    {"from":"Snaresbrook","to":"South Woodford","line":"Central","fromDir":"N","toDir":"S","time":2},
+    {"from":"South Woodford","to":"Woodford","line":"Central","fromDir":"N","toDir":"S","time":2},
+    {"from":"Woodford","to":"Buckhurst Hill","line":"Central","fromDir":"N","toDir":"SW","time":3},
+    {"from":"Buckhurst Hill","to":"Loughton","line":"Central","fromDir":"NE","toDir":"SW","time":2.5},
+    {"from":"Loughton","to":"Debden","line":"Central","fromDir":"NE","toDir":"SW","time":3},
+    {"from":"Debden","to":"Theydon Bois","line":"Central","fromDir":"NE","toDir":"SW","time":3.5},
+    {"from":"Theydon Bois","to":"Epping","line":"Central","fromDir":"NE","toDir":"SW","time":3},
+    {"from":"Leytonstone","to":"Wanstead","line":"Central","fromDir":"N","toDir":"W","time":3},
+    {"from":"Wanstead","to":"Redbridge","line":"Central","fromDir":"E","toDir":"W","time":2},
+    {"from":"Redbridge","to":"Gants|Hill","line":"Central","fromDir":"E","toDir":"W","time":1.5},
+    {"from":"Gants|Hill","to":"Newbury Park","line":"Central","fromDir":"E","toDir":"S","time":3},
+    {"from":"Newbury Park","to":"Barkingside","line":"Central","fromDir":"N","toDir":"S","time":2},
+    {"from":"Barkingside","to":"Fairlop","line":"Central","fromDir":"N","toDir":"S","time":1.5},
+    {"from":"Fairlop","to":"Hainault","line":"Central","fromDir":"N","toDir":"S","time":2},
+    {"from":"Hainault","to":"Grange Hill","line":"Central","fromDir":"N","toDir":"S","time":2},
+    {"from":"Grange Hill","to":"Chigwell","line":"Central","fromDir":"N","toDir":"E","time":2},
+    {"from":"Chigwell","to":"Roding|Valley","line":"Central","fromDir":"W","toDir":"E","time":3.5},
+    {"from":"Roding|Valley","to":"Woodford","line":"Central","fromDir":"W","toDir":"N","time":2.5},
+    {"from":"Paddington","to":"Edgeware|Road (Circle)","line":"Circle","fromDir":"E","toDir":"W","time":2.5},
+    {"from":"Edgeware|Road (Circle)","to":"Baker Street","line":"Circle","fromDir":"E","toDir":"W","time":2},
+    {"from":"Baker Street","to":"Great Portland|Street","line":"Circle","fromDir":"E","toDir":"W","time":2},
+    {"from":"Great Portland|Street","to":"Euston Square","line":"Circle","fromDir":"E","toDir":"W","time":1.5},
+    {"from":"Euston Square","to":"King's Cross|St. Pancras","line":"Circle","fromDir":"E","toDir":"W","time":1.5},
+    {"from":"King's Cross|St. Pancras","to":"Farringdon","line":"Circle","fromDir":"SE","toDir":"NW","time":3},
+    {"from":"Farringdon","to":"Barbican","line":"Circle","fromDir":"SE","toDir":"NW","time":1.5},
+    {"from":"Barbican","to":"Moorgate","line":"Circle","fromDir":"SE","toDir":"W","time":1.5},
+    {"from":"Moorgate","to":"Liverpool|Street","line":"Circle","fromDir":"E","toDir":"W","time":1.5},
+    {"from":"Liverpool|Street","to":"Aldgate","line":"Circle","fromDir":"S","toDir":"N","time":2},
+    {"from":"Aldgate","to":"Tower|Hill","line":"Circle","fromDir":"S","toDir":"NE","time":2},
+    {"from":"Monument","to":"Tower|Hill","line":"Circle","fromDir":"E","toDir":"W","time":2},
+    {"from":"Cannon Street","to":"Monument","line":"Circle","fromDir":"E","toDir":"W","time":1.5},
+    {"from":"Mansion|House","to":"Cannon Street","line":"Circle","fromDir":"NE","toDir":"W","time":1.5},
+    {"from":"Blackfriars","to":"Mansion|House","line":"Circle","fromDir":"NE","toDir":"SW","time":2},
+    {"from":"Temple","to":"Blackfriars","line":"Circle","fromDir":"NE","toDir":"SW","time":1.5},
+    {"from":"Embankment","to":"Temple","line":"Circle","fromDir":"E","toDir":"SW","time":1.5},
+    {"from":"Westminster","to":"Embankment","line":"Circle","fromDir":"E","toDir":"W","time":2},
+    {"from":"St. James's|Park","to":"Westminster","line":"Circle","fromDir":"E","toDir":"W","time":1.5},
+    {"from":"Victoria","to":"St. James's|Park","line":"Circle","fromDir":"E","toDir":"W","time":1.5},
+    {"from":"Sloane|Square","to":"Victoria","line":"Circle","fromDir":"E","toDir":"W","time":2},
+    {"from":"South|Kensington","to":"Sloane|Square","line":"Circle","fromDir":"E","toDir":"W","time":2},
+    {"from":"Gloucester|Road","to":"South|Kensington","line":"Circle","fromDir":"E","toDir":"W","time":2},
+    {"from":"Gloucester|Road","to":"High Street|Kensington","line":"Circle","fromDir":"NW","toDir":"SE","time":2},
+    {"from":"High Street|Kensington","to":"Notting|Hill Gate","line":"Circle","fromDir":"N","toDir":"S","time":2},
+    {"from":"Notting|Hill Gate","to":"Bayswater","line":"Circle","fromDir":"N","toDir":"S","time":1.5},
+    {"from":"Bayswater","to":"Paddington","line":"Circle","fromDir":"N","toDir":"SW","time":1.5},
+    {"from":"Richmond","to":"Kew Gardens","line":"District","fromDir":"N","toDir":"S","time":3.5},
+    {"from":"Kew Gardens","to":"Gunnersbury","line":"District","fromDir":"N","toDir":"S","time":3},
+    {"from":"Gunnersbury","to":"Turnham|Green","line":"District","fromDir":"N","toDir":"W","time":3},
+    {"from":"Ealing Broadway","to":"Ealing Common","line":"District","fromDir":"E","toDir":"NW","time":2},
+    {"from":"Ealing Common","to":"Acton Town","line":"District","fromDir":"S","toDir":"N","time":2},
+    {"from":"Acton Town","to":"Chiswick Park","line":"District","fromDir":"SE","toDir":"NW","time":2},
+    {"from":"Chiswick Park","to":"Turnham|Green","line":"District","fromDir":"E","toDir":"W","time":2},
+    {"from":"Turnham|Green","to":"Stamford|Brook","line":"District","fromDir":"E","toDir":"W","time":1.5},
+    {"from":"Stamford|Brook","to":"Ravenscourt|Park","line":"District","fromDir":"E","toDir":"W","time":2},
+    {"from":"Ravenscourt|Park","to":"Hammersmith","line":"District","fromDir":"E","toDir":"W","time":2.5},
+    {"from":"Hammersmith","to":"Barons|Court","line":"District","fromDir":"E","toDir":"W","time":2},
+    {"from":"Barons|Court","to":"West|Kensington","line":"District","fromDir":"E","toDir":"W","time":2},
+    {"from":"West|Kensington","to":"Earl's|Court","line":"District","fromDir":"E","toDir":"W","time":2},
+    {"from":"Earl's|Court","to":"Gloucester|Road","line":"District","fromDir":"E","toDir":"W","time":1.5},
+    {"from":"Gloucester|Road","to":"South|Kensington","line":"District","fromDir":"E","toDir":"W","time":1.5},
+    {"from":"South|Kensington","to":"Sloane|Square","line":"District","fromDir":"E","toDir":"W","time":2},
+    {"from":"Sloane|Square","to":"Victoria","line":"District","fromDir":"E","toDir":"W","time":2},
+    {"from":"Victoria","to":"St. James's|Park","line":"District","fromDir":"E","toDir":"W","time":1.5},
+    {"from":"St. James's|Park","to":"Westminster","line":"District","fromDir":"E","toDir":"W","time":1.5},
+    {"from":"Westminster","to":"Embankment","line":"District","fromDir":"E","toDir":"W","time":2},
+    {"from":"Embankment","to":"Temple","line":"District","fromDir":"E","toDir":"SW","time":1.5},
+    {"from":"Temple","to":"Blackfriars","line":"District","fromDir":"NE","toDir":"SW","time":1.5},
+    {"from":"Blackfriars","to":"Mansion|House","line":"District","fromDir":"NE","toDir":"SW","time":2},
+    {"from":"Mansion|House","to":"Cannon Street","line":"District","fromDir":"NE","toDir":"W","time":1.5},
+    {"from":"Cannon Street","to":"Monument","line":"District","fromDir":"E","toDir":"W","time":1.5},
+    {"from":"Monument","to":"Tower|Hill","line":"District","fromDir":"E","toDir":"W","time":2},
+    {"from":"Tower|Hill","to":"Aldgate|East","line":"District","fromDir":"E","toDir":"SW","time":2},
+    {"from":"Aldgate|East","to":"Whitechapel","line":"District","fromDir":"NE","toDir":"SW","time":2},
+    {"from":"Whitechapel","to":"Stepney Green","line":"District","fromDir":"NE","toDir":"SW","time":2},
+    {"from":"Stepney Green","to":"Mile End","line":"District","fromDir":"NE","toDir":"W","time":2},
+    {"from":"Mile End","to":"Bow|Road","line":"District","fromDir":"E","toDir":"W","time":1.5},
+    {"from":"Bow|Road","to":"Bromley-|by-Bow","line":"District","fromDir":"E","toDir":"W","time":2},
+    {"from":"Bromley-|by-Bow","to":"West Ham","line":"District","fromDir":"E","toDir":"W","time":2.5},
+    {"from":"West Ham","to":"Plaistow","line":"District","fromDir":"E","toDir":"SW","time":2},
+    {"from":"Plaistow","to":"Upton Park","line":"District","fromDir":"NE","toDir":"SW","time":1.5},
+    {"from":"Upton Park","to":"East Ham","line":"District","fromDir":"NE","toDir":"SW","time":2},
+    {"from":"East Ham","to":"Barking","line":"District","fromDir":"NE","toDir":"SW","time":3},
+    {"from":"Barking","to":"Upney","line":"District","fromDir":"NE","toDir":"SW","time":2},
+    {"from":"Upney","to":"Becontree","line":"District","fromDir":"NE","toDir":"SW","time":2.5},
+    {"from":"Becontree","to":"Dagenham|Heathway","line":"District","fromDir":"NE","toDir":"SW","time":2},
+    {"from":"Dagenham|Heathway","to":"Dagenham East","line":"District","fromDir":"NE","toDir":"SW","time":2},
+    {"from":"Dagenham East","to":"Elm Park","line":"District","fromDir":"NE","toDir":"SW","time":2.5},
+    {"from":"Elm Park","to":"Hornchurch","line":"District","fromDir":"NE","toDir":"SW","time":2},
+    {"from":"Hornchurch","to":"Upminster|Bridge","line":"District","fromDir":"NE","toDir":"SW","time":2},
+    {"from":"Upminster|Bridge","to":"Upminster","line":"District","fromDir":"NE","toDir":"SW","time":2},
+    {"from":"Wimbledon","to":"Wimbledon Park","line":"District","fromDir":"N","toDir":"S","time":2.5},
+    {"from":"Wimbledon Park","to":"Southfields","line":"District","fromDir":"N","toDir":"S","time":2.5},
+    {"from":"Southfields","to":"East Putney","line":"District","fromDir":"N","toDir":"S","time":2.5},
+    {"from":"East Putney","to":"Putney Bridge","line":"District","fromDir":"N","toDir":"S","time":2},
+    {"from":"Putney Bridge","to":"Parsons Green","line":"District","fromDir":"N","toDir":"S","time":2},
+    {"from":"Parsons Green","to":"Fulham Broadway","line":"District","fromDir":"N","toDir":"S","time":2},
+    {"from":"Fulham Broadway","to":"West Brompton","line":"District","fromDir":"N","toDir":"S","time":2},
+    {"from":"West Brompton","to":"Earl's|Court","line":"District","fromDir":"N","toDir":"S","time":2},
+    {"from":"Kensington|(Olympia)","to":"Earl's|Court","line":"District","fromDir":"S","toDir":"W","time":1.5},
+    {"from":"Earl's|Court","to":"High Street|Kensington","line":"District","fromDir":"N","toDir":"S","time":1.5},
+    {"from":"High Street|Kensington","to":"Notting|Hill Gate","line":"District","fromDir":"N","toDir":"S","time":2},
+    {"from":"Notting|Hill Gate","to":"Bayswater","line":"District","fromDir":"N","toDir":"S","time":1.5},
+    {"from":"Bayswater","to":"Paddington","line":"District","fromDir":"N","toDir":"SW","time":2},
+    {"from":"Paddington","to":"Edgeware|Road (Circle)","line":"District","fromDir":"E","toDir":"W","time":2},
+    {"from":"Shoreditch","to":"Whitechapel","line":"East London","fromDir":"S","toDir":"N","time":3.5},
+    {"from":"Whitechapel","to":"Shadwell","line":"East London","fromDir":"S","toDir":"N","time":2},
+    {"from":"Shadwell","to":"Wapping","line":"East London","fromDir":"S","toDir":"N","time":1.5},
+    {"from":"Wapping","to":"Rotherhithe","line":"East London","fromDir":"S","toDir":"N","time":1.5},
+    {"from":"Rotherhithe","to":"Canada|Water","line":"East London","fromDir":"S","toDir":"N","time":1},
+    {"from":"Canada|Water","to":"Surrey Quays","line":"East London","fromDir":"S","toDir":"N","time":1.5},
+    {"from":"Surrey Quays","to":"New Cross Gate","line":"East London","fromDir":"SW","toDir":"NE","time":3},
+    {"from":"Surrey Quays","to":"New Cross","line":"East London","fromDir":"S","toDir":"N","time":4},
+    {"from":"Hammersmith","to":"Goldhawk Road","line":"Hammersmith & City","fromDir":"N","toDir":"S","time":1.5},
+    {"from":"Goldhawk Road","to":"Shepherd's Bush (H&C)","line":"Hammersmith & City","fromDir":"N","toDir":"S","time":1.5},
+    {"from":"Shepherd's Bush (H&C)","to":"Latimer Road","line":"Hammersmith & City","fromDir":"N","toDir":"S","time":3},
+    {"from":"Latimer Road","to":"Ladbroke Grove","line":"Hammersmith & City","fromDir":"N","toDir":"S","time":1.5},
+    {"from":"Ladbroke Grove","to":"Westbourne Park","line":"Hammersmith & City","fromDir":"N","toDir":"SW","time":1.5},
+    {"from":"Westbourne Park","to":"Royal Oak","line":"Hammersmith & City","fromDir":"NE","toDir":"SW","time":2},
+    {"from":"Royal Oak","to":"Paddington","line":"Hammersmith & City","fromDir":"NE","toDir":"W","time":1.5},
+    {"from":"Paddington","to":"Edgeware|Road (Circle)","line":"Hammersmith & City","fromDir":"E","toDir":"W","time":2.5},
+    {"from":"Edgeware|Road (Circle)","to":"Baker Street","line":"Hammersmith & City","fromDir":"E","toDir":"W","time":2.5},
+    {"from":"Baker Street","to":"Great Portland|Street","line":"Hammersmith & City","fromDir":"E","toDir":"W","time":2},
+    {"from":"Great Portland|Street","to":"Euston Square","line":"Hammersmith & City","fromDir":"E","toDir":"W","time":1.5},
+    {"from":"Euston Square","to":"King's Cross|St. Pancras","line":"Hammersmith & City","fromDir":"E","toDir":"W","time":2},
+    {"from":"King's Cross|St. Pancras","to":"Farringdon","line":"Hammersmith & City","fromDir":"SE","toDir":"NW","time":3},
+    {"from":"Farringdon","to":"Barbican","line":"Hammersmith & City","fromDir":"SE","toDir":"NW","time":1.5},
+    {"from":"Barbican","to":"Moorgate","line":"Hammersmith & City","fromDir":"SE","toDir":"W","time":1.5},
+    {"from":"Moorgate","to":"Liverpool|Street","line":"Hammersmith & City","fromDir":"E","toDir":"W","time":1.5},
+    {"from":"Liverpool|Street","to":"Aldgate|East","line":"Hammersmith & City","fromDir":"E","toDir":"W","time":4.5},
+    {"from":"Aldgate|East","to":"Whitechapel","line":"Hammersmith & City","fromDir":"NE","toDir":"SW","time":2},
+    {"from":"Whitechapel","to":"Stepney Green","line":"Hammersmith & City","fromDir":"NE","toDir":"SW","time":2},
+    {"from":"Stepney Green","to":"Mile End","line":"Hammersmith & City","fromDir":"NE","toDir":"W","time":2},
+    {"from":"Mile End","to":"Bow|Road","line":"Hammersmith & City","fromDir":"E","toDir":"W","time":1.5},
+    {"from":"Bow|Road","to":"Bromley-|by-Bow","line":"Hammersmith & City","fromDir":"E","toDir":"W","time":2},
+    {"from":"Bromley-|by-Bow","to":"West Ham","line":"Hammersmith & City","fromDir":"E","toDir":"W","time":2},
+    {"from":"West Ham","to":"Plaistow","line":"Hammersmith & City","fromDir":"E","toDir":"SW","time":2},
+    {"from":"Plaistow","to":"Upton Park","line":"Hammersmith & City","fromDir":"NE","toDir":"SW","time":2},
+    {"from":"Upton Park","to":"East Ham","line":"Hammersmith & City","fromDir":"NE","toDir":"SW","time":2},
+    {"from":"East Ham","to":"Barking","line":"Hammersmith & City","fromDir":"NE","toDir":"SW","time":3},
+    {"from":"Stanmore","to":"Canons Park","line":"Jubilee","fromDir":"S","toDir":"N","time":2},
+    {"from":"Canons Park","to":"Queensbury","line":"Jubilee","fromDir":"S","toDir":"N","time":2},
+    {"from":"Queensbury","to":"Kingsbury","line":"Jubilee","fromDir":"S","toDir":"N","time":2},
+    {"from":"Kingsbury","to":"Wembley|Park","line":"Jubilee","fromDir":"S","toDir":"NW","time":3.5},
+    {"from":"Wembley|Park","to":"Neasden","line":"Jubilee","fromDir":"SE","toDir":"NW","time":3},
+    {"from":"Neasden","to":"Dollis Hill","line":"Jubilee","fromDir":"SE","toDir":"NW","time":1.5},
+    {"from":"Dollis Hill","to":"Willesden Green","line":"Jubilee","fromDir":"SE","toDir":"NW","time":2},
+    {"from":"Willesden Green","to":"Kilburn","line":"Jubilee","fromDir":"SE","toDir":"NW","time":2.5},
+    {"from":"Kilburn","to":"West|Hampstead","line":"Jubilee","fromDir":"SE","toDir":"NW","time":2},
+    {"from":"West|Hampstead","to":"Finchley Road","line":"Jubilee","fromDir":"SE","toDir":"NW","time":1.5},
+    {"from":"Finchley Road","to":"Swiss Cottage","line":"Jubilee","fromDir":"SE","toDir":"NW","time":1.5},
+    {"from":"Swiss Cottage","to":"St. John's Wood","line":"Jubilee","fromDir":"SE","toDir":"NW","time":1.5},
+    {"from":"St. John's Wood","to":"Baker Street","line":"Jubilee","fromDir":"SE","toDir":"N","time":2.5},
+    {"from":"Baker Street","to":"Bond|Street","line":"Jubilee","fromDir":"S","toDir":"N","time":2},
+    {"from":"Bond|Street","to":"Green Park","line":"Jubilee","fromDir":"S","toDir":"NW","time":2},
+    {"from":"Green Park","to":"Westminster","line":"Jubilee","fromDir":"SE","toDir":"NW","time":2},
+    {"from":"Westminster","to":"Waterloo","line":"Jubilee","fromDir":"S","toDir":"NW","time":2},
+    {"from":"Waterloo","to":"Southwark","line":"Jubilee","fromDir":"E","toDir":"W","time":1.5},
+    {"from":"Southwark","to":"London Bridge","line":"Jubilee","fromDir":"E","toDir":"SW","time":2},
+    {"from":"London Bridge","to":"Bermondsey","line":"Jubilee","fromDir":"E","toDir":"W","time":2},
+    {"from":"Bermondsey","to":"Canada|Water","line":"Jubilee","fromDir":"E","toDir":"W","time":2},
+    {"from":"Canada|Water","to":"Canary Wharf","line":"Jubilee","fromDir":"E","toDir":"W","time":2.5},
+    {"from":"Canary Wharf","to":"North|Greenwich","line":"Jubilee","fromDir":"E","toDir":"SW","time":2},
+    {"from":"North|Greenwich","to":"Canning Town","line":"Jubilee","fromDir":"NE","toDir":"S","time":2},
+    {"from":"Canning Town","to":"West Ham","line":"Jubilee","fromDir":"N","toDir":"S","time":2.5},
+    {"from":"West Ham","to":"Stratford","line":"Jubilee","fromDir":"N","toDir":"S","time":3},
+    {"from":"Amersham","to":"Chalfont &|Latimer","line":"Metropolitan","fromDir":"E","toDir":"W","time":4},
+    {"from":"Chalfont &|Latimer","to":"Chorleywood","line":"Metropolitan","fromDir":"E","toDir":"NW","time":4},
+    {"from":"Chorleywood","to":"Rickmansworth","line":"Metropolitan","fromDir":"SE","toDir":"NW","time":3.5},
+    {"from":"Rickmansworth","to":"Moor Park","line":"Metropolitan","fromDir":"SE","toDir":"NW","time":4},
+    {"from":"Moor Park","to":"Northwood","line":"Metropolitan","fromDir":"SE","toDir":"NW","time":2.5},
+    {"from":"Northwood","to":"Northwood Hills","line":"Metropolitan","fromDir":"SE","toDir":"NW","time":2.5},
+    {"from":"Northwood Hills","to":"Pinner","line":"Metropolitan","fromDir":"SE","toDir":"NW","time":2.5},
+    {"from":"Pinner","to":"North Harrow","line":"Metropolitan","fromDir":"SE","toDir":"NW","time":2},
+    {"from":"North Harrow","to":"Harrow-|on-the-Hill","line":"Metropolitan","fromDir":"SE","toDir":"W","time":3},
+    {"from":"Chesham","to":"Chalfont &|Latimer","line":"Metropolitan","fromDir":"SE","toDir":"W","time":8.5},
+    {"from":"Watford","to":"Croxley","line":"Metropolitan","fromDir":"S","toDir":"N","time":3.5},
+    {"from":"Croxley","to":"Moor Park","line":"Metropolitan","fromDir":"S","toDir":"NW","time":4},
+    {"from":"Uxbridge","to":"Hillingdon","line":"Metropolitan","fromDir":"E","toDir":"W","time":4},
+    {"from":"Hillingdon","to":"Ickenham","line":"Metropolitan","fromDir":"E","toDir":"W","time":1.5},
+    {"from":"Ickenham","to":"Ruislip","line":"Metropolitan","fromDir":"E","toDir":"W","time":2.5},
+    {"from":"Ruislip","to":"Ruislip Manor","line":"Metropolitan","fromDir":"E","toDir":"NW","time":1.5},
+    {"from":"Ruislip Manor","to":"Eastcote","line":"Metropolitan","fromDir":"SE","toDir":"NW","time":2},
+    {"from":"Eastcote","to":"Rayners Lane","line":"Metropolitan","fromDir":"SE","toDir":"NW","time":2.5},
+    {"from":"Rayners Lane","to":"West Harrow","line":"Metropolitan","fromDir":"E","toDir":"W","time":2.5},
+    {"from":"West Harrow","to":"Harrow-|on-the-Hill","line":"Metropolitan","fromDir":"E","toDir":"W","time":2},
+    {"from":"Harrow-|on-the-Hill","to":"Northwick|Park","line":"Metropolitan","fromDir":"E","toDir":"W","time":2.5},
+    {"from":"Northwick|Park","to":"Preston|Road","line":"Metropolitan","fromDir":"E","toDir":"W","time":2.5},
+    {"from":"Preston|Road","to":"Wembley|Park","line":"Metropolitan","fromDir":"SE","toDir":"NW","time":2,"toPort":"spread"},
+    {"from":"Wembley|Park","to":"Finchley Road","line":"Metropolitan","fromDir":"E","toDir":"W","time":7,"fromPort":"spread","toPort":"spread"},
+    {"from":"Finchley Road","to":"Baker Street","line":"Metropolitan","fromDir":"S","toDir":"N","time":5.5,"fromPort":"spread"},
+    {"from":"Baker Street","to":"Great Portland|Street","line":"Metropolitan","fromDir":"E","toDir":"W","time":2.5},
+    {"from":"Great Portland|Street","to":"Euston Square","line":"Metropolitan","fromDir":"E","toDir":"W","time":1.5},
+    {"from":"Euston Square","to":"King's Cross|St. Pancras","line":"Metropolitan","fromDir":"E","toDir":"W","time":2},
+    {"from":"King's Cross|St. Pancras","to":"Farringdon","line":"Metropolitan","fromDir":"SE","toDir":"NW","time":3},
+    {"from":"Farringdon","to":"Barbican","line":"Metropolitan","fromDir":"SE","toDir":"NW","time":1.5},
+    {"from":"Barbican","to":"Moorgate","line":"Metropolitan","fromDir":"SE","toDir":"W","time":1.5},
+    {"from":"Moorgate","to":"Liverpool|Street","line":"Metropolitan","fromDir":"E","toDir":"W","time":1.5},
+    {"from":"Liverpool|Street","to":"Aldgate","line":"Metropolitan","fromDir":"S","toDir":"N","time":2},
+    {"from":"Edgware","to":"Burnt Oak","line":"Northern","fromDir":"SE","toDir":"NW","time":2.5},
+    {"from":"Burnt Oak","to":"Colindale","line":"Northern","fromDir":"SE","toDir":"NW","time":2},
+    {"from":"Colindale","to":"Hendon Central","line":"Northern","fromDir":"SE","toDir":"NW","time":3},
+    {"from":"Hendon Central","to":"Brent Cross","line":"Northern","fromDir":"SE","toDir":"NW","time":2},
+    {"from":"Brent Cross","to":"Golders Green","line":"Northern","fromDir":"SE","toDir":"NW","time":2.5},
+    {"from":"Golders Green","to":"Hampstead","line":"Northern","fromDir":"SE","toDir":"NW","time":3},
+    {"from":"Hampstead","to":"Belsize Park","line":"Northern","fromDir":"SE","toDir":"NW","time":2},
+    {"from":"Belsize Park","to":"Chalk Farm","line":"Northern","fromDir":"SE","toDir":"NW","time":1.5},
+    {"from":"Chalk Farm","to":"Camden Town","line":"Northern","fromDir":"SE","toDir":"NW","time":1.5},
+    {"from":"High Barnet","to":"Totteridge & Whetstone","line":"Northern","fromDir":"S","toDir":"N","time":3.5},
+    {"from":"Totteridge & Whetstone","to":"Woodside Park","line":"Northern","fromDir":"S","toDir":"N","time":2.5},
+    {"from":"Woodside Park","to":"West Finchley","line":"Northern","fromDir":"S","toDir":"N","time":1.5},
+    {"from":"West Finchley","to":"Finchley Central","line":"Northern","fromDir":"S","toDir":"N","time":2},
+    {"from":"Finchley Central","to":"East Finchley","line":"Northern","fromDir":"S","toDir":"N","time":3},
+    {"from":"East Finchley","to":"Highgate","line":"Northern","fromDir":"S","toDir":"N","time":2},
+    {"from":"Highgate","to":"Archway","line":"Northern","fromDir":"S","toDir":"N","time":2.5},
+    {"from":"Archway","to":"Tufnell Park","line":"Northern","fromDir":"S","toDir":"N","time":1.5},
+    {"from":"Tufnell Park","to":"Kentish Town","line":"Northern","fromDir":"S","toDir":"NE","time":1.5},
+    {"from":"Kentish Town","to":"Camden Town","line":"Northern","fromDir":"SW","toDir":"NE","time":2},
+    {"from":"Mill Hill East","to":"Finchley Central","line":"Northern","fromDir":"SE","toDir":"N","time":3},
+    {"from":"Camden Town","to":"Mornington|Crescent","line":"Northern","fromDir":"SW","toDir":"N","time":1.5},
+    {"from":"Mornington|Crescent","to":"Euston","line":"Northern","fromDir":"S","toDir":"NW","time":2},
+    {"from":"Euston","to":"Warren Street","line":"Northern","fromDir":"SW","toDir":"N","time":1},
+    {"from":"Warren Street","to":"Goodge|Street","line":"Northern","fromDir":"S","toDir":"N","time":1.5},
+    {"from":"Goodge|Street","to":"Tottenham|Court Road","line":"Northern","fromDir":"S","toDir":"N","time":1},
+    {"from":"Tottenham|Court Road","to":"Leicester|Square","line":"Northern","fromDir":"S","toDir":"N","time":1},
+    {"from":"Leicester|Square","to":"Charing|Cross","line":"Northern","fromDir":"S","toDir":"N","time":1.5},
+    {"from":"Charing|Cross","to":"Embankment","line":"Northern","fromDir":"S","toDir":"N","time":1},
+    {"from":"Embankment","to":"Waterloo","line":"Northern","fromDir":"S","toDir":"N","time":1.5},
+    {"from":"Waterloo","to":"Kennington","line":"Northern","fromDir":"S","toDir":"NE","time":2.5},
+    {"from":"Camden Town","to":"Euston","line":"Northern","fromDir":"SE","toDir":"NE","time":3},
+    {"from":"Euston","to":"King's Cross|St. Pancras","line":"Northern","fromDir":"E","toDir":"W","time":1.5,"toPort":"spread"},
+    {"from":"King's Cross|St. Pancras","to":"Angel","line":"Northern","fromDir":"E","toDir":"W","time":2.5,"fromPort":"spread"},
+    {"from":"Angel","to":"Old Street","line":"Northern","fromDir":"E","toDir":"N","time":2.5},
+    {"from":"Old Street","to":"Moorgate","line":"Northern","fromDir":"S","toDir":"N","time":1.5},
+    {"from":"Moorgate","to":"Bank","line":"Northern","fromDir":"S","toDir":"N","time":2},
+    {"from":"Bank","to":"London Bridge","line":"Northern","fromDir":"S","toDir":"N","time":1.5},
+    {"from":"London Bridge","to":"Borough","line":"Northern","fromDir":"S","toDir":"NE","time":1.5},
+    {"from":"Borough","to":"Elephant & Castle","line":"Northern","fromDir":"SW","toDir":"NE","time":2},
+    {"from":"Elephant & Castle","to":"Kennington","line":"Northern","fromDir":"SW","toDir":"NE","time":1.5},
+    {"from":"Kennington","to":"Oval","line":"Northern","fromDir":"SW","toDir":"NE","time":1.5},
+    {"from":"Oval","to":"Stockwell","line":"Northern","fromDir":"SW","toDir":"NE","time":2},
+    {"from":"Stockwell","to":"Clapham North","line":"Northern","fromDir":"SW","toDir":"NE","time":1.5},
+    {"from":"Clapham North","to":"Clapham Common","line":"Northern","fromDir":"SW","toDir":"NE","time":1.5},
+    {"from":"Clapham Common","to":"Clapham South","line":"Northern","fromDir":"SW","toDir":"NE","time":2},
+    {"from":"Clapham South","to":"Balham","line":"Northern","fromDir":"SW","toDir":"NE","time":2},
+    {"from":"Balham","to":"Tooting Bec","line":"Northern","fromDir":"SW","toDir":"NE","time":2},
+    {"from":"Tooting Bec","to":"Tooting Broadway","line":"Northern","fromDir":"SW","toDir":"NE","time":2},
+    {"from":"Tooting Broadway","to":"Colliers Wood","line":"Northern","fromDir":"SW","toDir":"NE","time":2},
+    {"from":"Colliers Wood","to":"South Wimbledon","line":"Northern","fromDir":"SW","toDir":"NE","time":2.5},
+    {"from":"South Wimbledon","to":"Morden","line":"Northern","fromDir":"SW","toDir":"NE","time":2},
+    {"from":"Hatton Cross","to":"Hounslow West","line":"Piccadilly","fromDir":"NE","toDir":"SW","time":3.5},
+    {"from":"Hounslow West","to":"Hounslow Central","line":"Piccadilly","fromDir":"NE","toDir":"SW","time":1.5},
+    {"from":"Hounslow Central","to":"Hounslow East","line":"Piccadilly","fromDir":"NE","toDir":"SW","time":1.5},
+    {"from":"Hounslow East","to":"Osterley","line":"Piccadilly","fromDir":"NE","toDir":"SW","time":2.5},
+    {"from":"Osterley","to":"Boston Manor","line":"Piccadilly","fromDir":"NE","toDir":"SW","time":2},
+    {"from":"Boston Manor","to":"Northfields","line":"Piccadilly","fromDir":"NE","toDir":"SW","time":2},
+    {"from":"Northfields","to":"South Ealing","line":"Piccadilly","fromDir":"NE","toDir":"W","time":1.5},
+    {"from":"South Ealing","to":"Acton Town","line":"Piccadilly","fromDir":"E","toDir":"W","time":2},
+    {"from":"Heathrow|Terminal 4","to":"Heathrow|Terminals 1, 2, 3","line":"Piccadilly","fromDir":"W","toDir":"W","time":4.5},
+    {"from":"Heathrow|Terminals 1, 2, 3","to":"Hatton Cross","line":"Piccadilly","fromDir":"E","toDir":"W","time":3},
+    {"from":"Heathrow|Terminal 4","to":"Hatton Cross","line":"Piccadilly","fromDir":"E","toDir":"SW","time":3.5},
+    {"from":"Uxbridge","to":"Hillingdon","line":"Piccadilly","fromDir":"E","toDir":"W","time":3.5},
+    {"from":"Hillingdon","to":"Ickenham","line":"Piccadilly","fromDir":"E","toDir":"W","time":2.5},
+    {"from":"Ickenham","to":"Ruislip","line":"Piccadilly","fromDir":"E","toDir":"W","time":2},
+    {"from":"Ruislip","to":"Ruislip Manor","line":"Piccadilly","fromDir":"E","toDir":"NW","time":1.5},
+    {"from":"Ruislip Manor","to":"Eastcote","line":"Piccadilly","fromDir":"SE","toDir":"NW","time":1.5},
+    {"from":"Eastcote","to":"Rayners Lane","line":"Piccadilly","fromDir":"SE","toDir":"NW","time":3.5},
+    {"from":"Rayners Lane","to":"South Harrow","line":"Piccadilly","fromDir":"S","toDir":"N","time":3.5},
+    {"from":"South Harrow","to":"Sudbury Hill","line":"Piccadilly","fromDir":"S","toDir":"N","time":2.5},
+    {"from":"Sudbury Hill","to":"Sudbury Town","line":"Piccadilly","fromDir":"S","toDir":"N","time":2},
+    {"from":"Sudbury Town","to":"Alperton","line":"Piccadilly","fromDir":"S","toDir":"N","time":2.5},
+    {"from":"Alperton","to":"Park Royal","line":"Piccadilly","fromDir":"S","toDir":"N","time":2},
+    {"from":"Park Royal","to":"North Ealing","line":"Piccadilly","fromDir":"S","toDir":"N","time":2},
+    {"from":"North Ealing","to":"Ealing Common","line":"Piccadilly","fromDir":"S","toDir":"N","time":2},
+    {"from":"Ealing Common","to":"Acton Town","line":"Piccadilly","fromDir":"S","toDir":"N","time":2},
+    {"from":"Acton Town","to":"Hammersmith","line":"Piccadilly","fromDir":"E","toDir":"W","time":5.5,"toPort":"spread"},
+    {"from":"Hammersmith","to":"Barons|Court","line":"Piccadilly","fromDir":"E","toDir":"W","time":1.5,"fromPort":"spread","toPort":"spread"},
+    {"from":"Barons|Court","to":"Earl's|Court","line":"Piccadilly","fromDir":"E","toDir":"W","time":3,"fromPort":"spread","toPort":"spread"},
+    {"from":"Earl's|Court","to":"Gloucester|Road","line":"Piccadilly","fromDir":"E","toDir":"W","time":1.5,"fromPort":"spread","toPort":"spread"},
+    {"from":"Gloucester|Road","to":"South|Kensington","line":"Piccadilly","fromDir":"E","toDir":"W","time":1.5,"fromPort":"spread","toPort":"spread"},
+    {"from":"South|Kensington","to":"Knightsbridge","line":"Piccadilly","fromDir":"NE","toDir":"SW","time":2,"fromPort":"spread"},
+    {"from":"Knightsbridge","to":"Hyde Park|Corner","line":"Piccadilly","fromDir":"NE","toDir":"SW","time":1.5},
+    {"from":"Hyde Park|Corner","to":"Green Park","line":"Piccadilly","fromDir":"NE","toDir":"W","time":1.5},
+    {"from":"Green Park","to":"Piccadilly|Circus","line":"Piccadilly","fromDir":"E","toDir":"W","time":2},
+    {"from":"Piccadilly|Circus","to":"Leicester|Square","line":"Piccadilly","fromDir":"E","toDir":"SW","time":1.5},
+    {"from":"Leicester|Square","to":"Covent Garden","line":"Piccadilly","fromDir":"NE","toDir":"SW","time":1},
+    {"from":"Covent Garden","to":"Holborn","line":"Piccadilly","fromDir":"NE","toDir":"SW","time":1.5},
+    {"from":"Holborn","to":"Russell|Square","line":"Piccadilly","fromDir":"NE","toDir":"S","time":1.5},
+    {"from":"Russell|Square","to":"King's Cross|St. Pancras","line":"Piccadilly","fromDir":"N","toDir":"SW","time":2.5},
+    {"from":"King's Cross|St. Pancras","to":"Caledonian Road","line":"Piccadilly","fromDir":"NE","toDir":"SW","time":2.5},
+    {"from":"Caledonian Road","to":"Holloway Road","line":"Piccadilly","fromDir":"NE","toDir":"SW","time":1.5},
+    {"from":"Holloway Road","to":"Arsenal","line":"Piccadilly","fromDir":"NE","toDir":"SW","time":1.5},
+    {"from":"Arsenal","to":"Finsbury Park","line":"Piccadilly","fromDir":"E","toDir":"W","time":1.5,"toPort":"spread"},
+    {"from":"Finsbury Park","to":"Manor House","line":"Piccadilly","fromDir":"N","toDir":"S","time":2.5,"fromPort":"spread"},
+    {"from":"Manor House","to":"Turnpike Lane","line":"Piccadilly","fromDir":"N","toDir":"S","time":3},
+    {"from":"Turnpike Lane","to":"Wood Green","line":"Piccadilly","fromDir":"N","toDir":"S","time":1.5},
+    {"from":"Wood Green","to":"Bounds Green","line":"Piccadilly","fromDir":"N","toDir":"S","time":2.5},
+    {"from":"Bounds Green","to":"Arnos Grove","line":"Piccadilly","fromDir":"N","toDir":"S","time":2},
+    {"from":"Arnos Grove","to":"Southgate","line":"Piccadilly","fromDir":"N","toDir":"S","time":2.5},
+    {"from":"Southgate","to":"Oakwood","line":"Piccadilly","fromDir":"N","toDir":"S","time":2},
+    {"from":"Oakwood","to":"Cockfosters","line":"Piccadilly","fromDir":"N","toDir":"S","time":2},
+    {"from":"Brixton","to":"Stockwell","line":"Victoria","fromDir":"NW","toDir":"SE","time":2},
+    {"from":"Stockwell","to":"Vauxhall","line":"Victoria","fromDir":"NW","toDir":"SE","time":2},
+    {"from":"Vauxhall","to":"Pimlico","line":"Victoria","fromDir":"NW","toDir":"S","time":1.5},
+    {"from":"Pimlico","to":"Victoria","line":"Victoria","fromDir":"N","toDir":"S","time":2},
+    {"from":"Victoria","to":"Green Park","line":"Victoria","fromDir":"N","toDir":"S","time":2},
+    {"from":"Green Park","to":"Oxford|Circus","line":"Victoria","fromDir":"N","toDir":"SW","time":2},
+    {"from":"Oxford|Circus","to":"Warren Street","line":"Victoria","fromDir":"NE","toDir":"SW","time":1.5},
+    {"from":"Euston","to":"Warren Street","line":"Victoria","fromDir":"SW","toDir":"N","time":1.5},
+    {"from":"King's Cross|St. Pancras","to":"Euston","line":"Victoria","fromDir":"E","toDir":"W","time":1.5,"fromPort":"spread2"},
+    {"from":"Highbury &|Islington","to":"King's Cross|St. Pancras","line":"Victoria","fromDir":"NE","toDir":"SW","time":3,"toPort":"spread2"},
+    {"from":"Highbury &|Islington","to":"Finsbury Park","line":"Victoria","fromDir":"NE","toDir":"S","time":2.5},
+    {"from":"Finsbury Park","to":"Seven|Sisters","line":"Victoria","fromDir":"NE","toDir":"W","time":3.5},
+    {"from":"Seven|Sisters","to":"Tottenham|Hale","line":"Victoria","fromDir":"E","toDir":"W","time":1.5},
+    {"from":"Tottenham|Hale","to":"Blackhorse|Road","line":"Victoria","fromDir":"E","toDir":"W","time":2},
+    {"from":"Blackhorse|Road","to":"Walthamstow|Central","line":"Victoria","fromDir":"E","toDir":"W","time":2},
+    {"from":"Bank","to":"Waterloo","line":"Waterloo & City","fromDir":"S","toDir":"NE","time":4},
+    {"from":"Bank","to":"Shadwell","line":"Docklands Light Railway","fromDir":"E","toDir":"NW","time":3.5},
+    {"from":"Shadwell","to":"Limehouse","line":"Docklands Light Railway","fromDir":"E","toDir":"W","time":2},
+    {"from":"Limehouse","to":"Westferry","line":"Docklands Light Railway","fromDir":"E","toDir":"W","time":2},
+    {"from":"Westferry","to":"Poplar","line":"Docklands Light Railway","fromDir":"E","toDir":"W","time":1.5},
+    {"from":"Tower|Gateway","to":"Shadwell","line":"Docklands Light Railway","fromDir":"E","toDir":"SW","time":3},
+    {"from":"Westferry","to":"West India|Quay","line":"Docklands Light Railway","fromDir":"SE","toDir":"NW","time":1.5},
+    {"from":"West India|Quay","to":"Canary Wharf","line":"Docklands Light Railway","fromDir":"S","toDir":"N","time":1},
+    {"from":"Canary Wharf","to":"Heron Quays","line":"Docklands Light Railway","fromDir":"S","toDir":"N","time":1.5},
+    {"from":"Heron Quays","to":"South Quay","line":"Docklands Light Railway","fromDir":"S","toDir":"N","time":1.5},
+    {"from":"South Quay","to":"Crossharbour &|London Arena","line":"Docklands Light Railway","fromDir":"S","toDir":"N","time":2},
+    {"from":"Crossharbour &|London Arena","to":"Mudchute","line":"Docklands Light Railway","fromDir":"S","toDir":"N","time":1.5},
+    {"from":"Mudchute","to":"Island Gardens","line":"Docklands Light Railway","fromDir":"S","toDir":"N","time":1.5},
+    {"from":"Island Gardens","to":"Cutty Sark","line":"Docklands Light Railway","fromDir":"S","toDir":"N","time":2},
+    {"from":"Cutty Sark","to":"Greenwich","line":"Docklands Light Railway","fromDir":"S","toDir":"N","time":1.5},
+    {"from":"Greenwich","to":"Deptford Bridge","line":"Docklands Light Railway","fromDir":"S","toDir":"N","time":1.5},
+    {"from":"Deptford Bridge","to":"Elverson Road","line":"Docklands Light Railway","fromDir":"S","toDir":"N","time":1.5},
+    {"from":"Elverson Road","to":"Lewisham","line":"Docklands Light Railway","fromDir":"S","toDir":"N","time":2},
+    {"from":"Poplar","to":"All Saints","line":"Docklands Light Railway","fromDir":"N","toDir":"S","time":1.5},
+    {"from":"All Saints","to":"Devons Road","line":"Docklands Light Railway","fromDir":"N","toDir":"S","time":1.5},
+    {"from":"Devons Road","to":"Bow|Road","line":"Docklands Light Railway","fromDir":"N","toDir":"S","time":1.5},
+    {"from":"Bow|Road","to":"Pudding|Mill Lane","line":"Docklands Light Railway","fromDir":"NE","toDir":"SW","time":2},
+    {"from":"Pudding|Mill Lane","to":"Stratford","line":"Docklands Light Railway","fromDir":"N","toDir":"S","time":2.5},
+    {"from":"Poplar","to":"Blackwall","line":"Docklands Light Railway","fromDir":"E","toDir":"W","time":1.5},
+    {"from":"Blackwall","to":"East|India","line":"Docklands Light Railway","fromDir":"E","toDir":"W","time":1.5},
+    {"from":"East|India","to":"Canning Town","line":"Docklands Light Railway","fromDir":"E","toDir":"W","time":2},
+    {"from":"Canning Town","to":"Royal Victoria","line":"Docklands Light Railway","fromDir":"E","toDir":"NW","time":2.5},
+    {"from":"Royal Victoria","to":"Custom House","line":"Docklands Light Railway","fromDir":"SE","toDir":"NW","time":1.5},
+    {"from":"Custom House","to":"Prince Regent","line":"Docklands Light Railway","fromDir":"SE","toDir":"NW","time":1.5},
+    {"from":"Prince Regent","to":"Royal Albert","line":"Docklands Light Railway","fromDir":"SE","toDir":"NW","time":1.5},
+    {"from":"Royal Albert","to":"Beckton Park","line":"Docklands Light Railway","fromDir":"SE","toDir":"NW","time":1.5},
+    {"from":"Beckton Park","to":"Cyprus","line":"Docklands Light Railway","fromDir":"SE","toDir":"NW","time":1.5},
+    {"from":"Cyprus","to":"Gallions Reach","line":"Docklands Light Railway","fromDir":"SE","toDir":"NW","time":2},
+    {"from":"Gallions Reach","to":"Beckton","line":"Docklands Light Railway","fromDir":"SE","toDir":"W","time":2}
+  ],
+  "river": [
+    [0,720],
+    [200,720],
+    [200,630],
+    [300,630],
+    [370,690],
+    [620,690],
+    [620,600],
+    [740,600],
+    [800,540],
+    [1000,540],
+    [1000,650],
+    [1100,650],
+    [1100,540],
+    [1200,540],
+    [1200,650],
+    [1500,650]
+  ]
+}
+  </script>
+  <div id="description">
+<p>
+    A transportation map of the London Underground network, displaying train lines running between stations.
+  </p>
+  <p>
+    The diagram uses a <a href="https://gojs.net/latest/api/symbols/GraphLinksModel.html" target="api">GraphLinksModel</a> with nodes representing each station and an array of links that connect them. Each link's data
+    contains the line it belongs to, and the compass heading it leaves each station on (<code>fromDir</code> / <code>toDir</code>).
+  </p>
+  <p>
+    The use of a custom link overrides <a href="https://gojs.net/latest/api/symbols/Link.html#computepoints" target="api">Link.computePoints</a>, allowing each link to be routed for readability.
+    Every link that enters or leaves a station at the same spot is shifted to run side by side.
+    In cases where stations have many lines running through them, the use of multi-circle stations allow for the routes to still remain clear.
+  </p>
+  <p>
+    When selecting a link, or clicking a line in the legend, the rest of the train line and stations are highlighted. This allows for increased clarity in high density areas of the map. Click the background or the legend entry again to clear the highlight.
+  </p>
+  </div>
+  <script >
+const TUBE = {
+    DIR: (() => {
+      const r = Math.SQRT1_2;
+      return [
+        new go.Point(1, 0), new go.Point(r, r), new go.Point(0, 1), new go.Point(-r, r),
+        new go.Point(-1, 0), new go.Point(-r, -r), new go.Point(0, -1), new go.Point(r, -r)
+      ];
+    })(),
+    COMPASS: { E: 0, SE: 1, S: 2, SW: 3, W: 4, NW: 5, N: 6, NE: 7 }
+  };
+  function tubeElbow(p, q) {
+    let a = p, b = q, swap = false;
+    if (b.x < a.x || (b.x === a.x && b.y < a.y)) { a = q; b = p; swap = true; }
+    const dx = b.x - a.x, dy = b.y - a.y, adx = Math.abs(dx), ady = Math.abs(dy);
+    const pts = [a];
+    const residual = Math.min(adx, ady, (Math.abs(adx - ady) / 2) * Math.SQRT2);
+    if (residual > 4) {
+      if (adx > ady) pts.push(new go.Point(b.x - Math.sign(dx) * ady, a.y));
+      else pts.push(new go.Point(a.x, b.y - Math.sign(dy) * adx));
+    }
+    pts.push(b);
+    if (swap) pts.reverse();
+    return pts;
+  }
+  function rayMeet(p, dp, q, dq) {
+    const denom = dp.x * dq.y - dp.y * dq.x;
+    if (Math.abs(denom) < 1e-6) return null; 
+    const wx = q.x - p.x, wy = q.y - p.y;
+    const s = (wx * dq.y - wy * dq.x) / denom;
+    const t = (wx * dp.y - wy * dp.x) / denom; 
+    if (s < -0.01 || t < -0.01) return null; 
+    return new go.Point(p.x + dp.x * s, p.y + dp.y * s);
+  }
+
+  // Custom link representing connections between stations
+  class TubeLink extends go.Link {
+    computePoints() {
+      const fromPort = this.fromPort;
+      const toPort = this.toPort;
+      if (!fromPort || !toPort || !this.fromNode || !this.toNode) return super.computePoints();
+      const a = fromPort.getDocumentPoint(go.Spot.Center);
+      const b = toPort.getDocumentPoint(go.Spot.Center);
+      const d = this.data;
+      let pts;
+      if (fromPort.portId || toPort.portId) {
+        // a spread station's second circle is already positioned by its port
+        pts = tubeElbow(a, b);
+      } else {
+        // attach each end at its station's circle edge along the heading, nudged
+        // into its slot (dirFrom/dirTo and slotFrom/slotTo come from assignSlots).
+        const dirF = TUBE.DIR[d.dirFrom | 0], dirT = TUBE.DIR[d.dirTo | 0];
+        const rot90 = (v) => new go.Point(-v.y, v.x);
+        const perpF = rot90(dirF);
+        const perpT = rot90(new go.Point(-dirT.x, -dirT.y));
+        const rF = fromPort.getDocumentBounds().width / 2;
+        const rT = toPort.getDocumentBounds().width / 2;
+        const sf = (d.slotFrom || 0) * 3.5, st = (d.slotTo || 0) * 3.5;
+        const af = new go.Point(a.x + dirF.x * rF + perpF.x * sf, a.y + dirF.y * rF + perpF.y * sf);
+        const at = new go.Point(b.x + dirT.x * rT + perpT.x * st, b.y + dirT.y * rT + perpT.y * st);
+        // the ideal case: each end runs straight out of its port and the two
+        // headings cross at one point, which becomes the link's only bend.
+        const bend = rayMeet(af, dirF, at, dirT);
+        if (bend) {
+          pts = [af, bend, at];
+        } else {
+          const dax = at.x - af.x, day = at.y - af.y;
+          const base = Math.min(Math.hypot(dax, day) * 0.3, 5);
+          const stubF = dirF.x * dax + dirF.y * day > 0 ? base : 0;
+          const stubT = dirT.x * -dax + dirT.y * -day > 0 ? base : 0;
+          const afs = stubF ? new go.Point(af.x + dirF.x * stubF, af.y + dirF.y * stubF) : af;
+          const ats = stubT ? new go.Point(at.x + dirT.x * stubT, at.y + dirT.y * stubT) : at;
+          pts = [];
+          if (stubF) pts.push(af);
+          for (const pt of tubeElbow(afs, ats)) pts.push(pt);
+          if (stubT) pts.push(at);
+        }
+      }
+      this.clearPoints();
+      for (const pt of pts) this.addPoint(pt);
+      return true;
+    }
+  }
+
+  let stations, lines, linkDataArray, riverPoints;
+
+  function init() {
+    myDiagram = new go.Diagram('myDiagramDiv', {
+      initialAutoScale: go.AutoScale.Uniform,
+      isReadOnly: true,
+      padding: 30,
+      'toolManager.hoverDelay': 100,
+      'animationManager.isEnabled': false
+    });
+
+    // how far to pull apart the two circles of a spread (barbell) station,
+    // as a multiple of the raw spread offset between the parallel tracks
+    const SPREAD_SCALE = 2;
+
+    const interiorColor = (d) => (d.interchange ? 'white' : d.color);
+    const outlineColor = (d) => (d.interchange ? '#1c1c1c' : d.color);
+
+    const spreadBar = (field, outline) =>
+      new go.Shape('Rectangle', { height: outline ? 6 : 3, strokeWidth: 0, visible: false })
+        .bind('visible', field, (s) => !!s)
+        .bind('fill', '', outline ? outlineColor : interiorColor)
+        .bind('width', field, (s) => (s ? Math.hypot(s[0], s[1]) * SPREAD_SCALE : 0))
+        .bind('angle', field, (s) => (s ? (Math.atan2(s[1], s[0]) * 180) / Math.PI : 0))
+        .bind('alignment', field, (s) => (s ? new go.Spot(0.5, 0.5, (s[0] * SPREAD_SCALE) / 2, (s[1] * SPREAD_SCALE) / 2) : go.Spot.Center));
+
+    const spreadCircle = (field) =>
+      new go.Shape('Circle', { portId: field, strokeWidth: 1.5, visible: false })
+        .bind('visible', field, (s) => !!s)
+        .bind('desiredSize', 'interchange', (i) => (i ? new go.Size(9, 9) : new go.Size(5.5, 5.5)))
+        .bind('fill', '', interiorColor)
+        .bind('stroke', '', outlineColor)
+        .bind('alignment', field, (s) => (s ? new go.Spot(0.5, 0.5, s[0] * SPREAD_SCALE, s[1] * SPREAD_SCALE) : go.Spot.Center));
+
+    const LABEL_PROPS = {
+      r:  { alignment: new go.Spot(1, 0.5, 4, 0), alignmentFocus: go.Spot.Left, textAlign: 'left' },
+      l:  { alignment: new go.Spot(0, 0.5, -4, 0), alignmentFocus: go.Spot.Right, textAlign: 'right' },
+      t:  { alignment: new go.Spot(0.5, 0, 0, -3), alignmentFocus: go.Spot.Bottom, textAlign: 'center' },
+      ts:  { alignment: new go.Spot(0.5, 0, 0, -12), alignmentFocus: go.Spot.Bottom, textAlign: 'center' },
+      tsl:  { alignment: new go.Spot(0.5, 0, -4, -12), alignmentFocus: go.Spot.BottomRight, textAlign: 'right' },
+      b:  { alignment: new go.Spot(0.5, 1, 0, 3), alignmentFocus: go.Spot.Top, textAlign: 'center' },
+      tr: { alignment: new go.Spot(1, 0, 1, -1), alignmentFocus: go.Spot.BottomLeft, textAlign: 'left' },
+      tl: { alignment: new go.Spot(0, 0, -1, -1), alignmentFocus: go.Spot.BottomRight, textAlign: 'right' },
+      br: { alignment: new go.Spot(1, 1, 1, 1), alignmentFocus: go.Spot.TopLeft, textAlign: 'left' },
+      bl: { alignment: new go.Spot(0, 1, -1, 1), alignmentFocus: go.Spot.TopRight, textAlign: 'right' }
+    };
+
+    myDiagram.nodeTemplate =
+      new go.Node('Spot', {
+        locationSpot: go.Spot.Center,
+        locationObjectName: 'SHAPE',
+        selectable: true,
+        selectionAdorned: false,
+        toolTip: go.GraphObject.build('ToolTip').add(
+          new go.TextBlock({ margin: 4, font: '10px Verdana, sans-serif' })
+            .bind('text', '', (d) => d.name.replace(/\n/g, ' ') + '\n' + d.lines.join(', '))
+        )
+      })
+        .bind('location', '', (d) => new go.Point(d.x, d.y))
+        .add(
+          spreadBar('spread', true),
+          spreadBar('spread2', true),
+          spreadCircle('spread'),
+          spreadCircle('spread2'),
+          new go.Shape('Circle', { name: 'SHAPE', portId: '', strokeWidth: 1.5, isPanelMain: true })
+            .bind('desiredSize', 'interchange', (i) => (i ? new go.Size(9, 9) : new go.Size(5.5, 5.5)))
+            .bind('fill', '', interiorColor)
+            .bind('stroke', '', outlineColor),
+          spreadBar('spread', false),
+          spreadBar('spread2', false),
+          new go.TextBlock({ font: 'bold 6px tahoma', stroke: '#1c1c1c' })
+            .bind('text', 'name')
+            .bind('alignment', 'lbl', (l) => LABEL_PROPS[l].alignment)
+            .bind('alignmentFocus', 'lbl', (l) => LABEL_PROPS[l].alignmentFocus)
+            .bind('textAlign', 'lbl', (l) => LABEL_PROPS[l].textAlign)
+        );
+
+    myDiagram.linkTemplate =
+      new TubeLink({
+        layerName: 'Background',
+        corner: 10,
+        // Selecting a link highlights the whole tube line; the emphasis in
+        // refreshEmphasis is the selection visual, so hide the default adornment
+        selectionAdorned: false,
+        cursor: 'pointer'
+      })
+        .bind('fromPortId', 'fromPort', (p) => p || '')
+        .bind('toPortId', 'toPort', (p) => p || '')
+        .add(
+          new go.Shape({ isPanelMain: true, strokeWidth: 8, stroke: 'transparent', strokeCap: 'round', name: 'HIGHLIGHT' }),
+          new go.Shape({ isPanelMain: true, strokeWidth: 3.5, strokeCap: 'round' })
+            .bind('stroke', 'line', (name) => lines[name].color)
+        );
+
+    let activeLines = [];
+    function refreshEmphasis() {
+      const dim = activeLines.length !== 0;
+      myDiagram.commit((d) => {
+        d.links.each((l) => {
+          const ind = activeLines.indexOf(l.data.line);
+          l.opacity = !dim || (ind >= 0) ? 1 : 0.15;
+          const hl = l.findObject('HIGHLIGHT');
+          if (hl) hl.stroke = (ind >= 0)  ? lines[activeLines[ind]].color + '55' : 'transparent';
+        });
+        d.nodes.each((n) => {
+          const on = n.data.lines && n.data.lines.some(element => activeLines.includes(element));
+          n.opacity = !dim || on ? 1 : 0.15;
+        });
+      }, null); // null skips the UndoManager
+    }
+    myDiagram.addDiagramListener('ChangedSelection', () => {
+      const it = myDiagram.selection.first();
+      activeLines = it instanceof go.Link ? [it.data.line] : it instanceof go.Node ? it.data.lines : [];
+      refreshEmphasis();
+    });
+    function toggleLine(name) {
+      if (activeLines.length === 1 || activeLines[0] !== name) {
+        const coll = new go.Set();
+        myDiagram.links.each((l) => { if (l.data.line === name) coll.add(l); });
+        myDiagram.selectCollection(coll);
+      } else {
+        myDiagram.clearSelection();
+        return;
+      }
+    }
+
+    myDiagram.add(makeRiver());
+    myDiagram.add(makeLegend(toggleLine));
+    const data = buildModel();
+    myDiagram.model = new go.GraphLinksModel(data.nodeDataArray, data.linkDataArray);
+  }
+
+  function assignSlots() {
+    for (const l of linkDataArray) {
+      l.dirFrom = TUBE.COMPASS[l.fromDir];
+      l.dirTo = TUBE.COMPASS[l.toDir];
+      l.slotFrom = 0;
+      l.slotTo = 0;
+    }
+    const groups = new Map(); // `${station}|${heading}` -> array of { link, end }
+    const addEnd = (station, heading, link, end) => {
+      const k = station + '|' + heading;
+      let arr = groups.get(k);
+      if (!arr) groups.set(k, (arr = []));
+      arr.push({ link, end });
+    };
+    for (const l of linkDataArray) {
+      if (l.fromPort || l.toPort) continue;
+      addEnd(l.from, l.dirFrom, l, 'from');
+      addEnd(l.to, l.dirTo, l, 'to');
+    }
+    for (const arr of groups.values()) {
+      const names = Array.from(new Set(arr.map((e) => e.link.line))).sort();
+      if (names.length < 2) continue;
+      const mid = (names.length - 1) / 2;
+      const slotOf = new Map(names.map((n, i) => [n, i - mid]));
+      for (const e of arr) {
+        const slot = slotOf.get(e.link.line);
+        if (e.end === 'from') e.link.slotFrom = slot;
+        else e.link.slotTo = slot;
+      }
+    }
+  }
+
+  function buildModel() {
+    const stationLines = {}; // station key -> Set of line names
+    const degree = {}; // station key -> Set of distinct neighbor keys
+    for (const l of linkDataArray) {
+      if (!stations[l.from]) throw new Error('Unknown station: ' + l.from);
+      if (!stations[l.to]) throw new Error('Unknown station: ' + l.to);
+      (stationLines[l.from] ??= new Set()).add(l.line);
+      (stationLines[l.to] ??= new Set()).add(l.line);
+      (degree[l.from] ??= new Set()).add(l.to);
+      (degree[l.to] ??= new Set()).add(l.from);
+    }
+    const nodeDataArray = [];
+    for (const [key, info] of Object.entries(stations)) {
+      const served = Array.from(stationLines[key] ?? []);
+      nodeDataArray.push({
+        key,
+        name: key.replace(/ \((Bakerloo|Circle|Central|H&C)\)$/, '').replace(/\|/g, '\n'),
+        x: info[0],
+        y: info[1],
+        lbl: info[2] || 'r',
+        spread: info[3] || null,
+        spread2: info[4] || null,
+        lines: served,
+        interchange: served.length > 1 || (degree[key]?.size ?? 0) > 2,
+        color: served.length === 1 ? lines[served[0]].color : '#000000'
+      });
+    }
+
+    assignSlots();
+    return { nodeDataArray, linkDataArray };
+  }
+
+  // the Thames, drawn as a single wide pale-blue stroke behind everything
+  function makeRiver() {
+    const fig = new go.PathFigure(riverPoints[0][0], riverPoints[0][1], false);
+    for (let i = 1; i < riverPoints.length; i++) {
+      fig.add(new go.PathSegment(go.SegmentType.Line, riverPoints[i][0], riverPoints[i][1]));
+    }
+    const geo = new go.Geometry().add(fig);
+    const shift = geo.normalize();
+    const sw = 17;
+    return new go.Part({
+      layerName: 'Background',
+      zOrder: -10,
+      pickable: false,
+      selectable: false,
+      location: new go.Point(-shift.x - sw / 2, -shift.y - sw / 2),
+      locationSpot: go.Spot.TopLeft
+    })
+      .add(
+        new go.Shape({
+          geometry: geo,
+          stroke: '#cce8f4',
+          strokeWidth: sw,
+          strokeJoin: 'round',
+          strokeCap: 'round',
+          fill: null
+        })
+      );
+  }
+
+  // the "Key to lines" box, with a row for each entry in the lines table
+  function makeLegend(toggleLine) {
+    const rows = new go.Panel('Vertical', { defaultAlignment: go.Spot.Left });
+    for (const [name, line] of Object.entries(lines)) {
+      rows.add(
+        new go.Panel('Horizontal', {
+          margin: new go.Margin(3, 0, 2, 0),
+          background: 'transparent',
+          cursor: 'pointer',
+          isActionable: true,
+          click: () => toggleLine(name)
+        })
+          .add(
+            new go.Shape('LineH', {
+              width: 35, height: 6, strokeWidth: 6, stroke: line.color,
+              margin: new go.Margin(0, 8, 0, 0)
+            }),
+            new go.TextBlock(name, { font: '14px verdana' })
+          )
+      );
+    }
+    return new go.Part('Auto', {
+      layerName: 'ViewportForeground',
+      alignment: new go.Spot(1, 0, -10, 10), // top-right of the viewport, inset 10px
+      alignmentFocus: go.Spot.TopRight,
+      selectable: false
+    })
+      .add(
+        new go.Shape('RoundedRectangle', { fill: 'white', stroke: '#9e9e9e', parameter1: 6 }),
+        new go.Panel('Vertical', { margin: 8, defaultAlignment: go.Spot.Left })
+          .add(
+            new go.TextBlock('Key to lines', { font: 'bold 16px verdana', margin: new go.Margin(0, 0, 4, 0) }),
+            rows
+          )
+      );
+  }
+
+  // Parse the embedded station/line/link/river data, then build the diagram.
+  function start() {
+    const data = JSON.parse(document.getElementById('tubeData').textContent);
+    stations = data.stations;
+    lines = data.lines;
+    linkDataArray = data.links;
+    riverPoints = data.river;
+    init();
+  }
+  window.addEventListener('DOMContentLoaded', start);
+  </script>
+</body>
+</html>

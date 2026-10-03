@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HTML Zoom Slider for Zooming</title>
+  <script src="../dist/open-gojs.umd.js"></script>
+  
+  <script src="https://cdn.jsdelivr.net/npm/gojs-extensions@latest/extensions/ZoomSlider.js"></script>
+  
+  <style>
+/* Styling for Zoom Slider extension */
+  .zoomSlider {
+    position: absolute;
+    padding: 0;
+    opacity: 0.75;
+    z-index: 99;
+    width: 125px;
+    height: 25px;
+    top: 0px;
+    left: 0px;
+  }
+
+  .zoomButton {
+    display: inline-block;
+    vertical-align: top;
+    text-align: center;
+    padding: 0;
+    margin: 0;
+    transition: opacity 0.2s;
+  }
+
+  .zoomRangeContainer {
+    display: inline-block;
+    vertical-align: top;
+    padding: 0;
+  }
+
+  .zoomRangeInput {
+    margin: 0;
+    padding: 0;
+    outline: none;
+    transition: opacity 0.2s;
+    background: transparent;
+    appearance: none;
+  }
+
+  /* Set up additional styling to ensure consistenty across browsers */
+  .zoomRangeInput::-webkit-slider-runnable-track {
+    box-sizing: border-box;
+    border: none;
+    width: 100%;
+    height: 3px;
+    background: #ccc;
+  }
+
+  .zoomRangeInput::-moz-range-track {
+    box-sizing: border-box;
+    border: none;
+    width: 100%;
+    height: 3px;
+    background: #ccc;
+  }
+
+  .zoomRangeInput::-ms-track {
+    box-sizing: border-box;
+    border: none;
+    width: 100%;
+    height: 3px;
+    background: #ccc;
+    color: transparent;
+  }
+
+  .zoomRangeInput::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    margin-top: -3.33px;
+    box-sizing: border-box;
+    border: none;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #444;
+  }
+
+  .zoomRangeInput::-moz-range-thumb {
+    box-sizing: border-box;
+    border: none;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #444;
+  }
+
+  .zoomRangeInput::-ms-thumb {
+    margin-top: 0;
+    box-sizing: border-box;
+    border: none;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #444;
+  }
+
+  .zoomRangeInput::-ms-tooltip,
+  .zoomRangeInput::-ms-fill-lower,
+  .zoomRangeInput::-ms-fill-upper {
+    display: none;
+  }
+  </style>
+</head>
+<body>
+<div id="myDiagramDiv" style="border: solid 1px black; width: 100%; height: 400px"></div>
+  <div id="description">
+<p>
+    This sample demonstrates the use of the ZoomSlider extension. When using the ZoomSlider extension, the diagram div must always be a direct child of a div
+    using <code>position: relative</code> or <code>position: absolute</code>, so that the ZoomSlider HTML DOM can be positioned correctly relative to the
+    Diagram div.
+  </p>
+  <p>This extension HTML is defined in its own file, as <a href="https://gojs.net/latest/extensions/ZoomSlider.js">ZoomSlider.js</a>, with the CSS at the top of this HTML page.</p>
+  </div>
+  <script >
+function init() {
+
+    myDiagram = new go.Diagram('myDiagramDiv', {
+      'undoManager.isEnabled': true // enable undo & redo
+    });
+
+    // define a simple Node template
+    myDiagram.nodeTemplate =
+      new go.Node('Auto') // the Shape will go around the TextBlock
+        .add(
+          new go.Shape('RoundedRectangle', { strokeWidth: 0, fill: 'white' })
+            // Shape.fill is bound to Node.data.color
+            .bind('fill', 'color'),
+          new go.TextBlock({ margin: 8 }) // some room around the text
+            // TextBlock.text is bound to Node.data.text
+            .bind('text')
+        );
+
+    // but use the default Link template, by not setting Diagram.linkTemplate
+
+    // create the model data that will be represented by Nodes and Links
+    myDiagram.model = new go.GraphLinksModel(
+      [
+        { key: 1, text: 'Alpha', color: 'lightblue' },
+        { key: 2, text: 'Beta', color: 'orange' },
+        { key: 3, text: 'Gamma', color: 'lightgreen' },
+        { key: 4, text: 'Delta', color: 'pink' }
+      ],
+      [
+        { from: 1, to: 2 },
+        { from: 1, to: 3 },
+        { from: 2, to: 2 },
+        { from: 3, to: 4 },
+        { from: 4, to: 1 }
+      ]
+    );
+
+    zoomSlider = new ZoomSlider(myDiagram);
+  }
+
+  window.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>

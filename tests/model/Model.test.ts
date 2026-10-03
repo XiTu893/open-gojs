@@ -30,7 +30,7 @@ describe('Model', () => {
     model.addNodeData(data);
     model.removeNodeData(data);
     expect(model.nodeDataArray.length).toBe(0);
-    expect(model.findNodeDataForKey(1)).toBeUndefined();
+    expect(model.findNodeDataForKey(1)).toBeNull();
   });
 
   it('should auto-generate unique keys', () => {

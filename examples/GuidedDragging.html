@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Guided Dragging Shows Guidelines During Dragging for Equal Spacing between Nodes or for Aligning Nodes to other Nodes</title>
+  <script src="../dist/open-gojs.umd.js"></script>
+  
+  <script src="https://cdn.jsdelivr.net/npm/gojs-extensions@latest/extensions/GuidedDraggingTool.js"></script>
+  
+  
+</head>
+<body>
+<!-- The DIV for the Diagram needs an explicit size or else we won't see anything.
+       Also add a border to help see the edges. -->
+  <div id="myDiagramDiv" style="border: solid 1px black; width: 100%; height: 600px"></div>
+  <div id="description">
+<p>
+    This custom <a href="https://gojs.net/latest/api/symbols/DraggingTool.html" target="api">DraggingTool</a> class makes guidelines visible as a Part is dragged around a Diagram and is nearly aligned with another Part. If a
+    locationObjectName is set, then this aligns <a href="https://gojs.net/latest/api/symbols/Part.html#locationobject" target="api">Part.locationObject</a>s instead. The tool is defined in its own file, as
+    <a href="https://gojs.net/latest/extensions/GuidedDraggingTool.js">GuidedDraggingTool.js</a>.
+  </p>
+  </div>
+  <script >
+function init() {
+
+    myDiagram = new go.Diagram('myDiagramDiv', {
+      draggingTool: new GuidedDraggingTool(), // defined in GuidedDraggingTool.js
+      'undoManager.isEnabled': true // enable undo & redo
+    });
+
+    myDiagram.nodeTemplate =
+      new go.Node('Auto')
+        // have various width and height nodes based on existing data properties
+        .bind('width', 'text', t => Math.max(50, t.length*12))
+        .bind('height', 'color', c => Math.max(30, c.length*8))
+        .add(
+          new go.Shape('RoundedRectangle', { strokeWidth: 0 })
+            .bind('fill', 'color'),
+          new go.TextBlock()
+            .bind('text')
+        );
+
+    myDiagram.model = new go.GraphLinksModel(
+      [
+        { text: 'Alpha', color: 'lightblue' },
+        { text: 'Beta', color: 'orange' },
+        { text: 'Gamma', color: 'lightgreen' },
+        { text: 'Delta', color: 'pink' },
+        { text: 'Epsilon', color: 'yellow' },
+        { text: 'Zeta', color: 'coral' },
+        { text: 'Eta', color: 'tomato' },
+        { text: 'Theta', color: 'goldenrod' },
+      ]
+    );
+  }
+
+  window.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>

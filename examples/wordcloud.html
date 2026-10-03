@@ -1,148 +1,31 @@
-﻿
 <!DOCTYPE html>
-<html lang="en">
-  <head>
-    
-      
-        <!-- You do not need this import map in your own code if you are installing gojs via a package manager -->
-        <script type="importmap">
-          {
-            "imports": {
-              "gojs": "../release/go-module.js"
-            }
-          }
-        </script>
-      
-    
-    <meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover"/>
-
-<meta name="description" content="Given a collection of words and their frequencies or importance, generate a diagram of those words scale by their frequency or importance and then packed together." />
-<meta itemprop="description" content="Given a collection of words and their frequencies or importance, generate a diagram of those words scale by their frequency or importance and then packed together." />
-<meta property="og:description" content="Given a collection of words and their frequencies or importance, generate a diagram of those words scale by their frequency or importance and then packed together." />
-<meta name="twitter:description" content="Given a collection of words and their frequencies or importance, generate a diagram of those words scale by their frequency or importance and then packed together." />
-
-
-<link rel="preconnect" href="https://rsms.me/">
-
-<!-- Copyright 1998-2026 by Northwoods Software Corporation. -->
-
-
-<meta itemprop="name" content="Word Cloud using PackedLayout" />
-<meta property="og:title" content="Word Cloud using PackedLayout" />
-<meta name="twitter:title" content="Word Cloud using PackedLayout" />
-
-
-<meta property="og:image" content="https://gojs.net/latest/assets/images/screenshots/wordcloud.png" />
-<meta itemprop="image" content="https://gojs.net/latest/assets/images/screenshots/wordcloud.png" />
-<meta name="twitter:image" content="https://gojs.net/latest/assets/images/screenshots/wordcloud.png" />
-
-<meta property="og:url" content="https://gojs.net/latest/samples/wordcloud.html" />
-<meta property="twitter:url" content="https://gojs.net/latest/samples/wordcloud.html" />
-
-<meta name="twitter:card" content="summary_large_image" />
-<meta property="og:type" content="website" />
-<meta property="twitter:domain" content="gojs.net" />
-
-    <title>
-      Word Cloud using PackedLayout | GoJS Diagramming Library
-    </title>
-  </head>
-
-  <body>
-    <!-- This top nav is not part of the sample code -->
-    <nav id="navTop" class=" w-full h-[var(--topnav-h)] z-30 bg-white border-b border-b-gray-200">
-  <div class="max-w-screen-xl mx-auto flex flex-wrap items-start justify-between px-4">
-    <a class="text-white bg-nwoods-primary font-bold !leading-[calc(var(--topnav-h)_-_1px)] my-0 px-2 text-4xl lg:text-5xl logo"
-       href="../">
-      GoJS
-    </a>
-    <div class="relative">
-      <button id="topnavButton" class="h-[calc(var(--topnav-h)_-_1px)] px-2 m-0 text-gray-900 bg-inherit shadow-none md:hidden hover:!bg-inherit hover:!text-nwoods-accent hover:!shadow-none" aria-label="Navigation">
-        <svg class="h-7 w-7 block" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </button>
-      <div id="topnavList" class="hidden md:block">
-        <div class="absolute right-0 z-30 flex flex-col items-end rounded border border-gray-200 p-4 pl-12 shadow bg-white text-gray-900 font-semibold
-                    md:flex-row md:space-x-4 md:items-start md:border-0 md:p-0 md:shadow-none md:bg-inherit">
-          <a href="../learn/">Learn</a>
-          <a href="../samples/">Samples</a>
-          <a href="../intro/">Intro</a>
-          <a href="../api/">API</a>
-          <a href="../download.html">Download</a>
-          <a href="https://forum.nwoods.com/c/gojs/11" target="_blank" rel="noopener">Forum</a>
-          <a id="tc" href="https://nwoods.com/contact.html"
-            target="_blank" rel="noopener" onclick="getOutboundLink('https://nwoods.com/contact.html', 'contact');">Contact</a>
-          <a id="tb" href="https://nwoods.com/sales/index.html"
-            target="_blank" rel="noopener" onclick="getOutboundLink('https://nwoods.com/sales/index.html', 'buy');">Buy</a>
-        </div>
-      </div>
-    </div>
-  </div>
-</nav>
-<script>
-  window.addEventListener("DOMContentLoaded", function () {
-    // topnav
-    var topButton = document.getElementById("topnavButton");
-    var topnavList = document.getElementById("topnavList");
-    if (topButton && topnavList) {
-      topButton.addEventListener("click", function (e) {
-        topnavList
-          .classList
-          .toggle("hidden");
-        e.stopPropagation();
-      });
-      document.addEventListener("click", function (e) {
-        // if the clicked element isn't the list, close the list
-        if (!topnavList.classList.contains("hidden") && !e.target.closest("#topnavList")) {
-          topButton.click();
-        }
-      });
-
-      // set active <a> element
-      var url = window
-        .location
-        .href
-        .toLowerCase();
-      var aTags = topnavList.getElementsByTagName('a');
-      for (var i = 0; i < aTags.length; i++) {
-        var lowerhref = aTags[i]
-          .href
-          .toLowerCase();
-        if (lowerhref.endsWith('.html')) 
-          lowerhref = lowerhref.slice(0, -5);
-        if (url.startsWith(lowerhref)) {
-          aTags[i]
-            .classList
-            .add('active');
-          break;
-        }
-      }
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Word Cloud using PackedLayout</title>
+  
+  <script type="importmap">
+  {
+    "imports": {
+      "gojs": "../dist/open-gojs.esm.js",
+      "../release/go.mjs": "../dist/open-gojs.esm.js",
+      "../extensionsJSM/": "https://cdn.jsdelivr.net/npm/gojs-extensions@latest/extensionsJSM/"
     }
-  });
+  }
 </script>
-    <div class="flex flex-col prose">
-      <div class="w-full max-w-screen-xl mx-auto">
-        <!-- * * * * * * * * * * * * * -->
-        <!-- Start of GoJS sample code -->
-        
-
-        
-
-        <div id="allSampleContent" class="p-4 w-full">
-          
-            
-            
-<style>
-  input[type='checkbox'] {
+  
+  
+  <style>
+input[type='checkbox'] {
     vertical-align: middle;
     position: relative;
     bottom: 2px;
   }
-</style>
-<div id="sample">
-  <!-- The DIV for the Diagram needs an explicit size or else we won't see anything.
+  </style>
+</head>
+<body>
+<!-- The DIV for the Diagram needs an explicit size or else we won't see anything.
         This also adds a border to help see the edges of the viewport. -->
   <div id="myDiagramDiv" style="border: solid 1px black; width: 100%; height: 500px"></div>
   <textarea style="margin-top: 12px; max-width: 100%" rows="6" cols="75" id="textInput">
@@ -165,8 +48,8 @@ Get started with a step-by-step description of how to build a JavaScript diagram
 Download
 Get a copy of the library and all of the samples, extensions, and documentation. Search the JavaScript code and modify the samples to start your app.
 
-Technical Introduction
-Read our introduction for a overview of GoJS concepts and features, including hundreds of live interactive examples embedded right in each page.
+Learn pages
+Read our learn pages for a overview of GoJS concepts and features, including hundreds of live interactive examples embedded right in each page.
 
 Unlimited Evaluation
 Evaluate the full library without any limitations. Register with us and get free support for a month to help build your app.
@@ -183,17 +66,16 @@ You can explore the newest features and samples in the GoJS Beta for the next ve
   <br />Randomize word positions <input type="checkbox" id="randomizePositions"" checked/>
 
   <br /><button id="generateButton" style="margin-bottom: 12px; margin-top: 6px">Generate wordcloud</button>
-
-  <p>
+  <div id="description">
+<p>
     This sample demonstrates a simple way to create a wordcloud visualization using the PackedLayout extension. The most frequent words in the text are shown
-    larger, and common english words such as 'the' or 'of' are skipped. This example shows the text from the <a href="../index.html">GoJS home page</a>, but you
+    larger, and common english words such as 'the' or 'of' are skipped. This example shows the text from the <a href="https://gojs.net/latest/index.html">GoJS home page</a>, but you
     can easily create your own by copying text into the box above.
   </p>
-</div>
-
-<script type="module" id="code">
-  import * as go from 'gojs';
-  import { PackedLayout } from 'https://cdn.jsdelivr.net/npm/create-gojs-kit/dist/extensionsJSM/PackedLayout.js';
+  </div>
+  <script type="module">
+import go from 'gojs';
+  import { PackedLayout } from '../extensionsJSM/PackedLayout.js';
 
   //"SLSO8" palette by Luis Miguel Maldonado on lospec.com
   const colors = [
@@ -490,74 +372,6 @@ You can explore the newest features and samples in the GoJS Beta for the next ve
 
   document.getElementById('randomizePositions').addEventListener('click', rebuildGraph);
   document.getElementById('generateButton').addEventListener('click', rebuildGraph);
-</script>
-<script>
-  if (window.location.protocol === 'file:') alert('For security reasons this page must be served from a web server.');
-</script>
-
-          
-        </div>
-        <!-- * * * * * * * * * * * * * -->
-        <!--  End of GoJS sample code  -->
-      </div>
-
-      <div id="allTagDescriptions" class="p-4 w-full max-w-screen-xl mx-auto">
-        <hr/>
-        <h3 class="text-xl">GoJS Features in this sample</h3>
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Links</h4>
-<p>
-The <a href="../api/symbols/Link.html" target="api">Link</a> class is used to implement a visual relationship between nodes.
-Links are normally created by the presence of link data objects in the <a href="../api/symbols/GraphLinksModel.html#linkDataArray" target="api">GraphLinksModel.linkDataArray</a>
-or by a parent key reference as the value of the <a href="../api/symbols/TreeModel.html#nodeParentKeyProperty" target="api">TreeModel.nodeParentKeyProperty</a> of a node data object
-in a <a href="../api/symbols/TreeModel.html" target="api">TreeModel</a>.
-More information can be found in the <a href="../intro/links.html">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#links">Related samples</a>
-            </p>
-            <hr>
-          
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Tree Layout</h4>
-<p>
-This predefined layout is used for placing Nodes of a tree-structured graph in layers (rows or columns).
-For discussion and examples of the most commonly used properties of the <a href="../api/symbols/TreeLayout.html">TreeLayout</a>,
-see the <a href="../intro/trees.html">Trees</a> page in the Introduction.
-More information can be found in the <a href="../intro/layouts.html#TreeLayout">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#treelayout">Related samples</a>
-            </p>
-            <hr>
-          
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Geometry Path Strings</h4>
-<p>
-The <b>GoJS</b> <a href="../api/symbols/Geometry.html" target="api">Geometry</a> class controls the "shape" of a <a href="../api/symbols/Shape.html" target="api">Shape</a>,
-whereas the <a href="../api/symbols/Shape.html#fill" target="api">Shape.fill</a> and <a href="../api/symbols/Shape.html#stroke" target="api">Shape.stroke</a> and other shape properties control the colors and appearance of the shape.
-For common shape figures, there are predefined geometries that can be used by setting <a href="../api/symbols/Shape.html#figure" target="api">Shape.figure</a>.
-However one can also define custom geometries.
-</p>
-<p>
-One can construct any Geometry by allocating and initializing a <a href="../api/symbols/Geometry.html" target="api">Geometry</a> of at least one <a href="../api/symbols/PathFigure.html" target="api">PathFigure</a> holding some <a href="../api/symbols/PathSegment.html" target="api">PathSegment</a>s.
-But you may find that using the string representation of a Geometry is easier to write and save in a database.
-Use the static method <a href="../api/symbols/Geometry.html#parse" target="api">Geometry.parse</a> or the <a href="../api/symbols/Shape.html#geometryString" target="api">Shape.geometryString</a> property to transform a geometry path string into a <a href="../api/symbols/Geometry.html" target="api">Geometry</a> object.
-</p>
-<p>
-More information can be found in the <a href="../intro/geometry.html">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#geometries">Related samples</a>
-            </p>
-            <hr>
-          
-        </div>
-    </div>
-  </body>
-  <!--  This script is part of the gojs.net website, and is not needed to run the sample -->
-  
+  </script>
+</body>
 </html>

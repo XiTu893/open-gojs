@@ -1,139 +1,149 @@
-﻿
 <!DOCTYPE html>
-<html lang="en">
-  <head>
-    
-    <meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover"/>
-
-<meta name="description" content="Oil and gas production diagram editor, for designers." />
-<meta itemprop="description" content="Oil and gas production diagram editor, for designers." />
-<meta property="og:description" content="Oil and gas production diagram editor, for designers." />
-<meta name="twitter:description" content="Oil and gas production diagram editor, for designers." />
-
-
-<link rel="preconnect" href="https://rsms.me/">
-
-<!-- Copyright 1998-2026 by Northwoods Software Corporation. -->
-
-
-<meta itemprop="name" content="Production Process Diagram Editor" />
-<meta property="og:title" content="Production Process Diagram Editor" />
-<meta name="twitter:title" content="Production Process Diagram Editor" />
-
-
-<meta property="og:image" content="https://gojs.net/latest/assets/images/screenshots/productioneditor.png" />
-<meta itemprop="image" content="https://gojs.net/latest/assets/images/screenshots/productioneditor.png" />
-<meta name="twitter:image" content="https://gojs.net/latest/assets/images/screenshots/productioneditor.png" />
-
-<meta property="og:url" content="https://gojs.net/latest/samples/productionEditor.html" />
-<meta property="twitter:url" content="https://gojs.net/latest/samples/productionEditor.html" />
-
-<meta name="twitter:card" content="summary_large_image" />
-<meta property="og:type" content="website" />
-<meta property="twitter:domain" content="gojs.net" />
-
-    <title>
-      Production Process Diagram Editor | GoJS Diagramming Library
-    </title>
-  </head>
-
-  <body>
-    <!-- This top nav is not part of the sample code -->
-    <nav id="navTop" class=" w-full h-[var(--topnav-h)] z-30 bg-white border-b border-b-gray-200">
-  <div class="max-w-screen-xl mx-auto flex flex-wrap items-start justify-between px-4">
-    <a class="text-white bg-nwoods-primary font-bold !leading-[calc(var(--topnav-h)_-_1px)] my-0 px-2 text-4xl lg:text-5xl logo"
-       href="../">
-      GoJS
-    </a>
-    <div class="relative">
-      <button id="topnavButton" class="h-[calc(var(--topnav-h)_-_1px)] px-2 m-0 text-gray-900 bg-inherit shadow-none md:hidden hover:!bg-inherit hover:!text-nwoods-accent hover:!shadow-none" aria-label="Navigation">
-        <svg class="h-7 w-7 block" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </button>
-      <div id="topnavList" class="hidden md:block">
-        <div class="absolute right-0 z-30 flex flex-col items-end rounded border border-gray-200 p-4 pl-12 shadow bg-white text-gray-900 font-semibold
-                    md:flex-row md:space-x-4 md:items-start md:border-0 md:p-0 md:shadow-none md:bg-inherit">
-          <a href="../learn/">Learn</a>
-          <a href="../samples/">Samples</a>
-          <a href="../intro/">Intro</a>
-          <a href="../api/">API</a>
-          <a href="../download.html">Download</a>
-          <a href="https://forum.nwoods.com/c/gojs/11" target="_blank" rel="noopener">Forum</a>
-          <a id="tc" href="https://nwoods.com/contact.html"
-            target="_blank" rel="noopener" onclick="getOutboundLink('https://nwoods.com/contact.html', 'contact');">Contact</a>
-          <a id="tb" href="https://nwoods.com/sales/index.html"
-            target="_blank" rel="noopener" onclick="getOutboundLink('https://nwoods.com/sales/index.html', 'buy');">Buy</a>
-        </div>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Production Process Diagram Editor</title>
+  <script src="../dist/open-gojs.umd.js"></script>
+  
+  <script src="https://cdn.jsdelivr.net/npm/gojs-extensions@latest/extensions/DataInspector.js"></script>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Lato:400,700">
+  <style>
+.editor-layout {
+    display: flex;
+    flex-wrap: wrap;
+    container-type: inline-size;
+    --palette-height: 100px;
+    --diagram-height: 550px;
+  }
+  .editor-main {
+    flex-grow: 1;
+    min-width: 400px;
+  }
+  #myPaletteDiv,
+  #myDiagramDiv {
+    box-sizing: border-box;
+  }
+  #myPaletteDiv {
+    height: var(--palette-height);
+  }
+  #myDiagramDiv {
+    height: var(--diagram-height);
+  }
+  .editor-side {
+    width: 256px;
+    max-height: calc(var(--palette-height) + var(--diagram-height));
+    display: flex;
+    flex-direction: column;
+  }
+  #infobox {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+  }
+  @container (width < 656px) {
+    .editor-side {
+      width: 100%;
+      margin-top: 10px;
+      max-height: none;
+    }
+  }
+  #myInspector {
+    box-sizing: border-box;
+    flex: 0 0 auto;
+  }
+  #myInspector table {
+    width: 100%;
+    table-layout: fixed;
+  }
+  #myInspector input,
+  #myInspector select {
+    width: 100%;
+    box-sizing: border-box;
+  }
+  </style>
+</head>
+<body>
+<div class="editor-layout">
+    <div class="editor-main">
+      <div
+        id="myPaletteDiv"
+        style="border: solid 1px black; width: 100%; background: whitesmoke"></div>
+      <div
+        id="myDiagramDiv"
+        style="border: solid 1px black; width: 100%; vertical-align: top"></div>
+    </div>
+    <div class="editor-side">
+      <div id="infobox" 
+        style="background: hsl(var(--popover, 60 4.8% 95.9%)); color: hsl(var(--popover-foreground, 20 14.3% 4.1%)); 
+              border: solid 1px hsl(var(--border, 0 0% 83%)); padding: 20px;"
+      >
+        <img id="Image" width="216" alt="" src="" />
+        <h3 id="Title"></h3>
+        <p id="Description">Select a node to see more information.</p>
       </div>
+      <div id="myInspector" 
+        style="background: hsl(var(--popover, 60 4.8% 95.9%)); color: hsl(var(--popover-foreground, 20 14.3% 4.1%)); 
+              border: solid 1px hsl(var(--border, 0 0% 83%)); padding: .5em; margin-top: 10px; display: none;"
+      ></div>
     </div>
   </div>
-</nav>
-<script>
-  window.addEventListener("DOMContentLoaded", function () {
-    // topnav
-    var topButton = document.getElementById("topnavButton");
-    var topnavList = document.getElementById("topnavList");
-    if (topButton && topnavList) {
-      topButton.addEventListener("click", function (e) {
-        topnavList
-          .classList
-          .toggle("hidden");
-        e.stopPropagation();
-      });
-      document.addEventListener("click", function (e) {
-        // if the clicked element isn't the list, close the list
-        if (!topnavList.classList.contains("hidden") && !e.target.closest("#topnavList")) {
-          topButton.click();
-        }
-      });
-
-      // set active <a> element
-      var url = window
-        .location
-        .href
-        .toLowerCase();
-      var aTags = topnavList.getElementsByTagName('a');
-      for (var i = 0; i < aTags.length; i++) {
-        var lowerhref = aTags[i]
-          .href
-          .toLowerCase();
-        if (lowerhref.endsWith('.html')) 
-          lowerhref = lowerhref.slice(0, -5);
-        if (url.startsWith(lowerhref)) {
-          aTags[i]
-            .classList
-            .add('active');
-          break;
-        }
-      }
-    }
-  });
-</script>
-    <div class="flex flex-col prose">
-      <div class="w-full max-w-screen-xl mx-auto">
-        <!-- * * * * * * * * * * * * * -->
-        <!-- Start of GoJS sample code -->
-        <script src="../dist/open-gojs.umd.js"></script>
-
-        
-          <link rel="stylesheet" href="../assets/css/prism.css"/>
-          <script src="../assets/js/prism.js"></script>
-        
-
-        <div id="allSampleContent" class="p-4 w-full">
-          
-            
-            
-
-<link
-  href="https://fonts.googleapis.com/css?family=Lato:400,700"
-  rel="stylesheet"
-  type="text/css" />
-
-<script id="code">
-  function init() {
+  <div>
+    <div style="margin-block: .5em;">
+      <button id="SaveButton" onclick="save()">Save</button>
+      <button onclick="load()">Load</button>
+      Diagram Model saved in JSON format:
+    </div>
+    <textarea id="mySavedModel" style="width: 100%; height: 400px">
+{ "class": "GraphLinksModel",
+  "pointsDigits": 0,
+  "nodeDataArray": [
+{"key":1, "pos":"-170 -48", "icon":"natgas", "color":"blue", "text":"Gas\nCompanies", "description":"Provides natural gas liquids (NGLs).", "caption":"Gas Drilling Well", "imgsrc":"https://commons.wikimedia.org/wiki/Special:FilePath/BarnettShaleDrilling-9323.jpg?width=256"},
+{"key":2, "pos":"-170 96", "icon":"oil", "color":"blue", "text":"Oil\nCompanies", "description":"Provides associated petroleum gas (APG). This type of gas used to be released as waste from oil drilling, but is now commonly captured for processing.", "caption":"Offshore oil well", "imgsrc":"https://commons.wikimedia.org/wiki/Special:FilePath/Oil_platform_P-51_%28Brazil%29.jpg?width=512"},
+{"key":3, "pos":"-70 90", "icon":"gasprocessing", "color":"blue", "text":"Gas Processing", "description":"APG processing turns associated petroleum gas into natural gas liquids (NGLs) and stable natural gas (SGN).", "caption":"Natural gas plant", "imgsrc":"https://commons.wikimedia.org/wiki/Special:FilePath/Solohiv_natural_gas_plant_-_fragment.jpg?width=256"},
+{"key":4, "pos":"40 -50", "icon":"fractionation", "color":"blue", "text":"Gas Fractionation", "description":"Natural gas liquids are separated into individual hydrocarbons like propane and butanes, hydrocarbon mixtures (naphtha) and liquefied petroleum gases (LPGs).", "caption":"Gas Plant", "imgsrc":"https://commons.wikimedia.org/wiki/Special:FilePath/Gasblok.jpg?width=256"},
+{"key":5, "pos":"140 -50", "icon":"pyrolysis", "color":"orange", "text":"Pyrolysis (Cracking)", "description":"Liquefied petroleum gases (LPGs) are transformed into Ethylene, propylene, benzene, and other by-products.", "caption":"Pyrolysis plant", "imgsrc":"https://upload.wikimedia.org/wikipedia/commons/6/6c/Guelph.jpg"},
+{"key":6, "pos":"340 -130", "icon":"polymerization", "color":"red", "text":"Basic Polymers", "description":"Ethylene and propylene (monomers) are processed into end products using various methods (polymerization).", "caption":"Plastics engineering-Polymer products", "imgsrc":"https://commons.wikimedia.org/wiki/Special:FilePath/Plastics_engineering-Polymer_products.jpg?width=256"},
+{"key":7, "pos":"340 -40", "icon":"polymerization", "color":"green", "text":"Plastics", "description":"Polymerization produces PET, glycols, alcohols, expandable polystyrene, acrylates, BOPP-films and geosynthetics.", "caption":"Lego Color Bricks", "imgsrc":"https://commons.wikimedia.org/wiki/Special:FilePath/Lego_Color_Bricks.jpg?width=256"},
+{"key":8, "pos":"340 50", "icon":"polymerization", "color":"lightgreen", "text":"Synthetic Rubbers", "description":"Polymerization produces commodity and specialty rubbers and thermoplastic elastomers.", "caption":"Sheet of synthetic rubber coming off the rolling mill at the plant of Goodrich", "imgsrc":"https://commons.wikimedia.org/wiki/Special:FilePath/Sheet_of_synthetic_rubber_coming_off_the_rolling_mill_at_the_plant_of_Goodrich.jpg?width=512"},
+{"key":9, "pos":"340 120", "color":"orange", "text":"Intermediates", "description":"Produced Ethylene, Propylene, Butenes, Benzene, and other by-products.", "caption":"Propylene Containers", "imgsrc":"https://commons.wikimedia.org/wiki/Special:FilePath/XVJ-12_Propylene_%288662385917%29.jpg?width=256"},
+{"key":10, "pos":"340 210", "icon":"finishedgas", "color":"blue", "text":"LPG, Naphtha,\nMTBE", "description":"Propane, butane, and other general purpose fuels and byproducts.", "caption":"Liquid Petroleum Gas Truck", "imgsrc":"https://commons.wikimedia.org/wiki/Special:FilePath/LPG_Truck.jpg?width=256"},
+{"key":11, "pos":"340 300", "icon":"finishedgas", "color":"blue", "text":"Natural Gas, NGLs", "description":"Used for heating, cooking, and electricity generation", "caption":"Natural Gas Flame", "imgsrc":"https://commons.wikimedia.org/wiki/Special:FilePath/%22LPG_flame%22.JPG?width=512"}
+ ],
+  "linkDataArray": [
+{"from":1, "to":4, "points":[-150,-41,-140,-41,-69,-41,-69,-41.33333333333333,2,-41.33333333333333,20,-41.33333333333333]},
+{"from":2, "to":3, "points":[-150,103,-140,103,-120,103,-120,103,-100,103,-90,103]},
+{"from":3, "to":4, "points":[-50,98.66666666666667,-40,98.66666666666667,-15,98.66666666666667,-15,-32.666666666666664,10,-32.666666666666664,20,-32.666666666666664]},
+{"from":3, "to":5, "toSpot":"BottomSide", "points":[-50,107.33333333333333,-32,107.33333333333333,140,107.33333333333333,140,46.666666666666664,140,-14,140,-24]},
+{"from":4, "to":5, "points":[60,-37,70,-37,90,-37,90,-37,110,-37,120,-37]},
+{"from":3, "to":11, "fromSpot":"BottomSide", "points":[-70,116,-70,126,-70,307,120,307,310,307,320,307]},
+{"from":4, "to":10, "fromSpot":"BottomSide", "points":[40,-12,40,-2,40,217,175,217,310,217,320,217]},
+{"from":5, "to":6, "fromSpot":"Right", "points":[160,-37,170,-37,240,-37,240,-123,310,-123,320,-123]},
+{"from":5, "to":7, "fromSpot":"Right", "points":[160,-37,170,-37,240,-37,240,-33,310,-33,320,-33]},
+{"from":5, "to":8, "fromSpot":"Right", "points":[160,-37,170,-37,240,-37,240,57,310,57,320,57]},
+{"from":5, "to":9, "fromSpot":"Right", "points":[160,-37,170,-37,240,-37,240,127,310,127,320,127]}
+ ]}
+    </textarea>
+  </div>
+  <div id="description">
+<p>
+    This process flow editor lets the user design diagrams to be shown by
+    <a href="productionProcess.html">Production Process</a>.
+  </p>
+  <p>
+    At the top is a <a href="https://gojs.net/latest/api/symbols/Palette.html" target="api">Palette</a>, from which the designer can drag-and-drop nodes down into the
+    main <a href="https://gojs.net/latest/api/symbols/Diagram.html" target="api">Diagram</a>. When the end-user selects a Node, more information is shown in the gray
+    area below the diagram. For the designer, the <a href="https://gojs.net/latest/api/symbols/Inspector.html" target="api">Inspector</a> also shows details about a
+    selected Node or Link below the diagram, where the designer may modify some of the properties.
+  </p>
+  <p>
+    Each <a href="https://gojs.net/latest/api/symbols/Node.html" target="api">Node</a> consists of an SVG <a href="https://gojs.net/latest/api/symbols/Shape.html" target="api">Shape</a> at the top and a rectangular port at the
+    bottom. The designer can draw new pipes (<a href="https://gojs.net/latest/api/symbols/Link.html" target="api">Link</a>s) by dragging from a port to a different
+    node's port.
+  </p>
+  </div>
+  <script >
+function init() {
     // Abstract colors
     const Colors = {
       red: '#be4b15',
@@ -237,13 +247,19 @@
       'draggingTool.gridSnapCellSize': new go.Size(10, 1),
       'draggingTool.isGridSnapEnabled': true,
       'undoManager.isEnabled': true,
-      ModelChanged: e => {
-        // just for demonstration purposes,
-        if (e.isTransactionFinished) {
-          // show the model data in the page's TextArea
-          document.getElementById('mySavedModel').textContent = e.model.toJson();
-          if (window.Prism) window.Prism.highlightAll();
-        }
+      'grid.visible': true,
+      'grid.gridCellSize': new go.Size(20, 20)
+    });
+
+    // when the document is modified, add a "*" to the title and enable the "Save" button
+    myDiagram.addDiagramListener('Modified', e => {
+      const button = document.getElementById('SaveButton');
+      if (button) button.disabled = !myDiagram.isModified;
+      const idx = document.title.indexOf('*');
+      if (myDiagram.isModified) {
+        if (idx < 0) document.title += '*';
+      } else {
+        if (idx >= 0) document.title = document.title.slice(0, idx);
       }
     });
 
@@ -357,7 +373,8 @@
       'BottomSide'
     ];
 
-    myDiagram.model = go.Model.fromJson(document.getElementById('mySavedModel').textContent);
+    // read in the JSON-format data from the "mySavedModel" element
+    load();
 
     // show a collection of node types that the designer may drag into the main diagram
     myPalette = new go.Palette('myPaletteDiv', {
@@ -399,6 +416,15 @@
     });
   }
 
+  // Show the diagram's model in JSON format
+  function save() {
+    document.getElementById('mySavedModel').value = myDiagram.model.toJson();
+    myDiagram.isModified = false;
+  }
+  function load() {
+    myDiagram.model = go.Model.fromJson(document.getElementById('mySavedModel').value);
+  }
+
   function onSelectionChanged() {
     var node = myDiagram.selection.first();
     if (!(node instanceof go.Node)) return;
@@ -406,6 +432,7 @@
     var image = document.getElementById('Image');
     var title = document.getElementById('Title');
     var description = document.getElementById('Description');
+    var inspector = document.getElementById('myInspector');
 
     if (data.imgsrc) {
       image.src = data.imgsrc;
@@ -416,178 +443,12 @@
     }
     title.textContent = data.text;
     description.textContent = data.description;
+
+    // Show the inspector after the first selection is made
+    if (inspector.style.display == "none") inspector.style.display = "";
   }
 
   window.addEventListener('DOMContentLoaded', init);
-</script>
-
-<div id="sample">
-  <div style="width: 100%">
-    <div style="width: 70%; display: inline-block">
-      <div
-        id="myPaletteDiv"
-        style="border: solid 1px black; width: 100%; height: 100px; background: whitesmoke"></div>
-      <div
-        id="myDiagramDiv"
-        style="border: solid 1px black; width: 100%; height: 550px; vertical-align: top"></div>
-    </div>
-    <div style="display: inline-block; vertical-align: top; width: 256px">
-      <div id="infobox" style="background: #757575; color: #fff; padding: 20px">
-        <img id="Image" width="216" alt="" src="" />
-        <h3 id="Title"></h3>
-        <p id="Description">Select a node to see more information.</p>
-      </div>
-      <div id="myInspector"></div>
-    </div>
-  </div>
-  <div>
-    <p>
-      This process flow editor lets the user design diagrams to be shown by
-      <a href="productionProcess.html">Production Process</a>.
-    </p>
-    <p>
-      At the top is a <a>Palette</a>, from which the designer can drag-and-drop nodes down into the
-      main <a>Diagram</a>. When the end-user selects a Node, more information is shown in the gray
-      area below the diagram. For the designer, the <a>Inspector</a> also shows details about a
-      selected Node or Link below the diagram, where the designer may modify some of the properties.
-    </p>
-    <p>
-      Each <a>Node</a> consists of an SVG <a>Shape</a> at the top and a rectangular port at the
-      bottom. The designer can draw new pipes (<a>Link</a>s) by dragging from a port to a different
-      node's port.
-    </p>
-    <p>Below is the JSON data for the model:</p>
-    <pre class="lang-js" style="max-height: 400px"><code id="mySavedModel">
-{ "class": "GraphLinksModel",
-  "pointsDigits": 0,
-  "nodeDataArray": [
-{"key":1, "pos":"-170 -48", "icon":"natgas", "color":"blue", "text":"Gas\nCompanies", "description":"Provides natural gas liquids (NGLs).", "caption":"Gas Drilling Well", "imgsrc":"https://upload.wikimedia.org/wikipedia/commons/thumb/5/5d/BarnettShaleDrilling-9323.jpg/256px-BarnettShaleDrilling-9323.jpg"},
-{"key":2, "pos":"-170 96", "icon":"oil", "color":"blue", "text":"Oil\nCompanies", "description":"Provides associated petroleum gas (APG). This type of gas used to be released as waste from oil drilling, but is now commonly captured for processing.", "caption":"Offshore oil well", "imgsrc":"https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Oil_platform_P-51_%28Brazil%29.jpg/512px-Oil_platform_P-51_%28Brazil%29.jpg"},
-{"key":3, "pos":"-70 90", "icon":"gasprocessing", "color":"blue", "text":"Gas Processing", "description":"APG processing turns associated petrolium gas into natural gas liquids (NGLs) and stable natural gas (SGN).", "caption":"Natural gas plant", "imgsrc":"https://upload.wikimedia.org/wikipedia/commons/thumb/6/68/Solohiv_natural_gas_plant_-_fragment.jpg/256px-Solohiv_natural_gas_plant_-_fragment.jpg"},
-{"key":4, "pos":"40 -50", "icon":"fractionation", "color":"blue", "text":"Gas Fractionation", "description":"Natural gas liquids are separated into individual hydrocarbons like propane and butanes, hydrocarbon mixtures (naphtha) and liquefied petroleum gases (LPGs).", "caption":"Gas Plant", "imgsrc":"https://upload.wikimedia.org/wikipedia/commons/thumb/2/20/Gasblok.jpg/256px-Gasblok.jpg"},
-{"key":5, "pos":"140 -50", "icon":"pyrolysis", "color":"orange", "text":"Pyrolysis (Cracking)", "description":"Liquefied petroleum gases (LPGs) are transformed into Ethylene, propylene, benzene, and other by-products.", "caption":"Pyrolysis plant", "imgsrc":"https://upload.wikimedia.org/wikipedia/commons/6/6c/Guelph.jpg"},
-{"key":6, "pos":"340 -130", "icon":"polymerization", "color":"red", "text":"Basic Polymers", "description":"Ethylene and propylene (monomers) are processed into end products using various methods (polymerization).", "caption":"Plastics engineering-Polymer products", "imgsrc":"https://upload.wikimedia.org/wikipedia/commons/thumb/4/4c/Plastics_engineering-Polymer_products.jpg/256px-Plastics_engineering-Polymer_products.jpg"},
-{"key":7, "pos":"340 -40", "icon":"polymerization", "color":"green", "text":"Plastics", "description":"Polymerization produces PET, glycols, alcohols, expandable polystyrene, acrylates, BOPP-films and geosynthetics.", "caption":"Lego Color Bricks", "imgsrc":"https://upload.wikimedia.org/wikipedia/commons/thumb/3/32/Lego_Color_Bricks.jpg/256px-Lego_Color_Bricks.jpg"},
-{"key":8, "pos":"340 50", "icon":"polymerization", "color":"lightgreen", "text":"Synthetic Rubbers", "description":"Polymerization produces commodity and specialty rubbers and thermoplastic elastomers.", "caption":"Sheet of synthetic rubber coming off the rolling mill at the plant of Goodrich", "imgsrc":"https://upload.wikimedia.org/wikipedia/commons/thumb/2/23/Sheet_of_synthetic_rubber_coming_off_the_rolling_mill_at_the_plant_of_Goodrich.jpg/512px-Sheet_of_synthetic_rubber_coming_off_the_rolling_mill_at_the_plant_of_Goodrich.jpg"},
-{"key":9, "pos":"340 120", "color":"orange", "text":"Intermediates", "description":"Produced Ethylene, Propylene, Butenes, Benzene, and other by-products.", "caption":"Propylene Containers", "imgsrc":"https://upload.wikimedia.org/wikipedia/commons/thumb/2/2e/XVJ-12_Propylene_%288662385917%29.jpg/256px-XVJ-12_Propylene_%288662385917%29.jpg"},
-{"key":10, "pos":"340 210", "icon":"finishedgas", "color":"blue", "text":"LPG, Naphtha,\nMTBE", "description":"Propane, butane, and other general purpose fuels and byproducts.", "caption":"Liquid Petroleum Gas Truck", "imgsrc":"https://upload.wikimedia.org/wikipedia/commons/thumb/5/52/LPG_Truck.jpg/256px-LPG_Truck.jpg"},
-{"key":11, "pos":"340 300", "icon":"finishedgas", "color":"blue", "text":"Natural Gas, NGLs", "description":"Used for heating, cooking, and electricity generation", "caption":"Natural Gas Flame", "imgsrc":"https://upload.wikimedia.org/wikipedia/commons/thumb/0/03/%22LPG_flame%22.JPG/512px-%22LPG_flame%22.JPG"}
- ],
-  "linkDataArray": [
-{"from":1, "to":4, "points":[-150,-41,-140,-41,-69,-41,-69,-41.33333333333333,2,-41.33333333333333,20,-41.33333333333333]},
-{"from":2, "to":3, "points":[-150,103,-140,103,-120,103,-120,103,-100,103,-90,103]},
-{"from":3, "to":4, "points":[-50,98.66666666666667,-40,98.66666666666667,-15,98.66666666666667,-15,-32.666666666666664,10,-32.666666666666664,20,-32.666666666666664]},
-{"from":3, "to":5, "toSpot":"BottomSide", "points":[-50,107.33333333333333,-32,107.33333333333333,140,107.33333333333333,140,46.666666666666664,140,-14,140,-24]},
-{"from":4, "to":5, "points":[60,-37,70,-37,90,-37,90,-37,110,-37,120,-37]},
-{"from":3, "to":11, "fromSpot":"BottomSide", "points":[-70,116,-70,126,-70,307,120,307,310,307,320,307]},
-{"from":4, "to":10, "fromSpot":"BottomSide", "points":[40,-12,40,-2,40,217,175,217,310,217,320,217]},
-{"from":5, "to":6, "fromSpot":"Right", "points":[160,-37,170,-37,240,-37,240,-123,310,-123,320,-123]},
-{"from":5, "to":7, "fromSpot":"Right", "points":[160,-37,170,-37,240,-37,240,-33,310,-33,320,-33]},
-{"from":5, "to":8, "fromSpot":"Right", "points":[160,-37,170,-37,240,-37,240,57,310,57,320,57]},
-{"from":5, "to":9, "fromSpot":"Right", "points":[160,-37,170,-37,240,-37,240,127,310,127,320,127]}
- ]}
-    </code></pre>
-  </div>
-</div>
-
-          
-        </div>
-        <!-- * * * * * * * * * * * * * -->
-        <!--  End of GoJS sample code  -->
-      </div>
-
-      <div id="allTagDescriptions" class="p-4 w-full max-w-screen-xl mx-auto">
-        <hr/>
-        <h3 class="text-xl">GoJS Features in this sample</h3>
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Geometry Path Strings</h4>
-<p>
-The <b>GoJS</b> <a href="../api/symbols/Geometry.html" target="api">Geometry</a> class controls the "shape" of a <a href="../api/symbols/Shape.html" target="api">Shape</a>,
-whereas the <a href="../api/symbols/Shape.html#fill" target="api">Shape.fill</a> and <a href="../api/symbols/Shape.html#stroke" target="api">Shape.stroke</a> and other shape properties control the colors and appearance of the shape.
-For common shape figures, there are predefined geometries that can be used by setting <a href="../api/symbols/Shape.html#figure" target="api">Shape.figure</a>.
-However one can also define custom geometries.
-</p>
-<p>
-One can construct any Geometry by allocating and initializing a <a href="../api/symbols/Geometry.html" target="api">Geometry</a> of at least one <a href="../api/symbols/PathFigure.html" target="api">PathFigure</a> holding some <a href="../api/symbols/PathSegment.html" target="api">PathSegment</a>s.
-But you may find that using the string representation of a Geometry is easier to write and save in a database.
-Use the static method <a href="../api/symbols/Geometry.html#parse" target="api">Geometry.parse</a> or the <a href="../api/symbols/Shape.html#geometryString" target="api">Shape.geometryString</a> property to transform a geometry path string into a <a href="../api/symbols/Geometry.html" target="api">Geometry</a> object.
-</p>
-<p>
-More information can be found in the <a href="../intro/geometry.html">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#geometries">Related samples</a>
-            </p>
-            <hr>
-          
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Exporting SVGs</h4>
-<p>
-<b>GoJS</b> has one function for creating SVG: <a href="../api/symbols/Diagram.html#makeSVG" target="api">Diagram.makeSVG</a>, which returns a new SVGElement with a representation of a GoJS Diagram. The method has a single argument, a JavaScript Object that contains several definable properties, enumerated in the documentation.
-More information can be found in the <a href="../intro/makingSVG.html">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#svg">Related samples</a>
-            </p>
-            <hr>
-          
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Palette</h4>
-<p>
-A <a href="../api/symbols/Palette.html" target="api">Palette</a> is a subclass of <a href="../api/symbols/Diagram.html" target="api">Diagram</a> that is used to display a number of <a href="../api/symbols/Part.html" target="api">Part</a>s that
-can be dragged into the diagram that is being modified by the user.
-The initialization of a <a href="../api/symbols/Palette.html" target="api">Palette</a> is just like the initialization of any <a href="../api/symbols/Diagram.html" target="api">Diagram</a>.
-Like Diagrams, you can have more than one Palette on the page at the same time.
-</p>
-<p>
-More information can be found in the <a href="../intro/palette.html">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#palette">Related samples</a>
-            </p>
-            <hr>
-          
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Data Inspector</h4>
-<p>Using a premade GoJS extension, you can create an HTML-based inspector that displays and allows editing of data for the selected Part (if any),
-or for a particular JavaScript object, or for the shared <a href="../api/symbols/Model.html#modelData" target="api">Model.modelData</a> object,
-which exists even if there are no nodes or links.
-</p>
-<p>The inspector code lies in <a href="../extensions/DataInspector.js">DataInspector.js</a>.
-This code is meant to be a starting point for making your own model data inspector.
-</p>
-<p>
-A generic demonstration of this extension can be found in the <a href="../samples/DataInspector.html">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#inspector">Related samples</a>
-            </p>
-            <hr>
-          
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>HTML Interaction</h4>
-<p>
-GoJS Diagrams can be used alongside other HTML elements in a webapp.
-For custom Text Editors, Context Menus, and ToolTips, which are invoked and hidden via GoJS tool operations, it is best to use the <a href="../api/symbols/HTMLInfo.html" target="api">HTMLInfo</a> class.
-</p>
-<p>
-More information can be found in the <a href="../intro/htmlInteraction.html">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#html">Related samples</a>
-            </p>
-            <hr>
-          
-        </div>
-    </div>
-  </body>
-  <!--  This script is part of the gojs.net website, and is not needed to run the sample -->
-  
+  </script>
+</body>
 </html>

@@ -1,5 +1,5 @@
 import { GraphObject } from './GraphObject';
-import { EnumValue, BrushSolid, GeometryStretchDefault, GeometryStretchUniform, GeometryStretchNone, GeometryStretchFill, GeometryStretchUniformToFill, StretchDefault, StretchFill, StretchNone, StretchUniform, StretchUniformToFill, StretchHorizontal, StretchVertical } from '../core/EnumValues';
+import { EnumValue, BrushSolid, GeometryStretchDefault, GeometryStretchUniform, GeometryStretchNone, GeometryStretchFill, GeometryStretchUniformToFill, StretchDefault, StretchFill, StretchNone, StretchUniform, StretchUniformToFill, StretchHorizontal, StretchVertical, OrientationAlong } from '../core/EnumValues';
 import { Brush, BrushLike } from '../core/Brush';
 import { Geometry } from '../core/Geometry';
 import { PathFigure } from '../core/PathFigure';
@@ -109,7 +109,7 @@ export class Shape extends GraphObject {
   static GeometryStretchUniformToFill: EnumValue = GeometryStretchUniformToFill;
 
   // ============ Shape-specific properties ============
-  private _fill: BrushLike = '';
+  private _fill: BrushLike = 'black';
   private _stroke: BrushLike = 'black';
   private _strokeWidth: number = 1;
   private _strokeDashArray: number[] | null = null;
@@ -281,6 +281,7 @@ export class Shape extends GraphObject {
     if (this._toArrow !== val) {
       this._toArrow = val;
       this._invalidateMeasure();
+      this._applyArrowLinkDefaults();
     }
   }
 
@@ -289,6 +290,29 @@ export class Shape extends GraphObject {
     if (this._fromArrow !== val) {
       this._fromArrow = val;
       this._invalidateMeasure();
+      this._applyArrowLinkDefaults();
+    }
+  }
+
+  /**
+   * 官方 `Shape.lF()`：设置 toArrow/fromArrow 后的连带默认值。
+   * `JE()` 把 segmentOrientation 置为 Along(21)；toArrow 有效 → segmentIndex=-1、
+   * alignmentFocus=Spot.Right；否则 fromArrow 有效 → segmentIndex=0、Spot.Left。
+   * 官方在 undo/redo 期间跳过（`diagram.undoManager.isUndoingRedoing`）。
+   * 缺这一步时箭头元素在 measure 里走错锚点分支，箭头位置与官方不一致。
+   */
+  private _applyArrowLinkDefaults(): void {
+    const d: any = this.diagram;
+    if (d && d.undoManager && d.undoManager.isUndoingRedoing) return;
+    this.segmentOrientation = OrientationAlong;
+    const hasTo = !!this._toArrow && this._toArrow !== 'None';
+    const hasFrom = !!this._fromArrow && this._fromArrow !== 'None';
+    if (hasTo) {
+      this.segmentIndex = -1;
+      this.alignmentFocus = Spot.Right;
+    } else if (hasFrom) {
+      this.segmentIndex = 0;
+      this.alignmentFocus = Spot.Left;
     }
   }
 

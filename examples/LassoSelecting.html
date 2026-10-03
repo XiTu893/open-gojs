@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LassoSelectingTool lets the user draw a lasso to select nodes</title>
+  <script src="../dist/open-gojs.umd.js"></script>
+  
+  <script src="https://cdn.jsdelivr.net/npm/gojs-extensions@latest/extensions/LassoSelectingTool.js"></script>
+  
+  
+</head>
+<body>
+<div id="myDiagramDiv" style="border: solid 1px black; width:100%; height:600px"></div>
+  <div id="description">
+<p>
+    The <a href="https://gojs.net/latest/api/symbols/DragSelectingTool.html" target="api">DragSelectingTool</a> has been replaced by the <a href="https://gojs.net/latest/api/symbols/LassoSelectingTool.html" target="api">LassoSelectingTool</a>.
+    Mouse-down, wait 175 milliseconds, and drag the mouse around all nodes that you want to select.
+    To be selected, a Node's <a href="https://gojs.net/latest/api/symbols/Node.html#selectionobject" target="api">Node.selectionObject</a> must be completely within the temporarily-drawn magenta polygon.
+    You can use the <code>Shift</code> and <code>Ctrl</code> modifiers to affect how the selection is affected.
+  </p>
+  <p>
+    The tool is defined in its own file, as
+    <a href="https://gojs.net/latest/extensions/LassoSelectingTool.js">LassoSelectingTool.js</a>.
+  </p>
+  </div>
+  <script >
+function init() {
+      myDiagram =
+        new go.Diagram("myDiagramDiv", {
+            layout: new go.ForceDirectedLayout(),
+            dragSelectingTool: new LassoSelectingTool(),
+            "undoManager.isEnabled": true
+          });
+
+      myDiagram.nodeTemplate =
+        new go.Node("Auto")
+          .add(
+            new go.Shape({ fill: "white", portId: "" })
+              .bind("fill", "color"),
+            new go.TextBlock({ margin: 8 })
+              .bind("text")
+          );
+
+      myDiagram.model = new go.GraphLinksModel(
+        [
+          { key: 1, text: "Alpha", color: "lightblue" },
+          { key: 2, text: "Beta", color: "orange" },
+          { key: 3, text: "Gamma", color: "lightgreen" },
+          { key: 4, text: "Delta", color: "pink" },
+          { key: 5, text: "Epsilon", color: "coral" },
+          { key: 6, text: "Zeta", color: "tomato" },
+          { key: 7, text: "Eta", color: "goldenrod" },
+          { key: 8, text: "Theta", color: "turquoise" }
+        ],
+        [
+          { from: 1, to: 2 },
+          { from: 1, to: 3 },
+          { from: 2, to: 7 },
+          { from: 3, to: 4 },
+          { from: 3, to: 5 },
+          { from: 4, to: 1 },
+          { from: 5, to: 6 },
+          { from: 5, to: 7 },
+          { from: 5, to: 8 },
+          { from: 8, to: 6 }
+        ]);
+    }
+
+    window.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>

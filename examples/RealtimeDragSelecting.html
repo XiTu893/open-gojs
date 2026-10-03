@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Realtime Selection During Background Dragging</title>
+  <script src="../dist/open-gojs.umd.js"></script>
+  
+  <script src="https://cdn.jsdelivr.net/npm/gojs-extensions@latest/extensions/RealtimeDragSelectingTool.js"></script>
+  
+  
+</head>
+<body>
+<div id="myDiagramDiv" style="background-color: white; border: solid 1px black; width: 100%; height: 600px"></div>
+  <div id="description">
+<p>
+    This sample demonstrates the RealtimeDragSelectingTool, which replaces the standard <a href="https://gojs.net/latest/api/symbols/DragSelectingTool.html" target="api">DragSelectingTool</a>. Press in the background, wait briefly, and
+    then drag to start selecting Nodes or Links that intersect with the box. You can press or release Control (Command on Mac) or Shift while dragging to see
+    how the selection changes.
+  </p>
+  <p>
+    Load it in your own app by including <a href="https://gojs.net/latest/extensions/RealtimeDragSelectingTool.js">RealtimeDragSelectingTool.js</a>. Initialize your Diagram by setting
+    <a href="https://gojs.net/latest/api/symbols/ToolManager.html#dragselectingtool" target="api">ToolManager.dragSelectingTool</a> to a new instance of this tool. For example:
+  </p>
+  <pre class="lang-js"><code>myDiagram.toolManager.dragSelectingTool = new RealtimeDragSelectingTool();</code></pre>
+  or
+  <pre class="lang-js"><code>new go.Diagram({
+  . . .,
+  "toolManager.dragSelectingTool": new RealtimeDragSelectingTool({ isPartialInclusion: true }),
+  . . .
+})</code></pre>
+  </div>
+  <script >
+function init() {
+
+    myDiagram = new go.Diagram('myDiagramDiv', {
+      initialDocumentSpot: go.Spot.Center,
+      initialViewportSpot: go.Spot.Center,
+
+      // replace the standard DragSelectingTool with one that selects while dragging,
+      // and also only requires overlapping bounds with the dragged box to be selected
+      dragSelectingTool: new RealtimeDragSelectingTool({
+        isPartialInclusion: true,
+        delay: 50,
+          // replace the magenta box with a red one
+        box:
+          new go.Part({ layerName: 'Tool', selectable: false })
+            .add(
+              new go.Shape({
+                name: 'SHAPE',
+                fill: 'rgba(255,0,0,0.1)',
+                stroke: 'red',
+                strokeWidth: 2
+              })
+            )
+      }),
+
+      // Define the template for Nodes, just some text inside a colored rectangle
+      nodeTemplate:
+        new go.Node('Spot', { width: 70, height: 20 })
+          .add(
+            new go.Shape('Rectangle')
+              .bind('fill', 'c'),
+            new go.TextBlock({ margin: 2 })
+              .bind('text', 'c')
+          ),
+
+      // Define the template for Links, just a simple line
+      linkTemplate:
+        new go.Link()
+          .add(
+            new go.Shape({ stroke: 'black' })
+          ),
+
+      layout: new go.TreeLayout()
+    });
+
+    myDiagram.model = loadTree();
+  }
+
+  function loadTree() {
+    // create some tree data
+    var total = 49;
+    var treedata = [];
+    for (var i = 0; i < total; i++) {
+      // these property names are also specified when creating the TreeModel
+      var d = {
+        key: i, // this node data's key
+        c: go.Brush.randomColor(), // the node's color
+        parent: i > 0 ? Math.floor((Math.random() * i) / 2) : undefined // the random parent's key
+      };
+      treedata.push(d);
+    }
+    return new go.TreeModel(treedata);
+  }
+
+  window.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>

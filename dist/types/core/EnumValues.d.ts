@@ -321,3 +321,27 @@ export declare const TextEditingStartingSingleClickSelected: EnumValue;
 export declare const TextEditingStartingDoubleClick: EnumValue;
 export declare const WheelModeScroll: EnumValue;
 export declare const WheelModeNone: EnumValue;
+/** 官方 SegmentType = {Move, Line, Bezier, QuadraticBezier, Arc, SvgArc}。
+ * 本项目 PathSegment 内部的 MoveTo / Close 常量仍导出，但不进该命名空间。
+ * Bezier/Move 直接映射到内部的 CubicBezier/MoveTo，使官方代码创建的三次贝塞尔
+ * 与移动段能被所有内部绘制/序列化逻辑按 'CubicBezier'/'MoveTo' 处理。 */
+export declare const SegmentType: {
+    Move: EnumValue;
+    Line: EnumValue;
+    Bezier: EnumValue;
+    QuadraticBezier: EnumValue;
+    Arc: EnumValue;
+    SvgArc: EnumValue;
+};
+export declare const GeometryStretch: {
+    None: EnumValue;
+    Default: EnumValue;
+    Fill: EnumValue;
+    Uniform: EnumValue;
+};
+export declare const GeometryType: {
+    Line: EnumValue;
+    Rectangle: EnumValue;
+    Ellipse: EnumValue;
+    Path: EnumValue;
+};

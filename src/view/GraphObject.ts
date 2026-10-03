@@ -4,6 +4,7 @@ import {
   StretchHorizontal, StretchVertical,
   FlipNone, FlipHorizontal, FlipVertical, FlipBoth,
   SegmentOrientationNone,
+  OrientationNone,
   PanelAuto, PanelVertical, PanelHorizontal, PanelSpot, PanelTable, PanelPosition, PanelLink,
   PanelViewbox, PanelGraduated, PanelGrid, PanelTableRow, PanelTableColumn,
   BrushSolid, BrushLinear, BrushRadial,
@@ -75,7 +76,7 @@ export class GraphObject {
   private _pickable: boolean = true;
   private _isActionable: boolean = false;
   private _isPanelMain: boolean = false;
-  private _portId: string = '';
+  private _portId: string | null = null;
   private _contextMenu: any = null;
   private _toolTip: any = null;
   private _fromLinkable: boolean = false;
@@ -88,13 +89,20 @@ export class GraphObject {
   private _toMaxLinks: number = Infinity;
   private _fromSpot: Spot = Spot.Default.copy();
   private _toSpot: Spot = Spot.Default.copy();
-  private _fromEndSegmentLength: number = 10;
-  private _toEndSegmentLength: number = 10;
-  private _fromShortLength: number = 0;
-  private _toShortLength: number = 0;
-  private _segmentIndex: number = NaN;
+  // 官方 LinkSettings/GraphObject 默认均为 NaN（回退链：link → port → 默认值）
+  private _fromEndSegmentLength: number = NaN;
+  private _toEndSegmentLength: number = NaN;
+  private _fromShortLength: number = NaN;
+  private _toShortLength: number = NaN;
+  /** 官方 `port.Vd`：side-spot 连线端口 Knot 缓存（见 LinkKnot.ts） */
+  private _knot: any = null;
+  // 官方 LinkElementSettings 默认：segmentIndex = -1/0（-Infinity）、
+  // segmentFraction = 0、segmentOffset = Point.kn = (0,0) 冻结点。
+  // segmentIndex=-Infinity 是「沿路径中点」语义（measure 走 computeMidPoint 分支），
+  // 早先的 NaN 默认会让 _arrangeLink 走「路径分数」分支，标签落点偏离官方。
+  private _segmentIndex: number = -Infinity;
   private _segmentFraction: number = 0;
-  private _segmentOffset: Point = new Point(NaN, NaN);
+  private _segmentOffset: Point = new Point(0, 0);
   private _segmentOrientation: EnumValue = SegmentOrientationNone;
   protected _position: Point = new Point(NaN, NaN);
 
@@ -336,9 +344,25 @@ export class GraphObject {
     this._isPanelMain = val;
   }
 
-  get portId(): string { return this._portId; }
-  set portId(val: string) {
+  get portId(): string | null { return this._portId; }
+  set portId(val: string | null) {
+    if (this._portId === val) return;
     this._portId = val;
+    // 官方 GraphObject.portIdChanged（tc）：端口 id 变更 → 失效该节点相连连线的 knot
+    const p: any = this._part;
+    if (p !== null && p !== undefined && typeof p.invalidateConnectedLinks === 'function') {
+      p.invalidateConnectedLinks(undefined, this as any);
+    }
+  }
+
+  /**
+   * 官方 `Node.ne(port)`：清空端口上的 side-spot knot 缓存。
+   * 由 Node.invalidateConnectedLinks / portId 变更 / link 端点变更触发。
+   */
+  invalidateConnectedLinksCache(): void {
+    if (this._knot !== null && this._knot !== undefined) {
+      (this._knot as any).gg();
+    }
   }
 
   get contextMenu(): any { return this._contextMenu; }
@@ -423,14 +447,19 @@ export class GraphObject {
 
   get segmentIndex(): number { return this._segmentIndex; }
   set segmentIndex(val: number) {
-    if (this._segmentIndex === val) return;
-    this._segmentIndex = val;
+    // 官方 setter：t = Math.round(t)
+    const t = Math.round(val);
+    if (this._segmentIndex === t) return;
+    this._segmentIndex = t;
   }
 
   get segmentFraction(): number { return this._segmentFraction; }
   set segmentFraction(val: number) {
-    if (this._segmentFraction === val) return;
-    this._segmentFraction = val;
+    // 官方 setter：t<0 → 0，t>1 → 1
+    let t = val;
+    if (t < 0) t = 0; else if (t > 1) t = 1;
+    if (this._segmentFraction === t) return;
+    this._segmentFraction = t;
   }
 
   get segmentOffset(): Point { return this._segmentOffset; }
@@ -444,6 +473,8 @@ export class GraphObject {
   set segmentOrientation(val: EnumValue) {
     if (this._segmentOrientation === val) return;
     this._segmentOrientation = val;
+    // 官方 setter：t === Orientation.None(0) 时把 angle 归零
+    if (val === SegmentOrientationNone || val === OrientationNone || (val as any) === 0) this.angle = 0;
   }
 
   // ============ Read-only computed properties ============
@@ -552,39 +583,75 @@ export class GraphObject {
     return this;
   }
 
-  /** 官方 GraphObject.theme(targetprop, sourceprop?, conv?, backconv?, themeconv?)：主题绑定（ThemeBinding） */
+  /**
+   * 官方 GraphObject.theme(targetprop, sourceprop?, themesource?, conv?, themeconv?)。
+   * 官方第 3 参是 themeSource、第 4 参才是 converter —— 旧签名把 converter 放在第 3 位，
+   * flowchart 的 .themeObject('stroke','isSelected',null,fn) 因此把 fn 当成了 sourceName，
+   * 描边永远停在默认黑色。
+   */
   theme(
     targetProperty: string,
     sourceProperty?: string,
-    conversion?: (value: any, targetObject: any, model: any) => any,
-    backConversion?: (value: any, sourceData: any, model: any) => any,
+    themeSource?: string | null,
+    converter?: (value: any, targetObject: any, model: any) => any,
     themeConverter?: (value: any, targetObject: any, model?: any) => any,
   ): this {
-    const binding = new Binding(targetProperty, sourceProperty || targetProperty, conversion);
+    const binding = new Binding(targetProperty, sourceProperty || targetProperty, converter);
+    binding.isThemeBinding = true;
     binding.sourceObject = 'theme';
+    binding.themeSource = themeSource ?? null;
     binding.themeConverter = themeConverter || null;
-    void backConversion;
     this._bindings.push(binding);
     return this;
   }
 
-  themeData(targetProperty: string, sourceProperty?: string, conversion?: (value: any, targetObject: any, model: any) => any): this {
-    const binding = new Binding(targetProperty, sourceProperty || targetProperty, conversion);
+  /** 官方 themeData：ofData —— 源是 part.data（旧版误设成 modelData） */
+  themeData(
+    targetProperty: string,
+    sourceProperty?: string,
+    themeSource?: string | null,
+    converter?: (value: any, targetObject: any, model: any) => any,
+    themeConverter?: (value: any, targetObject: any, model?: any) => any,
+  ): this {
+    const binding = new Binding(targetProperty, sourceProperty || targetProperty, converter);
+    binding.isThemeBinding = true;
+    binding.sourceObject = null;
+    binding.themeSource = themeSource ?? null;
+    binding.themeConverter = themeConverter || null;
+    this._bindings.push(binding);
+    return this;
+  }
+
+  themeModel(
+    targetProperty: string,
+    sourceProperty?: string,
+    themeSource?: string | null,
+    converter?: (value: any, targetObject: any, model: any) => any,
+    themeConverter?: (value: any, targetObject: any, model?: any) => any,
+  ): this {
+    const binding = new Binding(targetProperty, sourceProperty || targetProperty, converter);
+    binding.isThemeBinding = true;
     binding.sourceObject = 'model';
+    binding.themeSource = themeSource ?? null;
+    binding.themeConverter = themeConverter || null;
     this._bindings.push(binding);
     return this;
   }
 
-  themeModel(targetProperty: string, sourceProperty?: string, conversion?: (value: any, targetObject: any, model: any) => any): this {
-    const binding = new Binding(targetProperty, sourceProperty || targetProperty, conversion);
-    binding.sourceObject = 'themeModel';
-    this._bindings.push(binding);
-    return this;
-  }
-
-  themeObject(targetProperty: string, sourceProperty?: string, conversion?: (value: any, targetObject: any, model: any) => any, objectname?: string): this {
-    const binding = new Binding(targetProperty, sourceProperty || targetProperty, conversion);
-    binding.sourceObject = objectname || '';
+  /** 官方 themeObject：源是“绑定面板”（sourceName 默认 ''）上的属性 */
+  themeObject(
+    targetProperty: string,
+    sourceProperty?: string,
+    themeSource?: string | null,
+    converter?: (value: any, targetObject: any, model: any) => any,
+    themeConverter?: (value: any, targetObject: any, model?: any) => any,
+    sourceName?: string,
+  ): this {
+    const binding = new Binding(targetProperty, sourceProperty || targetProperty, converter);
+    binding.isThemeBinding = true;
+    binding.sourceObject = sourceName !== undefined && sourceName !== null ? sourceName : '';
+    binding.themeSource = themeSource ?? null;
+    binding.themeConverter = themeConverter || null;
     this._bindings.push(binding);
     return this;
   }

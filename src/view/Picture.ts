@@ -27,6 +27,8 @@ export class Picture extends GraphObject {
   private _source: string = '';
   private _image: HTMLImageElement | null = null;
   private _loadedImage: HTMLImageElement | null = null;
+  /** source 直接是 <canvas>/<img>/<video> 元素时的可绘制对象（官方 4.x 支持）。 */
+  private _canvasSource: HTMLCanvasElement | null = null;
   private _imageStretch: EnumValue = ImageStretchUniform;
   private _imageAlignment: string = 'center';
   private _sourceRect: Rect | null = null;
@@ -55,7 +57,24 @@ export class Picture extends GraphObject {
     }
   }
 
-  get element(): HTMLImageElement | null { return this._loadedImage || this._image; }
+  /**
+   * 官方 4.x 的 `Picture.element`：直接给一个 <canvas>/<img>/<video> 元素来绘制
+   * （canvases 样例用 Chart.js 画到 canvas 上再 `.bind('element', 'datasets', fn)`）。
+   * 官方只接受 Image/Canvas/Video 三种，其他类型直接报错。
+   */
+  get element(): HTMLImageElement | HTMLCanvasElement | HTMLVideoElement | null {
+    return this._canvasSource || this._loadedImage || this._image;
+  }
+  set element(val: HTMLImageElement | HTMLCanvasElement | HTMLVideoElement | null) {
+    if (this._canvasSource === val) return;
+    this._canvasSource = (val as HTMLCanvasElement) || null;
+    this._image = null;
+    this._loadedImage = null;
+    if (val !== null && this._successFunction) this._successFunction(this, new Event('load'));
+    this._invalidateMeasure();
+    const d = this.diagram;
+    if (d && typeof d.requestUpdate === 'function') d.requestUpdate();
+  }
 
   get image(): HTMLImageElement | null { return this._image; }
   set image(val: HTMLImageElement | null) {
@@ -115,9 +134,26 @@ export class Picture extends GraphObject {
     if (!src) {
       this._image = null;
       this._loadedImage = null;
+      this._canvasSource = null;
       return;
     }
     this._loadedImage = null;
+
+    // 官方 4.x 的 Picture.source 除了 url，还接受现成的 HTMLCanvasElement /
+    // HTMLImageElement / HTMLVideoElement 等可直接 drawImage 的元素
+    // （canvases 样例就是用 Chart.js 画到 canvas 上再交给 Picture）。
+    if (typeof src !== 'string') {
+      const el = src as unknown as CanvasImageSource;
+      const tag = (el as any).tagName;
+      this._image = null;
+      this._canvasSource = tag === 'CANVAS' || tag === 'IMG' || tag === 'VIDEO' ? (el as HTMLCanvasElement) : null;
+      if (this._successFunction) this._successFunction(this, new Event('load'));
+      this._invalidateMeasure();
+      const d0 = this.diagram;
+      if (d0 && typeof d0.requestUpdate === 'function') d0.requestUpdate();
+      return;
+    }
+    this._canvasSource = null;
 
     // 官方按 url 缓存 HTMLImageElement：模板被 copy() 成上百个 Picture 时
     // 共享同一个已加载的图片对象，而不是每个副本各自去加载。
@@ -208,6 +244,7 @@ export class Picture extends GraphObject {
     pic._crossOrigin = this._crossOrigin;
     // 走 setter，副本自己去接上（共享的）图片对象并注册自己的 load 回调
     pic.source = this._source;
+    if (this._canvasSource) pic.element = this._canvasSource;
     return pic;
   }
 }

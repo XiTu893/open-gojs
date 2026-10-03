@@ -1,132 +1,15 @@
-﻿
 <!DOCTYPE html>
-<html lang="en">
-  <head>
-    
-    <meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover"/>
-
-<meta name="description" content="An editor for a flowchart-like diagram with a restricted syntax -- add nodes by dropping them onto existing nodes or links." />
-<meta itemprop="description" content="An editor for a flowchart-like diagram with a restricted syntax -- add nodes by dropping them onto existing nodes or links." />
-<meta property="og:description" content="An editor for a flowchart-like diagram with a restricted syntax -- add nodes by dropping them onto existing nodes or links." />
-<meta name="twitter:description" content="An editor for a flowchart-like diagram with a restricted syntax -- add nodes by dropping them onto existing nodes or links." />
-
-
-<link rel="preconnect" href="https://rsms.me/">
-
-<!-- Copyright 1998-2026 by Northwoods Software Corporation. -->
-
-
-<meta itemprop="name" content="Interactive Builder of Flowgrams, Flowcharts with Constrained Visual Syntax" />
-<meta property="og:title" content="Interactive Builder of Flowgrams, Flowcharts with Constrained Visual Syntax" />
-<meta name="twitter:title" content="Interactive Builder of Flowgrams, Flowcharts with Constrained Visual Syntax" />
-
-
-<meta property="og:image" content="https://gojs.net/latest/assets/images/screenshots/flowgrammer.png" />
-<meta itemprop="image" content="https://gojs.net/latest/assets/images/screenshots/flowgrammer.png" />
-<meta name="twitter:image" content="https://gojs.net/latest/assets/images/screenshots/flowgrammer.png" />
-
-<meta property="og:url" content="https://gojs.net/latest/samples/flowgrammer.html" />
-<meta property="twitter:url" content="https://gojs.net/latest/samples/flowgrammer.html" />
-
-<meta name="twitter:card" content="summary_large_image" />
-<meta property="og:type" content="website" />
-<meta property="twitter:domain" content="gojs.net" />
-
-    <title>
-      Interactive Builder of Flowgrams, Flowcharts with Constrained Visual Syntax | GoJS Diagramming Library
-    </title>
-  </head>
-
-  <body>
-    <!-- This top nav is not part of the sample code -->
-    <nav id="navTop" class=" w-full h-[var(--topnav-h)] z-30 bg-white border-b border-b-gray-200">
-  <div class="max-w-screen-xl mx-auto flex flex-wrap items-start justify-between px-4">
-    <a class="text-white bg-nwoods-primary font-bold !leading-[calc(var(--topnav-h)_-_1px)] my-0 px-2 text-4xl lg:text-5xl logo"
-       href="../">
-      GoJS
-    </a>
-    <div class="relative">
-      <button id="topnavButton" class="h-[calc(var(--topnav-h)_-_1px)] px-2 m-0 text-gray-900 bg-inherit shadow-none md:hidden hover:!bg-inherit hover:!text-nwoods-accent hover:!shadow-none" aria-label="Navigation">
-        <svg class="h-7 w-7 block" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </button>
-      <div id="topnavList" class="hidden md:block">
-        <div class="absolute right-0 z-30 flex flex-col items-end rounded border border-gray-200 p-4 pl-12 shadow bg-white text-gray-900 font-semibold
-                    md:flex-row md:space-x-4 md:items-start md:border-0 md:p-0 md:shadow-none md:bg-inherit">
-          <a href="../learn/">Learn</a>
-          <a href="../samples/">Samples</a>
-          <a href="../intro/">Intro</a>
-          <a href="../api/">API</a>
-          <a href="../download.html">Download</a>
-          <a href="https://forum.nwoods.com/c/gojs/11" target="_blank" rel="noopener">Forum</a>
-          <a id="tc" href="https://nwoods.com/contact.html"
-            target="_blank" rel="noopener" onclick="getOutboundLink('https://nwoods.com/contact.html', 'contact');">Contact</a>
-          <a id="tb" href="https://nwoods.com/sales/index.html"
-            target="_blank" rel="noopener" onclick="getOutboundLink('https://nwoods.com/sales/index.html', 'buy');">Buy</a>
-        </div>
-      </div>
-    </div>
-  </div>
-</nav>
-<script>
-  window.addEventListener("DOMContentLoaded", function () {
-    // topnav
-    var topButton = document.getElementById("topnavButton");
-    var topnavList = document.getElementById("topnavList");
-    if (topButton && topnavList) {
-      topButton.addEventListener("click", function (e) {
-        topnavList
-          .classList
-          .toggle("hidden");
-        e.stopPropagation();
-      });
-      document.addEventListener("click", function (e) {
-        // if the clicked element isn't the list, close the list
-        if (!topnavList.classList.contains("hidden") && !e.target.closest("#topnavList")) {
-          topButton.click();
-        }
-      });
-
-      // set active <a> element
-      var url = window
-        .location
-        .href
-        .toLowerCase();
-      var aTags = topnavList.getElementsByTagName('a');
-      for (var i = 0; i < aTags.length; i++) {
-        var lowerhref = aTags[i]
-          .href
-          .toLowerCase();
-        if (lowerhref.endsWith('.html')) 
-          lowerhref = lowerhref.slice(0, -5);
-        if (url.startsWith(lowerhref)) {
-          aTags[i]
-            .classList
-            .add('active');
-          break;
-        }
-      }
-    }
-  });
-</script>
-    <div class="flex flex-col prose">
-      <div class="w-full max-w-screen-xl mx-auto">
-        <!-- * * * * * * * * * * * * * -->
-        <!-- Start of GoJS sample code -->
-        <script src="../dist/open-gojs.umd.js"></script>
-
-        
-
-        <div id="allSampleContent" class="p-4 w-full">
-          
-            
-            
-
-
-<style>
-  /* Use a Flexbox to make the Palette/Overview/Diagram responsive and size things relatively */
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Interactive Builder of Flowgrams, Flowcharts with Constrained Visual Syntax</title>
+  <script src="../dist/open-gojs.umd.js"></script>
+  
+  <script src="https://cdn.jsdelivr.net/npm/gojs-extensions@latest/extensions/ParallelLayout.js"></script>
+  
+  <style>
+/* Use a Flexbox to make the Palette/Overview/Diagram responsive and size things relatively */
   #myFlexDiv {
     display: flex;
     width: 100%;
@@ -179,10 +62,72 @@
       flex: 1;
     }
   }
-</style>
-
-<script id="code">
-  // two custom figures, for "For Each" loops
+  </style>
+</head>
+<body>
+<div id="myFlexDiv">
+    <div id="myPODiv">
+      <div id="myPaletteDiv" style="background-color: floralwhite; border: solid 1px black"></div>
+      <div id="myOverviewDiv" style="background-color: whitesmoke; border: solid 1px black"></div>
+    </div>
+    <div id="myDiagramDiv" style="border: solid 1px black"></div>
+  </div>
+  <div style="margin-block: .5em;">
+    <button id="SaveButton" onclick="save()">Save</button>
+    <button onclick="load()">Load</button>
+    <button onclick="newDiagram()">New Diagram</button>
+    Diagram Model saved in JSON format:
+  </div>
+  <textarea id="mySavedModel" style="width: 100%; height: 200px">
+{ "class": "GraphLinksModel",
+  "nodeDataArray": [
+{"key":1,"text":"S","category":"Start"},
+{"key":-1,"isGroup":true,"cat":"For","text":"For"},
+{"key":2,"text":"For Each","category":"For","group":-1},
+{"key":3,"text":"Action 1","group":-1},
+{"key":-2,"isGroup":true,"cat":"If","text":"If","group":-1},
+{"key":4,"text":"If","category":"If","group":-2},
+{"key":5,"text":"Action 2","group":-2},
+{"key":6,"text":"Action 3","group":-2},
+{"key":-3,"isGroup":true,"cat":"For","text":"For 2","group":-2},
+{"key":7,"text":"For Each\n(nested)","category":"For","group":-3},
+{"key":8,"text":"Action 4","group":-3},
+{"key":9,"text":"","category":"EndFor","group":-3},
+{"key":10,"text":"","category":"EndIf","group":-2},
+{"key":11,"text":"Action 5","group":-1},
+{"key":12,"text":"","category":"EndFor","group":-1},
+{"key":13,"text":"E","category":"End"}
+  ],
+  "linkDataArray": [
+{"from":1, "to":2},
+{"from":2, "to":3},
+{"from":3, "to":4},
+{"from":4, "to":5, "text":"yes"},
+{"from":4, "to":6, "text":"no"},
+{"from":6, "to":7},
+{"from":7, "to":8},
+{"from":8, "to":9},
+{"from":5, "to":10},
+{"from":9, "to":10},
+{"from":9, "to":7},
+{"from":10, "to":11},
+{"from":11, "to":12},
+{"from":12, "to":2},
+{"from":12, "to":13}
+ ]}
+  </textarea>
+  <div id="description">
+<p>
+    The Flowgrammer sample demonstrates how one can build a flowchart with a constrained syntax. You can drag and drop Nodes onto Links and Nodes in the diagram
+    in order to splice them into the graph. There is visual feedback during the dragging process. Nodes dropped onto the diagram's background are automatically
+    deleted. Edit text by clicking on the text of selected nodes. Deleting an action or step Node excises it from the chain of steps that it is in. The "For",
+    "While", and "If" are not deletable, but you can select and delete the Group holding the whole body of the loop or conditional. The "Start" and "End" nodes
+    and Links are not deletable.
+  </p>
+  <p>The automatic layout of the diagram is accomplished with the <a href="https://gojs.net/latest/api/symbols/ParallelLayout.html" target="api">ParallelLayout</a> extension.</p>
+  </div>
+  <script >
+// two custom figures, for "For Each" loops
   go.Shape.defineFigureGenerator('ForEach', (shape, w, h) => {
     var param1 = shape ? shape.parameter1 : NaN; // length of triangular area in direction that it is pointing
     if (isNaN(param1)) param1 = 10;
@@ -238,6 +183,14 @@
         }
       },
       'undoManager.isEnabled': true
+    });
+
+    myDiagram.addDiagramListener('Modified', e => {
+      const button = document.getElementById('SaveButton');
+      if (button) button.disabled = !myDiagram.isModified;
+      const idx = document.title.indexOf('*');
+      if (myDiagram.isModified) { if (idx < 0) document.title += '*'; }
+      else { if (idx >= 0) document.title = document.title.slice(0, idx); }
     });
 
     // dragged nodes are translucent so that the user can see highlighting of links and nodes
@@ -713,146 +666,6 @@
   }
 
   window.addEventListener('DOMContentLoaded', init);
-</script>
-
-<div id="sample">
-  <div id="myFlexDiv">
-    <div id="myPODiv">
-      <div id="myPaletteDiv" style="background-color: floralwhite; border: solid 1px black"></div>
-      <div id="myOverviewDiv" style="background-color: whitesmoke; border: solid 1px black"></div>
-    </div>
-    <div id="myDiagramDiv" style="border: solid 1px black"></div>
-  </div>
-  <p>
-    The Flowgrammer sample demonstrates how one can build a flowchart with a constrained syntax. You can drag and drop Nodes onto Links and Nodes in the diagram
-    in order to splice them into the graph. There is visual feedback during the dragging process. Nodes dropped onto the diagram's background are automatically
-    deleted. Edit text by clicking on the text of selected nodes. Deleting an action or step Node excises it from the chain of steps that it is in. The "For",
-    "While", and "If" are not deletable, but you can select and delete the Group holding the whole body of the loop or conditional. The "Start" and "End" nodes
-    and Links are not deletable.
-  </p>
-  <p>The automatic layout of the diagram is accomplished with the <a>ParallelLayout</a> extension.</p>
-  <div id="buttons">
-    <button id="loadModel" onclick="load()">Load</button>
-    <button id="saveModel" onclick="save()">Save</button>
-    <button onclick="newDiagram()">New Diagram</button>
-  </div>
-  <textarea id="mySavedModel" style="width: 100%; height: 200px">
-{ "class": "GraphLinksModel",
-  "nodeDataArray": [
-{"key":1,"text":"S","category":"Start"},
-{"key":-1,"isGroup":true,"cat":"For","text":"For"},
-{"key":2,"text":"For Each","category":"For","group":-1},
-{"key":3,"text":"Action 1","group":-1},
-{"key":-2,"isGroup":true,"cat":"If","text":"If","group":-1},
-{"key":4,"text":"If","category":"If","group":-2},
-{"key":5,"text":"Action 2","group":-2},
-{"key":6,"text":"Action 3","group":-2},
-{"key":-3,"isGroup":true,"cat":"For","text":"For 2","group":-2},
-{"key":7,"text":"For Each\n(nested)","category":"For","group":-3},
-{"key":8,"text":"Action 4","group":-3},
-{"key":9,"text":"","category":"EndFor","group":-3},
-{"key":10,"text":"","category":"EndIf","group":-2},
-{"key":11,"text":"Action 5","group":-1},
-{"key":12,"text":"","category":"EndFor","group":-1},
-{"key":13,"text":"E","category":"End"}
-  ],
-  "linkDataArray": [
-{"from":1, "to":2},
-{"from":2, "to":3},
-{"from":3, "to":4},
-{"from":4, "to":5, "text":"yes"},
-{"from":4, "to":6, "text":"no"},
-{"from":6, "to":7},
-{"from":7, "to":8},
-{"from":8, "to":9},
-{"from":5, "to":10},
-{"from":9, "to":10},
-{"from":9, "to":7},
-{"from":10, "to":11},
-{"from":11, "to":12},
-{"from":12, "to":2},
-{"from":12, "to":13}
- ]}
-  </textarea>
-</div>
-
-          
-        </div>
-        <!-- * * * * * * * * * * * * * -->
-        <!--  End of GoJS sample code  -->
-      </div>
-
-      <div id="allTagDescriptions" class="p-4 w-full max-w-screen-xl mx-auto">
-        <hr/>
-        <h3 class="text-xl">GoJS Features in this sample</h3>
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Collections</h4>
-<p>
-<b>GoJS</b> provides its own collection classes: <a href="../api/symbols/List.html" target="api">List</a>, <a href="../api/symbols/Set.html" target="api">Set</a>, and <a href="../api/symbols/Map.html" target="api">Map</a>.
-You can iterate over a collection by using an <a href="../api/symbols/Iterator.html" target="api">Iterator</a>.
-More information can be found in the <a href="../intro/collections.html">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#collections">Related samples</a>
-            </p>
-            <hr>
-          
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Layered Digraph Layout</h4>
-<p>
-This predefined layout is used for placing Nodes of a general directed graph in layers (rows or columns). This is more general than <a href="../api/symbols/TreeLayout.html">TreeLayout</a>,
-as it does not require that the graph be tree-structured.
-More information can be found in the <a href="../intro/layouts.html#LayeredDigraphLayout">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#layered-digraph">Related samples</a>
-            </p>
-            <hr>
-          
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Palette</h4>
-<p>
-A <a href="../api/symbols/Palette.html" target="api">Palette</a> is a subclass of <a href="../api/symbols/Diagram.html" target="api">Diagram</a> that is used to display a number of <a href="../api/symbols/Part.html" target="api">Part</a>s that
-can be dragged into the diagram that is being modified by the user.
-The initialization of a <a href="../api/symbols/Palette.html" target="api">Palette</a> is just like the initialization of any <a href="../api/symbols/Diagram.html" target="api">Diagram</a>.
-Like Diagrams, you can have more than one Palette on the page at the same time.
-</p>
-<p>
-More information can be found in the <a href="../intro/palette.html">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#palette">Related samples</a>
-            </p>
-            <hr>
-          
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Overview Diagrams</h4>
-<p>
-An <a href="../api/symbols/Overview.html" target="api">Overview</a> is a subclass of <a href="../api/symbols/Diagram.html" target="api">Diagram</a> that is used to display all of the <a href="../api/symbols/Part.html" target="api">Part</a>s
-of another diagram and to show where that diagram's viewport is relative to all of those parts.
-The user can also scroll the overviewed diagram by clicking or dragging within the overview.
-</p>
-<p>
-The initialization of an <a href="../api/symbols/Overview.html" target="api">Overview</a> is just a matter of setting <a href="../api/symbols/Overview.html#observed" target="api">Overview.observed</a>
-to refer to the <a href="../api/symbols/Diagram.html" target="api">Diagram</a> that you want it to show.  So there needs to be a DIV for your main diagram,
-for which you create a Diagram in the normal manner, and a separate DIV for your overview, for which you
-create the Overview in a very simple manner.
-</p>
-<p>
-More information can be found in the <a href="../intro/overview.html">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#overview">Related samples</a>
-            </p>
-            <hr>
-          
-        </div>
-    </div>
-  </body>
-  <!--  This script is part of the gojs.net website, and is not needed to run the sample -->
-  
+  </script>
+</body>
 </html>

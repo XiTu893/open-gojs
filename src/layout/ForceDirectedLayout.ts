@@ -267,7 +267,7 @@ export class ForceDirectedLayout extends Layout {
           }
         }
         if (o === null) o = this.network.linkVertexes(v, n);
-        o.length = this.defaultCommentSpringLength;
+        if (o !== null) o.length = this.defaultCommentSpringLength;
       }
     }
   }
@@ -337,7 +337,7 @@ export class ForceDirectedLayout extends Layout {
   }
 
   copy(): ForceDirectedLayout {
-    const copy = new ForceDirectedLayout();
+    const copy = new (this.constructor as new () => any)();
     this.cloneProtected(copy);
     copy._maxIterations = this._maxIterations;
     copy._defaultSpringLength = this._defaultSpringLength;

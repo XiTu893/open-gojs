@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Rotating Node about Movable Rotation Spot</title>
+  <script src="../dist/open-gojs.umd.js"></script>
+  
+  <script src="https://cdn.jsdelivr.net/npm/gojs-extensions@latest/extensions/SpotRotatingTool.js"></script>
+  
+  
+</head>
+<body>
+<div id="myDiagramDiv" style="border: solid 1px black; width: 100%; height: 600px; background-color: gray"></div>
+  <p>
+    Auto updating Model Data:
+  </p>
+  <textarea id="mySavedModel" style="width: 100%; height: 230px" readonly></textarea>
+  <div id="description">
+<p>
+    The user can resize and rotate the Shape named "SHAPE" in the Nodes. In addition to the normal features of the RotatingTool, the SpotRotatingTool shows a
+    handle at the <a href="https://gojs.net/latest/api/symbols/Part.html#rotationspot" target="api">Part.rotationSpot</a>, which is also at the <a href="https://gojs.net/latest/api/symbols/RotatingTool.html#rotationpoint" target="api">RotatingTool.rotationPoint</a>. The user can drag that handle and thereby move the
+    rotationPoint and the <a href="https://gojs.net/latest/api/symbols/Part.html#rotationspot" target="api">Part.rotationSpot</a>. When the handle is inside the rectangular area of the <a href="https://gojs.net/latest/api/symbols/Part.html#rotateobject" target="api">Part.rotateObject</a>, the Spot is purely
+    fractional. When the handle moves outside of the object's rectangular area, the spot will be at the edge of the rectangle plus an offset.
+  </p>
+  <p>This extension tool is defined in its own file, as <a href="https://gojs.net/latest/extensions/SpotRotatingTool.js">SpotRotatingTool.js</a>.</p>
+  </div>
+  <script >
+function init() {
+
+    myDiagram = new go.Diagram('myDiagramDiv', {
+      rotatingTool: new SpotRotatingTool(),
+      'undoManager.isEnabled': true,
+      ModelChanged: e => {
+        if (e.isTransactionFinished) {
+          document.getElementById('mySavedModel').value = myDiagram.model.toJson();
+        }
+      }
+    });
+
+    myDiagram.nodeTemplate =
+      new go.Node('Spot', {
+          locationObjectName: 'SHAPE',
+          locationSpot: go.Spot.Center,
+          selectionObjectName: 'SHAPE',
+          resizable: true,
+          resizeObjectName: 'SHAPE', // name of the graph object to be resized
+          rotatable: true,
+          rotateObjectName: 'SHAPE', // name of the graph object to be rotate
+          rotationSpot: go.Spot.Center
+        })
+        .bindTwoWay('location', 'loc', go.Point.parse, go.Point.stringify)
+        .bindTwoWay('rotationSpot', 'rotSpot', go.Spot.parse, go.Spot.stringify)
+        .add(
+          new go.Shape('RoundedRectangle', {
+              name: 'SHAPE',
+              fill: 'orange',
+              strokeWidth: 2
+            })
+            .bindTwoWay('desiredSize', 'size', go.Size.parse, go.Size.stringify)
+            .bindTwoWay('angle'),
+          new go.TextBlock()
+            .bind('text')
+        );
+
+    myDiagram.model = new go.GraphLinksModel(
+      [
+        { key: 1, text: 'Alpha', color: 'lightblue' },
+        { key: 2, text: 'Beta', color: 'orange' },
+        { key: 3, text: 'Gamma', color: 'lightgreen' },
+        { key: 4, text: 'Delta', color: 'pink' }
+      ],
+      [
+        { from: 1, to: 2 },
+        { from: 1, to: 3 },
+        { from: 3, to: 4 }
+      ]
+    );
+  }
+
+  window.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>

@@ -1,135 +1,15 @@
-﻿﻿
 <!DOCTYPE html>
-<html lang="en">
-  <head>
-    
-    <meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover"/>
-
-<meta name="description" content="A seating chart editor for assigning places at tables." />
-<meta itemprop="description" content="A seating chart editor for assigning places at tables." />
-<meta property="og:description" content="A seating chart editor for assigning places at tables." />
-<meta name="twitter:description" content="A seating chart editor for assigning places at tables." />
-
-
-<link rel="preconnect" href="https://rsms.me/">
-
-<!-- Copyright 1998-2026 by Northwoods Software Corporation. -->
-
-
-<meta itemprop="name" content="Seating Chart Diagram Editor Dropping People into Seats at Tables" />
-<meta property="og:title" content="Seating Chart Diagram Editor Dropping People into Seats at Tables" />
-<meta name="twitter:title" content="Seating Chart Diagram Editor Dropping People into Seats at Tables" />
-
-
-<meta property="og:image" content="https://gojs.net/latest/assets/images/screenshots/seatingchart.png" />
-<meta itemprop="image" content="https://gojs.net/latest/assets/images/screenshots/seatingchart.png" />
-<meta name="twitter:image" content="https://gojs.net/latest/assets/images/screenshots/seatingchart.png" />
-
-<meta property="og:url" content="https://gojs.net/latest/samples/seatingChart.html" />
-<meta property="twitter:url" content="https://gojs.net/latest/samples/seatingChart.html" />
-
-<meta name="twitter:card" content="summary_large_image" />
-<meta property="og:type" content="website" />
-<meta property="twitter:domain" content="gojs.net" />
-
-    <title>
-      Seating Chart Diagram Editor Dropping People into Seats at Tables | GoJS Diagramming Library
-    </title>
-  </head>
-
-  <body>
-    <!-- This top nav is not part of the sample code -->
-    <nav id="navTop" class=" w-full h-[var(--topnav-h)] z-30 bg-white border-b border-b-gray-200">
-  <div class="max-w-screen-xl mx-auto flex flex-wrap items-start justify-between px-4">
-    <a class="text-white bg-nwoods-primary font-bold !leading-[calc(var(--topnav-h)_-_1px)] my-0 px-2 text-4xl lg:text-5xl logo"
-       href="../">
-      GoJS
-    </a>
-    <div class="relative">
-      <button id="topnavButton" class="h-[calc(var(--topnav-h)_-_1px)] px-2 m-0 text-gray-900 bg-inherit shadow-none md:hidden hover:!bg-inherit hover:!text-nwoods-accent hover:!shadow-none" aria-label="Navigation">
-        <svg class="h-7 w-7 block" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </button>
-      <div id="topnavList" class="hidden md:block">
-        <div class="absolute right-0 z-30 flex flex-col items-end rounded border border-gray-200 p-4 pl-12 shadow bg-white text-gray-900 font-semibold
-                    md:flex-row md:space-x-4 md:items-start md:border-0 md:p-0 md:shadow-none md:bg-inherit">
-          <a href="../learn/">Learn</a>
-          <a href="../samples/">Samples</a>
-          <a href="../intro/">Intro</a>
-          <a href="../api/">API</a>
-          <a href="../download.html">Download</a>
-          <a href="https://forum.nwoods.com/c/gojs/11" target="_blank" rel="noopener">Forum</a>
-          <a id="tc" href="https://nwoods.com/contact.html"
-            target="_blank" rel="noopener" onclick="getOutboundLink('https://nwoods.com/contact.html', 'contact');">Contact</a>
-          <a id="tb" href="https://nwoods.com/sales/index.html"
-            target="_blank" rel="noopener" onclick="getOutboundLink('https://nwoods.com/sales/index.html', 'buy');">Buy</a>
-        </div>
-      </div>
-    </div>
-  </div>
-</nav>
-<script>
-  window.addEventListener("DOMContentLoaded", function () {
-    // topnav
-    var topButton = document.getElementById("topnavButton");
-    var topnavList = document.getElementById("topnavList");
-    if (topButton && topnavList) {
-      topButton.addEventListener("click", function (e) {
-        topnavList
-          .classList
-          .toggle("hidden");
-        e.stopPropagation();
-      });
-      document.addEventListener("click", function (e) {
-        // if the clicked element isn't the list, close the list
-        if (!topnavList.classList.contains("hidden") && !e.target.closest("#topnavList")) {
-          topButton.click();
-        }
-      });
-
-      // set active <a> element
-      var url = window
-        .location
-        .href
-        .toLowerCase();
-      var aTags = topnavList.getElementsByTagName('a');
-      for (var i = 0; i < aTags.length; i++) {
-        var lowerhref = aTags[i]
-          .href
-          .toLowerCase();
-        if (lowerhref.endsWith('.html')) 
-          lowerhref = lowerhref.slice(0, -5);
-        if (url.startsWith(lowerhref)) {
-          aTags[i]
-            .classList
-            .add('active');
-          break;
-        }
-      }
-    }
-  });
-</script>
-    <div class="flex flex-col prose">
-      <div class="w-full max-w-screen-xl mx-auto">
-        <!-- * * * * * * * * * * * * * -->
-        <!-- Start of GoJS sample code -->
-        <script src="../dist/open-gojs.umd.js"></script>
-
-        
-          <link rel="stylesheet" href="../assets/css/prism.css"/>
-          <script src="../assets/js/prism.js"></script>
-        
-
-        <div id="allSampleContent" class="p-4 w-full">
-          
-            
-            
-
-
-<style>
-  /* Use a Flexbox to make the Palette/Diagram responsive */
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Seating Chart Diagram Editor Dropping People into Seats at Tables</title>
+  <script src="../dist/open-gojs.umd.js"></script>
+  
+  
+  
+  <style>
+/* Use a Flexbox to make the Palette/Diagram responsive */
   #myFlexDiv {
     display: flex;
     width: 100%;
@@ -162,11 +42,47 @@
       flex: 1;
     }
   }
-</style>
+  </style>
+</head>
+<body>
+<div id="myFlexDiv">
+    <div id="myGuests" style="border: solid 1px black; background: whitesmoke;"></div>
 
-<script id="code">
-
-  // Automatically drag people Nodes along with the table Node at which they are seated.
+    <div id="myDiagramDiv" style="border: solid 1px black"></div>
+  </div>
+  <div>
+    <p>Diagram Model saved in JSON format, automatically updated after each transaction:</p>
+    <textarea id="mySavedModel" style="height: 250px" readonly></textarea>
+  </div>
+  <div id="description">
+<p>
+    This sample demonstrates how a "Person" node can be dropped onto a "Table" node, causing the
+    person to be assigned a position at the closest empty seat at that table. When a person is dropped
+    into the background of the diagram, that person is no longer assigned a seat. People dragged
+    between diagrams are automatically removed from the diagram they came from.
+  </p>
+  <p>
+    "Table" nodes are defined by separate templates, to permit maximum customization of the shapes
+    and sizes and positions of the tables and chairs.
+  </p>
+  <p>
+    "Person" nodes in the <code>myGuests</code> diagram can also represent a group of people, for
+    example a named person plus one whose name might not be known. When such a person is dropped
+    onto a table, additional nodes are created in <code>myDiagram</code>. Those people are seated at
+    the table if there is room.
+  </p>
+  <p>
+    Tables can be moved or rotated. Moving or rotating a table automatically repositions the people
+    seated at that table.
+  </p>
+  <p>
+    The <a href="https://gojs.net/latest/api/symbols/UndoManager.html" target="api">UndoManager</a> is shared between the two Diagrams, so that one can undo/redo in either
+    diagram and have it automatically handle drags between diagrams, as well as the usual changes
+    within the diagram.
+  </p>
+  </div>
+  <script >
+// Automatically drag people Nodes along with the table Node at which they are seated.
   class SpecialDraggingTool extends go.DraggingTool {
     constructor(init) {
       super();
@@ -218,8 +134,7 @@
       // For this sample, automatically show the state of the diagram's model on the page
       ModelChanged: e => {
         if (e.isTransactionFinished) {
-          document.getElementById('savedModel').innerHTML = myDiagram.model.toJson();
-          if (window.Prism) window.Prism.highlightAll();
+          document.getElementById('mySavedModel').value = myDiagram.model.toJson();
         }
       },
       'undoManager.isEnabled': true
@@ -586,9 +501,9 @@
     // iterate over all seats in the Node to find one that is not occupied
     const closestseatname = findClosestUnoccupiedSeat(node, pt);
     if (closestseatname) {
-      model.setDataProperty(guests, closestseatname, guest.key);
-      model.setDataProperty(guest, 'table', node.data.key);
-      model.setDataProperty(guest, 'seat', parseFloat(closestseatname));
+      model.set(guests, closestseatname, guest.key);
+      model.set(guest, 'table', node.data.key);
+      model.set(guest, 'seat', parseFloat(closestseatname));
     }
 
     const plus = guest.plus;
@@ -620,11 +535,11 @@
       const table = model.findNodeDataForKey(guest.table);
       if (table) {
         const guests = table.guests;
-        if (guests) model.setDataProperty(guests, guest.seat.toString(), undefined);
+        if (guests) model.set(guests, guest.seat.toString(), undefined);
       }
     }
-    model.setDataProperty(guest, 'table', undefined);
-    model.setDataProperty(guest, 'seat', undefined);
+    model.set(guest, 'table', undefined);
+    model.set(guest, 'seat', undefined);
   }
 
   // Find the name of the unoccupied seat that is closest to the given Point.
@@ -693,99 +608,6 @@
   }
 
   window.addEventListener('DOMContentLoaded', init);
-</script>
-
-<div id="sample">
-  <div id="myFlexDiv">
-    <div id="myGuests" style="border: solid 1px black"></div>
-
-    <div id="myDiagramDiv" style="border: solid 1px black"></div>
-  </div>
-  This sample demonstrates how a "Person" node can be dropped onto a "Table" node, causing the
-  person to be assigned a position at the closest empty seat at that table. When a person is dropped
-  into the background of the diagram, that person is no longer assigned a seat. People dragged
-  between diagrams are automatically removed from the diagram they came from.
-  <p>
-    "Table" nodes are defined by separate templates, to permit maximum customization of the shapes
-    and sizes and positions of the tables and chairs.
-  </p>
-
-  <p>
-    "Person" nodes in the <code>myGuests</code> diagram can also represent a group of people, for
-    example a named person plus one whose name might not be known. When such a person is dropped
-    onto a table, additional nodes are created in <code>myDiagram</code>. Those people are seated at
-    the table if there is room.
-  </p>
-
-  <p>
-    Tables can be moved or rotated. Moving or rotating a table automatically repositions the people
-    seated at that table.
-  </p>
-
-  <p>
-    The <a>UndoManager</a> is shared between the two Diagrams, so that one can undo/redo in either
-    diagram and have it automatically handle drags between diagrams, as well as the usual changes
-    within the diagram.
-  </p>
-  <div>
-    Diagram Model saved in JSON format, automatically updated after each transaction:
-    <pre class="lang-js"><code id="savedModel"></code></pre>
-  </div>
-</div>
-
-          
-        </div>
-        <!-- * * * * * * * * * * * * * -->
-        <!--  End of GoJS sample code  -->
-      </div>
-
-      <div id="allTagDescriptions" class="p-4 w-full max-w-screen-xl mx-auto">
-        <hr/>
-        <h3 class="text-xl">GoJS Features in this sample</h3>
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Tools</h4>
-<p>
-<a href="../api/symbols/Tool.html" target="api">Tool</a>s handle all input events, such as mouse and keyboard interactions, in a Diagram.
-There are many kinds of predefined Tool classes that implement all of the common operations that users do.
-</p>
-<p>
-For flexibility and simplicity, all input events are canonicalized as <a href="../api/symbols/InputEvent.html" target="api">InputEvent</a>s and
-redirected by the diagram to go to the <a href="../api/symbols/Diagram.html#currentTool" target="api">Diagram.currentTool</a>.
-By default the Diagram.currentTool is an instance of <a href="../api/symbols/ToolManager.html" target="api">ToolManager</a> held as the <a href="../api/symbols/Diagram.html#toolManager" target="api">Diagram.toolManager</a>.
-The ToolManager implements support for all mode-less tools.
-The ToolManager is responsible for finding another tool that is ready to run and then making it the new current tool.
-This causes the new tool to process all of the input events (mouse, keyboard, and touch) until the tool decides that it is finished,
-at which time the diagram's current tool reverts back to the <a href="../api/symbols/Diagram.html#defaultTool" target="api">Diagram.defaultTool</a>, which is normally the ToolManager, again.
-</p>
-<p>
-More information can be found in the <a href="../intro/tools.html">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#tools">Related samples</a>
-            </p>
-            <hr>
-          
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Palette</h4>
-<p>
-A <a href="../api/symbols/Palette.html" target="api">Palette</a> is a subclass of <a href="../api/symbols/Diagram.html" target="api">Diagram</a> that is used to display a number of <a href="../api/symbols/Part.html" target="api">Part</a>s that
-can be dragged into the diagram that is being modified by the user.
-The initialization of a <a href="../api/symbols/Palette.html" target="api">Palette</a> is just like the initialization of any <a href="../api/symbols/Diagram.html" target="api">Diagram</a>.
-Like Diagrams, you can have more than one Palette on the page at the same time.
-</p>
-<p>
-More information can be found in the <a href="../intro/palette.html">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#palette">Related samples</a>
-            </p>
-            <hr>
-          
-        </div>
-    </div>
-  </body>
-  <!--  This script is part of the gojs.net website, and is not needed to run the sample -->
-  
+  </script>
+</body>
 </html>

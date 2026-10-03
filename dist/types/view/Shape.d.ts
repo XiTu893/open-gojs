@@ -87,6 +87,14 @@ export declare class Shape extends GraphObject {
     get fromArrow(): string;
     set fromArrow(val: string);
     /**
+     * 官方 `Shape.lF()`：设置 toArrow/fromArrow 后的连带默认值。
+     * `JE()` 把 segmentOrientation 置为 Along(21)；toArrow 有效 → segmentIndex=-1、
+     * alignmentFocus=Spot.Right；否则 fromArrow 有效 → segmentIndex=0、Spot.Left。
+     * 官方在 undo/redo 期间跳过（`diagram.undoManager.isUndoingRedoing`）。
+     * 缺这一步时箭头元素在 measure 里走错锚点分支，箭头位置与官方不一致。
+     */
+    private _applyArrowLinkDefaults;
+    /**
      * 官方 `Shape.polygonContainsRect(b)`：本 Shape 的填充多边形是否包含给定矩形。
      *
      * 步骤与官方一致：① 所属 Part 的 `actualBounds` 必须包含 b；② 矩形四个角必须都在几何内部；

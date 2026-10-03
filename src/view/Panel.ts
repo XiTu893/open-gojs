@@ -48,6 +48,10 @@ export class Panel extends GraphObject {
   private _originX: number = 0;
   private _originY: number = 0;
   private _unionRect: Rect = new Rect();
+  /** 官方 `PanelLayoutLink.or`：measure 算出的 route-local 并集帧（子元素 z 都相对它） */
+  private _linkOrRect: Rect | null = null;
+  /** 官方 `PanelLayoutLink.qf`：measure 时按固定顺序存下的子元素 z 矩形，arrange 按序消费 */
+  private _linkQfRects: Rect[] | null = null;
   private _defaultColumnSeparatorStroke: BrushLike = null;
   private _defaultColumnSeparatorStrokeWidth: number = 1;
   private _defaultRowSeparatorStroke: BrushLike = null;
@@ -1141,7 +1145,11 @@ export class Panel extends GraphObject {
     main._measure(availW, availH);
     let mb = main.measuredBounds;
     let stroke = 0;
-    if (main instanceof Shape) stroke = (main as Shape).strokeWidth * main.scale;
+    let mainUniform = false;
+    if (main instanceof Shape) {
+      stroke = (main as Shape).strokeWidth * main.scale;
+      mainUniform = (main as any)._resolvedGeometryStretch() === 6;
+    }
     let y = Math.max(mb.width + u, 0);
     let x = Math.max(mb.height + d, 0);
     const s1 = this._panelSpot1(main);
@@ -1150,11 +1158,10 @@ export class Panel extends GraphObject {
     let holeH = availH;
     if (isFinite(availW)) holeW = Math.max(Math.abs(s1.x * y + s1.offsetX - (s2.x * y + s2.offsetX)) - stroke, 0);
     if (isFinite(availH)) holeH = Math.max(Math.abs(s1.y * x + s1.offsetY - (s2.y * x + s2.offsetY)) - stroke, 0);
-    // 官方 PanelLayoutAuto：可用尺寸无限时用主元素的尺寸约束其余子元素。
-    // 否则 Node 里的 TextBlock 会按无限宽测量而不换行，
-    // 文字直接溢出节点被裁掉（absolute.html 的 "lightblue" 应排成两行）。
-    if (!isFinite(holeW)) holeW = Math.max(y - stroke, 0);
-    if (!isFinite(holeH)) holeH = Math.max(x - stroke, 0);
+    // 官方 PanelLayoutAuto：holeW/holeH 只有在面板约束有限时才用主元素尺寸改写；
+    // 约束为 Infinity 时**保持 Infinity** 直接传给其余子元素
+    //（TextBlock 随后只按自身 maxSize 换行 —— flowchart 默认模板 maxSize 160）。
+    // 约束有限的节点（如 absolute.html 的 size:'50 50'）走上面 isFinite 分支，不受影响。
     let maxT = 0;
     let maxTh = 0;
     for (const el of els) {
@@ -1181,6 +1188,8 @@ export class Panel extends GraphObject {
     }
     D += Math.abs(s1.offsetX) + Math.abs(s2.offsetX) + stroke;
     F += Math.abs(s1.offsetY) + Math.abs(s2.offsetY) + stroke;
+    // 官方：p.yM()===6（geometryStretch Uniform）→ D=F=max(D,F)
+    if (mainUniform) D = F = Math.max(D, F);
     let R = main.stretch;
     if (R === StretchDefault) R = main._getStretch(false);
     if (R === StretchFill) {
@@ -2272,180 +2281,336 @@ export class Panel extends GraphObject {
     return fallback;
   }
 
-  private _measureLink(availW: number, availH: number): void {
-    // 官方 Link 在 measure 前保证路线已算出（computePoints 依赖两端节点的
-    // actualBounds）。缺这一步时 link.points 此刻仍为空，_unionRect 退化成
-    // [0,0,1,1]，link 自身的 natural/measured/actual bounds 全部作废，
-    // documentBounds 随之错位。
-    const linkSelf = this as any;
-    if (typeof linkSelf.updateRoute === 'function') {
-      try {
-        linkSelf.updateRoute();
-      } catch {
-        /* 无端口/未入图时保持退化矩形 */
-      }
-    }
+  /**
+   * 官方 `PanelLayoutLink.measure(t, i, e, s, n, o, r)`（go-debug.js 全文解码）。
+   *
+   * 帧约定（已用官方探针数值验证）：
+   * - `or`：从 routeRect(0,0,w,h) 起，依次并入 path、各主 Shape、各子元素的 z，
+   *   最终 `union` 只取尺寸（x,y 归 0），link.position = routeBounds 原点 + or.origin。
+   * - `qf[i]`：与「可见元素顺序（path 单独在最前）」一一对应的 z 矩形（route-local），
+   *   arrange 时按同一顺序消费，child.actualBounds = z − or.origin。
+   * - 子元素锚点三分支：segmentIndex 为 NaN → 几何分数点；越界（含默认 -Infinity）→
+   *   路线中点；否则 → 点列线段插值。锚点均为 route-local（doc − routeBounds 原点）。
+   */
+  private _measureLink(_availW: number, _availH: number): void {
+    const panel: any = this;
+    const host: any =
+      typeof panel.updateRoute === 'function'
+        ? panel
+        : panel.adornedPart !== undefined ? panel.adornedPart : null;
+    // 官方：t 不是 Link/Adornment、或取不到 Link 时直接 return（union 保持 (0,0,0,0)）
+    if (host === null || host === undefined || typeof host.routeBounds !== 'object') return;
 
-    for (const elem of this._elements) {
-      if (!elem.visible) continue;
-      elem._measure(Infinity, Infinity);
-    }
+    const els = this._elements; // 官方 s = this.E.h（**全部**元素，含不可见）
+    if (els.length === 0) return; // 官方 l===0 分支
 
-    const link = this as any;
-    const points: List<Point> | undefined = link.points;
+    const isAdorn = host !== panel;
+    const pathEl: Shape | null = isAdorn ? null : (panel.path as Shape | null);
 
-    if (points && points.count >= 2) {
-      let minX = Infinity;
-      let minY = Infinity;
-      let maxX = -Infinity;
-      let maxY = -Infinity;
-      const it = points.iterator;
-      while (it.next()) {
-        const p = it.value;
-        minX = Math.min(minX, p.x);
-        minY = Math.min(minY, p.y);
-        maxX = Math.max(maxX, p.x);
-        maxY = Math.max(maxY, p.y);
-      }
-      this._unionRect.setTo(0, 0, maxX - minX, maxY - minY);
-
-      // 官方把「画线」的主图元 measured 尺寸设为 (路线长, 线宽)，并让它在起点前
-      // 留出半个线宽。缺这一步时主图元保持默认 1×1（加描边后 2×2），
-      // link 的 naturalBounds 塌缩成箭头大小，包围盒与官方差一大截。
-      const main = this._findLinkMainElement();
-      if (main) {
-        const sw = main.strokeWidth > 0 ? main.strokeWidth : 0;
-        const len = maxX - minX;
-        if (sw > 0 && len > 0) {
-          main._measuredBounds = new Rect(-sw / 2, -sw / 2, len, sw);
-        }
-      }
-
-      // 官方 natural bounds 是「路线范围 ∪ 各子图元 measured 尺寸」的并集：
-      // 箭头(measured = natural×scale)比路线高，缺了它 link 只有一条零高度线。
-      for (const elem of this._elements) {
-        if (!elem.visible) continue;
-        const mb = elem.measuredBounds;
-        if (!mb || !(mb.width > 0) || !(mb.height > 0)) continue;
-        if (mb.width > this._unionRect.width) this._unionRect.width = mb.width;
-        if (mb.height > this._unionRect.height) this._unionRect.height = mb.height;
-      }
-    } else {
-      this._unionRect.setTo(0, 0, 1, 1);
-    }
-  }
-
-  private _arrangeLink(bounds: Rect): void {
-    const link = this as any;
-    const points: List<Point> | undefined = link.points;
-
-    if (!points || points.count < 2) {
-      for (const elem of this._elements) {
-        if (!elem.visible) continue;
-        const mb = elem.measuredBounds;
-        elem._arrange(new Rect(0, 0, mb.width, mb.height));
-      }
-      return;
-    }
-
-    const pts = points.toArray();
-
-    let minX = Infinity;
-    let minY = Infinity;
-    for (const p of pts) {
-      minX = Math.min(minX, p.x);
-      minY = Math.min(minY, p.y);
-    }
-
-    const segLengths: number[] = [];
-    let totalLength = 0;
-    for (let i = 0; i < pts.length - 1; i++) {
-      const len = Math.sqrt(pts[i].distanceSquaredPoint(pts[i + 1]));
-      segLengths.push(len);
-      totalLength += len;
-    }
-
-    let mainElement: GraphObject | null = null;
-    let foundPanelMain = false;
-    for (const elem of this._elements) {
-      if (!elem.visible) continue;
-      if (elem.isPanelMain) {
-        mainElement = elem;
-        foundPanelMain = true;
-        break;
-      }
-    }
-    if (!foundPanelMain) {
-      for (const elem of this._elements) {
-        if (!elem.visible) continue;
-        if ('fill' in elem && 'stroke' in elem) {
-          mainElement = elem;
-          break;
+    try { host.updateRoute(); } catch { /* 无端口/未入图时按空路线处理 */ }
+    // 官方 h.CN()/a.CN()：重建 link 几何并同步给各主 Shape
+    try {
+      if (typeof host._syncGeometryToMainShapes === 'function') host._syncGeometryToMainShapes();
+    } catch { /* ignore */ }
+    if (isAdorn) {
+      const geo = (host as any).geometry;
+      if (geo) {
+        for (const e of this._elements) {
+          if ((e as any).isPanelMain && e instanceof Shape) (e as any)._geometry = geo;
         }
       }
     }
 
-    for (const elem of this._elements) {
-      if (!elem.visible) continue;
+    const u: Rect = host.routeBounds;
+    const d = new Rect(0, 0, u.width, u.height);
+    this._linkOrRect = d;
+    const qf: Rect[] = [];
+    this._linkQfRects = qf;
 
-      if (elem === mainElement) {
-        elem._arrange(new Rect(0, 0, bounds.width, bounds.height));
+    const p = u.width;
+    const y = u.height;
+    if (pathEl !== null) {
+      this._measureLinkPath(pathEl, host, p, y);
+      const P = pathEl.measuredBounds;
+      d.unionRect(P);
+      qf.push(P.copy());
+    }
+
+    const g: number = host.pointsCount;
+    const pts: List<Point> = host.points;
+    const mid = new Point();
+    for (const A of els) {
+      if (A === pathEl) continue;
+      if ((A as any).isPanelMain && A instanceof Shape) {
+        this._measureLinkPath(A, host, p, y);
+        const P = A.measuredBounds;
+        d.unionRect(P);
+        qf.push(P.copy());
+        continue;
+      }
+      if (g < 2) {
+        A._measure(Infinity, Infinity, 0, 0);
+        const P = A.measuredBounds;
+        d.unionRect(P);
+        qf.push(P.copy());
         continue;
       }
 
-      const mb = elem.measuredBounds;
-      const segIndex = elem.segmentIndex;
-      const segFraction = elem.segmentFraction;
-      const segOffset = elem.segmentOffset;
-      const segOrientation = elem.segmentOrientation;
-
-      let basePos: Point;
-      let segAngle: number;
-
-      if (isNaN(segIndex)) {
-        if (totalLength > 0) {
-          const targetDist = segFraction * totalLength;
-          basePos = this._getPointAtDistance(pts, segLengths, targetDist);
-          segAngle = this._getAngleAtDistance(pts, segLengths, targetDist);
+      const M = A.segmentIndex;
+      const C = A.segmentFraction;
+      let T = A.alignmentFocus;
+      if (T === null || T === undefined || T.isNoSpot()) T = Spot.Center;
+      const code: number =
+        typeof host.constructor.orientationCode === 'function'
+          ? host.constructor.orientationCode(A.segmentOrientation)
+          : typeof A.segmentOrientation === 'number' ? A.segmentOrientation : 0;
+      const D = A.segmentOffset;
+      let F = 0;
+      let R = 0;
+      let O = 0;
+      if (isNaN(M)) {
+        // 官方：几何上的分数点（几何原点即 route-local，故不再减 u）
+        const q = host.geometry.getPointAndAngleAlongPath(C);
+        O = q[2];
+        F = q[0];
+        R = q[1];
+      } else if (M < -g || M >= g) {
+        // 默认 segmentIndex = -Infinity 落这里：路线中点（doc → 减 u 转 route-local）
+        host.computeMidPoint(mid);
+        O = host.midAngle;
+        F = mid.x - u.x;
+        R = mid.y - u.y;
+      } else {
+        let q: Point;
+        let Q: Point;
+        let J = 0;
+        if (M >= 0) {
+          q = pts.elt(M);
+          Q = M < g - 1 ? pts.elt(M + 1) : q;
         } else {
-          basePos = pts[0].copy();
-          segAngle = 0;
+          J = g + M;
+          q = pts.elt(J);
+          Q = J > 0 ? pts.elt(J - 1) : q;
+        }
+        if (q.equalsApprox(Q)) {
+          let tt: Point;
+          let V: Point;
+          if (M >= 0) {
+            tt = M > 0 ? pts.elt(M - 1) : q;
+            V = M < g - 2 ? pts.elt(M + 2) : Q;
+          } else {
+            tt = J < g - 1 ? pts.elt(J + 1) : q;
+            V = J > 1 ? pts.elt(J - 2) : Q;
+          }
+          const E = tt.distanceSquaredPoint(q);
+          const W = Q.distanceSquaredPoint(V);
+          if (E > W + 10) O = M >= 0 ? tt.directionPoint(q) : q.directionPoint(tt);
+          else if (W > E + 10) O = M >= 0 ? Q.directionPoint(V) : V.directionPoint(Q);
+          else O = M >= 0 ? tt.directionPoint(V) : V.directionPoint(tt);
+        } else {
+          O = M >= 0 ? q.directionPoint(Q) : Q.directionPoint(q);
+        }
+        F = q.x + (Q.x - q.x) * C - u.x;
+        R = q.y + (Q.y - q.y) * C - u.y;
+      }
+
+      if (code !== 0) {
+        // 官方 A.jt = I（直写 angle 字段；须在 yt 之前，po 要用新 angle）
+        (A as any)._angle = host.computeAngle(0, A.segmentOrientation as any, O);
+      }
+      A._measure(Infinity, Infinity, 0, 0);
+
+      const N = A.measuredBounds;
+      const X = A.naturalBounds;
+      let Y = 0;
+      if (A instanceof Shape) Y = (A as Shape).strokeWidth;
+      const B = X.width + Y;
+      const K = X.height + Y;
+
+      // 官方 b：绕 (B/2,K/2) 旋转 (L===0 ? A.angle : O) + 各 Orientation 修正角
+      const mainAng = code === 0 ? A.angle : O;
+      let extra = 0;
+      if (code === 22 || code === 26) extra = 90;
+      else if (code === 23 || code === 27) extra = -90;
+      else if (code === 28 && ((O > 45 && O < 135) || (O > 225 && O < 315))) extra = -O;
+
+      const S0 = new Point();
+      S0.setRectSpot(new Rect(0, 0, B, K), T);
+      const S = Panel._linkXf(S0.x, S0.y, B / 2, K / 2, mainAng + extra, A.scale, -N.x, -N.y);
+      const H = -S.x + (Y / 2) * A.scale;
+      const v = -S.y + (Y / 2) * A.scale;
+
+      // segmentOffset（官方默认 (0,0) → rotate 无效；NaN 分支按官方转录）
+      const k = new Point(D.x, D.y);
+      const jx = isNaN(D.x);
+      const jy = isNaN(D.y);
+      if (jx || jy) {
+        const yS: number = (host.constructor as any)._yS !== undefined ? (host.constructor as any)._yS : 3;
+        const q2 = B / 2 + yS;
+        const Q2 = K / 2 + yS;
+        const Jd = O >= 45 && O <= 135;
+        const td = O >= 225 && O <= 315;
+        const fracCond = M >= 0 || (isNaN(M) && C < 0.5);
+        if (code === 0 && (Jd || td)) {
+          k.x = jy ? q2 : D.y;
+          k.y = jx ? Q2 : D.x;
+          if (Jd) {
+            if (!fracCond && jx) k.y = -Q2;
+          } else {
+            if (fracCond && jx) k.y = -Q2;
+            if (jy) k.x = -q2;
+          }
+        } else {
+          if (jx) k.x = fracCond ? q2 : -q2;
+          if (jy) k.y = -Q2;
+          k.rotate(O);
         }
       } else {
-        const idx = segIndex < 0 ? pts.length - 1 + segIndex : segIndex;
-        const clampedIdx = Math.max(0, Math.min(idx, pts.length - 2));
-        const startPt = pts[clampedIdx];
-        const endPt = pts[clampedIdx + 1];
-        basePos = Point.lerp(startPt, endPt, segFraction);
-        segAngle = startPt.directionPoint(endPt);
+        k.rotate(O);
       }
 
-      basePos = new Point(basePos.x - minX, basePos.y - minY);
+      F += k.x;
+      R += k.y;
+      const z = new Rect(F + H, R + v, N.width, N.height);
+      qf.push(z);
+      d.unionRect(z);
+    }
 
-      const offsetX = isNaN(segOffset.x) ? 0 : segOffset.x;
-      const offsetY = isNaN(segOffset.y) ? 0 : segOffset.y;
-      basePos = new Point(basePos.x + offsetX, basePos.y + offsetY);
-
-      let rotationAngle = 0;
-      if (segOrientation === SegmentOrientationAlong || segOrientation === SegmentOrientationParallel) {
-        rotationAngle = segAngle;
-      } else if (segOrientation === SegmentOrientationOpposite) {
-        rotationAngle = segAngle + 180;
-      } else if (segOrientation === SegmentOrientationPerpendicular) {
-        rotationAngle = segAngle + 90;
-      } else if (segOrientation === SegmentOrientationOrthogonal) {
-        rotationAngle = Math.round(segAngle / 90) * 90;
+    // 官方 labelNodes：只测量，不并入 union
+    try {
+      const it = host.labelNodes;
+      if (it) {
+        while (it.next()) {
+          const nd: any = it.value;
+          if (nd && typeof nd._measure === 'function') nd._measure(Infinity, Infinity);
+        }
       }
+    } catch { /* ignore */ }
 
-      elem._arrange(new Rect(
-        basePos.x - mb.width / 2,
-        basePos.y - mb.height / 2,
-        mb.width,
-        mb.height
-      ));
+    // 官方收尾：t.or=d；t.position = u.origin + d.origin；union 只取尺寸（x,y 保持 0）
+    const pos = panel.position;
+    if (pos) {
+      pos.x = u.x + d.x;
+      pos.y = u.y + d.y;
+    }
+    this._unionRect.setTo(0, 0, d.width || 0, d.height || 0);
+  }
 
-      if (rotationAngle !== 0) {
-        elem.angle = rotationAngle;
+  /** 官方 `PanelLayoutLink.measureLinkPath(t, w, h, s)`：po(measuredBounds) + p3(naturalBounds) */
+  private _measureLinkPath(shape: any, host: any, routeW: number, routeH: number): void {
+    const sc: number = shape.scale !== undefined && shape.scale !== null ? shape.scale : 1;
+    const n: number = (shape.strokeWidth || 0) * sc;
+    const geo = host && host.geometry ? host.geometry : null;
+    if (geo) {
+      const o = geo.bounds;
+      this._linkPo(shape, o.x - n / 2, o.y - n / 2, o.width + n, o.height + n);
+    } else {
+      this._linkPo(shape, -n / 2, -n / 2, routeW + n, routeH + n);
+    }
+    // 官方尾部 s.p3()：naturalBounds = (desiredSize 实值 ? desiredSize : geometry.bounds)
+    const ds = shape._desiredSize;
+    const sgeo = shape._geometry;
+    if (ds && !ds.isReal() && sgeo) {
+      shape._naturalBounds = sgeo.bounds.copy();
+    } else {
+      shape._naturalBounds = new Rect(0, 0, ds ? ds.width : 0, ds ? ds.height : 0);
+    }
+  }
+
+  /** 官方 `GraphObject.po(x,y,w,h)`：设 measuredBounds；scale/angle 非恒等时取变换后的轴对齐包围盒 */
+  private _linkPo(shape: any, x: number, y: number, w: number, h: number): void {
+    const sc: number = shape.scale;
+    const ang: number = shape.angle;
+    if (sc === 1 && (isNaN(ang) || ang === 0)) {
+      shape._measuredBounds = new Rect(x, y, w, h);
+      return;
+    }
+    const cx = x + w / 2;
+    const cy = y + h / 2;
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    const corners: number[][] = [[x, y], [x + w, y], [x, y + h], [x + w, y + h]];
+    for (const c of corners) {
+      const p = Panel._linkXf(c[0], c[1], cx, cy, ang, sc, 0, 0);
+      if (p.x < minX) minX = p.x;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.y > maxY) maxY = p.y;
+    }
+    shape._measuredBounds = new Rect(minX, minY, maxX - minX, maxY - minY);
+  }
+
+  /**
+   * 官方 Transform 链（所有 op 都是后乘，点按调用逆序受作用）：
+   * `Zs(-N.x,-N.y)` → `lt(sc)` → `Ns(a1,cx,cy)` → `Ns(a2,cx,cy)`
+   * 即点先绕 (cx,cy) 旋转（两个同中心旋转可合成 a1+a2），再按 sc 缩放（绕原点），最后平移。
+   */
+  private static _linkXf(x: number, y: number, cx: number, cy: number, ang: number, sc: number, dx: number, dy: number): Point {
+    let a = ang;
+    if (a >= 360) a -= 360;
+    else if (a < 0) a += 360;
+    let cos = 1;
+    let sin = 0;
+    if (a === 90) { cos = 0; sin = 1; }
+    else if (a === 180) { cos = -1; sin = 0; }
+    else if (a === 270) { cos = 0; sin = -1; }
+    else if (a !== 0) {
+      const r = (a * Math.PI) / 180;
+      cos = Math.cos(r);
+      sin = Math.sin(r);
+    }
+    const px = x - cx;
+    const py = y - cy;
+    const rx = px * cos - py * sin + cx;
+    const ry = px * sin + py * cos + cy;
+    return new Point(rx * sc + dx, ry * sc + dy);
+  }
+
+  /**
+   * 官方 `PanelLayoutLink.arrange(t, i, e)`：按 measure 存下的 `qf` 顺序，
+   * child.actualBounds = z − or.origin（不再重算锚点/角度）；
+   * 收尾把 `t.location` 同步为 position + WD 偏移。
+   */
+  private _arrangeLink(_bounds: Rect): void {
+    const panel: any = this;
+    const qf = this._linkQfRects;
+    const or = this._linkOrRect;
+    const host: any =
+      typeof panel.updateRoute === 'function'
+        ? panel
+        : panel.adornedPart !== undefined ? panel.adornedPart : null;
+    const pathEl: Shape | null =
+      host !== null && host !== undefined && host === panel ? (panel.path as Shape | null) : null;
+
+    if (qf !== null && or !== null && qf.length !== 0) {
+      let idx = 0;
+      if (pathEl !== null && idx < qf.length) {
+        const r = qf[idx++];
+        pathEl._arrange(new Rect(r.x - or.x, r.y - or.y, r.width, r.height));
+      }
+      for (const m of this._elements) {
+        if (m === pathEl) continue;
+        if (idx >= qf.length) break;
+        const r = qf[idx++];
+        m._arrange(new Rect(r.x - or.x, r.y - or.y, r.width, r.height));
+      }
+    } else {
+      for (const m of this._elements) {
+        const mb = m.measuredBounds;
+        m._arrange(new Rect(0, 0, mb.width, mb.height));
+      }
+    }
+
+    // 官方：t.location.e(t.position.x + WD.x, t.position.y + WD.y)
+    const pos = panel.position;
+    if (pos && !isNaN(pos.x) && !isNaN(pos.y) && typeof panel._locationOffset === 'function') {
+      const off = panel._locationOffset();
+      const loc = panel._location;
+      if (loc) {
+        loc.x = pos.x + off.x;
+        loc.y = pos.y + off.y;
       }
     }
   }

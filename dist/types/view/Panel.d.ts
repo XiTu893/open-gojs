@@ -25,6 +25,10 @@ export declare class Panel extends GraphObject {
     private _originX;
     private _originY;
     private _unionRect;
+    /** 官方 `PanelLayoutLink.or`：measure 算出的 route-local 并集帧（子元素 z 都相对它） */
+    private _linkOrRect;
+    /** 官方 `PanelLayoutLink.qf`：measure 时按固定顺序存下的子元素 z 矩形，arrange 按序消费 */
+    private _linkQfRects;
     private _defaultColumnSeparatorStroke;
     private _defaultColumnSeparatorStrokeWidth;
     private _defaultRowSeparatorStroke;
@@ -250,7 +254,33 @@ export declare class Panel extends GraphObject {
     private _arrangeGraduated;
     /** 取 link 里「画线」的主图元：优先 isPanelMain，否则第一个同时有 fill/stroke 的 Shape */
     private _findLinkMainElement;
+    /**
+     * 官方 `PanelLayoutLink.measure(t, i, e, s, n, o, r)`（go-debug.js 全文解码）。
+     *
+     * 帧约定（已用官方探针数值验证）：
+     * - `or`：从 routeRect(0,0,w,h) 起，依次并入 path、各主 Shape、各子元素的 z，
+     *   最终 `union` 只取尺寸（x,y 归 0），link.position = routeBounds 原点 + or.origin。
+     * - `qf[i]`：与「可见元素顺序（path 单独在最前）」一一对应的 z 矩形（route-local），
+     *   arrange 时按同一顺序消费，child.actualBounds = z − or.origin。
+     * - 子元素锚点三分支：segmentIndex 为 NaN → 几何分数点；越界（含默认 -Infinity）→
+     *   路线中点；否则 → 点列线段插值。锚点均为 route-local（doc − routeBounds 原点）。
+     */
     private _measureLink;
+    /** 官方 `PanelLayoutLink.measureLinkPath(t, w, h, s)`：po(measuredBounds) + p3(naturalBounds) */
+    private _measureLinkPath;
+    /** 官方 `GraphObject.po(x,y,w,h)`：设 measuredBounds；scale/angle 非恒等时取变换后的轴对齐包围盒 */
+    private _linkPo;
+    /**
+     * 官方 Transform 链（所有 op 都是后乘，点按调用逆序受作用）：
+     * `Zs(-N.x,-N.y)` → `lt(sc)` → `Ns(a1,cx,cy)` → `Ns(a2,cx,cy)`
+     * 即点先绕 (cx,cy) 旋转（两个同中心旋转可合成 a1+a2），再按 sc 缩放（绕原点），最后平移。
+     */
+    private static _linkXf;
+    /**
+     * 官方 `PanelLayoutLink.arrange(t, i, e)`：按 measure 存下的 `qf` 顺序，
+     * child.actualBounds = z − or.origin（不再重算锚点/角度）；
+     * 收尾把 `t.location` 同步为 position + WD 偏移。
+     */
     private _arrangeLink;
     private _getPointAtDistance;
     private _getAngleAtDistance;

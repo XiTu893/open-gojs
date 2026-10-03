@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Rescaling by Dragging Handle</title>
+  <script src="../dist/open-gojs.umd.js"></script>
+  
+  <script src="https://cdn.jsdelivr.net/npm/gojs-extensions@latest/extensions/RescalingTool.js"></script>
+  
+  
+</head>
+<body>
+<div id="myDiagramDiv" style="border: solid 1px black; width: 100%; height: 400px"></div>
+  <div id="description">
+<p>
+    Selecting a node will show a rescaling handle that when dragged will modify the node's <a href="https://gojs.net/latest/api/symbols/GraphObject.html#scale" target="api">GraphObject.scale</a>
+    property.
+  </p>
+  <p>
+    Just as the <a href="https://gojs.net/latest/api/symbols/ResizingTool.html" target="api">ResizingTool</a> changes the <a href="https://gojs.net/latest/api/symbols/GraphObject.html#desiredsize" target="api">GraphObject.desiredSize</a> of an object, and just as the <a href="https://gojs.net/latest/api/symbols/RotatingTool.html" target="api">RotatingTool</a> changes the
+    <a href="https://gojs.net/latest/api/symbols/GraphObject.html#angle" target="api">GraphObject.angle</a> of an object, the <a href="https://gojs.net/latest/api/symbols/RescalingTool.html" target="api">RescalingTool</a> changes the <a href="https://gojs.net/latest/api/symbols/GraphObject.html#scale" target="api">GraphObject.scale</a> of an object.
+  </p>
+  <p>This extension tool is defined in its own file, as <a href="https://gojs.net/latest/extensions/RescalingTool.js">RescalingTool.js</a>.</p>
+  </div>
+  <script >
+function init() {
+
+    myDiagram = new go.Diagram('myDiagramDiv', {
+      'undoManager.isEnabled': true, // enable undo & redo
+      layout: new go.TreeLayout()
+    });
+
+    // install the RescalingTool as a mouse-down tool
+    myDiagram.toolManager.mouseDownTools.add(new RescalingTool());
+
+    myDiagram.nodeTemplate =
+      new go.Node('Auto')
+        .bindTwoWay('scale')
+        .add(
+          new go.Shape('RoundedRectangle', { strokeWidth: 0 })
+            .bind('fill', 'color'),
+          new go.TextBlock({ margin: 8 })
+            .bind('text')
+        );
+
+    // but use the default Link template, by not setting Diagram.linkTemplate
+
+    // create the model data that will be represented by Nodes and Links
+    myDiagram.model = new go.GraphLinksModel({
+      nodeDataArray: [
+        { key: 1, text: 'Alpha', color: 'lightblue' },
+        { key: 2, text: 'Beta', color: 'orange' },
+        { key: 3, text: 'Gamma', color: 'lightgreen' },
+        { key: 4, text: 'Delta', color: 'pink' }
+      ],
+      linkDataArray: [
+        { from: 1, to: 2 },
+        { from: 1, to: 3 },
+        { from: 3, to: 4 }
+      ]
+  });
+  }
+
+  window.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>

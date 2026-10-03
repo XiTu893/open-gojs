@@ -488,6 +488,35 @@ var TextEditingStartingDoubleClick = new EnumValue('DoubleClick');
 // ============ WheelMode ============
 var WheelModeScroll = new EnumValue('Scroll');
 var WheelModeNone = new EnumValue('None');
+// ============ 官方枚举命名空间 ============
+// 官方 go.js 里 SegmentType / GeometryType / GeometryStretch 是「枚举值组成的对象」
+// （`go.SegmentType.Line` 等）。它们放在这里而不是 index.ts，
+// 是为了让 src/figures/Figures.generated.ts（官方 extensions/Figures.js 的移植产物）
+// 能直接使用而不反向依赖 index.ts 形成循环引用。
+/** 官方 SegmentType = {Move, Line, Bezier, QuadraticBezier, Arc, SvgArc}。
+ * 本项目 PathSegment 内部的 MoveTo / Close 常量仍导出，但不进该命名空间。
+ * Bezier/Move 直接映射到内部的 CubicBezier/MoveTo，使官方代码创建的三次贝塞尔
+ * 与移动段能被所有内部绘制/序列化逻辑按 'CubicBezier'/'MoveTo' 处理。 */
+var SegmentType = {
+    Move: PathSegmentMoveTo,
+    Line: PathSegmentLine,
+    Bezier: PathSegmentCubicBezier,
+    QuadraticBezier: PathSegmentQuadraticBezier,
+    Arc: PathSegmentArc,
+    SvgArc: SegmentTypeSvgArc,
+};
+var GeometryStretch = {
+    None: GeometryStretchNone,
+    Default: GeometryStretchDefault,
+    Fill: GeometryStretchFill,
+    Uniform: GeometryStretchUniform,
+};
+var GeometryType = {
+    Line: GeometryTypeLine,
+    Rectangle: GeometryTypeRectangle,
+    Ellipse: GeometryTypeEllipse,
+    Path: GeometryTypePath,
+};
 
 /**
  * 阶段 3 —— 官方命名空间枚举对象。
@@ -4452,6 +4481,8 @@ var PathSegment = /** @class */ (function () {
         this.type = type;
         this.endX = endX;
         this.endY = endY;
+        this.arcEndX = NaN;
+        this.arcEndY = NaN;
         this.x1 = x1;
         this.y1 = y1;
         this.x2 = x2;
@@ -4470,22 +4501,57 @@ var PathSegment = /** @class */ (function () {
         // 官方 Arc 段的「按角度」构造形式：
         //   new PathSegment(SegmentType.Arc, startAngle, sweepAngle, centerX, centerY, radiusX, radiusY)
         // 本项目内部的 SVG 弧走 PathSegment.Arc() 静态方法（只传 endX/endY，x1..y2 保持 NaN），
-        // 因此「x1/y1/x2/y2 均为有限数」即可无歧义地识别官方形式。
+        // 因此识别条件放在 x2 上（见下方判断）。
+        // 官方构造器把可选数值参数一律缺省为 0，所以 6 参形式
+        // `new PathSegment(SegmentType.Arc, a0, sweep, cx, cy, rx)` 的 radiusY 就是 0（不是 NaN）。
+        // 因此识别条件放在 x2 上：给了 x2 就是「按角度」形式；PathSegment.Arc() 静态方法
+        // 只传 endX/endY，x1..y2 全为 NaN，仍走 SVG 弧分支。
         if (type === PathSegmentArc &&
-            !isNaN(x1) && !isNaN(y1) && !isNaN(x2) && !isNaN(y2)) {
+            !isNaN(x1) && !isNaN(y1) && !isNaN(x2)) {
             this.startAngle = endX;
             this.sweepAngle = endY;
             this.centerX = x1;
             this.centerY = y1;
             this.radiusX = x2;
-            this.radiusY = y2;
-            // endX/endY 置为弧的终点，便于沿路径推进与求包围盒
-            (this.startAngle * Math.PI) / 180;
+            this.radiusY = isNaN(y2) ? 0 : y2; // 官方缺省为 0
+            if (isNaN(y2))
+                this.y2 = 0; // 同上：point2Y 也要与官方一致读到 0
+            // 官方在 endX/endY 里存的就是 startAngle/sweepAngle（不是几何终点）——
+            // 它的渲染器算圆弧只看 center/radius/startAngle/sweepAngle，Eo() 采样自己算终点。
+            // 我们额外存一份真实终点（arcEndX/arcEndY），供渲染器沿路径推进当前点。
             var a1 = ((this.startAngle + this.sweepAngle) * Math.PI) / 180;
-            this.endX = this.centerX + this.radiusX * Math.cos(a1);
-            this.endY = this.centerY + this.radiusY * Math.sin(a1);
+            this.arcEndX = this.centerX + this.radiusX * Math.cos(a1);
+            this.arcEndY = this.centerY + this.radiusY * Math.sin(a1);
         }
     }
+    Object.defineProperty(PathSegment.prototype, "point1X", {
+        /** 官方命名：第一个控制点 X（内部存储字段为 x1） */
+        get: function () { return this.x1; },
+        set: function (val) { this.x1 = val; },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(PathSegment.prototype, "point1Y", {
+        /** 官方命名：第一个控制点 Y（内部存储字段为 y1） */
+        get: function () { return this.y1; },
+        set: function (val) { this.y1 = val; },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(PathSegment.prototype, "point2X", {
+        /** 官方命名：第二个控制点 X（内部存储字段为 x2） */
+        get: function () { return this.x2; },
+        set: function (val) { this.x2 = val; },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(PathSegment.prototype, "point2Y", {
+        /** 官方命名：第二个控制点 Y（内部存储字段为 y2） */
+        get: function () { return this.y2; },
+        set: function (val) { this.y2 = val; },
+        enumerable: false,
+        configurable: true
+    });
     PathSegment.prototype.copy = function () {
         var seg = new PathSegment(this.type, this.endX, this.endY, this.x1, this.y1, this.x2, this.y2);
         seg.isClosed = this.isClosed;
@@ -4498,6 +4564,8 @@ var PathSegment = /** @class */ (function () {
         seg.sweepAngle = this.sweepAngle;
         seg.centerX = this.centerX;
         seg.centerY = this.centerY;
+        seg.arcEndX = this.arcEndX;
+        seg.arcEndY = this.arcEndY;
         seg.isRelative = this.isRelative;
         return seg;
     };
@@ -4603,12 +4671,21 @@ var Geometry = /** @class */ (function () {
         this.fillRule = 'evenodd';
         /** 图形名称（用于 figure 属性） */
         this.name = '';
-        /** Auto 面板内容定位用的左上锚点（官方 geometry.spot1） */
-        this.spot1 = null;
-        /** Auto 面板内容定位用的右下锚点（官方 geometry.spot2） */
-        this.spot2 = null;
+        /** Auto 面板内容定位用的左上锚点（官方 geometry.spot1）。
+         *  官方 Geometry 构造即默认 Spot.TopLeft.copy()，这里保持一致。 */
+        this.spot1 = new Spot(0, 0, 0, 0);
+        /** Auto 面板内容定位用的右下锚点（官方 geometry.spot2），官方默认 Spot.BottomRight.copy()。 */
+        this.spot2 = new Spot(1, 1, 0, 0);
         /** 官方 geometry.defaultStretch（0=None 2=Fill 4=Vertical 5=Horizontal 6=Uniform），默认 Fill */
         this.defaultStretch = 2;
+        /** 官方 geometry 记录的图形生成尺寸（Shape 生成图形几何时写入 width/height）。
+         *  包围盒至少要覆盖 (0,0,width,height) 这个原始盒子 —— 官方 computeBounds 就是这么做的：
+         *  先用 (0,0,width,height) 起步再并入实际路径。
+         *  少了这一步，DataStorage 这类「原始路径比盒子窄」的图形会被按窄包围盒横向拉伸，
+         *  拐角处出现尖刺。 */
+        this.width = NaN;
+        /** 同 width：图形生成时的高度 */
+        this.height = NaN;
         // ============ 官方 Geometry API 对齐（阶段 5） ============
         /** 官方 GeometryType（本项目用 EnumValue 而非数值，成员集合一致） */
         this._type = GeometryTypePath;
@@ -4711,6 +4788,12 @@ var Geometry = /** @class */ (function () {
         this._bounds = null;
         return this;
     };
+    /** 记录图形生成尺寸（官方 `Shape` 图形几何入口的做法），并作废已缓存的包围盒。 */
+    Geometry.prototype.setSize = function (w, h) {
+        this.width = w;
+        this.height = h;
+        this._bounds = null;
+    };
     Object.defineProperty(Geometry.prototype, "bounds", {
         /** 获取边界矩形 */
         get: function () {
@@ -4725,6 +4808,12 @@ var Geometry = /** @class */ (function () {
     /** 计算边界矩形 */
     Geometry.prototype.computeBounds = function () {
         var acc = [Infinity, Infinity, -Infinity, -Infinity];
+        if (!isNaN(this.width) && !isNaN(this.height)) {
+            acc[0] = 0;
+            acc[1] = 0;
+            acc[2] = this.width;
+            acc[3] = this.height;
+        }
         this._accumulatePathBounds(acc);
         if (!isFinite(acc[0])) {
             return new Rect(0, 0, 0, 0);
@@ -4762,30 +4851,28 @@ var Geometry = /** @class */ (function () {
                     if (!isNaN(seg.startAngle) && !isNaN(seg.centerX)) {
                         // 官方「按角度」圆弧：直接把弧覆盖到的椭圆外框并入包围盒
                         var rX = Math.abs(seg.radiusX);
-                        var rY = Math.abs(seg.radiusY === 0 ? seg.radiusX : seg.radiusY);
                         var cX = seg.centerX;
                         var cY = seg.centerY;
                         var a0 = seg.startAngle * Math.PI / 180;
-                        var sw = seg.sweepAngle || 0;
-                        var a1 = a0 + sw * Math.PI / 180;
-                        // 扫掠跨越的整象限极值角
-                        var lo = Math.min(a0, a1);
-                        var hi = Math.max(a0, a1);
-                        var kStart = Math.ceil((lo - Math.PI / 2) / Math.PI);
-                        var kEnd = Math.floor((hi - Math.PI / 2) / Math.PI);
-                        unionPoint(cX + rX * Math.cos(a0), cY + rY * Math.sin(a0));
-                        unionPoint(cX + rX * Math.cos(a1), cY + rY * Math.sin(a1));
-                        for (var k = kStart; k <= kEnd; k++) {
-                            var ang = k * Math.PI + Math.PI / 2;
-                            if (ang < lo || ang > hi)
+                        var swRad = (seg.sweepAngle || 0) * Math.PI / 180;
+                        var a1 = a0 + swRad;
+                        var rY2 = Math.abs(seg.radiusY === 0 ? seg.radiusX : seg.radiusY);
+                        unionPoint(cX + rX * Math.cos(a0), cY + rY2 * Math.sin(a0));
+                        unionPoint(cX + rX * Math.cos(a1), cY + rY2 * Math.sin(a1));
+                        // 椭圆弧的极值只可能出现在 0 / π/2 / π / 3π/2 四个角上（x 或 y 方向的极值）。
+                        // 以前这里只按 π 步长采 π/2 + kπ（只拿到上下极值），左右极值被漏掉，
+                        // 包围盒宽度算小 → 渲染时 geometry 被横向拉伸，圆形端头被压成平边。
+                        var TWO_PI = Math.PI * 2;
+                        var total = Math.abs(swRad);
+                        var dir = swRad >= 0 ? 1 : -1;
+                        var full = total >= TWO_PI - 1e-9;
+                        for (var e = 0; e < 4; e++) {
+                            var ang = (e * Math.PI) / 2;
+                            var d = (ang - a0) * dir;
+                            d = ((d % TWO_PI) + TWO_PI) % TWO_PI;
+                            if (!full && d > total + 1e-9)
                                 continue;
-                            unionPoint(cX + rX * Math.cos(ang), cY + rY * Math.sin(ang));
-                        }
-                        if (Math.abs(sw) >= 360 - 1e-9) {
-                            unionPoint(cX - rX, cY);
-                            unionPoint(cX, cY - rY);
-                            unionPoint(cX + rX, cY);
-                            unionPoint(cX, cY + rY);
+                            unionPoint(cX + rX * Math.cos(ang), cY + rY2 * Math.sin(ang));
                         }
                     }
                     else {
@@ -4912,6 +4999,11 @@ var Geometry = /** @class */ (function () {
         var geo = new Geometry();
         geo.fillRule = this.fillRule;
         geo.name = this.name;
+        geo.width = this.width;
+        geo.height = this.height;
+        geo.spot1 = this.spot1;
+        geo.spot2 = this.spot2;
+        geo.defaultStretch = this.defaultStretch;
         var it = this._figures.iterator;
         while (it.next()) {
             geo.add(it.value.copy());
@@ -8304,6 +8396,8 @@ var Binding = /** @class */ (function () {
         this.mode = Binding.OneWay;
         this.sourceObject = null;
         this.themeConverter = null;
+        this.themeSource = null;
+        this.isThemeBinding = false;
     }
     Object.defineProperty(Binding.prototype, "isTwoWay", {
         get: function () {
@@ -8345,25 +8439,19 @@ var Binding = /** @class */ (function () {
         return b;
     };
     Binding.prototype.getValueFromSource = function (data, targetObject, model) {
-        var value;
         if (this.isToTheme) {
-            // 官方 ThemeBinding：主题取值 → themeConverter → converter
-            var diagram = targetObject ? targetObject.diagram : null;
-            var tm = diagram ? diagram.themeManager : null;
-            value = tm ? tm.findValue(this.sourceProperty, null, this.targetProperty) : undefined;
-            if (value === undefined)
-                return undefined;
-            if (this.themeConverter)
-                value = this.themeConverter(value, targetObject, model);
-            if (this.conversion)
-                value = this.conversion(value, targetObject, model);
-            return value;
+            return this._getThemeValue(data, targetObject, model);
         }
-        else if (this.isFromModel) {
+        var value;
+        if (this.isFromModel) {
             value = model ? model.modelData[this.sourceProperty] : undefined;
         }
         else if (this.sourceObject !== null) {
-            value = undefined;
+            // 官方 ofObject：源是某个 GraphObject（sourceName 特殊值都指“绑定面板”本身）
+            var srcObj = this._findSourceObject(targetObject);
+            if (srcObj === null || srcObj === undefined)
+                return undefined;
+            value = this.sourceProperty === '' ? srcObj : srcObj[this.sourceProperty];
         }
         else {
             value = data ? (this.sourceProperty === '' ? data : data[this.sourceProperty]) : undefined;
@@ -8373,6 +8461,68 @@ var Binding = /** @class */ (function () {
             value = this.conversion(value, targetObject, model);
         }
         return value;
+    };
+    /**
+     * 官方 ThemeBinding 求值（GraphObject.qo - Binding.updateTarget - ThemeBinding.pv）：
+     *  - theme()（sourceObject === 'theme'，官方 PT 标志）：key 直接用 sourceProperty，
+     *    findValue 后接 themeConverter；
+     *  - themeObject()/themeData()/themeModel()：先按 source 求源值，源值 undefined 整段跳过，
+     *    再跑 converter 得到主题 key，findValue 后接 themeConverter。
+     */
+    Binding.prototype._getThemeValue = function (data, targetObject, model) {
+        var diagram = targetObject ? targetObject.diagram : null;
+        var tm = diagram ? diagram.themeManager : null;
+        if (!tm)
+            return undefined;
+        var key;
+        if (this.sourceObject === 'theme') {
+            key = this.sourceProperty;
+        }
+        else {
+            var srcObj = void 0;
+            if (this.sourceObject === null)
+                srcObj = data; // themeData：源 = data
+            else if (this.sourceObject === 'model')
+                srcObj = model ? model.modelData : undefined;
+            else
+                srcObj = this._findSourceObject(targetObject); // themeObject
+            if (srcObj === null || srcObj === undefined)
+                return undefined;
+            var v = this.sourceProperty === '' ? srcObj : srcObj[this.sourceProperty];
+            if (v === undefined)
+                return undefined;
+            if (this.conversion)
+                v = this.conversion(v, targetObject, model);
+            key = v;
+        }
+        var out = tm.findValue(key, this.themeSource, this.targetProperty);
+        if (out === undefined)
+            return undefined;
+        return this.themeConverter ? this.themeConverter(out, targetObject, model) : out;
+    };
+    /**
+     * 官方 GraphObject.CD(sourceName) + freezeBindings(Ut) 语义：
+     * 官方在模板冻结时把所有子对象的绑定收集进 part.Xs，求值时 RN/DD 的 `this`=part，
+     * 因此 sourceName='' → DD('')=this=**part**（实测官方 updateTarget 收到的源对象是 Node）。
+     * 官方 RN 末尾的覆盖：'/'→elt.part、'.'→elt、'..'→elt.panel；
+     * 本实现中绑定就挂在 elt（owner）上，故 ''/'/' 取 part、'.' 取自身、'..' 取所在面板。
+     * 具名对象从 part.findObject(name) 找。
+     */
+    Binding.prototype._findSourceObject = function (targetObject) {
+        var name = this.sourceObject;
+        if (name === '' || name === '/') {
+            var part_1 = targetObject ? (targetObject.part || null) : null;
+            return part_1 || targetObject || null;
+        }
+        if (name === '.')
+            return targetObject || null;
+        if (name === '..') {
+            return targetObject ? (targetObject.panel || targetObject.part || null) : null;
+        }
+        var part = targetObject ? targetObject.part : null;
+        if (part && typeof part.findObject === 'function')
+            return part.findObject(name);
+        return null;
     };
     Binding.prototype.getValueFromTarget = function (targetValue, data, model) {
         if (this.backConversion) {
@@ -8454,9 +8604,9 @@ var Binding = /** @class */ (function () {
         configurable: true
     });
     Object.defineProperty(Binding.prototype, "isToTheme", {
-        /** 官方 Binding.isToTheme：theme() 建立的主题绑定（sourceObject === 'theme'） */
+        /** 官方 Binding.isToTheme：theme/themeObject/themeData/themeModel 的主题绑定（flags&16） */
         get: function () {
-            return this.sourceObject === 'theme';
+            return this.isThemeBinding || this.sourceObject === 'theme';
         },
         enumerable: false,
         configurable: true
@@ -8470,6 +8620,8 @@ var Binding = /** @class */ (function () {
         copy.converter = this.converter;
         copy.backConverter = this.backConverter;
         copy.themeConverter = this.themeConverter;
+        copy.themeSource = this.themeSource;
+        copy.isThemeBinding = this.isThemeBinding;
         copy.mode = this.mode;
         copy.name = this.name;
     };
@@ -11392,7 +11544,7 @@ var GraphObject = /** @class */ (function () {
         this._pickable = true;
         this._isActionable = false;
         this._isPanelMain = false;
-        this._portId = '';
+        this._portId = null;
         this._contextMenu = null;
         this._toolTip = null;
         this._fromLinkable = false;
@@ -11405,13 +11557,20 @@ var GraphObject = /** @class */ (function () {
         this._toMaxLinks = Infinity;
         this._fromSpot = Spot.Default.copy();
         this._toSpot = Spot.Default.copy();
-        this._fromEndSegmentLength = 10;
-        this._toEndSegmentLength = 10;
-        this._fromShortLength = 0;
-        this._toShortLength = 0;
-        this._segmentIndex = NaN;
+        // 官方 LinkSettings/GraphObject 默认均为 NaN（回退链：link → port → 默认值）
+        this._fromEndSegmentLength = NaN;
+        this._toEndSegmentLength = NaN;
+        this._fromShortLength = NaN;
+        this._toShortLength = NaN;
+        /** 官方 `port.Vd`：side-spot 连线端口 Knot 缓存（见 LinkKnot.ts） */
+        this._knot = null;
+        // 官方 LinkElementSettings 默认：segmentIndex = -1/0（-Infinity）、
+        // segmentFraction = 0、segmentOffset = Point.kn = (0,0) 冻结点。
+        // segmentIndex=-Infinity 是「沿路径中点」语义（measure 走 computeMidPoint 分支），
+        // 早先的 NaN 默认会让 _arrangeLink 走「路径分数」分支，标签落点偏离官方。
+        this._segmentIndex = -Infinity;
         this._segmentFraction = 0;
-        this._segmentOffset = new Point(NaN, NaN);
+        this._segmentOffset = new Point(0, 0);
         this._segmentOrientation = SegmentOrientationNone;
         this._position = new Point(NaN, NaN);
         // ============ Event handlers ============
@@ -11779,11 +11938,27 @@ var GraphObject = /** @class */ (function () {
     Object.defineProperty(GraphObject.prototype, "portId", {
         get: function () { return this._portId; },
         set: function (val) {
+            if (this._portId === val)
+                return;
             this._portId = val;
+            // 官方 GraphObject.portIdChanged（tc）：端口 id 变更 → 失效该节点相连连线的 knot
+            var p = this._part;
+            if (p !== null && p !== undefined && typeof p.invalidateConnectedLinks === 'function') {
+                p.invalidateConnectedLinks(undefined, this);
+            }
         },
         enumerable: false,
         configurable: true
     });
+    /**
+     * 官方 `Node.ne(port)`：清空端口上的 side-spot knot 缓存。
+     * 由 Node.invalidateConnectedLinks / portId 变更 / link 端点变更触发。
+     */
+    GraphObject.prototype.invalidateConnectedLinksCache = function () {
+        if (this._knot !== null && this._knot !== undefined) {
+            this._knot.gg();
+        }
+    };
     Object.defineProperty(GraphObject.prototype, "contextMenu", {
         get: function () { return this._contextMenu; },
         set: function (val) { this._contextMenu = val; },
@@ -11917,9 +12092,11 @@ var GraphObject = /** @class */ (function () {
     Object.defineProperty(GraphObject.prototype, "segmentIndex", {
         get: function () { return this._segmentIndex; },
         set: function (val) {
-            if (this._segmentIndex === val)
+            // 官方 setter：t = Math.round(t)
+            var t = Math.round(val);
+            if (this._segmentIndex === t)
                 return;
-            this._segmentIndex = val;
+            this._segmentIndex = t;
         },
         enumerable: false,
         configurable: true
@@ -11927,9 +12104,15 @@ var GraphObject = /** @class */ (function () {
     Object.defineProperty(GraphObject.prototype, "segmentFraction", {
         get: function () { return this._segmentFraction; },
         set: function (val) {
-            if (this._segmentFraction === val)
+            // 官方 setter：t<0 → 0，t>1 → 1
+            var t = val;
+            if (t < 0)
+                t = 0;
+            else if (t > 1)
+                t = 1;
+            if (this._segmentFraction === t)
                 return;
-            this._segmentFraction = val;
+            this._segmentFraction = t;
         },
         enumerable: false,
         configurable: true
@@ -11951,6 +12134,9 @@ var GraphObject = /** @class */ (function () {
             if (this._segmentOrientation === val)
                 return;
             this._segmentOrientation = val;
+            // 官方 setter：t === Orientation.None(0) 时把 angle 归零
+            if (val === SegmentOrientationNone || val === OrientationNone || val === 0)
+                this.angle = 0;
         },
         enumerable: false,
         configurable: true
@@ -12126,29 +12312,47 @@ var GraphObject = /** @class */ (function () {
         this._bindings.push(binding);
         return this;
     };
-    /** 官方 GraphObject.theme(targetprop, sourceprop?, conv?, backconv?, themeconv?)：主题绑定（ThemeBinding） */
-    GraphObject.prototype.theme = function (targetProperty, sourceProperty, conversion, backConversion, themeConverter) {
-        var binding = new Binding(targetProperty, sourceProperty || targetProperty, conversion);
+    /**
+     * 官方 GraphObject.theme(targetprop, sourceprop?, themesource?, conv?, themeconv?)。
+     * 官方第 3 参是 themeSource、第 4 参才是 converter —— 旧签名把 converter 放在第 3 位，
+     * flowchart 的 .themeObject('stroke','isSelected',null,fn) 因此把 fn 当成了 sourceName，
+     * 描边永远停在默认黑色。
+     */
+    GraphObject.prototype.theme = function (targetProperty, sourceProperty, themeSource, converter, themeConverter) {
+        var binding = new Binding(targetProperty, sourceProperty || targetProperty, converter);
+        binding.isThemeBinding = true;
         binding.sourceObject = 'theme';
+        binding.themeSource = themeSource !== null && themeSource !== void 0 ? themeSource : null;
         binding.themeConverter = themeConverter || null;
         this._bindings.push(binding);
         return this;
     };
-    GraphObject.prototype.themeData = function (targetProperty, sourceProperty, conversion) {
-        var binding = new Binding(targetProperty, sourceProperty || targetProperty, conversion);
+    /** 官方 themeData：ofData —— 源是 part.data（旧版误设成 modelData） */
+    GraphObject.prototype.themeData = function (targetProperty, sourceProperty, themeSource, converter, themeConverter) {
+        var binding = new Binding(targetProperty, sourceProperty || targetProperty, converter);
+        binding.isThemeBinding = true;
+        binding.sourceObject = null;
+        binding.themeSource = themeSource !== null && themeSource !== void 0 ? themeSource : null;
+        binding.themeConverter = themeConverter || null;
+        this._bindings.push(binding);
+        return this;
+    };
+    GraphObject.prototype.themeModel = function (targetProperty, sourceProperty, themeSource, converter, themeConverter) {
+        var binding = new Binding(targetProperty, sourceProperty || targetProperty, converter);
+        binding.isThemeBinding = true;
         binding.sourceObject = 'model';
+        binding.themeSource = themeSource !== null && themeSource !== void 0 ? themeSource : null;
+        binding.themeConverter = themeConverter || null;
         this._bindings.push(binding);
         return this;
     };
-    GraphObject.prototype.themeModel = function (targetProperty, sourceProperty, conversion) {
-        var binding = new Binding(targetProperty, sourceProperty || targetProperty, conversion);
-        binding.sourceObject = 'themeModel';
-        this._bindings.push(binding);
-        return this;
-    };
-    GraphObject.prototype.themeObject = function (targetProperty, sourceProperty, conversion, objectname) {
-        var binding = new Binding(targetProperty, sourceProperty || targetProperty, conversion);
-        binding.sourceObject = objectname || '';
+    /** 官方 themeObject：源是“绑定面板”（sourceName 默认 ''）上的属性 */
+    GraphObject.prototype.themeObject = function (targetProperty, sourceProperty, themeSource, converter, themeConverter, sourceName) {
+        var binding = new Binding(targetProperty, sourceProperty || targetProperty, converter);
+        binding.isThemeBinding = true;
+        binding.sourceObject = sourceName !== undefined && sourceName !== null ? sourceName : '';
+        binding.themeSource = themeSource !== null && themeSource !== void 0 ? themeSource : null;
+        binding.themeConverter = themeConverter || null;
         this._bindings.push(binding);
         return this;
     };
@@ -13246,9 +13450,10 @@ var GraphObject = /** @class */ (function () {
     return GraphObject;
 }());
 
-/** 官方 GoJS 圆角贝塞尔控制点比例：4*((√2-1)/3) */
-var EO = 4 * ((Math.sqrt(2) - 1) / 3);
-// 值为生成函数，或另一个已注册图形名的字符串别名（官方 defineFigureGenerator(name, 'Other')）。
+/**
+ * 全部图形生成器。值为生成函数，或另一个已注册图形名的字符串别名
+ * （官方 `defineFigureGenerator(name, 'Other')`，如 StoredData -> DataStorage）。
+ */
 var figures = new Map$1();
 /** 官方 go.js 内置图形名（Shape.getFigureGenerators 返回的 30 个），顺序与官方一致 */
 var CORE_FIGURE_NAMES = [
@@ -13262,16 +13467,18 @@ var CORE_FIGURE_NAMES = [
     'Capsule', 'Borders'
 ];
 /** 来自 extensions/Figures.js 的扩展图形名（官方未加载时不出现在 getFigureGenerators 中） */
-var extensionFigureNames = new Set();
-function defineFigure(name, func) {
+var extensionFigureNames = new Set$1();
+/** 注册一个图形生成器（官方 `Shape.defineFigureGenerator`）。 */
+function defineFigureGenerator(name, func) {
     figures.add(name, func);
     if (CORE_FIGURE_NAMES.indexOf(name) < 0)
         extensionFigureNames.add(name);
 }
+/** 按图形名取几何；`p1/p2` 对应官方传入的 parameter1/parameter2。 */
 function getFigureGeometry(name, w, h, p1, p2, shape) {
     if (p1 === void 0) { p1 = NaN; }
     if (p2 === void 0) { p2 = NaN; }
-    return resolveFigureGeometry(name, w, h, p1, p2, shape, new Set());
+    return resolveFigureGeometry(name, w, h, p1, p2, shape, new Set$1());
 }
 function resolveFigureGeometry(name, w, h, p1, p2, shape, visited) {
     var func = figures.get(name);
@@ -13285,19 +13492,19 @@ function resolveFigureGeometry(name, w, h, p1, p2, shape, visited) {
     }
     if (typeof func !== 'function')
         return null;
-    return func(shape || null, w, h);
+    var geo = func(shape || null, w, h);
+    // 官方 Shape 的图形几何入口（go.js 里 `n.Ec = e; n.Uc = i;`）会把生成尺寸记在几何上，
+    // 包围盒至少覆盖 (0,0,w,h)。少了这一步，按窄包围盒拉伸会让拐角出现尖刺。
+    if (geo && !isNaN(w) && !isNaN(h))
+        geo.setSize(w, h);
+    return geo;
 }
-function getP1(shape, defaultVal) {
-    if (shape && shape.parameter1 !== undefined && !isNaN(shape.parameter1))
-        return shape.parameter1;
-    return defaultVal;
-}
-function getP2(shape, defaultVal) {
-    if (shape && shape.parameter2 !== undefined && !isNaN(shape.parameter2))
-        return shape.parameter2;
-    return defaultVal;
-}
-defineFigure('Rectangle', function (shape, w, h) {
+
+/* go.js 内置的 30 个图形。官方 extensions/Figures.js 明确说明它们仍内建于库中，该文件不含其实现，
+   因此这 30 个为本项目手写实现（渲染结果与官方一致，见 temp/survey/figure_geo_cmp.cjs）。 */
+/** 官方 GoJS 圆角贝塞尔控制点比例：4*((√2-1)/3) */
+var EO = 4 * ((Math.sqrt(2) - 1) / 3);
+defineFigureGenerator('Rectangle', function (shape, w, h) {
     var geo = new Geometry();
     var fig = new PathFigure(0, 0);
     fig.add(PathSegment.Line(w, 0));
@@ -13307,7 +13514,22 @@ defineFigure('Rectangle', function (shape, w, h) {
     geo.add(fig);
     return geo;
 });
-defineFigure('RoundedRectangle', function (shape, w, h) {
+defineFigureGenerator('Square', function (shape, w, h) {
+    var geo = new Geometry();
+    var side = Math.min(w, h);
+    var x = (w - side) / 2;
+    var y = (h - side) / 2;
+    var fig = new PathFigure(x, y);
+    fig.add(PathSegment.Line(x + side, y));
+    fig.add(PathSegment.Line(x + side, y + side));
+    fig.add(PathSegment.Line(x, y + side));
+    fig.add(PathSegment.Close());
+    geo.add(fig);
+    // 官方 Square geometry.defaultStretch = 6（Uniform）
+    geo.defaultStretch = 6;
+    return geo;
+});
+defineFigureGenerator('RoundedRectangle', function (shape, w, h) {
     var r = getP1(shape, 5);
     var p2 = getP2(shape, NaN);
     var allCorners = isNaN(p2);
@@ -13389,588 +13611,17 @@ defineFigure('RoundedRectangle', function (shape, w, h) {
     geo.spot2 = m;
     return geo;
 });
-defineFigure('Ellipse', function (shape, w, h) {
-    var geo = new Geometry();
-    var rx = w / 2;
-    var ry = h / 2;
-    var fig = new PathFigure(w, ry);
-    fig.add(PathSegment.Arc(0, ry, rx, ry, 0, false, true));
-    fig.add(PathSegment.Arc(w, ry, rx, ry, 0, false, true));
-    fig.add(PathSegment.Close());
-    geo.add(fig);
-    // 官方 Spot.Zk / Spot.Qk
-    geo.spot1 = new Spot(0.156, 0.156);
-    geo.spot2 = new Spot(0.844, 0.844);
-    return geo;
-});
-defineFigure('Circle', function (shape, w, h) {
-    var geo = new Geometry();
-    var r = Math.min(w, h) / 2;
-    var cx = w / 2;
-    var cy = h / 2;
-    var fig = new PathFigure(cx + r, cy);
-    fig.add(PathSegment.Arc(cx - r, cy, r, r, 0, false, true));
-    fig.add(PathSegment.Arc(cx + r, cy, r, r, 0, false, true));
-    fig.add(PathSegment.Close());
-    geo.add(fig);
-    geo.spot1 = new Spot(0.156, 0.156);
-    geo.spot2 = new Spot(0.844, 0.844);
-    geo.defaultStretch = 6;
-    return geo;
-});
-defineFigure('Triangle', function (shape, w, h) {
-    var geo = new Geometry();
-    var fig = new PathFigure(w / 2, 0);
-    fig.add(PathSegment.Line(w, h));
-    fig.add(PathSegment.Line(0, h));
-    fig.add(PathSegment.Close());
-    geo.add(fig);
-    return geo;
-});
-defineFigure('TriangleUp', function (shape, w, h) {
-    return getFigureGeometry('Triangle', w, h, NaN, NaN, shape);
-});
-defineFigure('TriangleDown', function (shape, w, h) {
-    var geo = new Geometry();
-    var fig = new PathFigure(0, 0);
-    fig.add(PathSegment.Line(w, 0));
-    fig.add(PathSegment.Line(w / 2, h));
-    fig.add(PathSegment.Close());
-    geo.add(fig);
-    return geo;
-});
-defineFigure('TriangleLeft', function (shape, w, h) {
-    var geo = new Geometry();
-    var fig = new PathFigure(w, 0);
-    fig.add(PathSegment.Line(w, h));
-    fig.add(PathSegment.Line(0, h / 2));
-    fig.add(PathSegment.Close());
-    geo.add(fig);
-    return geo;
-});
-defineFigure('TriangleRight', function (shape, w, h) {
-    var geo = new Geometry();
-    var fig = new PathFigure(0, 0);
-    fig.add(PathSegment.Line(w, h / 2));
-    fig.add(PathSegment.Line(0, h));
-    fig.add(PathSegment.Close());
-    geo.add(fig);
-    return geo;
-});
-defineFigure('Diamond', function (shape, w, h) {
-    var geo = new Geometry();
-    var fig = new PathFigure(w / 2, 0);
-    fig.add(PathSegment.Line(w, h / 2));
-    fig.add(PathSegment.Line(w / 2, h));
-    fig.add(PathSegment.Line(0, h / 2));
-    fig.add(PathSegment.Close());
-    geo.add(fig);
-    return geo;
-});
-defineFigure('Pentagon', function (shape, w, h) {
-    var geo = new Geometry();
-    var fig = new PathFigure(w / 2, 0);
-    fig.add(PathSegment.Line(w, h * 0.4));
-    fig.add(PathSegment.Line(w * 0.8, h));
-    fig.add(PathSegment.Line(w * 0.2, h));
-    fig.add(PathSegment.Line(0, h * 0.4));
-    fig.add(PathSegment.Close());
-    geo.add(fig);
-    return geo;
-});
-defineFigure('Hexagon', function (shape, w, h) {
-    var geo = new Geometry();
-    var fig = new PathFigure(w * 0.25, 0);
-    fig.add(PathSegment.Line(w * 0.75, 0));
-    fig.add(PathSegment.Line(w, h / 2));
-    fig.add(PathSegment.Line(w * 0.75, h));
-    fig.add(PathSegment.Line(w * 0.25, h));
-    fig.add(PathSegment.Line(0, h / 2));
-    fig.add(PathSegment.Close());
-    geo.add(fig);
-    return geo;
-});
-defineFigure('Octagon', function (shape, w, h) {
-    var geo = new Geometry();
-    var fig = new PathFigure(w * 0.3, 0);
-    fig.add(PathSegment.Line(w * 0.7, 0));
-    fig.add(PathSegment.Line(w, h * 0.3));
-    fig.add(PathSegment.Line(w, h * 0.7));
-    fig.add(PathSegment.Line(w * 0.7, h));
-    fig.add(PathSegment.Line(w * 0.3, h));
-    fig.add(PathSegment.Line(0, h * 0.7));
-    fig.add(PathSegment.Line(0, h * 0.3));
-    fig.add(PathSegment.Close());
-    geo.add(fig);
-    return geo;
-});
-defineFigure('LineH', function (shape, w, h) {
-    var geo = new Geometry();
-    var fig = new PathFigure(0, h / 2, false);
-    fig.add(PathSegment.Line(w, h / 2));
-    geo.add(fig);
-    return geo;
-});
-defineFigure('LineV', function (shape, w, h) {
-    var geo = new Geometry();
-    var fig = new PathFigure(w / 2, 0, false);
-    fig.add(PathSegment.Line(w / 2, h));
-    geo.add(fig);
-    return geo;
-});
-defineFigure('Arrow', function (shape, w, h) {
-    var geo = new Geometry();
-    var shaftHeight = getP1(shape, h * 0.5);
-    var fig = new PathFigure(0, (h - shaftHeight) / 2);
-    fig.add(PathSegment.Line(w * 0.6, (h - shaftHeight) / 2));
-    fig.add(PathSegment.Line(w * 0.6, 0));
-    fig.add(PathSegment.Line(w, h / 2));
-    fig.add(PathSegment.Line(w * 0.6, h));
-    fig.add(PathSegment.Line(w * 0.6, (h + shaftHeight) / 2));
-    fig.add(PathSegment.Line(0, (h + shaftHeight) / 2));
-    fig.add(PathSegment.Close());
-    geo.add(fig);
-    return geo;
-});
-defineFigure('Chevron', function (shape, w, h) {
-    var geo = new Geometry();
-    var fig = new PathFigure(0, 0);
-    fig.add(PathSegment.Line(w * 0.7, 0));
-    fig.add(PathSegment.Line(w, h / 2));
-    fig.add(PathSegment.Line(w * 0.7, h));
-    fig.add(PathSegment.Line(0, h));
-    fig.add(PathSegment.Line(w * 0.3, h / 2));
-    fig.add(PathSegment.Close());
-    geo.add(fig);
-    return geo;
-});
-defineFigure('Cloud', function (shape, w, h) {
-    var geo = new Geometry();
-    var fig = new PathFigure(w * 0.5, h * 0.1);
-    fig.add(PathSegment.CubicBezier(w * 0.9, h * 0.05, w * 0.75, 0, w * 0.9, h * 0.1));
-    fig.add(PathSegment.CubicBezier(w * 1.05, h * 0.5, w * 1.1, h * 0.25, w * 1.0, h * 0.45));
-    fig.add(PathSegment.CubicBezier(w * 0.85, h * 0.95, w * 1.05, h * 0.75, w * 0.85, h * 0.9));
-    fig.add(PathSegment.CubicBezier(w * 0.15, h * 0.95, w * 0.5, h * 1.05, w * 0.15, h * 0.9));
-    fig.add(PathSegment.CubicBezier(w * -0.05, h * 0.5, w * -0.1, h * 0.75, w * 0.0, h * 0.55));
-    fig.add(PathSegment.CubicBezier(w * 0.15, h * 0.05, w * -0.1, h * 0.25, w * 0.1, h * 0.1));
-    fig.add(PathSegment.Close());
-    geo.add(fig);
-    return geo;
-});
-defineFigure('Cylinder1', function (shape, w, h) {
-    var geo = new Geometry();
-    var r = getP1(shape, Math.min(w / 2, h / 8));
-    var fig = new PathFigure(w, r);
-    fig.add(PathSegment.Line(w, h - r));
-    fig.add(PathSegment.Arc(0, h - r, w / 2, r, 0, false, true));
-    fig.add(PathSegment.Line(0, r));
-    fig.add(PathSegment.Arc(w, r, w / 2, r, 0, false, true));
-    fig.add(PathSegment.Close());
-    geo.add(fig);
-    var fig2 = new PathFigure(0, r);
-    fig2.add(PathSegment.Arc(w, r, w / 2, r, 0, false, true));
-    fig2.add(PathSegment.Arc(0, r, w / 2, r, 0, false, true));
-    fig2.add(PathSegment.Close());
-    geo.add(fig2);
-    return geo;
-});
-defineFigure('Cylinder2', function (shape, w, h) {
-    var r = getP1(shape, Math.min(w / 2, h / 8));
-    var geo = new Geometry();
-    var fig = new PathFigure(w, r);
-    fig.add(PathSegment.Line(w, h - r));
-    fig.add(PathSegment.Arc(0, h - r, w / 2, r, 0, false, true));
-    fig.add(PathSegment.Line(0, r));
-    fig.add(PathSegment.Arc(w, r, w / 2, r, 0, false, true));
-    fig.add(PathSegment.Close());
-    geo.add(fig);
-    return geo;
-});
-defineFigure('Cylinder3', function (shape, w, h) {
-    var r = getP1(shape, Math.min(w / 2, h / 8));
-    var geo = new Geometry();
-    var fig = new PathFigure(w, r);
-    fig.add(PathSegment.Line(w, h - r));
-    fig.add(PathSegment.Arc(0, h - r, w / 2, r, 0, false, true));
-    fig.add(PathSegment.Arc(w, h - r, w / 2, r, 0, false, true));
-    fig.add(PathSegment.Line(w, r));
-    fig.add(PathSegment.Arc(0, r, w / 2, r, 0, false, true));
-    fig.add(PathSegment.Close());
-    geo.add(fig);
-    var fig2 = new PathFigure(0, r);
-    fig2.add(PathSegment.Arc(w, r, w / 2, r, 0, false, true));
-    fig2.add(PathSegment.Arc(0, r, w / 2, r, 0, false, true));
-    fig2.add(PathSegment.Close());
-    geo.add(fig2);
-    return geo;
-});
-defineFigure('Cylinder4', function (shape, w, h) {
-    var r = getP1(shape, Math.min(w / 2, h / 8));
-    var geo = new Geometry();
-    var fig = new PathFigure(w, r);
-    fig.add(PathSegment.Arc(0, r, w / 2, r, 0, false, true));
-    fig.add(PathSegment.Line(0, h - r));
-    fig.add(PathSegment.Arc(w, h - r, w / 2, r, 0, false, true));
-    fig.add(PathSegment.Close());
-    geo.add(fig);
-    var fig2 = new PathFigure(0, h - r);
-    fig2.add(PathSegment.Arc(w, h - r, w / 2, r, 0, false, true));
-    fig2.add(PathSegment.Arc(0, h - r, w / 2, r, 0, false, true));
-    fig2.add(PathSegment.Close());
-    geo.add(fig2);
-    return geo;
-});
-defineFigure('Database', function (shape, w, h) {
-    var r = getP1(shape, Math.min(w / 2, h / 8));
-    var geo = new Geometry();
-    var fig = new PathFigure(w, r);
-    fig.add(PathSegment.Line(w, h - r));
-    fig.add(PathSegment.Arc(0, h - r, w / 2, r, 0, false, true));
-    fig.add(PathSegment.Line(0, r));
-    fig.add(PathSegment.Arc(w, r, w / 2, r, 0, false, true));
-    fig.add(PathSegment.Close());
-    geo.add(fig);
-    var fig2 = new PathFigure(0, r);
-    fig2.add(PathSegment.Arc(w, r, w / 2, r, 0, false, true));
-    fig2.add(PathSegment.Arc(0, r, w / 2, r, 0, false, true));
-    fig2.add(PathSegment.Close());
-    geo.add(fig2);
-    var fig3 = new PathFigure(0, h - r);
-    fig3.add(PathSegment.Arc(w, h - r, w / 2, r, 0, false, true));
-    fig3.add(PathSegment.Arc(0, h - r, w / 2, r, 0, false, true));
-    fig3.add(PathSegment.Close());
-    geo.add(fig3);
-    return geo;
-});
-defineFigure('Terminator', function (shape, w, h) {
-    var r = getP1(shape, h / 2);
-    var cr = Math.min(r, w / 2, h / 2);
-    if (cr <= 0)
-        return getFigureGeometry('Rectangle', w, h, NaN, NaN, shape);
-    var geo = new Geometry();
-    var fig = new PathFigure(cr, 0);
-    fig.add(PathSegment.Line(w - cr, 0));
-    fig.add(PathSegment.Arc(w, cr, cr, cr, 0, false, true));
-    fig.add(PathSegment.Line(w, h - cr));
-    fig.add(PathSegment.Arc(w - cr, h, cr, cr, 0, false, true));
-    fig.add(PathSegment.Line(cr, h));
-    fig.add(PathSegment.Arc(0, h - cr, cr, cr, 0, false, true));
-    fig.add(PathSegment.Line(0, cr));
-    fig.add(PathSegment.Arc(cr, 0, cr, cr, 0, false, true));
-    fig.add(PathSegment.Close());
-    geo.add(fig);
-    return geo;
-});
-defineFigure('Process', function (shape, w, h) {
-    var indent = getP1(shape, w * 0.1);
-    var geo = new Geometry();
-    var fig = new PathFigure(indent, 0);
-    fig.add(PathSegment.Line(w - indent, 0));
-    fig.add(PathSegment.Line(w - indent, h));
-    fig.add(PathSegment.Line(indent, h));
-    fig.add(PathSegment.Close());
-    geo.add(fig);
-    return geo;
-});
-defineFigure('Procedure', function (shape, w, h) {
-    var indent = getP1(shape, w * 0.1);
-    var geo = new Geometry();
-    var fig = new PathFigure(0, 0);
-    fig.add(PathSegment.Line(w, 0));
-    fig.add(PathSegment.Line(w, h));
-    fig.add(PathSegment.Line(0, h));
-    fig.add(PathSegment.Close());
-    geo.add(fig);
-    var fig2 = new PathFigure(indent, 0, false);
-    fig2.add(PathSegment.Line(indent, h));
-    geo.add(fig2);
-    var fig3 = new PathFigure(w - indent, 0, false);
-    fig3.add(PathSegment.Line(w - indent, h));
-    geo.add(fig3);
-    return geo;
-});
-defineFigure('InternalStorage', function (shape, w, h) {
-    var indent = getP1(shape, w * 0.1);
-    var geo = new Geometry();
-    var fig = new PathFigure(0, 0);
-    fig.add(PathSegment.Line(w, 0));
-    fig.add(PathSegment.Line(w, h));
-    fig.add(PathSegment.Line(0, h));
-    fig.add(PathSegment.Close());
-    geo.add(fig);
-    var fig2 = new PathFigure(indent, 0, false);
-    fig2.add(PathSegment.Line(indent, h));
-    geo.add(fig2);
-    var fig3 = new PathFigure(0, indent, false);
-    fig3.add(PathSegment.Line(w, indent));
-    geo.add(fig3);
-    return geo;
-});
-defineFigure('ManualInput', function (shape, w, h) {
-    var geo = new Geometry();
-    var fig = new PathFigure(w, 0);
-    fig.add(PathSegment.Line(w, h));
-    fig.add(PathSegment.Line(0, h));
-    fig.add(PathSegment.Line(w * 0.2, 0));
-    fig.add(PathSegment.Close());
-    geo.add(fig);
-    return geo;
-});
-defineFigure('ManualOperation', function (shape, w, h) {
-    var geo = new Geometry();
-    var fig = new PathFigure(0, 0);
-    fig.add(PathSegment.Line(w, 0));
-    fig.add(PathSegment.Line(w * 0.8, h));
-    fig.add(PathSegment.Line(w * 0.2, h));
-    fig.add(PathSegment.Close());
-    geo.add(fig);
-    return geo;
-});
-defineFigure('Delay', function (shape, w, h) {
-    var geo = new Geometry();
-    var fig = new PathFigure(0, 0);
-    fig.add(PathSegment.Line(w * 0.7, 0));
-    fig.add(PathSegment.CubicBezier(w, h / 2, w, 0, w, h / 2));
-    fig.add(PathSegment.CubicBezier(w * 0.7, h, w, h, w * 0.7, h));
-    fig.add(PathSegment.Line(0, h));
-    fig.add(PathSegment.Close());
-    geo.add(fig);
-    return geo;
-});
-defineFigure('Display', function (shape, w, h) {
-    var geo = new Geometry();
-    var fig = new PathFigure(w * 0.2, 0);
-    fig.add(PathSegment.Line(w, 0));
-    fig.add(PathSegment.Line(w * 0.8, h));
-    fig.add(PathSegment.Line(0, h));
-    fig.add(PathSegment.Close());
-    geo.add(fig);
-    return geo;
-});
-defineFigure('Card', function (shape, w, h) {
-    var indent = getP1(shape, w * 0.1);
-    var geo = new Geometry();
-    var fig = new PathFigure(indent, 0);
-    fig.add(PathSegment.Line(w, 0));
-    fig.add(PathSegment.Line(w, h));
-    fig.add(PathSegment.Line(0, h));
-    fig.add(PathSegment.Line(0, indent));
-    fig.add(PathSegment.Close());
-    geo.add(fig);
-    return geo;
-});
-defineFigure('DataStorage', function (shape, w, h) {
-    var geo = new Geometry();
-    var fig = new PathFigure(w * 0.2, 0);
-    fig.add(PathSegment.Line(w, 0));
-    fig.add(PathSegment.CubicBezier(w * 0.8, h / 2, w, h / 2, w * 0.8, h / 2));
-    fig.add(PathSegment.CubicBezier(w, h, w * 0.8, h, w, h));
-    fig.add(PathSegment.Line(w * 0.2, h));
-    fig.add(PathSegment.CubicBezier(0, h / 2, w * 0.2, h / 2, 0, h / 2));
-    fig.add(PathSegment.CubicBezier(w * 0.2, 0, 0, h / 2, w * 0.2, 0));
-    fig.add(PathSegment.Close());
-    geo.add(fig);
-    return geo;
-});
-defineFigure('ThickCross', function (shape, w, h) {
-    var geo = new Geometry();
-    var fig = new PathFigure(w * 0.25, 0);
-    fig.add(PathSegment.Line(w * 0.75, 0));
-    fig.add(PathSegment.Line(w * 0.75, h * 0.25));
-    fig.add(PathSegment.Line(w, h * 0.25));
-    fig.add(PathSegment.Line(w, h * 0.75));
-    fig.add(PathSegment.Line(w * 0.75, h * 0.75));
-    fig.add(PathSegment.Line(w * 0.75, h));
-    fig.add(PathSegment.Line(w * 0.25, h));
-    fig.add(PathSegment.Line(w * 0.25, h * 0.75));
-    fig.add(PathSegment.Line(0, h * 0.75));
-    fig.add(PathSegment.Line(0, h * 0.25));
-    fig.add(PathSegment.Line(w * 0.25, h * 0.25));
-    fig.add(PathSegment.Close());
-    geo.add(fig);
-    return geo;
-});
-defineFigure('ThinX', function (shape, w, h) {
+defineFigureGenerator('Border', function (shape, w, h) {
     var geo = new Geometry();
     var fig = new PathFigure(0, 0, false);
-    fig.add(PathSegment.Line(w, h));
-    geo.add(fig);
-    var fig2 = new PathFigure(w, 0, false);
-    fig2.add(PathSegment.Line(0, h));
-    geo.add(fig2);
-    return geo;
-});
-defineFigure('ThickX', function (shape, w, h) {
-    var geo = new Geometry();
-    var fig = new PathFigure(w * 0.2, 0);
-    fig.add(PathSegment.Line(w, h * 0.8));
-    fig.add(PathSegment.Line(w * 0.8, h));
-    fig.add(PathSegment.Line(0, h * 0.2));
-    fig.add(PathSegment.Close());
-    geo.add(fig);
-    var fig2 = new PathFigure(w * 0.8, 0);
-    fig2.add(PathSegment.Line(w, h * 0.2));
-    fig2.add(PathSegment.Line(w * 0.2, h));
-    fig2.add(PathSegment.Line(0, h * 0.8));
-    fig2.add(PathSegment.Close());
-    geo.add(fig2);
-    return geo;
-});
-defineFigure('FramedRectangle', function (shape, w, h) {
-    var geo = new Geometry();
-    var fig = new PathFigure(0, 0);
     fig.add(PathSegment.Line(w, 0));
     fig.add(PathSegment.Line(w, h));
     fig.add(PathSegment.Line(0, h));
     fig.add(PathSegment.Close());
     geo.add(fig);
-    var fig2 = new PathFigure(w * 0.1, h * 0.1, false);
-    fig2.add(PathSegment.Line(w * 0.9, h * 0.1));
-    fig2.add(PathSegment.Line(w * 0.9, h * 0.9));
-    fig2.add(PathSegment.Line(w * 0.1, h * 0.9));
-    fig2.add(PathSegment.Close());
-    geo.add(fig2);
     return geo;
 });
-defineFigure('Trapezoid', function (shape, w, h) {
-    var geo = new Geometry();
-    var indent = getP1(shape, w * 0.2);
-    var fig = new PathFigure(indent, 0);
-    fig.add(PathSegment.Line(w - indent, 0));
-    fig.add(PathSegment.Line(w, h));
-    fig.add(PathSegment.Line(0, h));
-    fig.add(PathSegment.Close());
-    geo.add(fig);
-    return geo;
-});
-defineFigure('Parallelogram', function (shape, w, h) {
-    var geo = new Geometry();
-    var indent = getP1(shape, w * 0.2);
-    var fig = new PathFigure(indent, 0);
-    fig.add(PathSegment.Line(w, 0));
-    fig.add(PathSegment.Line(w - indent, h));
-    fig.add(PathSegment.Line(0, h));
-    fig.add(PathSegment.Close());
-    geo.add(fig);
-    return geo;
-});
-defineFigure('MinusLine', function (shape, w, h) {
-    var geo = new Geometry();
-    var fig = new PathFigure(0, h / 2, false);
-    fig.add(PathSegment.Line(w, h / 2));
-    geo.add(fig);
-    return geo;
-});
-defineFigure('PlusLine', function (shape, w, h) {
-    var geo = new Geometry();
-    var fig = new PathFigure(w / 2, 0, false);
-    fig.add(PathSegment.Line(w / 2, h));
-    geo.add(fig);
-    var fig2 = new PathFigure(0, h / 2, false);
-    fig2.add(PathSegment.Line(w, h / 2));
-    geo.add(fig2);
-    return geo;
-});
-defineFigure('XLine', function (shape, w, h) {
-    var geo = new Geometry();
-    var fig = new PathFigure(0, 0, false);
-    fig.add(PathSegment.Line(w, h));
-    geo.add(fig);
-    var fig2 = new PathFigure(w, 0, false);
-    fig2.add(PathSegment.Line(0, h));
-    geo.add(fig2);
-    return geo;
-});
-defineFigure('Square', function (shape, w, h) {
-    var geo = new Geometry();
-    var side = Math.min(w, h);
-    var x = (w - side) / 2;
-    var y = (h - side) / 2;
-    var fig = new PathFigure(x, y);
-    fig.add(PathSegment.Line(x + side, y));
-    fig.add(PathSegment.Line(x + side, y + side));
-    fig.add(PathSegment.Line(x, y + side));
-    fig.add(PathSegment.Close());
-    geo.add(fig);
-    // 官方 Square geometry.defaultStretch = 6（Uniform）
-    geo.defaultStretch = 6;
-    return geo;
-});
-defineFigure('HalfEllipse', function (shape, w, h) {
-    var geo = new Geometry();
-    var fig = new PathFigure(0, h / 2);
-    fig.add(PathSegment.Arc(w, h / 2, w / 2, h / 2, 0, false, true));
-    fig.add(PathSegment.Line(0, h / 2));
-    fig.add(PathSegment.Close());
-    geo.add(fig);
-    return geo;
-});
-defineFigure('Capsule', function (shape, w, h) {
-    var geo = new Geometry();
-    var r = Math.min(w, h) / 2;
-    var fig = new PathFigure(r, 0);
-    fig.add(PathSegment.Line(w - r, 0));
-    fig.add(PathSegment.Arc(w, r, r, r, 0, false, true));
-    fig.add(PathSegment.Line(w, h - r));
-    fig.add(PathSegment.Arc(w - r, h, r, r, 0, false, true));
-    fig.add(PathSegment.Line(r, h));
-    fig.add(PathSegment.Arc(0, h - r, r, r, 0, false, true));
-    fig.add(PathSegment.Line(0, r));
-    fig.add(PathSegment.Arc(r, 0, r, r, 0, false, true));
-    fig.add(PathSegment.Close());
-    geo.add(fig);
-    return geo;
-});
-defineFigure('RightTriangle', function (shape, w, h) {
-    var geo = new Geometry();
-    var fig = new PathFigure(0, 0);
-    fig.add(PathSegment.Line(w, h));
-    fig.add(PathSegment.Line(0, h));
-    fig.add(PathSegment.Close());
-    geo.add(fig);
-    return geo;
-});
-defineFigure('File', function (shape, w, h) {
-    var geo = new Geometry();
-    var fig = new PathFigure(0, 0);
-    fig.add(PathSegment.Line(w * 0.7, 0));
-    fig.add(PathSegment.Line(w, h * 0.3));
-    fig.add(PathSegment.Line(w, h));
-    fig.add(PathSegment.Line(0, h));
-    fig.add(PathSegment.Close());
-    geo.add(fig);
-    var fig2 = new PathFigure(w * 0.7, 0, false);
-    fig2.add(PathSegment.Line(w * 0.7, h * 0.3));
-    fig2.add(PathSegment.Line(w, h * 0.3));
-    geo.add(fig2);
-    return geo;
-});
-defineFigure('Document', function (shape, w, h) {
-    var geo = new Geometry();
-    var fig = new PathFigure(0, 0);
-    fig.add(PathSegment.Line(w, 0));
-    fig.add(PathSegment.Line(w, h * 0.85));
-    fig.add(PathSegment.CubicBezier(w * 0.5, h * 0.65, w * 0.65, h, w * 0.5, h));
-    fig.add(PathSegment.CubicBezier(w * 0.35, h, 0, h * 0.85, 0, h * 0.85));
-    fig.add(PathSegment.Close());
-    geo.add(fig);
-    return geo;
-});
-defineFigure('DoubleArrow', function (shape, w, h) {
-    var geo = new Geometry();
-    var fig = new PathFigure(0, h / 2);
-    fig.add(PathSegment.Line(w * 0.25, 0));
-    fig.add(PathSegment.Line(w * 0.5, h * 0.25));
-    fig.add(PathSegment.Line(w * 0.75, 0));
-    fig.add(PathSegment.Line(w, h / 2));
-    fig.add(PathSegment.Line(w * 0.75, h));
-    fig.add(PathSegment.Line(w * 0.5, h * 0.75));
-    fig.add(PathSegment.Line(w * 0.25, h));
-    fig.add(PathSegment.Close());
-    geo.add(fig);
-    return geo;
-});
-defineFigure('RoundedTopRectangle', function (shape, w, h) {
+defineFigureGenerator('RoundedTopRectangle', function (shape, w, h) {
     var r = getP1(shape, 5);
     var cr = Math.min(r, w / 2, h / 2);
     if (cr <= 0)
@@ -13987,7 +13638,7 @@ defineFigure('RoundedTopRectangle', function (shape, w, h) {
     geo.add(fig);
     return geo;
 });
-defineFigure('RoundedBottomRectangle', function (shape, w, h) {
+defineFigureGenerator('RoundedBottomRectangle', function (shape, w, h) {
     var r = getP1(shape, 5);
     var cr = Math.min(r, w / 2, h / 2);
     if (cr <= 0)
@@ -14003,7 +13654,7 @@ defineFigure('RoundedBottomRectangle', function (shape, w, h) {
     geo.add(fig);
     return geo;
 });
-defineFigure('RoundedLeftRectangle', function (shape, w, h) {
+defineFigureGenerator('RoundedLeftRectangle', function (shape, w, h) {
     var r = getP1(shape, 5);
     var cr = Math.min(r, w / 2, h / 2);
     if (cr <= 0)
@@ -14019,7 +13670,7 @@ defineFigure('RoundedLeftRectangle', function (shape, w, h) {
     geo.add(fig);
     return geo;
 });
-defineFigure('RoundedRightRectangle', function (shape, w, h) {
+defineFigureGenerator('RoundedRightRectangle', function (shape, w, h) {
     var r = getP1(shape, 5);
     var cr = Math.min(r, w / 2, h / 2);
     if (cr <= 0)
@@ -14035,51 +13686,99 @@ defineFigure('RoundedRightRectangle', function (shape, w, h) {
     geo.add(fig);
     return geo;
 });
-defineFigure('Border', function (shape, w, h) {
+defineFigureGenerator('Ellipse', function (shape, w, h) {
     var geo = new Geometry();
-    var fig = new PathFigure(0, 0, false);
+    var rx = w / 2;
+    var ry = h / 2;
+    var fig = new PathFigure(w, ry);
+    fig.add(PathSegment.Arc(0, ry, rx, ry, 0, false, true));
+    fig.add(PathSegment.Arc(w, ry, rx, ry, 0, false, true));
+    fig.add(PathSegment.Close());
+    geo.add(fig);
+    // 官方 Spot.Zk / Spot.Qk
+    geo.spot1 = new Spot(0.156, 0.156);
+    geo.spot2 = new Spot(0.844, 0.844);
+    return geo;
+});
+defineFigureGenerator('Circle', function (shape, w, h) {
+    var geo = new Geometry();
+    var r = Math.min(w, h) / 2;
+    var cx = w / 2;
+    var cy = h / 2;
+    var fig = new PathFigure(cx + r, cy);
+    fig.add(PathSegment.Arc(cx - r, cy, r, r, 0, false, true));
+    fig.add(PathSegment.Arc(cx + r, cy, r, r, 0, false, true));
+    fig.add(PathSegment.Close());
+    geo.add(fig);
+    geo.spot1 = new Spot(0.156, 0.156);
+    geo.spot2 = new Spot(0.844, 0.844);
+    geo.defaultStretch = 6;
+    return geo;
+});
+defineFigureGenerator('TriangleRight', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0, 0);
+    fig.add(PathSegment.Line(w, h / 2));
+    fig.add(PathSegment.Line(0, h));
+    fig.add(PathSegment.Close());
+    geo.add(fig);
+    return geo;
+});
+defineFigureGenerator('TriangleDown', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0, 0);
     fig.add(PathSegment.Line(w, 0));
+    fig.add(PathSegment.Line(w / 2, h));
+    fig.add(PathSegment.Close());
+    geo.add(fig);
+    return geo;
+});
+defineFigureGenerator('TriangleLeft', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(w, 0);
+    fig.add(PathSegment.Line(w, h));
+    fig.add(PathSegment.Line(0, h / 2));
+    fig.add(PathSegment.Close());
+    geo.add(fig);
+    return geo;
+});
+defineFigureGenerator('TriangleUp', function (shape, w, h) {
+    return getFigureGeometry('Triangle', w, h, NaN, NaN, shape);
+});
+defineFigureGenerator('Triangle', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(w / 2, 0);
     fig.add(PathSegment.Line(w, h));
     fig.add(PathSegment.Line(0, h));
     fig.add(PathSegment.Close());
     geo.add(fig);
     return geo;
 });
-defineFigure('BarH', function (shape, w, h) {
-    return getFigureGeometry('Rectangle', w, h, NaN, NaN, shape);
+defineFigureGenerator('Diamond', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(w / 2, 0);
+    fig.add(PathSegment.Line(w, h / 2));
+    fig.add(PathSegment.Line(w / 2, h));
+    fig.add(PathSegment.Line(0, h / 2));
+    fig.add(PathSegment.Close());
+    geo.add(fig);
+    return geo;
 });
-defineFigure('BarV', function (shape, w, h) {
-    return getFigureGeometry('Rectangle', w, h, NaN, NaN, shape);
-});
-defineFigure('LineRight', function (shape, w, h) {
+defineFigureGenerator('LineH', function (shape, w, h) {
     var geo = new Geometry();
     var fig = new PathFigure(0, h / 2, false);
     fig.add(PathSegment.Line(w, h / 2));
     geo.add(fig);
     return geo;
 });
-defineFigure('LineDown', function (shape, w, h) {
+defineFigureGenerator('LineV', function (shape, w, h) {
     var geo = new Geometry();
     var fig = new PathFigure(w / 2, 0, false);
     fig.add(PathSegment.Line(w / 2, h));
     geo.add(fig);
     return geo;
 });
-defineFigure('LineLeft', function (shape, w, h) {
-    var geo = new Geometry();
-    var fig = new PathFigure(w, h / 2, false);
-    fig.add(PathSegment.Line(0, h / 2));
-    geo.add(fig);
-    return geo;
-});
-defineFigure('LineUp', function (shape, w, h) {
-    var geo = new Geometry();
-    var fig = new PathFigure(w / 2, h, false);
-    fig.add(PathSegment.Line(w / 2, 0));
-    geo.add(fig);
-    return geo;
-});
-defineFigure('None', function (shape, w, h) {
+defineFigureGenerator('None', function (shape, w, h) {
     // 官方：figure='None' 的 Shape 仍按矩形渲染（fill/stroke 画在 actualBounds 上）。
     // 若返回空几何，渲染器会跳过矩形回退路径导致画不出（barCharts 无 bar 的根因）。
     var geo = new Geometry();
@@ -14091,7 +13790,98 @@ defineFigure('None', function (shape, w, h) {
     geo.add(fig);
     return geo;
 });
-defineFigure('Borders', function (shape, w, h) {
+defineFigureGenerator('BarH', function (shape, w, h) {
+    return getFigureGeometry('Rectangle', w, h, NaN, NaN, shape);
+});
+defineFigureGenerator('BarV', function (shape, w, h) {
+    return getFigureGeometry('Rectangle', w, h, NaN, NaN, shape);
+});
+defineFigureGenerator('MinusLine', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0, h / 2, false);
+    fig.add(PathSegment.Line(w, h / 2));
+    geo.add(fig);
+    return geo;
+});
+defineFigureGenerator('PlusLine', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(w / 2, 0, false);
+    fig.add(PathSegment.Line(w / 2, h));
+    geo.add(fig);
+    var fig2 = new PathFigure(0, h / 2, false);
+    fig2.add(PathSegment.Line(w, h / 2));
+    geo.add(fig2);
+    return geo;
+});
+defineFigureGenerator('XLine', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0, 0, false);
+    fig.add(PathSegment.Line(w, h));
+    geo.add(fig);
+    var fig2 = new PathFigure(w, 0, false);
+    fig2.add(PathSegment.Line(0, h));
+    geo.add(fig2);
+    return geo;
+});
+defineFigureGenerator('LineRight', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0, h / 2, false);
+    fig.add(PathSegment.Line(w, h / 2));
+    geo.add(fig);
+    return geo;
+});
+defineFigureGenerator('LineDown', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(w / 2, 0, false);
+    fig.add(PathSegment.Line(w / 2, h));
+    geo.add(fig);
+    return geo;
+});
+defineFigureGenerator('LineLeft', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(w, h / 2, false);
+    fig.add(PathSegment.Line(0, h / 2));
+    geo.add(fig);
+    return geo;
+});
+defineFigureGenerator('LineUp', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(w / 2, h, false);
+    fig.add(PathSegment.Line(w / 2, 0));
+    geo.add(fig);
+    return geo;
+});
+defineFigureGenerator('Capsule', function (shape, w, h) {
+    var geo = new Geometry();
+    var r = Math.min(w, h) / 2;
+    var fig = new PathFigure(r, 0);
+    fig.add(PathSegment.Line(w - r, 0));
+    fig.add(PathSegment.Arc(w, r, r, r, 0, false, true));
+    fig.add(PathSegment.Line(w, h - r));
+    fig.add(PathSegment.Arc(w - r, h, r, r, 0, false, true));
+    fig.add(PathSegment.Line(r, h));
+    fig.add(PathSegment.Arc(0, h - r, r, r, 0, false, true));
+    fig.add(PathSegment.Line(0, r));
+    fig.add(PathSegment.Arc(r, 0, r, r, 0, false, true));
+    fig.add(PathSegment.Close());
+    geo.add(fig);
+    // 官方 Capsule 的三分支 spots：Auto 面板用 geometry.spot1/spot2 计算内容洞尺寸，
+    // Start/End 节点尺寸（70.19×39.16）依赖第一轮 (100,100) 圆分支的 .156/.844 spots。
+    if (w < h) {
+        var c = shape && isFinite(shape.parameter1) ? shape.parameter1 : w * 0.156;
+        geo.setSpots(0, 0, 1, 1, 0, c, 0, -c);
+    }
+    else if (w > h) {
+        var c = shape && isFinite(shape.parameter1) ? shape.parameter1 : h * 0.156;
+        geo.setSpots(0, 0, 1, 1, c, 0, -c, 0);
+    }
+    else {
+        geo.spot1 = new Spot(0.156, 0.156);
+        geo.spot2 = new Spot(0.844, 0.844);
+    }
+    return geo;
+});
+defineFigureGenerator('Borders', function (shape, w, h) {
     var geo = new Geometry();
     var fig = new PathFigure(0, 0, false);
     fig.add(PathSegment.Line(w, 0));
@@ -14107,6 +13897,5000 @@ defineFigure('Borders', function (shape, w, h) {
     geo.add(fig2);
     return geo;
 });
+function getP1(shape, defaultVal) {
+    if (shape && shape.parameter1 !== undefined && !isNaN(shape.parameter1))
+        return shape.parameter1;
+    return defaultVal;
+}
+function getP2(shape, defaultVal) {
+    if (shape && shape.parameter2 !== undefined && !isNaN(shape.parameter2))
+        return shape.parameter2;
+    return defaultVal;
+}
+
+// @ts-nocheck
+/* 官方 extensions/Figures.js 本身是 JS（仅 JSDoc 类型），逐行移植后若强加本项目的 strict
+   规则会产生大量无意义报错（官方构造函数可选参数、官方内部枚举对象赋给 number 字段等）。
+   运行时语义与官方完全一致；类型层面的等价性由 temp/survey/figure_geo_cmp.cjs 逐图形核对。 */
+/* 本文件由 temp/survey/gen_figures.cjs 从官方 GoJS 4.0.4 的 extensions/Figures.js 机械移植生成，请勿手工编辑。 */
+/* 官方源：node_modules/gojs/extensions/Figures.js —— Copyright 1998-2026 Northwoods Software Corporation. All Rights Reserved. */
+/* 移植方式仅替换命名空间（go.X -> X），逻辑与官方逐行一致；改图形请改官方源文件后重新生成。 */
+/*
+ * This is an extension and not part of the main GoJS library.
+ * The source code for this is at extensionsJSM/Figures.ts.
+ * Note that the API for this class may change with any version, even point releases.
+ * If you intend to use an extension in production, you should copy the code to your own source directory.
+ * Extensions can be found in the GoJS kit under the extensions or extensionsJSM folders.
+ * See the Extensions learn page (https://gojs.net/learn/extensions) for more information.
+ */
+// This file holds definitions of all legacy shape figures -- string values for Shape.figure.
+// The source code for this is at extensionsJSM/Figures.ts.
+// They were built into the library in version 1, but most were removed for v2.0.
+// The following figures are still built-in to the go.js library and thus do not need explicit definitions:
+//   Rectangle, Square, RoundedRectangle, Border, Ellipse, Circle,
+//   TriangleRight, TriangleDown, TriangleLeft, TriangleUp, Triangle,
+//   LineH, LineV, None, BarH, BarV, MinusLine, PlusLine, XLine, Capsule
+// If you need any of the other figures that are defined in this file, we suggest that you copy
+// just those definitions into your own code.  Do not load this file unless you really want to
+// define a lot of code that your app does not use and will not get garbage-collected.
+// The following functions and variables are used throughout this file:
+/**
+ * @hidden @internal
+ * This FigureParameter class describes various properties each parameter uses in figures.
+ */
+var FigureParameter = /** @class */ (function () {
+    function FigureParameter(name, def, min, max) {
+        if (min === undefined)
+            min = 0.0;
+        if (max === undefined)
+            max = Infinity;
+        this._name = name;
+        this._defaultValue = def;
+        this._minimum = min;
+        this._maximum = max;
+        // (go.Shape as any)['_FigureParameters'] = {};
+    }
+    Object.defineProperty(FigureParameter.prototype, "name", {
+        /**
+         * Gets or sets the name of the figure.
+         */
+        get: function () {
+            return this._name;
+        },
+        set: function (val) {
+            if (typeof val !== 'string' || val === '')
+                throw new Error('Shape name must be a valid string.');
+            this._name = val;
+        },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(FigureParameter.prototype, "defaultValue", {
+        /**
+         * Gets or sets the default value for the parameter.
+         */
+        get: function () {
+            return this._defaultValue;
+        },
+        set: function (val) {
+            if (typeof val !== 'number' || isNaN(val))
+                throw new Error('The default value must be a real number, not: ' + val);
+            this._defaultValue = val;
+        },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(FigureParameter.prototype, "minimum", {
+        /**
+         * Gets or sets the minimum value allowed for the figure parameter.
+         */
+        get: function () {
+            return this._minimum;
+        },
+        set: function (val) {
+            if (typeof val !== 'number' || isNaN(val))
+                throw new Error('Minimum must be a real number, not: ' + val);
+            this._minimum = val;
+        },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(FigureParameter.prototype, "maximum", {
+        /**
+         * Gets or sets the maximum value allowed for the figure parameter.
+         */
+        get: function () {
+            return this._maximum;
+        },
+        set: function (val) {
+            if (typeof val !== 'number' || isNaN(val))
+                throw new Error('Maximum must be a real number, not: ' + val);
+            this._maximum = val;
+        },
+        enumerable: false,
+        configurable: true
+    });
+    /**
+     * This static function gets a FigureParameter for a particular figure name.
+     * @param figurename
+     * @param index - currently must be either 0 or 1
+     */
+    FigureParameter.getFigureParameter = function (figurename, index) {
+        // const arr = (go.Shape as any)['_FigureParameters'][figurename];
+        var arr = FigureParameter.definedParameters[figurename];
+        if (!arr)
+            return null;
+        return arr[index];
+    };
+    /**
+     * This static function sets a FigureParameter for a particular figure name.
+     * @param figurename
+     * @param index - currently must be either 0 or 1
+     * @param figparam
+     */
+    FigureParameter.setFigureParameter = function (figurename, index, figparam) {
+        if (!(figparam instanceof FigureParameter))
+            throw new Error('Third argument to FigureParameter.setFigureParameter is not FigureParameter: ' +
+                figparam);
+        if (figparam.defaultValue < figparam.minimum ||
+            figparam.defaultValue > figparam.maximum) {
+            throw new Error('defaultValue must be between minimum and maximum, not: ' + figparam.defaultValue);
+        }
+        // const paramObj = (go.Shape as any)['_FigureParameters'];
+        // let arr = paramObj[figurename];
+        var arr = FigureParameter.definedParameters[figurename];
+        if (!arr) {
+            // arr = [];
+            // paramObj[figurename] = arr;
+            arr = [];
+            FigureParameter.definedParameters[figurename] = arr;
+        }
+        arr[index] = figparam;
+    };
+    return FigureParameter;
+}());
+FigureParameter.definedParameters = {};
+var _CachedPoints = [];
+/**
+ * @param x
+ * @param y
+ */
+function tempPointAt(x, y) {
+    var temp = _CachedPoints.pop();
+    if (temp === undefined)
+        return new Point(x, y);
+    temp.x = x;
+    temp.y = y;
+    return temp;
+}
+function tempPoint() {
+    var temp = _CachedPoints.pop();
+    if (temp === undefined)
+        return new Point();
+    return temp;
+}
+/**
+ * @param temp
+ */
+function freePoint(temp) {
+    _CachedPoints.push(temp);
+}
+/**
+ * @param p1x
+ * @param p1y
+ * @param p2x
+ * @param p2y
+ * @param q1x
+ * @param q1y
+ * @param q2x
+ * @param q2y
+ * @param result
+ */
+function getIntersection(p1x, p1y, p2x, p2y, q1x, q1y, q2x, q2y, result) {
+    if (!result)
+        result = new Point();
+    var dx1 = p1x - p2x;
+    var dx2 = q1x - q2x;
+    var x = NaN;
+    var y = NaN;
+    if (dx1 === 0) {
+        if (dx2 === 0) {
+            if (p1x === p2x) {
+                x = p1x;
+                y = p1y;
+            }
+        }
+        else {
+            var m2 = (q1y - q2y) / dx2;
+            var b2 = q1y - m2 * q1x;
+            x = p1x;
+            y = m2 * x + b2;
+        }
+    }
+    else {
+        if (dx2 === 0) {
+            var m1 = (p1y - p2y) / dx1;
+            var b1 = p1y - m1 * p1x;
+            x = q1x;
+            y = m1 * x + b1;
+        }
+        else {
+            var m1 = (p1y - p2y) / dx1;
+            var m2 = (q1y - q2y) / dx2;
+            var b1 = p1y - m1 * p1x;
+            var b2 = q1y - m2 * q1x;
+            x = (b2 - b1) / (m1 - m2);
+            y = m1 * x + b1;
+        }
+    }
+    result.x = x;
+    result.y = y;
+    return result;
+}
+/**
+ * @param startx
+ * @param starty
+ * @param c1x
+ * @param c1y
+ * @param c2x
+ * @param c2y
+ * @param endx
+ * @param endy
+ * @param fraction
+ * @param curve1cp1  // modified result control point
+ * @param curve1cp2  // modified result control point
+ * @param midpoint  // modified result
+ * @param curve2cp1  // modified result control point
+ * @param curve2cp2  // modified result control point
+ */
+function breakUpBezier(startx, starty, c1x, c1y, c2x, c2y, endx, endy, fraction, curve1cp1, curve1cp2, midpoint, curve2cp1, curve2cp2) {
+    var fo = 1 - fraction;
+    var so = fraction;
+    var m1x = startx * fo + c1x * so;
+    var m1y = starty * fo + c1y * so;
+    var m2x = c1x * fo + c2x * so;
+    var m2y = c1y * fo + c2y * so;
+    var m3x = c2x * fo + endx * so;
+    var m3y = c2y * fo + endy * so;
+    var m12x = m1x * fo + m2x * so;
+    var m12y = m1y * fo + m2y * so;
+    var m23x = m2x * fo + m3x * so;
+    var m23y = m2y * fo + m3y * so;
+    var m123x = m12x * fo + m23x * so;
+    var m123y = m12y * fo + m23y * so;
+    curve1cp1.x = m1x;
+    curve1cp1.y = m1y;
+    curve1cp2.x = m12x;
+    curve1cp2.y = m12y;
+    midpoint.x = m123x;
+    midpoint.y = m123y;
+    curve2cp1.x = m23x;
+    curve2cp1.y = m23y;
+    curve2cp2.x = m3x;
+    curve2cp2.y = m3y;
+}
+var GeneratorEllipseSpot1 = new Spot(0.156, 0.156);
+var GeneratorEllipseSpot2 = new Spot(0.844, 0.844);
+var KAPPA = 4 * ((Math.sqrt(2) - 1) / 3);
+// OPTIONAL figures, not predefined in the library:
+// ChamferedRectangle
+// parameter1 controls the length of the side of the triangle that is cut off from a corner.
+//   The corner is always cut at 45 degrees.  If the width or height is not large enough,
+//   the length of the side of the triangle is limited to half of the width or height.
+// parameter2 is a bit mask controlling which corners are cut off:
+//   1: top-left
+//   2: top-right
+//   4: bottom-right
+//   8: bottom-left
+defineFigureGenerator('ChamferedRectangle', function (shape, w, h) {
+    var param1 = shape ? shape.parameter1 : NaN; // how much to cut off from the corner, both X and Y
+    if (isNaN(param1) || param1 < 0)
+        param1 = 12;
+    var param2 = shape ? shape.parameter2 : NaN; // which corners to cut off
+    if (isNaN(param2))
+        param2 = 1 | 2 | 4 | 8; // default: all corners
+    var p0 = param1; // limit top-left corner
+    if (param2 & 1) {
+        p0 = Math.min(p0, (param2 & 2) === 2 ? w / 2 : w);
+        p0 = Math.min(p0, (param2 & 8) === 8 ? h / 2 : h);
+    }
+    else {
+        p0 = 0;
+    }
+    var fig = new PathFigure(p0, 0, true);
+    var geo = new Geometry().add(fig);
+    var spot1 = Spot.TopLeft.copy();
+    var spot2 = Spot.BottomRight.copy();
+    if ((param2 & 2) === 2) {
+        // top right
+        var p1 = param1;
+        p1 = Math.min(p1, (param2 & 1) === 1 ? w / 2 : w);
+        p1 = Math.min(p1, (param2 & 4) === 4 ? h / 2 : h);
+        fig
+            .add(new PathSegment(SegmentType.Line, w - p1, 0))
+            .add(new PathSegment(SegmentType.Line, w, p1));
+        spot1.offsetY = p1 / 2;
+        spot2.offsetX = -p1 / 2;
+    }
+    else {
+        fig.add(new PathSegment(SegmentType.Line, w, 0));
+    }
+    if (param2 & 4) {
+        // bottom right
+        var p1 = param1;
+        p1 = Math.min(p1, (param2 & 8) === 8 ? w / 2 : w);
+        p1 = Math.min(p1, (param2 & 2) === 2 ? h / 2 : h);
+        fig
+            .add(new PathSegment(SegmentType.Line, w, h - p1))
+            .add(new PathSegment(SegmentType.Line, w - p1, h));
+        spot2.offsetX = -p1 / 2;
+        spot2.offsetY = -p1 / 2;
+    }
+    else {
+        fig.add(new PathSegment(SegmentType.Line, w, h));
+    }
+    if (param2 & 8) {
+        // bottom left
+        var p1 = param1;
+        p1 = Math.min(p1, (param2 & 4) === 4 ? w / 2 : w);
+        p1 = Math.min(p1, (param2 & 1) === 1 ? h / 2 : h);
+        fig
+            .add(new PathSegment(SegmentType.Line, p1, h))
+            .add(new PathSegment(SegmentType.Line, 0, h - p1));
+        spot1.offsetX = p1 / 2;
+        spot2.offsetY = -p1 / 2;
+    }
+    else {
+        fig.add(new PathSegment(SegmentType.Line, 0, h));
+    }
+    if (param2 & 1) {
+        // top left
+        fig.add(new PathSegment(SegmentType.Line, 0, p0).close());
+        spot1.offsetX = p0 / 2;
+        spot1.offsetY = p0 / 2;
+    }
+    else {
+        fig.add(new PathSegment(SegmentType.Line, 0, 0).close());
+    }
+    geo.spot1 = spot1;
+    geo.spot2 = spot2;
+    return geo;
+});
+// narrow ends of rectangular area come to a point
+defineFigureGenerator('HexagonalCapsule', function (shape, w, h) {
+    var param1 = shape ? shape.parameter1 : NaN;
+    if (isNaN(param1))
+        param1 = 10;
+    var geo = new Geometry();
+    if (w < h) {
+        var inset = Math.min(param1, w / 2);
+        var fig = new PathFigure(w / 2, 0, true);
+        geo.add(fig);
+        // Outline
+        fig.add(new PathSegment(SegmentType.Line, w, inset));
+        fig.add(new PathSegment(SegmentType.Line, w, h - inset));
+        fig.add(new PathSegment(SegmentType.Line, w / 2, h));
+        fig.add(new PathSegment(SegmentType.Line, 0, h - inset));
+        fig.add(new PathSegment(SegmentType.Line, 0, inset).close());
+        geo.spot1 = new Spot(0, 0, inset / 2, inset);
+        geo.spot2 = new Spot(1, 1, -inset / 2, -inset);
+    }
+    else {
+        var inset = Math.min(param1, h / 2);
+        var fig = new PathFigure(inset, 0, true);
+        geo.add(fig);
+        // Outline
+        fig.add(new PathSegment(SegmentType.Line, w - inset, 0));
+        fig.add(new PathSegment(SegmentType.Line, w, h / 2));
+        fig.add(new PathSegment(SegmentType.Line, w - inset, h));
+        fig.add(new PathSegment(SegmentType.Line, inset, h));
+        fig.add(new PathSegment(SegmentType.Line, 0, h / 2).close());
+        geo.spot1 = new Spot(0, 0, inset, inset / 2);
+        geo.spot2 = new Spot(1, 1, -inset, -inset / 2);
+    }
+    return geo;
+});
+defineFigureGenerator('AsteriskLine', function (shape, w, h) {
+    var offset = 0.2 / Math.SQRT2;
+    return new Geometry().add(new PathFigure(offset * w, (1 - offset) * h, false)
+        .add(new PathSegment(SegmentType.Line, (1 - offset) * w, offset * h))
+        .add(new PathSegment(SegmentType.Move, offset * w, offset * h))
+        .add(new PathSegment(SegmentType.Line, (1 - offset) * w, (1 - offset) * h))
+        .add(new PathSegment(SegmentType.Move, 0, h / 2))
+        .add(new PathSegment(SegmentType.Line, w, h / 2))
+        .add(new PathSegment(SegmentType.Move, w / 2, 0))
+        .add(new PathSegment(SegmentType.Line, w / 2, h)));
+});
+defineFigureGenerator('CircleLine', function (shape, w, h) {
+    var rad = w / 2;
+    var geo = new Geometry().add(new PathFigure(w, w / 2, false) // clockwise
+        .add(new PathSegment(SegmentType.Arc, 0, 360, rad, rad, rad, rad).close()));
+    geo.spot1 = GeneratorEllipseSpot1;
+    geo.spot2 = GeneratorEllipseSpot2;
+    geo.defaultStretch = GeometryStretch.Uniform;
+    return geo;
+});
+defineFigureGenerator('Line1', function (shape, w, h) {
+    var geo = new Geometry(GeometryType.Line);
+    geo.startX = 0;
+    geo.startY = 0;
+    geo.endX = w;
+    geo.endY = h;
+    return geo;
+});
+defineFigureGenerator('Line2', function (shape, w, h) {
+    var geo = new Geometry(GeometryType.Line);
+    geo.startX = w;
+    geo.startY = 0;
+    geo.endX = 0;
+    geo.endY = h;
+    return geo;
+});
+defineFigureGenerator('Curve1', function (shape, w, h) { return new Geometry().add(new PathFigure(0, 0, false).add(new PathSegment(SegmentType.Bezier, w, h, KAPPA * w, 0, w, (1 - KAPPA) * h))); });
+defineFigureGenerator('Curve2', function (shape, w, h) { return new Geometry().add(new PathFigure(0, 0, false).add(new PathSegment(SegmentType.Bezier, w, h, 0, KAPPA * h, (1 - KAPPA) * w, h))); });
+defineFigureGenerator('Curve3', function (shape, w, h) { return new Geometry().add(new PathFigure(w, 0, false).add(new PathSegment(SegmentType.Bezier, 0, h, w, KAPPA * h, KAPPA * w, h))); });
+defineFigureGenerator('Curve4', function (shape, w, h) { return new Geometry().add(new PathFigure(w, 0, false).add(new PathSegment(SegmentType.Bezier, 0, h, (1 - KAPPA) * w, 0, 0, (1 - KAPPA) * h))); });
+defineFigureGenerator('TriangleDownLeft', function (shape, w, h) { return new Geometry()
+    .add(new PathFigure(0, 0, true)
+    .add(new PathSegment(SegmentType.Line, w, h))
+    .add(new PathSegment(SegmentType.Line, 0, h).close()))
+    .setSpots(0, 0.5, 0.5, 1); });
+defineFigureGenerator('TriangleDownRight', function (shape, w, h) { return new Geometry()
+    .add(new PathFigure(w, 0, true)
+    .add(new PathSegment(SegmentType.Line, w, h))
+    .add(new PathSegment(SegmentType.Line, 0, h).close()))
+    .setSpots(0.5, 0.5, 1, 1); });
+defineFigureGenerator('TriangleUpLeft', function (shape, w, h) { return new Geometry()
+    .add(new PathFigure(0, 0, true)
+    .add(new PathSegment(SegmentType.Line, w, 0))
+    .add(new PathSegment(SegmentType.Line, 0, h).close()))
+    .setSpots(0, 0, 0.5, 0.5); });
+defineFigureGenerator('TriangleUpRight', function (shape, w, h) { return new Geometry()
+    .add(new PathFigure(0, 0, true)
+    .add(new PathSegment(SegmentType.Line, w, 0))
+    .add(new PathSegment(SegmentType.Line, w, h).close()))
+    .setSpots(0.5, 0, 1, 0.5); });
+defineFigureGenerator('RightTriangle', 'TriangleDownLeft');
+FigureParameter.setFigureParameter('Parallelogram1', 0, new FigureParameter('Indent', 0.1, -0.99, 0.99));
+defineFigureGenerator('Parallelogram1', function (shape, w, h) {
+    var param1 = shape ? shape.parameter1 : NaN; // indent's percent distance
+    if (isNaN(param1))
+        param1 = 0.1;
+    else if (param1 < -1)
+        param1 = -1;
+    else if (param1 > 1)
+        param1 = 1;
+    var indent = Math.abs(param1) * w;
+    if (param1 === 0) {
+        var geo = new Geometry(GeometryType.Rectangle);
+        geo.startX = 0;
+        geo.startY = 0;
+        geo.endX = w;
+        geo.endY = h;
+        return geo;
+    }
+    else {
+        var geo = new Geometry();
+        if (param1 > 0) {
+            geo.add(new PathFigure(indent, 0)
+                .add(new PathSegment(SegmentType.Line, w, 0))
+                .add(new PathSegment(SegmentType.Line, w - indent, h))
+                .add(new PathSegment(SegmentType.Line, 0, h).close()));
+        }
+        else {
+            // param1 < 0
+            geo.add(new PathFigure(0, 0)
+                .add(new PathSegment(SegmentType.Line, w - indent, 0))
+                .add(new PathSegment(SegmentType.Line, w, h))
+                .add(new PathSegment(SegmentType.Line, indent, h).close()));
+        }
+        if (indent < w / 2) {
+            geo.setSpots(indent / w, 0, (w - indent) / w, 1);
+        }
+        return geo;
+    }
+});
+defineFigureGenerator('Parallelogram', 'Parallelogram1'); // alias
+// Parallelogram with absolutes instead of scaling
+FigureParameter.setFigureParameter('Parallelogram2', 0, new FigureParameter('Indent', 10, -Infinity, Infinity));
+defineFigureGenerator('Parallelogram2', function (shape, w, h) {
+    var param1 = shape ? shape.parameter1 : NaN; // indent's x distance
+    if (isNaN(param1))
+        param1 = 10;
+    else if (param1 < -1)
+        param1 = -w;
+    else if (param1 > 1)
+        param1 = w;
+    var indent = Math.abs(param1);
+    if (param1 === 0) {
+        var geo = new Geometry(GeometryType.Rectangle);
+        geo.startX = 0;
+        geo.startY = 0;
+        geo.endX = w;
+        geo.endY = h;
+        return geo;
+    }
+    else {
+        var geo = new Geometry();
+        if (param1 > 0) {
+            geo.add(new PathFigure(indent, 0)
+                .add(new PathSegment(SegmentType.Line, w, 0))
+                .add(new PathSegment(SegmentType.Line, w - indent, h))
+                .add(new PathSegment(SegmentType.Line, 0, h).close()));
+        }
+        else {
+            // param1 < 0
+            geo.add(new PathFigure(0, 0)
+                .add(new PathSegment(SegmentType.Line, w - indent, 0))
+                .add(new PathSegment(SegmentType.Line, w, h))
+                .add(new PathSegment(SegmentType.Line, indent, h).close()));
+        }
+        if (indent < w / 2) {
+            geo.setSpots(indent / w, 0, (w - indent) / w, 1);
+        }
+        return geo;
+    }
+});
+FigureParameter.setFigureParameter('Trapezoid1', 0, new FigureParameter('Indent', 0.2, -0.99, 0.99));
+defineFigureGenerator('Trapezoid1', function (shape, w, h) {
+    var param1 = shape ? shape.parameter1 : NaN; // indent's percent distance
+    if (isNaN(param1))
+        param1 = 0.2;
+    else if (param1 < 0.5)
+        param1 = -0.5;
+    else if (param1 > 0.5)
+        param1 = 0.5;
+    var indent = Math.abs(param1) * w;
+    if (param1 === 0) {
+        var geo = new Geometry(GeometryType.Rectangle);
+        geo.startX = 0;
+        geo.startY = 0;
+        geo.endX = w;
+        geo.endY = h;
+        return geo;
+    }
+    else {
+        var geo = new Geometry();
+        if (param1 > 0) {
+            geo.add(new PathFigure(indent, 0)
+                .add(new PathSegment(SegmentType.Line, w - indent, 0))
+                .add(new PathSegment(SegmentType.Line, w, h))
+                .add(new PathSegment(SegmentType.Line, 0, h).close()));
+        }
+        else {
+            // param1 < 0
+            geo.add(new PathFigure(0, 0)
+                .add(new PathSegment(SegmentType.Line, w, 0))
+                .add(new PathSegment(SegmentType.Line, w - indent, h))
+                .add(new PathSegment(SegmentType.Line, indent, h).close()));
+        }
+        if (indent < w / 2) {
+            geo.setSpots(indent / w, 0, (w - indent) / w, 1);
+        }
+        return geo;
+    }
+});
+defineFigureGenerator('Trapezoid', 'Trapezoid1'); // alias
+// Trapezoid with absolutes instead of scaling
+FigureParameter.setFigureParameter('Trapezoid2', 0, new FigureParameter('Indent', 20, -Infinity, Infinity));
+defineFigureGenerator('Trapezoid2', function (shape, w, h) {
+    var param1 = shape ? shape.parameter1 : NaN; // indent's x distance
+    if (isNaN(param1))
+        param1 = 20; // default value
+    else if (param1 < -w)
+        param1 = -w / 2;
+    else if (param1 > w)
+        param1 = w / 2;
+    var indent = Math.abs(param1);
+    if (param1 === 0) {
+        var geo = new Geometry(GeometryType.Rectangle);
+        geo.startX = 0;
+        geo.startY = 0;
+        geo.endX = w;
+        geo.endY = h;
+        return geo;
+    }
+    else {
+        var geo = new Geometry();
+        if (param1 > 0) {
+            geo.add(new PathFigure(indent, 0)
+                .add(new PathSegment(SegmentType.Line, w - indent, 0))
+                .add(new PathSegment(SegmentType.Line, w, h))
+                .add(new PathSegment(SegmentType.Line, 0, h).close()));
+        }
+        else {
+            // param1 < 0
+            geo.add(new PathFigure(0, 0)
+                .add(new PathSegment(SegmentType.Line, w, 0))
+                .add(new PathSegment(SegmentType.Line, w - indent, h))
+                .add(new PathSegment(SegmentType.Line, indent, h).close()));
+        }
+        if (indent < w / 2) {
+            geo.setSpots(indent / w, 0, (w - indent) / w, 1);
+        }
+        return geo;
+    }
+});
+FigureParameter.setFigureParameter('ManualOperation', 0, new FigureParameter('Indent', 10, -Infinity, Infinity));
+defineFigureGenerator('ManualOperation', function (shape, w, h) {
+    var param1 = shape ? shape.parameter1 : NaN;
+    // Distance from topleft of bounding rectangle,
+    // in % of the total width, of the topleft corner
+    if (isNaN(param1))
+        param1 = 10; // default value
+    else if (param1 < -w)
+        param1 = -w / 2;
+    else if (param1 > w)
+        param1 = w / 2;
+    var indent = Math.abs(param1);
+    if (param1 === 0) {
+        var geo = new Geometry(GeometryType.Rectangle);
+        geo.startX = 0;
+        geo.startY = 0;
+        geo.endX = w;
+        geo.endY = h;
+        return geo;
+    }
+    else {
+        var geo = new Geometry();
+        if (param1 > 0) {
+            geo.add(new PathFigure(0, 0)
+                .add(new PathSegment(SegmentType.Line, w, 0))
+                .add(new PathSegment(SegmentType.Line, w - indent, h))
+                .add(new PathSegment(SegmentType.Line, indent, h).close()));
+        }
+        else {
+            // param1 < 0
+            geo.add(new PathFigure(indent, 0)
+                .add(new PathSegment(SegmentType.Line, w - indent, 0))
+                .add(new PathSegment(SegmentType.Line, w, h))
+                .add(new PathSegment(SegmentType.Line, 0, h).close()));
+        }
+        if (indent < w / 2) {
+            geo.setSpots(indent / w, 0, (w - indent) / w, 1);
+        }
+        return geo;
+    }
+});
+// The following functions are used by a group of regular figures that are defined below:
+var _CachedArrays = [];
+function tempArray() {
+    var temp = _CachedArrays.pop();
+    if (temp === undefined)
+        return [];
+    return temp;
+}
+/**
+ * @param a
+ */
+function freeArray(a) {
+    a.length = 0; // clear any references to objects
+    _CachedArrays.push(a);
+}
+/**
+ * @param sides
+ */
+function createPolygon(sides) {
+    // Point[] points = new Point[sides + 1];
+    var points = [];
+    var radius = 0.5;
+    var center = 0.5;
+    var offsetAngle = Math.PI * 1.5;
+    var angle = 0;
+    // Loop through each side of the polygon
+    for (var i = 0; i < sides; i++) {
+        angle = ((2 * Math.PI) / sides) * i + offsetAngle;
+        points[i] = new Point(center + radius * Math.cos(angle), center + radius * Math.sin(angle));
+    }
+    // Add the last line
+    // points[points.length - 1] = points[0];
+    points.push(points[0]);
+    return points;
+}
+/**
+ * This allocates a temporary Array that should be freeArray()'ed by the caller.
+ * @param points
+ */
+function createBurst(points) {
+    var star = createStar(points);
+    var pts = tempArray(); // new Point[points * 3 + 1];
+    pts[0] = star[0];
+    for (var i = 1, count = 1; i < star.length; i += 2, count += 3) {
+        pts[count] = star[i];
+        pts[count + 1] = star[i];
+        pts[count + 2] = star[i + 1];
+    }
+    freeArray(star);
+    return pts;
+}
+/**
+ * This allocates a temporary Array that should be freeArray()'ed by the caller.
+ * @param points
+ */
+function createStar(points) {
+    // First, create a regular polygon
+    var polygon = createPolygon(points);
+    // Calculate the points inbetween
+    var pts = tempArray(); // new Point[points * 2 + 1];
+    var half = Math.floor(polygon.length / 2);
+    var count = polygon.length - 1;
+    var offset = points % 2 === 0 ? 2 : 1;
+    for (var i = 0; i < count; i++) {
+        // Get the intersection of two lines
+        var p0 = polygon[i];
+        var p1 = polygon[i + 1];
+        var q21 = polygon[(half + i - 1) % count];
+        var q2off = polygon[(half + i + offset) % count];
+        pts[i * 2] = p0;
+        pts[i * 2 + 1] = getIntersection(p0.x, p0.y, q21.x, q21.y, p1.x, p1.y, q2off.x, q2off.y, new Point()); // ?? not currently managed
+    }
+    pts[pts.length] = pts[0];
+    freeArray(polygon);
+    return pts;
+}
+defineFigureGenerator('Pentagon', function (shape, w, h) {
+    var points = createPolygon(5);
+    var geo = new Geometry();
+    var fig = new PathFigure(points[0].x * w, points[0].y * h, true);
+    geo.add(fig);
+    for (var i = 1; i < 5; i++) {
+        fig.add(new PathSegment(SegmentType.Line, points[i].x * w, points[i].y * h));
+    }
+    fig.add(new PathSegment(SegmentType.Line, points[0].x * w, points[0].y * h).close());
+    freeArray(points);
+    geo.spot1 = new Spot(0.2, 0.22);
+    geo.spot2 = new Spot(0.8, 0.9);
+    return geo;
+});
+defineFigureGenerator('Hexagon', function (shape, w, h) {
+    var points = createPolygon(6);
+    var geo = new Geometry();
+    var fig = new PathFigure(points[0].x * w, points[0].y * h, true);
+    geo.add(fig);
+    for (var i = 1; i < 6; i++) {
+        fig.add(new PathSegment(SegmentType.Line, points[i].x * w, points[i].y * h));
+    }
+    fig.add(new PathSegment(SegmentType.Line, points[0].x * w, points[0].y * h).close());
+    freeArray(points);
+    geo.spot1 = new Spot(0.07, 0.25);
+    geo.spot2 = new Spot(0.93, 0.75);
+    return geo;
+});
+defineFigureGenerator('Heptagon', function (shape, w, h) {
+    var points = createPolygon(7);
+    var geo = new Geometry();
+    var fig = new PathFigure(points[0].x * w, points[0].y * h, true);
+    geo.add(fig);
+    for (var i = 1; i < 7; i++) {
+        fig.add(new PathSegment(SegmentType.Line, points[i].x * w, points[i].y * h));
+    }
+    fig.add(new PathSegment(SegmentType.Line, points[0].x * w, points[0].y * h).close());
+    freeArray(points);
+    geo.spot1 = new Spot(0.2, 0.15);
+    geo.spot2 = new Spot(0.8, 0.85);
+    return geo;
+});
+defineFigureGenerator('Octagon', function (shape, w, h) {
+    var points = createPolygon(8);
+    var geo = new Geometry();
+    var fig = new PathFigure(points[0].x * w, points[0].y * h, true);
+    geo.add(fig);
+    for (var i = 1; i < 8; i++) {
+        fig.add(new PathSegment(SegmentType.Line, points[i].x * w, points[i].y * h));
+    }
+    fig.add(new PathSegment(SegmentType.Line, points[0].x * w, points[0].y * h).close());
+    freeArray(points);
+    geo.spot1 = new Spot(0.15, 0.15);
+    geo.spot2 = new Spot(0.85, 0.85);
+    return geo;
+});
+defineFigureGenerator('Nonagon', function (shape, w, h) {
+    var points = createPolygon(9);
+    var geo = new Geometry();
+    var fig = new PathFigure(points[0].x * w, points[0].y * h, true);
+    geo.add(fig);
+    for (var i = 1; i < 9; i++) {
+        fig.add(new PathSegment(SegmentType.Line, points[i].x * w, points[i].y * h));
+    }
+    fig.add(new PathSegment(SegmentType.Line, points[0].x * w, points[0].y * h).close());
+    freeArray(points);
+    geo.spot1 = new Spot(0.17, 0.13);
+    geo.spot2 = new Spot(0.82, 0.82);
+    return geo;
+});
+defineFigureGenerator('Decagon', function (shape, w, h) {
+    var points = createPolygon(10);
+    var geo = new Geometry();
+    var fig = new PathFigure(points[0].x * w, points[0].y * h, true);
+    geo.add(fig);
+    for (var i = 1; i < 10; i++) {
+        fig.add(new PathSegment(SegmentType.Line, points[i].x * w, points[i].y * h));
+    }
+    fig.add(new PathSegment(SegmentType.Line, points[0].x * w, points[0].y * h).close());
+    freeArray(points);
+    geo.spot1 = new Spot(0.16, 0.16);
+    geo.spot2 = new Spot(0.84, 0.84);
+    return geo;
+});
+defineFigureGenerator('Dodecagon', function (shape, w, h) {
+    var points = createPolygon(12);
+    var geo = new Geometry();
+    var fig = new PathFigure(points[0].x * w, points[0].y * h, true);
+    geo.add(fig);
+    for (var i = 1; i < 12; i++) {
+        fig.add(new PathSegment(SegmentType.Line, points[i].x * w, points[i].y * h));
+    }
+    fig.add(new PathSegment(SegmentType.Line, points[0].x * w, points[0].y * h).close());
+    freeArray(points);
+    geo.spot1 = new Spot(0.16, 0.16);
+    geo.spot2 = new Spot(0.84, 0.84);
+    return geo;
+});
+defineFigureGenerator('FivePointedStar', function (shape, w, h) {
+    var starPoints = createStar(5);
+    var geo = new Geometry();
+    var fig = new PathFigure(starPoints[0].x * w, starPoints[0].y * h, true);
+    geo.add(fig);
+    for (var i = 1; i < 10; i++) {
+        fig.add(new PathSegment(SegmentType.Line, starPoints[i].x * w, starPoints[i].y * h));
+    }
+    fig.add(new PathSegment(SegmentType.Line, starPoints[0].x * w, starPoints[0].y * h).close());
+    freeArray(starPoints);
+    geo.spot1 = new Spot(0.266, 0.333);
+    geo.spot2 = new Spot(0.733, 0.733);
+    return geo;
+});
+defineFigureGenerator('SixPointedStar', function (shape, w, h) {
+    var starPoints = createStar(6);
+    var geo = new Geometry();
+    var fig = new PathFigure(starPoints[0].x * w, starPoints[0].y * h, true);
+    geo.add(fig);
+    for (var i = 1; i < 12; i++) {
+        fig.add(new PathSegment(SegmentType.Line, starPoints[i].x * w, starPoints[i].y * h));
+    }
+    fig.add(new PathSegment(SegmentType.Line, starPoints[0].x * w, starPoints[0].y * h).close());
+    freeArray(starPoints);
+    geo.spot1 = new Spot(0.17, 0.25);
+    geo.spot2 = new Spot(0.83, 0.75);
+    return geo;
+});
+defineFigureGenerator('SevenPointedStar', function (shape, w, h) {
+    var starPoints = createStar(7);
+    var geo = new Geometry();
+    var fig = new PathFigure(starPoints[0].x * w, starPoints[0].y * h, true);
+    geo.add(fig);
+    for (var i = 1; i < 14; i++) {
+        fig.add(new PathSegment(SegmentType.Line, starPoints[i].x * w, starPoints[i].y * h));
+    }
+    fig.add(new PathSegment(SegmentType.Line, starPoints[0].x * w, starPoints[0].y * h).close());
+    freeArray(starPoints);
+    geo.spot1 = new Spot(0.222, 0.277);
+    geo.spot2 = new Spot(0.777, 0.666);
+    return geo;
+});
+defineFigureGenerator('EightPointedStar', function (shape, w, h) {
+    var starPoints = createStar(8);
+    var geo = new Geometry();
+    var fig = new PathFigure(starPoints[0].x * w, starPoints[0].y * h, true);
+    geo.add(fig);
+    for (var i = 1; i < 16; i++) {
+        fig.add(new PathSegment(SegmentType.Line, starPoints[i].x * w, starPoints[i].y * h));
+    }
+    fig.add(new PathSegment(SegmentType.Line, starPoints[0].x * w, starPoints[0].y * h).close());
+    freeArray(starPoints);
+    geo.spot1 = new Spot(0.25, 0.25);
+    geo.spot2 = new Spot(0.75, 0.75);
+    return geo;
+});
+defineFigureGenerator('NinePointedStar', function (shape, w, h) {
+    var starPoints = createStar(9);
+    var geo = new Geometry();
+    var fig = new PathFigure(starPoints[0].x * w, starPoints[0].y * h, true);
+    geo.add(fig);
+    for (var i = 1; i < 18; i++) {
+        fig.add(new PathSegment(SegmentType.Line, starPoints[i].x * w, starPoints[i].y * h));
+    }
+    fig.add(new PathSegment(SegmentType.Line, starPoints[0].x * w, starPoints[0].y * h).close());
+    freeArray(starPoints);
+    geo.spot1 = new Spot(0.222, 0.277);
+    geo.spot2 = new Spot(0.777, 0.666);
+    return geo;
+});
+defineFigureGenerator('TenPointedStar', function (shape, w, h) {
+    var starPoints = createStar(10);
+    var geo = new Geometry();
+    var fig = new PathFigure(starPoints[0].x * w, starPoints[0].y * h, true);
+    geo.add(fig);
+    for (var i = 1; i < 20; i++) {
+        fig.add(new PathSegment(SegmentType.Line, starPoints[i].x * w, starPoints[i].y * h));
+    }
+    fig.add(new PathSegment(SegmentType.Line, starPoints[0].x * w, starPoints[0].y * h).close());
+    freeArray(starPoints);
+    geo.spot1 = new Spot(0.281, 0.261);
+    geo.spot2 = new Spot(0.723, 0.748);
+    return geo;
+});
+defineFigureGenerator('FivePointedBurst', function (shape, w, h) {
+    var burstPoints = createBurst(5);
+    var geo = new Geometry();
+    var fig = new PathFigure(burstPoints[0].x * w, burstPoints[0].y * h, true);
+    geo.add(fig);
+    for (var i = 1; i < burstPoints.length; i += 3) {
+        fig.add(new PathSegment(SegmentType.Bezier, burstPoints[i + 2].x * w, burstPoints[i + 2].y * h, burstPoints[i].x * w, burstPoints[i].y * h, burstPoints[i + 1].x * w, burstPoints[i + 1].y * h));
+    }
+    var lst = fig.segments.last();
+    if (lst !== null)
+        lst.close();
+    freeArray(burstPoints);
+    geo.spot1 = new Spot(0.222, 0.277);
+    geo.spot2 = new Spot(0.777, 0.777);
+    return geo;
+});
+defineFigureGenerator('SixPointedBurst', function (shape, w, h) {
+    var burstPoints = createBurst(6);
+    var geo = new Geometry();
+    var fig = new PathFigure(burstPoints[0].x * w, burstPoints[0].y * h, true);
+    geo.add(fig);
+    for (var i = 1; i < burstPoints.length; i += 3) {
+        fig.add(new PathSegment(SegmentType.Bezier, burstPoints[i + 2].x * w, burstPoints[i + 2].y * h, burstPoints[i].x * w, burstPoints[i].y * h, burstPoints[i + 1].x * w, burstPoints[i + 1].y * h));
+    }
+    var lst = fig.segments.last();
+    if (lst !== null)
+        lst.close();
+    freeArray(burstPoints);
+    geo.spot1 = new Spot(0.17, 0.222);
+    geo.spot2 = new Spot(0.833, 0.777);
+    return geo;
+});
+defineFigureGenerator('SevenPointedBurst', function (shape, w, h) {
+    var burstPoints = createBurst(7);
+    var geo = new Geometry();
+    var fig = new PathFigure(burstPoints[0].x * w, burstPoints[0].y * h, true);
+    geo.add(fig);
+    for (var i = 1; i < burstPoints.length; i += 3) {
+        fig.add(new PathSegment(SegmentType.Bezier, burstPoints[i + 2].x * w, burstPoints[i + 2].y * h, burstPoints[i].x * w, burstPoints[i].y * h, burstPoints[i + 1].x * w, burstPoints[i + 1].y * h));
+    }
+    var lst = fig.segments.last();
+    if (lst !== null)
+        lst.close();
+    freeArray(burstPoints);
+    geo.spot1 = new Spot(0.222, 0.222);
+    geo.spot2 = new Spot(0.777, 0.777);
+    return geo;
+});
+defineFigureGenerator('EightPointedBurst', function (shape, w, h) {
+    var burstPoints = createBurst(8);
+    var geo = new Geometry();
+    var fig = new PathFigure(burstPoints[0].x * w, burstPoints[0].y * h, true);
+    geo.add(fig);
+    for (var i = 1; i < burstPoints.length; i += 3) {
+        fig.add(new PathSegment(SegmentType.Bezier, burstPoints[i + 2].x * w, burstPoints[i + 2].y * h, burstPoints[i].x * w, burstPoints[i].y * h, burstPoints[i + 1].x * w, burstPoints[i + 1].y * h));
+    }
+    var lst = fig.segments.last();
+    if (lst !== null)
+        lst.close();
+    freeArray(burstPoints);
+    geo.spot1 = new Spot(0.222, 0.222);
+    geo.spot2 = new Spot(0.777, 0.777);
+    return geo;
+});
+defineFigureGenerator('NinePointedBurst', function (shape, w, h) {
+    var burstPoints = createBurst(9);
+    var geo = new Geometry();
+    var fig = new PathFigure(burstPoints[0].x * w, burstPoints[0].y * h, true);
+    geo.add(fig);
+    for (var i = 1; i < burstPoints.length; i += 3) {
+        fig.add(new PathSegment(SegmentType.Bezier, burstPoints[i + 2].x * w, burstPoints[i + 2].y * h, burstPoints[i].x * w, burstPoints[i].y * h, burstPoints[i + 1].x * w, burstPoints[i + 1].y * h));
+    }
+    var lst = fig.segments.last();
+    if (lst !== null)
+        lst.close();
+    freeArray(burstPoints);
+    geo.spot1 = new Spot(0.222, 0.222);
+    geo.spot2 = new Spot(0.777, 0.777);
+    return geo;
+});
+defineFigureGenerator('TenPointedBurst', function (shape, w, h) {
+    var burstPoints = createBurst(10);
+    var geo = new Geometry();
+    var fig = new PathFigure(burstPoints[0].x * w, burstPoints[0].y * h, true);
+    geo.add(fig);
+    for (var i = 1; i < burstPoints.length; i += 3) {
+        fig.add(new PathSegment(SegmentType.Bezier, burstPoints[i + 2].x * w, burstPoints[i + 2].y * h, burstPoints[i].x * w, burstPoints[i].y * h, burstPoints[i + 1].x * w, burstPoints[i + 1].y * h));
+    }
+    var lst = fig.segments.last();
+    if (lst !== null)
+        lst.close();
+    freeArray(burstPoints);
+    geo.spot1 = new Spot(0.222, 0.222);
+    geo.spot2 = new Spot(0.777, 0.777);
+    return geo;
+});
+FigureParameter.setFigureParameter('FramedRectangle', 0, new FigureParameter('ThicknessX', 8));
+FigureParameter.setFigureParameter('FramedRectangle', 1, new FigureParameter('ThicknessY', 8));
+defineFigureGenerator('FramedRectangle', function (shape, w, h) {
+    var param1 = shape ? shape.parameter1 : NaN;
+    var param2 = shape ? shape.parameter2 : NaN;
+    if (isNaN(param1))
+        param1 = 8; // default values PARAMETER 1 is for WIDTH
+    if (isNaN(param2))
+        param2 = 8; // default values PARAMETER 2 is for HEIGHT
+    var geo = new Geometry();
+    var fig = new PathFigure(0, 0, true);
+    geo.add(fig);
+    // outer rectangle, clockwise
+    fig.add(new PathSegment(SegmentType.Line, w, 0));
+    fig.add(new PathSegment(SegmentType.Line, w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0, h).close());
+    if (param1 < w / 2 && param2 < h / 2) {
+        // inner rectangle, counter-clockwise
+        fig.add(new PathSegment(SegmentType.Move, param1, param2)); // subpath
+        fig.add(new PathSegment(SegmentType.Line, param1, h - param2));
+        fig.add(new PathSegment(SegmentType.Line, w - param1, h - param2));
+        fig.add(new PathSegment(SegmentType.Line, w - param1, param2).close());
+    }
+    geo.setSpots(0, 0, 1, 1, param1, param2, -param1, -param2);
+    return geo;
+});
+FigureParameter.setFigureParameter('Ring', 0, new FigureParameter('Thickness', 8));
+defineFigureGenerator('Ring', function (shape, w, h) {
+    var param1 = shape ? shape.parameter1 : NaN;
+    if (isNaN(param1) || param1 < 0)
+        param1 = 8;
+    var rad = w / 2;
+    var geo = new Geometry();
+    var fig = new PathFigure(w, w / 2, true); // clockwise
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Arc, 0, 360, rad, rad, rad, rad).close());
+    var rad2 = Math.max(rad - param1, 0);
+    if (rad2 > 0) {
+        // counter-clockwise
+        fig.add(new PathSegment(SegmentType.Move, w / 2 + rad2, w / 2));
+        fig.add(new PathSegment(SegmentType.Arc, 0, -360, rad, rad, rad2, rad2).close());
+    }
+    geo.spot1 = GeneratorEllipseSpot1;
+    geo.spot2 = GeneratorEllipseSpot2;
+    geo.defaultStretch = GeometryStretch.Uniform;
+    return geo;
+});
+defineFigureGenerator('Cloud', function (shape, w, h) { return new Geometry()
+    .add(new PathFigure(0.08034461 * w, 0.1944299 * h, true)
+    .add(new PathSegment(SegmentType.Bezier, 0.2008615 * w, 0.05349299 * h, -0.09239631 * w, 0.07836421 * h, 0.1406031 * w, -0.0542823 * h))
+    .add(new PathSegment(SegmentType.Bezier, 0.4338609 * w, 0.074219 * h, 0.2450511 * w, -697547e-8 * h, 0.3776197 * w, -0.01112067 * h))
+    .add(new PathSegment(SegmentType.Bezier, 0.6558228 * w, 0.07004196 * h, 0.4539471 * w, 0, 0.6066018 * w, -0.02526587 * h))
+    .add(new PathSegment(SegmentType.Bezier, 0.8921095 * w, 0.08370865 * h, 0.6914277 * w, -0.01904177 * h, 0.8921095 * w, -0.01220843 * h))
+    .add(new PathSegment(SegmentType.Bezier, 0.9147671 * w, 0.3194596 * h, 1.036446 * w, 0.04105738 * h, 1.020377 * w, 0.3022052 * h))
+    .add(new PathSegment(SegmentType.Bezier, 0.9082935 * w, 0.562044 * h, 1.04448 * w, 0.360238 * h, 0.992256 * w, 0.5219009 * h))
+    .add(new PathSegment(SegmentType.Bezier, 0.9212406 * w, 0.8217117 * h, 1.032337 * w, 0.5771781 * h, 1.018411 * w, 0.8120651 * h))
+    .add(new PathSegment(SegmentType.Bezier, 0.7592566 * w, 0.9156953 * h, 1.028411 * w, 0.9571472 * h, 0.8556702 * w, 1.052487 * h))
+    .add(new PathSegment(SegmentType.Bezier, 0.5101666 * w, 0.9310455 * h, 0.7431877 * w, 1.009325 * h, 0.5624123 * w, 1.021761 * h))
+    .add(new PathSegment(SegmentType.Bezier, 0.2609328 * w, 0.9344623 * h, 0.4820677 * w, 1.031761 * h, 0.3030112 * w, 1.002796 * h))
+    .add(new PathSegment(SegmentType.Bezier, 0.08034461 * w, 0.870098 * h, 0.2329994 * w, 1.01518 * h, 0.03213784 * w, 1.01518 * h))
+    .add(new PathSegment(SegmentType.Bezier, 0.06829292 * w, 0.6545475 * h, -0.02812061 * w, 0.9032597 * h, -0.01205169 * w, 0.6835638 * h))
+    .add(new PathSegment(SegmentType.Bezier, 0.06427569 * w, 0.4265613 * h, -0.01812061 * w, 0.6089503 * h, -606892e-8 * w, 0.4555777 * h))
+    .add(new PathSegment(SegmentType.Bezier, 0.08034461 * w, 0.1944299 * h, -0.01606892 * w, 0.3892545 * h, -0.01205169 * w, 0.1944299 * h)))
+    .setSpots(0.1, 0.1, 0.9, 0.9); });
+defineFigureGenerator('StopSign', function (shape, w, h) {
+    var part = 1 / (Math.SQRT2 + 2);
+    return new Geometry()
+        .add(new PathFigure(part * w, 0, true)
+        .add(new PathSegment(SegmentType.Line, (1 - part) * w, 0))
+        .add(new PathSegment(SegmentType.Line, w, part * h))
+        .add(new PathSegment(SegmentType.Line, w, (1 - part) * h))
+        .add(new PathSegment(SegmentType.Line, (1 - part) * w, h))
+        .add(new PathSegment(SegmentType.Line, part * w, h))
+        .add(new PathSegment(SegmentType.Line, 0, (1 - part) * h))
+        .add(new PathSegment(SegmentType.Line, 0, part * h).close()))
+        .setSpots(part / 2, part / 2, 1 - part / 2, 1 - part / 2);
+});
+FigureParameter.setFigureParameter('Pie', 0, new FigureParameter('Start', 0, -360, 360));
+FigureParameter.setFigureParameter('Pie', 1, new FigureParameter('Sweep', 315, -360, 360));
+defineFigureGenerator('Pie', function (shape, w, h) {
+    var param1 = shape ? shape.parameter1 : NaN;
+    var param2 = shape ? shape.parameter2 : NaN;
+    if (isNaN(param1))
+        param1 = 0; // default values PARAMETER 1 is for Start Angle
+    if (isNaN(param2))
+        param2 = 315; // default values PARAMETER 2 is for Sweep Angle
+    var start = param1 % 360;
+    if (start < 0)
+        start += 360;
+    var sweep = param2 % 360;
+    var rad = Math.min(w, h) / 2;
+    return new Geometry().add(new PathFigure(rad, rad) // start point
+        .add(new PathSegment(SegmentType.Arc, start, sweep, // angles
+    rad, rad, // center
+    rad, rad) // radius
+        .close()));
+});
+defineFigureGenerator('PiePiece', function (shape, w, h) {
+    var factor = (KAPPA / Math.SQRT2) * 0.5;
+    var x1 = Math.SQRT2 / 2;
+    var y1 = 1 - Math.SQRT2 / 2;
+    return new Geometry().add(new PathFigure(w, h, true)
+        .add(new PathSegment(SegmentType.Bezier, x1 * w, y1 * h, w, (1 - factor) * h, (x1 + factor) * w, (y1 + factor) * h))
+        .add(new PathSegment(SegmentType.Line, 0, h).close()));
+});
+FigureParameter.setFigureParameter('ThickCross', 0, new FigureParameter('Thickness', 30));
+defineFigureGenerator('ThickCross', function (shape, w, h) {
+    var param1 = shape ? shape.parameter1 : NaN;
+    if (isNaN(param1) || param1 < 0)
+        param1 = 30;
+    var t = Math.min(param1, w) / 2;
+    var mx = w / 2;
+    var my = h / 2;
+    return new Geometry().add(new PathFigure(mx - t, 0, true)
+        .add(new PathSegment(SegmentType.Line, mx + t, 0))
+        .add(new PathSegment(SegmentType.Line, mx + t, my - t))
+        .add(new PathSegment(SegmentType.Line, w, my - t))
+        .add(new PathSegment(SegmentType.Line, w, my + t))
+        .add(new PathSegment(SegmentType.Line, mx + t, my + t))
+        .add(new PathSegment(SegmentType.Line, mx + t, h))
+        .add(new PathSegment(SegmentType.Line, mx - t, h))
+        .add(new PathSegment(SegmentType.Line, mx - t, my + t))
+        .add(new PathSegment(SegmentType.Line, 0, my + t))
+        .add(new PathSegment(SegmentType.Line, 0, my - t))
+        .add(new PathSegment(SegmentType.Line, mx - t, my - t).close()));
+});
+FigureParameter.setFigureParameter('ThinCross', 0, new FigureParameter('Thickness', 10));
+defineFigureGenerator('ThinCross', function (shape, w, h) {
+    var param1 = shape ? shape.parameter1 : NaN;
+    if (isNaN(param1) || param1 < 0)
+        param1 = 10;
+    var t = Math.min(param1, w) / 2;
+    var mx = w / 2;
+    var my = h / 2;
+    return new Geometry().add(new PathFigure(mx - t, 0, true)
+        .add(new PathSegment(SegmentType.Line, mx + t, 0))
+        .add(new PathSegment(SegmentType.Line, mx + t, my - t))
+        .add(new PathSegment(SegmentType.Line, w, my - t))
+        .add(new PathSegment(SegmentType.Line, w, my + t))
+        .add(new PathSegment(SegmentType.Line, mx + t, my + t))
+        .add(new PathSegment(SegmentType.Line, mx + t, h))
+        .add(new PathSegment(SegmentType.Line, mx - t, h))
+        .add(new PathSegment(SegmentType.Line, mx - t, my + t))
+        .add(new PathSegment(SegmentType.Line, 0, my + t))
+        .add(new PathSegment(SegmentType.Line, 0, my - t))
+        .add(new PathSegment(SegmentType.Line, mx - t, my - t).close()));
+});
+FigureParameter.setFigureParameter('ThickX', 0, new FigureParameter('Thickness', 30));
+defineFigureGenerator('ThickX', function (shape, w, h) {
+    var param1 = shape ? shape.parameter1 : NaN;
+    if (isNaN(param1) || param1 < 0)
+        param1 = 30;
+    if (w === 0 || h === 0) {
+        var geo = new Geometry(GeometryType.Rectangle);
+        geo.startX = 0;
+        geo.startY = 0;
+        geo.endX = w;
+        geo.endY = h;
+        return geo;
+    }
+    else {
+        var w2 = w / 2;
+        var h2 = h / 2;
+        var a2 = Math.atan2(h, w);
+        var dx = param1 - Math.min((Math.cos(a2) * param1) / 2, w2);
+        var dy = param1 - Math.min((Math.sin(a2) * param1) / 2, h2);
+        var geo = new Geometry();
+        var fig = new PathFigure(dx, 0, true);
+        geo.add(fig);
+        fig.add(new PathSegment(SegmentType.Line, w2, 0.2 * h));
+        fig.add(new PathSegment(SegmentType.Line, w - dx, 0));
+        fig.add(new PathSegment(SegmentType.Line, w, dy));
+        fig.add(new PathSegment(SegmentType.Line, 0.8 * w, h2));
+        fig.add(new PathSegment(SegmentType.Line, w, h - dy));
+        fig.add(new PathSegment(SegmentType.Line, w - dx, h));
+        fig.add(new PathSegment(SegmentType.Line, w2, 0.8 * h));
+        fig.add(new PathSegment(SegmentType.Line, dx, h));
+        fig.add(new PathSegment(SegmentType.Line, 0, h - dy));
+        fig.add(new PathSegment(SegmentType.Line, 0.2 * w, h2));
+        fig.add(new PathSegment(SegmentType.Line, 0, dy).close());
+        return geo;
+    }
+});
+FigureParameter.setFigureParameter('ThinX', 0, new FigureParameter('Thickness', 10));
+defineFigureGenerator('ThinX', function (shape, w, h) {
+    shape ? shape.parameter1 : NaN;
+    var geo = new Geometry();
+    var fig = new PathFigure(0.1 * w, 0, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0.5 * w, 0.4 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.9 * w, 0));
+    fig.add(new PathSegment(SegmentType.Line, w, 0.1 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.6 * w, 0.5 * h));
+    fig.add(new PathSegment(SegmentType.Line, w, 0.9 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.9 * w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0.5 * w, 0.6 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.1 * w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0, 0.9 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.4 * w, 0.5 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0, 0.1 * h).close());
+    return geo;
+});
+// adjust the width of the vertical beam
+FigureParameter.setFigureParameter('SquareIBeam', 0, new FigureParameter('BeamWidth', 0.2, 0.1, 0.9));
+defineFigureGenerator('SquareIBeam', function (shape, w, h) {
+    var param1 = shape ? shape.parameter1 : NaN; // width of the ibeam in % of the total width
+    if (isNaN(param1))
+        param1 = 0.2;
+    var geo = new Geometry();
+    var fig = new PathFigure(0, 0, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, w, 0));
+    fig.add(new PathSegment(SegmentType.Line, w, param1 * h));
+    fig.add(new PathSegment(SegmentType.Line, (0.5 + param1 / 2) * w, param1 * h));
+    fig.add(new PathSegment(SegmentType.Line, (0.5 + param1 / 2) * w, (1 - param1) * h));
+    fig.add(new PathSegment(SegmentType.Line, w, (1 - param1) * h));
+    fig.add(new PathSegment(SegmentType.Line, w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0, h));
+    fig.add(new PathSegment(SegmentType.Line, 0, (1 - param1) * h));
+    fig.add(new PathSegment(SegmentType.Line, (0.5 - param1 / 2) * w, (1 - param1) * h));
+    fig.add(new PathSegment(SegmentType.Line, (0.5 - param1 / 2) * w, param1 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0, param1 * h).close());
+    return geo;
+});
+// parameter allows it easy to adjust the roundness of the curves that cut inward
+FigureParameter.setFigureParameter('RoundedIBeam', 0, new FigureParameter('Curviness', 0.5, 0.05, 0.65));
+defineFigureGenerator('RoundedIBeam', function (shape, w, h) {
+    var param1 = shape ? shape.parameter1 : NaN; // curviness of the ibeam relative to total width
+    if (isNaN(param1))
+        param1 = 0.5;
+    var geo = new Geometry();
+    var fig = new PathFigure(0, 0, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, w, 0));
+    fig.add(new PathSegment(SegmentType.Bezier, w, h, Math.abs(1 - param1) * w, 0.25 * h, Math.abs(1 - param1) * w, 0.75 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0, h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0, 0, param1 * w, 0.75 * h, param1 * w, 0.25 * h).close());
+    return geo;
+});
+defineFigureGenerator('HalfEllipse', function (shape, w, h) { return new Geometry()
+    .add(new PathFigure(0, 0, true)
+    .add(new PathSegment(SegmentType.Bezier, w, 0.5 * h, KAPPA * w, 0, w, (0.5 - KAPPA / 2) * h))
+    .add(new PathSegment(SegmentType.Bezier, 0, h, w, (0.5 + KAPPA / 2) * h, KAPPA * w, h).close()))
+    .setSpots(0, 0.156, 0.844, 0.844); });
+defineFigureGenerator('Crescent', function (shape, w, h) { return new Geometry()
+    .add(new PathFigure(0, 0, true)
+    .add(new PathSegment(SegmentType.Bezier, 0, h, w, 0, w, h))
+    .add(new PathSegment(SegmentType.Bezier, 0, 0, 0.5 * w, 0.75 * h, 0.5 * w, 0.25 * h).close()))
+    .setSpots(0.311, 0.266, 0.744, 0.744); });
+defineFigureGenerator('Heart', function (shape, w, h) { return new Geometry()
+    .add(new PathFigure(0.5 * w, h, true)
+    .add(new PathSegment(SegmentType.Bezier, 0, 0.3 * h, 0.1 * w, 0.8 * h, 0, 0.5 * h))
+    .add(new PathSegment(SegmentType.Bezier, 0.5 * w, 0.3 * h, 0, 0, 0.45 * w, 0))
+    .add(new PathSegment(SegmentType.Bezier, w, 0.3 * h, 0.55 * w, 0, w, 0))
+    .add(new PathSegment(SegmentType.Bezier, 0.5 * w, h, w, 0.5 * h, 0.9 * w, 0.8 * h).close()))
+    .setSpots(0.14, 0.29, 0.86, 0.78); });
+defineFigureGenerator('Spade', function (shape, w, h) { return new Geometry()
+    .add(new PathFigure(0.5 * w, 0, true)
+    .add(new PathSegment(SegmentType.Line, 0.51 * w, 0.01 * h))
+    .add(new PathSegment(SegmentType.Bezier, w, 0.5 * h, 0.6 * w, 0.2 * h, w, 0.25 * h))
+    .add(new PathSegment(SegmentType.Bezier, 0.55 * w, 0.7 * h, w, 0.8 * h, 0.6 * w, 0.8 * h))
+    .add(new PathSegment(SegmentType.Bezier, 0.75 * w, h, 0.5 * w, 0.75 * h, 0.55 * w, 0.95 * h))
+    .add(new PathSegment(SegmentType.Line, 0.25 * w, h))
+    .add(new PathSegment(SegmentType.Bezier, 0.45 * w, 0.7 * h, 0.45 * w, 0.95 * h, 0.5 * w, 0.75 * h))
+    .add(new PathSegment(SegmentType.Bezier, 0, 0.5 * h, 0.4 * w, 0.8 * h, 0, 0.8 * h))
+    .add(new PathSegment(SegmentType.Bezier, 0.49 * w, 0.01 * h, 0, 0.25 * h, 0.4 * w, 0.2 * h).close()))
+    .setSpots(0.14, 0.26, 0.86, 0.78); });
+defineFigureGenerator('Club', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0.4 * w, 0.6 * h, true);
+    geo.add(fig);
+    // Start the base
+    fig.add(new PathSegment(SegmentType.Bezier, 0.15 * w, h, 0.5 * w, 0.75 * h, 0.45 * w, 0.95 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.85 * w, h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.6 * w, 0.6 * h, 0.55 * w, 0.95 * h, 0.5 * w, 0.75 * h));
+    // First circle:
+    var r = 0.2; // radius
+    var cx = 0.3; // offset from Center x
+    var cy = 0; // offset from Center y
+    var d = r * KAPPA;
+    fig.add(new PathSegment(SegmentType.Bezier, (0.5 + cx) * w, (0.5 + r + cy) * h, (0.5 - r + cx) * w, (0.5 + d + cy) * h, (0.5 - d + cx) * w, (0.5 + r + cy) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, (1 - 0.5 + r + cx) * w, (0.5 + cy) * h, (0.5 + d + cx) * w, (0.5 + r + cy) * h, (0.5 + r + cx) * w, (0.5 + d + cy) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, (0.5 + cx) * w, (0.5 - r + cy) * h, (1 - 0.5 + r + cx) * w, (0.5 - d + cy) * h, (0.5 + d + cx) * w, (0.5 - r + cy) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.65 * w, 0.36771243 * h, (0.5 - d + cx) * w, (0.5 - r + cy) * h, (0.5 - r + cx + 0.05) * w, (0.5 - d + cy - 0.02) * h));
+    r = 0.2; // radius
+    cx = 0; // offset from Center x
+    cy = -0.3; // offset from Center y
+    d = r * KAPPA;
+    fig.add(new PathSegment(SegmentType.Bezier, (1 - 0.5 + r + cx) * w, (0.5 + cy) * h, (0.5 + d + cx) * w, (0.5 + r + cy) * h, (0.5 + r + cx) * w, (0.5 + d + cy) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, (0.5 + cx) * w, (0.5 - r + cy) * h, (1 - 0.5 + r + cx) * w, (0.5 - d + cy) * h, (0.5 + d + cx) * w, (0.5 - r + cy) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, (0.5 - r + cx) * w, (0.5 + cy) * h, (0.5 - d + cx) * w, (0.5 - r + cy) * h, (0.5 - r + cx) * w, (0.5 - d + cy) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, (0.5 - d + cx) * w, (0.5 + r + cy) * h, (0.5 - r + cx) * w, (0.5 + d + cy) * h, (0.5 - d + cx) * w, (0.5 + r + cy) * h));
+    r = 0.2; // radius
+    cx = -0.3; // offset from Center x
+    cy = 0; // offset from Center y
+    d = r * KAPPA;
+    fig.add(new PathSegment(SegmentType.Bezier, (0.5 + cx) * w, (0.5 - r + cy) * h, (1 - 0.5 + r + cx - 0.05) * w, (0.5 - d + cy - 0.02) * h, (0.5 + d + cx) * w, (0.5 - r + cy) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, (0.5 - r + cx) * w, (0.5 + cy) * h, (0.5 - d + cx) * w, (0.5 - r + cy) * h, (0.5 - r + cx) * w, (0.5 - d + cy) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, (0.5 + cx) * w, (0.5 + r + cy) * h, (0.5 - r + cx) * w, (0.5 + d + cy) * h, (0.5 - d + cx) * w, (0.5 + r + cy) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.4 * w, 0.6 * h, (0.5 + d + cx) * w, (0.5 + r + cy) * h, (0.5 + r + cx) * w, (0.5 + d + cy) * h).close());
+    geo.setSpots(0.06, 0.33, 0.93, 0.68);
+    return geo;
+});
+defineFigureGenerator('YinYang', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(w * 0.5, 0, true);
+    geo.add(fig);
+    // Right semi-circle
+    fig.add(new PathSegment(SegmentType.Arc, 270, 180, w * 0.5, w * 0.5, w * 0.5, w * 0.5));
+    // bottom semi-circle
+    fig.add(new PathSegment(SegmentType.Arc, 90, -180, w * 0.5, w * 0.75, w * 0.25, w * 0.25));
+    // top semi-circle
+    fig.add(new PathSegment(SegmentType.Arc, 90, 180, w * 0.5, w * 0.25, w * 0.25, w * 0.25));
+    var radius = 0.1; // of the small circles
+    var centerx = 0.5;
+    var centery = 0.25;
+    // Top small circle, goes counter-clockwise
+    fig.add(new PathSegment(SegmentType.Move, (centerx + radius) * w, centery * h));
+    fig.add(new PathSegment(SegmentType.Arc, 0, -360, w * centerx, h * centery, radius * w, radius * w).close()); // Right semi-circle
+    // Left semi-circle
+    fig = new PathFigure(w * 0.5, 0, false);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Arc, 270, -180, w * 0.5, w * 0.5, w * 0.5, w * 0.5));
+    centery = 0.75;
+    // Bottom small circle
+    fig = new PathFigure((centerx + radius) * w, centery * h, true); // Not a subpath
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Arc, 0, 360, w * centerx, h * centery, radius * w, radius * w).close()); // Right semi-circle
+    geo.defaultStretch = GeometryStretch.Uniform;
+    return geo;
+});
+defineFigureGenerator('Peace', function (shape, w, h) {
+    var a = 1.0 - 0.1464466094067262; // at 45 degrees
+    var w2 = 0.5 * w;
+    var h2 = 0.5 * h;
+    return new Geometry().add(new PathFigure(w2, 0, false)
+        .add(new PathSegment(SegmentType.Arc, 270, 360, w2, h2, w2, h2))
+        .add(new PathSegment(SegmentType.Line, w2, h))
+        .add(new PathSegment(SegmentType.Move, w2, h2))
+        .add(new PathSegment(SegmentType.Line, (1.0 - a) * w, a * h))
+        .add(new PathSegment(SegmentType.Move, w2, h2))
+        .add(new PathSegment(SegmentType.Line, a * w, a * h)));
+});
+defineFigureGenerator('NotAllowed', function (shape, w, h) {
+    var geo = new Geometry();
+    var cpOffset = KAPPA * 0.5;
+    var radius = 0.5;
+    var centerx = 0.5;
+    var centery = 0.5;
+    var fig = new PathFigure(centerx * w, (centery - radius) * h);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Bezier, (centerx - radius) * w, centery * h, (centerx - cpOffset) * w, (centery - radius) * h, (centerx - radius) * w, (centery - cpOffset) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, centerx * w, (centery + radius) * h, (centerx - radius) * w, (centery + cpOffset) * h, (centerx - cpOffset) * w, (centery + radius) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, (centerx + radius) * w, centery * h, (centerx + cpOffset) * w, (centery + radius) * h, (centerx + radius) * w, (centery + cpOffset) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, centerx * w, (centery - radius) * h, (centerx + radius) * w, (centery - cpOffset) * h, (centerx + cpOffset) * w, (centery - radius) * h));
+    // Inner circle, composed of two parts, separated by
+    // a beam across going from top-right to bottom-left.
+    radius = 0.4;
+    cpOffset = KAPPA * 0.4;
+    // First we cut up the top right 90 degree curve into two smaller
+    // curves.
+    // Since its clockwise, StartOfArrow is the first of the two points
+    // on the circle. EndOfArrow is the other one.
+    var startOfArrowc1 = tempPoint();
+    var startOfArrowc2 = tempPoint();
+    var startOfArrow = tempPoint();
+    var unused = tempPoint();
+    breakUpBezier(centerx, centery - radius, centerx + cpOffset, centery - radius, centerx + radius, centery - cpOffset, centerx + radius, centery, 0.42, startOfArrowc1, startOfArrowc2, startOfArrow, unused, unused);
+    var endOfArrowc1 = tempPoint();
+    var endOfArrowc2 = tempPoint();
+    var endOfArrow = tempPoint();
+    breakUpBezier(centerx, centery - radius, centerx + cpOffset, centery - radius, centerx + radius, centery - cpOffset, centerx + radius, centery, 0.58, unused, unused, endOfArrow, endOfArrowc1, endOfArrowc2);
+    // Cut up the bottom left 90 degree curve into two smaller curves.
+    var startOfArrow2c1 = tempPoint();
+    var startOfArrow2c2 = tempPoint();
+    var startOfArrow2 = tempPoint();
+    breakUpBezier(centerx, centery + radius, centerx - cpOffset, centery + radius, centerx - radius, centery + cpOffset, centerx - radius, centery, 0.42, startOfArrow2c1, startOfArrow2c2, startOfArrow2, unused, unused);
+    var endOfArrow2c1 = tempPoint();
+    var endOfArrow2c2 = tempPoint();
+    var endOfArrow2 = tempPoint();
+    breakUpBezier(centerx, centery + radius, centerx - cpOffset, centery + radius, centerx - radius, centery + cpOffset, centerx - radius, centery, 0.58, unused, unused, endOfArrow2, endOfArrow2c1, endOfArrow2c2);
+    fig.add(new PathSegment(SegmentType.Move, endOfArrow2.x * w, endOfArrow2.y * h));
+    fig.add(new PathSegment(SegmentType.Bezier, (centerx - radius) * w, centery * h, endOfArrow2c1.x * w, endOfArrow2c1.y * h, endOfArrow2c2.x * w, endOfArrow2c2.y * h));
+    fig.add(new PathSegment(SegmentType.Bezier, centerx * w, (centery - radius) * h, (centerx - radius) * w, (centery - cpOffset) * h, (centerx - cpOffset) * w, (centery - radius) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, startOfArrow.x * w, startOfArrow.y * h, startOfArrowc1.x * w, startOfArrowc1.y * h, startOfArrowc2.x * w, startOfArrowc2.y * h));
+    fig.add(new PathSegment(SegmentType.Line, endOfArrow2.x * w, endOfArrow2.y * h).close());
+    fig.add(new PathSegment(SegmentType.Move, startOfArrow2.x * w, startOfArrow2.y * h));
+    fig.add(new PathSegment(SegmentType.Line, endOfArrow.x * w, endOfArrow.y * h));
+    fig.add(new PathSegment(SegmentType.Bezier, (centerx + radius) * w, centery * h, endOfArrowc1.x * w, endOfArrowc1.y * h, endOfArrowc2.x * w, endOfArrowc2.y * h));
+    fig.add(new PathSegment(SegmentType.Bezier, centerx * w, (centery + radius) * h, (centerx + radius) * w, (centery + cpOffset) * h, (centerx + cpOffset) * w, (centery + radius) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, startOfArrow2.x * w, startOfArrow2.y * h, startOfArrow2c1.x * w, startOfArrow2c1.y * h, startOfArrow2c2.x * w, startOfArrow2c2.y * h).close());
+    freePoint(startOfArrowc1);
+    freePoint(startOfArrowc2);
+    freePoint(startOfArrow);
+    freePoint(unused);
+    freePoint(endOfArrowc1);
+    freePoint(endOfArrowc2);
+    freePoint(endOfArrow);
+    freePoint(startOfArrow2c1);
+    freePoint(startOfArrow2c2);
+    freePoint(startOfArrow2);
+    freePoint(endOfArrow2c1);
+    freePoint(endOfArrow2c2);
+    freePoint(endOfArrow2);
+    geo.defaultStretch = GeometryStretch.Uniform;
+    return geo;
+});
+defineFigureGenerator('Fragile', function (shape, w, h) { return new Geometry().add(new PathFigure(0, 0, true)
+    .add(new PathSegment(SegmentType.Line, 0.25 * w, 0))
+    .add(new PathSegment(SegmentType.Line, 0.2 * w, 0.15 * h))
+    .add(new PathSegment(SegmentType.Line, 0.3 * w, 0.25 * h))
+    .add(new PathSegment(SegmentType.Line, 0.29 * w, 0.33 * h))
+    .add(new PathSegment(SegmentType.Line, 0.35 * w, 0.25 * h))
+    .add(new PathSegment(SegmentType.Line, 0.3 * w, 0.15 * h))
+    .add(new PathSegment(SegmentType.Line, 0.4 * w, 0))
+    .add(new PathSegment(SegmentType.Line, w, 0))
+    // Left Side
+    .add(new PathSegment(SegmentType.Bezier, 0.55 * w, 0.5 * h, w, 0.25 * h, 0.75 * w, 0.5 * h))
+    .add(new PathSegment(SegmentType.Line, 0.55 * w, 0.9 * h))
+    // The base
+    .add(new PathSegment(SegmentType.Line, 0.7 * w, 0.9 * h))
+    .add(new PathSegment(SegmentType.Line, 0.7 * w, h))
+    .add(new PathSegment(SegmentType.Line, 0.3 * w, h))
+    .add(new PathSegment(SegmentType.Line, 0.3 * w, 0.9 * h))
+    // Right side
+    .add(new PathSegment(SegmentType.Line, 0.45 * w, 0.9 * h))
+    .add(new PathSegment(SegmentType.Line, 0.45 * w, 0.5 * h))
+    .add(new PathSegment(SegmentType.Bezier, 0, 0, 0.25 * w, 0.5 * h, 0, 0.25 * h).close())); });
+FigureParameter.setFigureParameter('HourGlass', 0, new FigureParameter('Thickness', 30));
+defineFigureGenerator('HourGlass', function (shape, w, h) {
+    var param1 = shape ? shape.parameter1 : NaN; // width at middle of hourglass
+    if (isNaN(param1) || param1 < 0)
+        param1 = 30;
+    if (param1 > w)
+        param1 = w;
+    var x1 = (w - param1) / 2;
+    var x2 = x1 + param1;
+    return new Geometry().add(new PathFigure(x2, 0.5 * h)
+        .add(new PathSegment(SegmentType.Line, w, h))
+        .add(new PathSegment(SegmentType.Line, 0, h))
+        .add(new PathSegment(SegmentType.Line, x1, 0.5 * h))
+        .add(new PathSegment(SegmentType.Line, 0, 0))
+        .add(new PathSegment(SegmentType.Line, w, 0).close()));
+});
+defineFigureGenerator('Lightning', function (shape, w, h) { return new Geometry().add(new PathFigure(0, 0.55 * h)
+    .add(new PathSegment(SegmentType.Line, 0.6 * w, 0))
+    .add(new PathSegment(SegmentType.Line, 0.3 * w, 0.45 * h))
+    .add(new PathSegment(SegmentType.Line, w, 0.45 * h))
+    .add(new PathSegment(SegmentType.Line, 0.4 * w, h))
+    .add(new PathSegment(SegmentType.Line, 0.7 * w, 0.55 * h).close())); });
+defineFigureGenerator('GenderMale', function (shape, w, h) {
+    var geo = new Geometry();
+    var cpOffset = KAPPA * 0.4;
+    var radius = 0.4;
+    var centerx = 0.5;
+    var centery = 0.5;
+    var unused = tempPoint();
+    var mid = tempPoint();
+    var c1 = tempPoint();
+    var c2 = tempPoint();
+    var fig = new PathFigure((centerx - radius) * w, centery * h, false);
+    geo.add(fig);
+    // Outer circle
+    fig.add(new PathSegment(SegmentType.Bezier, centerx * w, (centery - radius) * h, (centerx - radius) * w, (centery - cpOffset) * h, (centerx - cpOffset) * w, (centery - radius) * h));
+    breakUpBezier(centerx, centery - radius, centerx + cpOffset, centery - radius, centerx + radius, centery - cpOffset, centerx + radius, centery, 0.44, c1, c2, mid, unused, unused);
+    fig.add(new PathSegment(SegmentType.Bezier, mid.x * w, mid.y * h, c1.x * w, c1.y * h, c2.x * w, c2.y * h));
+    var startOfArrow = tempPointAt(mid.x, mid.y);
+    breakUpBezier(centerx, centery - radius, centerx + cpOffset, centery - radius, centerx + radius, centery - cpOffset, centerx + radius, centery, 0.56, unused, unused, mid, c1, c2);
+    var endOfArrow = tempPointAt(mid.x, mid.y);
+    fig.add(new PathSegment(SegmentType.Line, (startOfArrow.x * 0.1 + 0.95 * 0.9) * w, startOfArrow.y * 0.1 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.85 * w, startOfArrow.y * 0.1 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.85 * w, 0));
+    fig.add(new PathSegment(SegmentType.Line, w, 0));
+    fig.add(new PathSegment(SegmentType.Line, w, 0.15 * h));
+    fig.add(new PathSegment(SegmentType.Line, (endOfArrow.x * 0.1 + 0.9) * w, 0.15 * h));
+    fig.add(new PathSegment(SegmentType.Line, (endOfArrow.x * 0.1 + 0.9) * w, (endOfArrow.y * 0.1 + 0.05 * 0.9) * h));
+    fig.add(new PathSegment(SegmentType.Line, endOfArrow.x * w, endOfArrow.y * h));
+    fig.add(new PathSegment(SegmentType.Bezier, (centerx + radius) * w, centery * h, c1.x * w, c1.y * h, c2.x * w, c2.y * h));
+    fig.add(new PathSegment(SegmentType.Bezier, centerx * w, (centery + radius) * h, (centerx + radius) * w, (centery + cpOffset) * h, (centerx + cpOffset) * w, (centery + radius) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, (centerx - radius) * w, centery * h, (centerx - cpOffset) * w, (centery + radius) * h, (centerx - radius) * w, (centery + cpOffset) * h));
+    // Inner circle
+    radius = 0.35;
+    cpOffset = KAPPA * 0.35;
+    var fig2 = new PathFigure(centerx * w, (centery - radius) * h, false);
+    geo.add(fig2);
+    fig2.add(new PathSegment(SegmentType.Bezier, (centerx - radius) * w, centery * h, (centerx - cpOffset) * w, (centery - radius) * h, (centerx - radius) * w, (centery - cpOffset) * h));
+    fig2.add(new PathSegment(SegmentType.Bezier, centerx * w, (centery + radius) * h, (centerx - radius) * w, (centery + cpOffset) * h, (centerx - cpOffset) * w, (centery + radius) * h));
+    fig2.add(new PathSegment(SegmentType.Bezier, (centerx + radius) * w, centery * h, (centerx + cpOffset) * w, (centery + radius) * h, (centerx + radius) * w, (centery + cpOffset) * h));
+    fig2.add(new PathSegment(SegmentType.Bezier, centerx * w, (centery - radius) * h, (centerx + radius) * w, (centery - cpOffset) * h, (centerx + cpOffset) * w, (centery - radius) * h));
+    var fig3 = new PathFigure((centerx - radius) * w, centery * h, false);
+    geo.add(fig3);
+    freePoint(unused);
+    freePoint(mid);
+    freePoint(c1);
+    freePoint(c2);
+    freePoint(startOfArrow);
+    freePoint(endOfArrow);
+    geo.spot1 = new Spot(0.202, 0.257);
+    geo.spot2 = new Spot(0.792, 0.739);
+    geo.defaultStretch = GeometryStretch.Uniform;
+    return geo;
+});
+defineFigureGenerator('GenderFemale', function (shape, w, h) {
+    var geo = new Geometry();
+    // Outer Circle
+    var r = 0.375; // radius
+    var cx = 0; // offset from Center x
+    var cy = -0.125; // offset from Center y
+    var d = r * KAPPA;
+    var fig = new PathFigure((0.525 + cx) * w, (0.5 + r + cy) * h, false);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Bezier, (1 - 0.5 + r + cx) * w, (0.5 + cy) * h, (0.5 + d + cx) * w, (0.5 + r + cy) * h, (0.5 + r + cx) * w, (0.5 + d + cy) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, (0.5 + cx) * w, (0.5 - r + cy) * h, (1 - 0.5 + r + cx) * w, (0.5 - d + cy) * h, (0.5 + d + cx) * w, (0.5 - r + cy) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, (0.5 - r + cx) * w, (0.5 + cy) * h, (0.5 - d + cx) * w, (0.5 - r + cy) * h, (0.5 - r + cx) * w, (0.5 - d + cy) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, (0.475 + cx) * w, (0.5 + r + cy) * h, (0.5 - r + cx) * w, (0.5 + d + cy) * h, (0.5 - d + cx) * w, (0.5 + r + cy) * h));
+    // Legs
+    fig.add(new PathSegment(SegmentType.Line, 0.475 * w, 0.85 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.425 * w, 0.85 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.425 * w, 0.9 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.475 * w, 0.9 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.475 * w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0.525 * w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0.525 * w, 0.9 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.575 * w, 0.9 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.575 * w, 0.85 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.525 * w, 0.85 * h).close());
+    // Inner circle
+    r = 0.325; // radius
+    cx = 0; // offset from Center x
+    cy = -0.125; // offset from Center y
+    d = r * KAPPA;
+    fig = new PathFigure((1 - 0.5 + r + cx) * w, (0.5 + cy) * h, false);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Bezier, (0.5 + cx) * w, (0.5 + r + cy) * h, (0.5 + r + cx) * w, (0.5 + d + cy) * h, (0.5 + d + cx) * w, (0.5 + r + cy) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, (0.5 - r + cx) * w, (0.5 + cy) * h, (0.5 - d + cx) * w, (0.5 + r + cy) * h, (0.5 - r + cx) * w, (0.5 + d + cy) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, (0.5 + cx) * w, (0.5 - r + cy) * h, (0.5 - r + cx) * w, (0.5 - d + cy) * h, (0.5 - d + cx) * w, (0.5 - r + cy) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, (1 - 0.5 + r + cx) * w, (0.5 + cy) * h, (0.5 + d + cx) * w, (0.5 - r + cy) * h, (1 - 0.5 + r + cx) * w, (0.5 - d + cy) * h));
+    fig = new PathFigure((0.525 + cx) * w, (0.5 + r + cy) * h, false);
+    geo.add(fig);
+    geo.spot1 = new Spot(0.232, 0.136);
+    geo.spot2 = new Spot(0.682, 0.611);
+    geo.defaultStretch = GeometryStretch.Uniform;
+    return geo;
+});
+defineFigureGenerator('LogicImplies', function (shape, w, h) {
+    var param1 = shape ? shape.parameter1 : NaN;
+    if (isNaN(param1))
+        param1 = 0.2; // Distance the arrow folds from the right
+    return new Geometry()
+        .add(new PathFigure((1 - param1) * w, 0, false)
+        .add(new PathSegment(SegmentType.Line, w, 0.5 * h))
+        .add(new PathSegment(SegmentType.Line, (1 - param1) * w, h))
+        .add(new PathSegment(SegmentType.Move, 0, 0.5 * h))
+        .add(new PathSegment(SegmentType.Line, w, 0.5 * h)))
+        .setSpots(0, 0, 0.8, 0.5);
+});
+defineFigureGenerator('LogicIff', function (shape, w, h) {
+    var param1 = shape ? shape.parameter1 : NaN;
+    if (isNaN(param1))
+        param1 = 0.2; // Distance the arrow folds from the right
+    return new Geometry()
+        .add(new PathFigure((1 - param1) * w, 0, false)
+        .add(new PathSegment(SegmentType.Line, w, 0.5 * h))
+        .add(new PathSegment(SegmentType.Line, (1 - param1) * w, h))
+        .add(new PathSegment(SegmentType.Move, 0, 0.5 * h))
+        .add(new PathSegment(SegmentType.Line, w, 0.5 * h))
+        .add(new PathSegment(SegmentType.Move, param1 * w, 0))
+        .add(new PathSegment(SegmentType.Line, 0, 0.5 * h))
+        .add(new PathSegment(SegmentType.Line, param1 * w, h)))
+        .setSpots(0.2, 0, 0.8, 0.5);
+});
+defineFigureGenerator('LogicNot', function (shape, w, h) { return new Geometry().add(new PathFigure(0, 0, false)
+    .add(new PathSegment(SegmentType.Line, w, 0))
+    .add(new PathSegment(SegmentType.Line, w, h))); });
+defineFigureGenerator('LogicAnd', function (shape, w, h) { return new Geometry()
+    .add(new PathFigure(0, h, false)
+    .add(new PathSegment(SegmentType.Line, 0.5 * w, 0))
+    .add(new PathSegment(SegmentType.Line, w, h)))
+    .setSpots(0.25, 0.5, 0.75, 1); });
+defineFigureGenerator('LogicOr', function (shape, w, h) { return new Geometry()
+    .add(new PathFigure(0, 0, false)
+    .add(new PathSegment(SegmentType.Line, 0.5 * w, h))
+    .add(new PathSegment(SegmentType.Line, w, 0)))
+    .setSpots(0.219, 0, 0.78, 0.409); });
+defineFigureGenerator('LogicXor', function (shape, w, h) {
+    var geo = new Geometry().add(new PathFigure(0.5 * w, 0, false)
+        .add(new PathSegment(SegmentType.Line, 0.5 * w, h))
+        .add(new PathSegment(SegmentType.Move, 0, 0.5 * h))
+        .add(new PathSegment(SegmentType.Line, w, 0.5 * h))
+        .add(new PathSegment(SegmentType.Arc, 0, 360, 0.5 * w, 0.5 * h, 0.5 * w, 0.5 * h)));
+    geo.defaultStretch = GeometryStretch.Uniform;
+    return geo;
+});
+defineFigureGenerator('LogicTruth', function (shape, w, h) { return new Geometry().add(new PathFigure(0, 0, false)
+    .add(new PathSegment(SegmentType.Line, w, 0))
+    .add(new PathSegment(SegmentType.Move, 0.5 * w, 0))
+    .add(new PathSegment(SegmentType.Line, 0.5 * w, h))); });
+defineFigureGenerator('LogicFalsity', function (shape, w, h) { return new Geometry().add(new PathFigure(0, h, false)
+    .add(new PathSegment(SegmentType.Line, w, h))
+    .add(new PathSegment(SegmentType.Move, 0.5 * w, h))
+    .add(new PathSegment(SegmentType.Line, 0.5 * w, 0))); });
+defineFigureGenerator('LogicThereExists', function (shape, w, h) { return new Geometry().add(new PathFigure(0, 0, false)
+    .add(new PathSegment(SegmentType.Line, w, 0))
+    .add(new PathSegment(SegmentType.Line, w, 0.5 * h))
+    .add(new PathSegment(SegmentType.Line, 0, 0.5 * h))
+    .add(new PathSegment(SegmentType.Move, w, 0.5 * h))
+    .add(new PathSegment(SegmentType.Line, w, h))
+    .add(new PathSegment(SegmentType.Line, 0, h))); });
+defineFigureGenerator('LogicForAll', function (shape, w, h) { return new Geometry()
+    .add(new PathFigure(0, 0, false)
+    .add(new PathSegment(SegmentType.Line, 0.5 * w, h))
+    .add(new PathSegment(SegmentType.Line, w, 0))
+    .add(new PathSegment(SegmentType.Move, 0.25 * w, 0.5 * h))
+    .add(new PathSegment(SegmentType.Line, 0.75 * w, 0.5 * h)))
+    .setSpots(0.25, 0, 0.75, 0.5); });
+defineFigureGenerator('LogicIsDefinedAs', function (shape, w, h) { return new Geometry()
+    .add(new PathFigure(0, 0, false)
+    .add(new PathSegment(SegmentType.Line, w, 0))
+    .add(new PathSegment(SegmentType.Move, 0, 0.5 * h))
+    .add(new PathSegment(SegmentType.Line, w, 0.5 * h))
+    .add(new PathSegment(SegmentType.Move, 0, h))
+    .add(new PathSegment(SegmentType.Line, w, h)))
+    .setSpots(0.01, 0.01, 0.99, 0.49); });
+defineFigureGenerator('LogicIntersect', function (shape, w, h) {
+    var radius = 0.5;
+    return new Geometry()
+        .add(new PathFigure(0, h, false)
+        .add(new PathSegment(SegmentType.Line, 0, radius * h))
+        .add(new PathSegment(SegmentType.Arc, 180, 180, radius * w, radius * h, radius * w, radius * h))
+        .add(new PathSegment(SegmentType.Line, w, h)))
+        .setSpots(0, 0.5, 1, 1);
+});
+defineFigureGenerator('LogicUnion', function (shape, w, h) {
+    var radius = 0.5;
+    return new Geometry()
+        .add(new PathFigure(w, 0, false)
+        .add(new PathSegment(SegmentType.Line, w, radius * h))
+        .add(new PathSegment(SegmentType.Arc, 0, 180, radius * w, radius * h, radius * w, radius * h))
+        .add(new PathSegment(SegmentType.Line, 0, 0)))
+        .setSpots(0, 0, 1, 0.5);
+});
+FigureParameter.setFigureParameter('Arrow', 0, new FigureParameter('ArrowheadWidth', 0.3, 0.01, 0.99));
+FigureParameter.setFigureParameter('Arrow', 1, new FigureParameter('TailHeight', 0.3, 0.01, 0.99));
+defineFigureGenerator('Arrow', function (shape, w, h) {
+    var param1 = shape ? shape.parameter1 : NaN; // % width of arrowhead
+    if (isNaN(param1))
+        param1 = 0.3;
+    var param2 = shape ? shape.parameter2 : NaN; // % height of tail
+    if (isNaN(param2))
+        param2 = 0.3;
+    var x = (1 - param1) * w;
+    var y1 = (0.5 - param2 / 2) * h;
+    var y2 = (0.5 + param2 / 2) * h;
+    var geo = new Geometry();
+    var fig = new PathFigure(0, y1, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, x, y1));
+    fig.add(new PathSegment(SegmentType.Line, x, 0));
+    fig.add(new PathSegment(SegmentType.Line, w, 0.5 * h));
+    fig.add(new PathSegment(SegmentType.Line, x, h));
+    fig.add(new PathSegment(SegmentType.Line, x, y2));
+    fig.add(new PathSegment(SegmentType.Line, 0, y2).close());
+    geo.spot1 = new Spot(0, y1 / h);
+    var temp = getIntersection(0, y2 / h, 1, y2 / h, x / w, 1, 1, 0.5, tempPoint());
+    geo.spot2 = new Spot(temp.x, temp.y);
+    freePoint(temp);
+    return geo;
+});
+// Arrow with absolutes instead of scaling
+FigureParameter.setFigureParameter('Arrow2', 0, new FigureParameter('ArrowheadWidth', 30));
+FigureParameter.setFigureParameter('Arrow2', 1, new FigureParameter('TailHeight', 30));
+defineFigureGenerator('Arrow2', function (shape, w, h) {
+    var param1 = shape ? shape.parameter1 : NaN; // width of arrowhead
+    if (isNaN(param1))
+        param1 = 30;
+    if (param1 > w)
+        param1 = w;
+    var param2 = shape ? shape.parameter2 : NaN; // height of tail
+    if (isNaN(param2))
+        param2 = 30;
+    param2 = Math.min(param2, h / 2);
+    var x = w - param1;
+    var y1 = (h - param2) / 2;
+    var y2 = y1 + param2;
+    var geo = new Geometry();
+    var fig = new PathFigure(0, y1, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, x, y1));
+    fig.add(new PathSegment(SegmentType.Line, x, 0));
+    fig.add(new PathSegment(SegmentType.Line, w, 0.5 * h));
+    fig.add(new PathSegment(SegmentType.Line, x, h));
+    fig.add(new PathSegment(SegmentType.Line, x, y2));
+    fig.add(new PathSegment(SegmentType.Line, 0, y2).close());
+    geo.spot1 = new Spot(0, y1 / h);
+    var temp = getIntersection(0, y2 / h, 1, y2 / h, x / w, 1, 1, 0.5, tempPoint());
+    geo.spot2 = new Spot(temp.x, temp.y);
+    freePoint(temp);
+    return geo;
+});
+defineFigureGenerator('Chevron', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0, 0, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0.5 * w, 0));
+    fig.add(new PathSegment(SegmentType.Line, w, 0.5 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.5 * w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0, h));
+    fig.add(new PathSegment(SegmentType.Line, 0.5 * w, 0.5 * h).close());
+    return geo;
+});
+defineFigureGenerator('DoubleArrow', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0, 0, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0.3 * w, 0.214 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.3 * w, 0));
+    fig.add(new PathSegment(SegmentType.Line, 1.0 * w, 0.5 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.3 * w, 1.0 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.3 * w, 0.786 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0, 1.0 * h).close());
+    return geo;
+});
+FigureParameter.setFigureParameter('DoubleEndArrow', 0, new FigureParameter('ConnecterHeight', 0.3, 0.01, 0.99));
+defineFigureGenerator('DoubleEndArrow', function (shape, w, h) {
+    var param1 = shape ? shape.parameter1 : NaN; // height of midsection
+    if (isNaN(param1))
+        param1 = 0.3;
+    var y1 = (0.5 - param1 / 2) * h;
+    var y2 = (0.5 + param1 / 2) * h;
+    var geo = new Geometry();
+    var fig = new PathFigure(w, 0.5 * h, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0.7 * w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0.7 * w, y2));
+    fig.add(new PathSegment(SegmentType.Line, 0.3 * w, y2));
+    fig.add(new PathSegment(SegmentType.Line, 0.3 * w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0, 0.5 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.3 * w, 0));
+    fig.add(new PathSegment(SegmentType.Line, 0.3 * w, y1));
+    fig.add(new PathSegment(SegmentType.Line, 0.7 * w, y1));
+    fig.add(new PathSegment(SegmentType.Line, 0.7 * w, 0).close());
+    var temp = getIntersection(0, 0.5, 0.3, 0, 0, y1 / h, 0.1, y1 / h, tempPoint());
+    geo.spot1 = new Spot(temp.x, temp.y);
+    temp = getIntersection(0.7, 1, 1, 0.5, 0, y2 / h, 1, y2 / h, temp);
+    geo.spot2 = new Spot(temp.x, temp.y);
+    freePoint(temp);
+    return geo;
+});
+// DoubleEndArrow with absolutes instead of scaling
+FigureParameter.setFigureParameter('DoubleEndArrow2', 0, new FigureParameter('ConnecterHeight', 40));
+FigureParameter.setFigureParameter('DoubleEndArrow2', 1, new FigureParameter('ArrowHeight', 100));
+defineFigureGenerator('DoubleEndArrow2', function (shape, w, h) {
+    var param1 = shape ? shape.parameter1 : NaN; // height of midsection
+    if (isNaN(param1))
+        param1 = 40;
+    var param2 = shape ? shape.parameter2 : NaN; // height of arrows
+    if (isNaN(param2))
+        param2 = 100;
+    /*
+      y1outer
+        /|     |\
+       / |     | \
+      /  y1----   \
+     /             \
+     \             /
+      \  y2----   /
+       \ |     | /
+        \|     |/
+      y2outer
+    */
+    var y1 = (h - param1) / 2;
+    var y2 = y1 + param1;
+    var y1outer = (h - param2) / 2;
+    var y2outer = y1outer + param2;
+    if (param1 > h || param2 > h) {
+        if (param2 > param1) {
+            param1 = (param1 * h) / param2; // use similar ratio
+            y1 = (h - param1) / 2;
+            y2 = y1 + param1;
+            y1outer = 0;
+            y2outer = h;
+        }
+        else {
+            y1 = 0;
+            y2 = h;
+            y1outer = 0;
+            y2outer = h;
+        }
+    }
+    var geo = new Geometry();
+    var fig = new PathFigure(w, 0.5 * h, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0.7 * w, y2outer));
+    fig.add(new PathSegment(SegmentType.Line, 0.7 * w, y2));
+    fig.add(new PathSegment(SegmentType.Line, 0.3 * w, y2));
+    fig.add(new PathSegment(SegmentType.Line, 0.3 * w, y2outer));
+    fig.add(new PathSegment(SegmentType.Line, 0, 0.5 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.3 * w, y1outer));
+    fig.add(new PathSegment(SegmentType.Line, 0.3 * w, y1));
+    fig.add(new PathSegment(SegmentType.Line, 0.7 * w, y1));
+    fig.add(new PathSegment(SegmentType.Line, 0.7 * w, y1outer).close());
+    var temp = getIntersection(0, 0.5, 0.3, y1outer / h, 0, y1 / h, 1, y1 / h, tempPoint());
+    geo.spot1 = new Spot(temp.x, temp.y);
+    temp = getIntersection(0.7, y2outer / h, 1, 0.5, 0, y2 / h, 1, y2 / h, temp);
+    geo.spot2 = new Spot(temp.x, temp.y);
+    freePoint(temp);
+    return geo;
+});
+FigureParameter.setFigureParameter('IBeamArrow', 0, new FigureParameter('ConnectorHeight', 0.3, 0.01, 0.99));
+defineFigureGenerator('IBeamArrow', function (shape, w, h) {
+    var param1 = shape ? shape.parameter1 : NaN; // height of midsection
+    if (isNaN(param1))
+        param1 = 0.3;
+    var y1 = (0.5 - param1 / 2) * h;
+    var y2 = (0.5 + param1 / 2) * h;
+    var geo = new Geometry();
+    var fig = new PathFigure(w, 0.5 * h, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0.7 * w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0.7 * w, y2));
+    fig.add(new PathSegment(SegmentType.Line, 0.2 * w, y2));
+    fig.add(new PathSegment(SegmentType.Line, 0.2 * w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0, h));
+    fig.add(new PathSegment(SegmentType.Line, 0, 0));
+    fig.add(new PathSegment(SegmentType.Line, 0.2 * w, 0));
+    fig.add(new PathSegment(SegmentType.Line, 0.2 * w, y1));
+    fig.add(new PathSegment(SegmentType.Line, 0.7 * w, y1));
+    fig.add(new PathSegment(SegmentType.Line, 0.7 * w, 0).close());
+    geo.spot1 = new Spot(0, y1 / h);
+    var temp = getIntersection(0.7, 1, 1, 0.5, 0, y2 / h, 1, y2 / h, tempPoint());
+    geo.spot2 = new Spot(temp.x, temp.y);
+    freePoint(temp);
+    return geo;
+});
+// IBeamArrow with absolutes instead of scaling
+FigureParameter.setFigureParameter('IBeamArrow2', 0, new FigureParameter('ConnectorHeight', 40));
+FigureParameter.setFigureParameter('IBeamArrow2', 1, new FigureParameter('BeamArrowHeight', 100));
+defineFigureGenerator('IBeamArrow2', function (shape, w, h) {
+    var param1 = shape ? shape.parameter1 : NaN; // height of midsection
+    if (isNaN(param1))
+        param1 = 40;
+    var param2 = shape ? shape.parameter2 : NaN; // height of beam and arrow
+    if (isNaN(param2))
+        param2 = 100;
+    var y1 = (h - param1) / 2;
+    var y2 = y1 + param1;
+    var y1outer = (h - param2) / 2;
+    var y2outer = y1outer + param2;
+    if (param1 > h || param2 > h) {
+        if (param2 > param1) {
+            param1 = (param1 * h) / param2; // use similar ratio
+            y1 = (h - param1) / 2;
+            y2 = y1 + param1;
+            y1outer = 0;
+            y2outer = h;
+        }
+        else {
+            y1 = 0;
+            y2 = h;
+            y1outer = 0;
+            y2outer = h;
+        }
+    }
+    var geo = new Geometry();
+    var fig = new PathFigure(w, 0.5 * h, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0.7 * w, y2outer));
+    fig.add(new PathSegment(SegmentType.Line, 0.7 * w, y2));
+    fig.add(new PathSegment(SegmentType.Line, 0.2 * w, y2));
+    fig.add(new PathSegment(SegmentType.Line, 0.2 * w, y2outer));
+    fig.add(new PathSegment(SegmentType.Line, 0, y2outer));
+    fig.add(new PathSegment(SegmentType.Line, 0, y1outer));
+    fig.add(new PathSegment(SegmentType.Line, 0.2 * w, y1outer));
+    fig.add(new PathSegment(SegmentType.Line, 0.2 * w, y1));
+    fig.add(new PathSegment(SegmentType.Line, 0.7 * w, y1));
+    fig.add(new PathSegment(SegmentType.Line, 0.7 * w, y1outer).close());
+    geo.spot1 = new Spot(0, y1 / h);
+    var temp = getIntersection(0.7, y2outer / h, 1, 0.5, 0, y2 / h, 1, y2 / h, tempPoint());
+    geo.spot2 = new Spot(temp.x, temp.y);
+    freePoint(temp);
+    return geo;
+});
+FigureParameter.setFigureParameter('Pointer', 0, new FigureParameter('BackPoint', 0.1, 0, 0.2));
+defineFigureGenerator('Pointer', function (shape, w, h) {
+    var param1 = shape ? shape.parameter1 : NaN; // how much the back of the pointer comes in
+    if (isNaN(param1))
+        param1 = 0.1;
+    var geo = new Geometry();
+    var fig = new PathFigure(w, 0.5 * h, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0, h));
+    fig.add(new PathSegment(SegmentType.Line, param1 * w, 0.5 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0, 0).close());
+    geo.spot1 = new Spot(param1, 0.35);
+    var temp = getIntersection(0, 0.65, 1, 0.65, 0, 1, 1, 0.5, tempPoint()); // ?? constant
+    geo.spot2 = new Spot(temp.x, temp.y);
+    freePoint(temp);
+    return geo;
+});
+FigureParameter.setFigureParameter('RoundedPointer', 0, new FigureParameter('RoundedEdged', 0.3, 0, 0.5));
+defineFigureGenerator('RoundedPointer', function (shape, w, h) {
+    var param1 = shape ? shape.parameter1 : NaN; // how much the curved back of the pointer comes in
+    if (isNaN(param1))
+        param1 = 0.3;
+    var geo = new Geometry();
+    var fig = new PathFigure(w, 0.5 * h, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0, h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0, 0, param1 * w, 0.75 * h, param1 * w, 0.25 * h).close());
+    geo.spot1 = new Spot(param1, 0.35);
+    var temp = getIntersection(0, 0.65, 1, 0.65, 0, 1, 1, 0.5, tempPoint()); // ?? constant
+    geo.spot2 = new Spot(temp.x, temp.y);
+    freePoint(temp);
+    return geo;
+});
+FigureParameter.setFigureParameter('SplitEndArrow', 0, new FigureParameter('TailHeight', 0.4, 0.01, 0.99));
+defineFigureGenerator('SplitEndArrow', function (shape, w, h) {
+    var param1 = shape ? shape.parameter1 : NaN; // % height of arrow tail
+    if (isNaN(param1))
+        param1 = 0.4;
+    var y1 = (0.5 - param1 / 2) * h;
+    var y2 = (0.5 + param1 / 2) * h;
+    var geo = new Geometry();
+    var fig = new PathFigure(w, 0.5 * h, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0.7 * w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0.7 * w, y2));
+    fig.add(new PathSegment(SegmentType.Line, 0, y2));
+    fig.add(new PathSegment(SegmentType.Line, 0.2 * w, 0.5 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0, y1));
+    fig.add(new PathSegment(SegmentType.Line, 0.7 * w, y1));
+    fig.add(new PathSegment(SegmentType.Line, 0.7 * w, 0).close());
+    geo.spot1 = new Spot(0.2, y1 / h);
+    var temp = getIntersection(0.7, 1, 1, 0.5, 0, y2 / h, 1, y2 / h, tempPoint());
+    geo.spot2 = new Spot(temp.x, temp.y);
+    freePoint(temp);
+    return geo;
+});
+// SplitEndArrow with absolutes instead of scaling
+FigureParameter.setFigureParameter('SplitEndArrow2', 0, new FigureParameter('TailHeight', 40));
+defineFigureGenerator('SplitEndArrow2', function (shape, w, h) {
+    var param1 = shape ? shape.parameter1 : NaN; // height of arrow tail
+    if (isNaN(param1))
+        param1 = 50;
+    var y1 = (h - param1) / 2;
+    var y2 = y1 + param1;
+    if (param1 > h) {
+        y1 = 0;
+        y2 = h;
+    }
+    var geo = new Geometry();
+    var fig = new PathFigure(w, 0.5 * h, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0.7 * w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0.7 * w, y2));
+    fig.add(new PathSegment(SegmentType.Line, 0, y2));
+    fig.add(new PathSegment(SegmentType.Line, 0.2 * w, 0.5 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0, y1));
+    fig.add(new PathSegment(SegmentType.Line, 0.7 * w, y1));
+    fig.add(new PathSegment(SegmentType.Line, 0.7 * w, 0).close());
+    geo.spot1 = new Spot(0.2, y1 / h);
+    var temp = getIntersection(0.7, 1, 1, 0.5, 0, y2 / h, 1, y2 / h, tempPoint());
+    geo.spot2 = new Spot(temp.x, temp.y);
+    freePoint(temp);
+    return geo;
+});
+FigureParameter.setFigureParameter('SquareArrow', 0, new FigureParameter('ArrowPoint', 0.7, 0.2, 0.9));
+defineFigureGenerator('SquareArrow', function (shape, w, h) {
+    var param1 = shape ? shape.parameter1 : NaN; // pointiness of arrow, lower is more pointy
+    if (isNaN(param1))
+        param1 = 0.7;
+    var geo = new Geometry();
+    var fig = new PathFigure(w, 0.5 * h, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, param1 * w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0, h));
+    fig.add(new PathSegment(SegmentType.Line, 0, 0));
+    fig.add(new PathSegment(SegmentType.Line, param1 * w, 0).close());
+    geo.spot1 = Spot.TopLeft;
+    geo.spot2 = new Spot(param1, 1);
+    return geo;
+});
+defineFigureGenerator('Cone1', function (shape, w, h) {
+    var geo = new Geometry();
+    var cpxOffset = KAPPA * 0.5;
+    var cpyOffset = KAPPA * 0.1;
+    var fig = new PathFigure(0, 0.9 * h, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0.5 * w, 0));
+    fig.add(new PathSegment(SegmentType.Line, w, 0.9 * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.5 * w, h, w, (0.9 + cpyOffset) * h, (0.5 + cpxOffset) * w, h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0, 0.9 * h, (0.5 - cpxOffset) * w, h, 0, (0.9 + cpyOffset) * h).close());
+    geo.spot1 = new Spot(0.25, 0.5);
+    geo.spot2 = new Spot(0.75, 0.97);
+    return geo;
+});
+defineFigureGenerator('Cone2', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0, 0.9 * h, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Bezier, w, 0.9 * h, (1 - 0.85 / 0.9) * w, h, (0.85 / 0.9) * w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0.5 * w, 0));
+    fig.add(new PathSegment(SegmentType.Line, 0, 0.9 * h).close());
+    var fig2 = new PathFigure(0, 0.9 * h, false);
+    geo.add(fig2);
+    fig2.add(new PathSegment(SegmentType.Bezier, w, 0.9 * h, (1 - 0.85 / 0.9) * w, 0.8 * h, (0.85 / 0.9) * w, 0.8 * h));
+    geo.spot1 = new Spot(0.25, 0.5);
+    geo.spot2 = new Spot(0.75, 0.82);
+    return geo;
+});
+defineFigureGenerator('Cube1', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0.5 * w, h, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, w, 0.85 * h));
+    fig.add(new PathSegment(SegmentType.Line, w, 0.15 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.5 * w, 0));
+    fig.add(new PathSegment(SegmentType.Line, 0, 0.15 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0, 0.85 * h).close());
+    var fig2 = new PathFigure(0.5 * w, h, false);
+    geo.add(fig2);
+    fig2.add(new PathSegment(SegmentType.Line, 0.5 * w, 0.3 * h));
+    fig2.add(new PathSegment(SegmentType.Line, 0, 0.15 * h));
+    fig2.add(new PathSegment(SegmentType.Move, 0.5 * w, 0.3 * h));
+    fig2.add(new PathSegment(SegmentType.Line, w, 0.15 * h));
+    geo.spot1 = new Spot(0, 0.3);
+    geo.spot2 = new Spot(0.5, 0.85);
+    return geo;
+});
+defineFigureGenerator('Cube2', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0, 0.3 * h, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0, h));
+    fig.add(new PathSegment(SegmentType.Line, 0.7 * w, h));
+    fig.add(new PathSegment(SegmentType.Line, w, 0.7 * h));
+    fig.add(new PathSegment(SegmentType.Line, w, 0));
+    fig.add(new PathSegment(SegmentType.Line, 0.3 * w, 0).close());
+    var fig2 = new PathFigure(0, 0.3 * h, false);
+    geo.add(fig2);
+    fig2.add(new PathSegment(SegmentType.Line, 0.7 * w, 0.3 * h));
+    fig2.add(new PathSegment(SegmentType.Line, w, 0));
+    fig2.add(new PathSegment(SegmentType.Move, 0.7 * w, 0.3 * h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.7 * w, h));
+    geo.spot1 = new Spot(0, 0.3);
+    geo.spot2 = new Spot(0.7, 1);
+    return geo;
+});
+defineFigureGenerator('Cylinder1', function (shape, w, h) {
+    var param1 = shape ? shape.parameter1 : NaN; // half the height of the ellipse
+    if (isNaN(param1))
+        param1 = 5; // default value
+    param1 = Math.min(param1, h / 3);
+    var geo = new Geometry();
+    var cpxOffset = KAPPA * 0.5;
+    var fig = new PathFigure(0, param1, true);
+    geo.add(fig);
+    // The base (top)
+    fig.add(new PathSegment(SegmentType.Bezier, 0.5 * w, 0, 0, KAPPA * param1, (0.5 - cpxOffset) * w, 0));
+    fig.add(new PathSegment(SegmentType.Bezier, 1.0 * w, param1, (0.5 + cpxOffset) * w, 0, 1.0 * w, KAPPA * param1));
+    fig.add(new PathSegment(SegmentType.Line, w, h - param1));
+    // Bottom curve
+    fig.add(new PathSegment(SegmentType.Bezier, 0.5 * w, 1.0 * h, 1.0 * w, h - KAPPA * param1, (0.5 + cpxOffset) * w, 1.0 * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0, h - param1, (0.5 - cpxOffset) * w, 1.0 * h, 0, h - KAPPA * param1));
+    fig.add(new PathSegment(SegmentType.Line, 0, param1));
+    var fig2 = new PathFigure(w, param1, false);
+    geo.add(fig2);
+    fig2.add(new PathSegment(SegmentType.Bezier, 0.5 * w, 2 * param1, 1.0 * w, 2 * param1 - KAPPA * param1, (0.5 + cpxOffset) * w, 2 * param1));
+    fig2.add(new PathSegment(SegmentType.Bezier, 0, param1, (0.5 - cpxOffset) * w, 2 * param1, 0, 2 * param1 - KAPPA * param1));
+    geo.spot1 = new Spot(0, 0, 0, 2 * param1);
+    geo.spot2 = Spot.BottomRight;
+    return geo;
+});
+defineFigureGenerator('Cylinder2', function (shape, w, h) {
+    var param1 = shape ? shape.parameter1 : NaN; // half the height of the ellipse
+    if (isNaN(param1))
+        param1 = 5; // default value
+    param1 = Math.min(param1, h / 3);
+    var geo = new Geometry();
+    var cpxOffset = KAPPA * 0.5;
+    var fig = new PathFigure(0, h - param1, true);
+    geo.add(fig);
+    // The body, starting and ending bottom left
+    fig.add(new PathSegment(SegmentType.Line, 0, param1));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.5 * w, 0, 0, KAPPA * param1, (0.5 - cpxOffset) * w, 0));
+    fig.add(new PathSegment(SegmentType.Bezier, w, param1, (0.5 + cpxOffset) * w, 0, w, KAPPA * param1));
+    fig.add(new PathSegment(SegmentType.Line, w, h - param1));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.5 * w, h, w, h - KAPPA * param1, (0.5 + cpxOffset) * w, h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0, h - param1, (0.5 - cpxOffset) * w, h, 0, h - KAPPA * param1));
+    var fig2 = new PathFigure(0, h - param1, false);
+    geo.add(fig2);
+    // The base (bottom)
+    fig2.add(new PathSegment(SegmentType.Bezier, 0.5 * w, h - 2 * param1, 0, h - param1 - KAPPA * param1, (0.5 - cpxOffset) * w, h - 2 * param1));
+    fig2.add(new PathSegment(SegmentType.Bezier, w, h - param1, (0.5 + cpxOffset) * w, h - 2 * param1, w, h - param1 - KAPPA * param1));
+    geo.spot1 = Spot.TopLeft;
+    geo.spot2 = new Spot(1, 1, 0, -2 * param1);
+    return geo;
+});
+defineFigureGenerator('Cylinder3', function (shape, w, h) {
+    var param1 = shape ? shape.parameter1 : NaN; // half the width of the ellipse
+    if (isNaN(param1))
+        param1 = 5; // default value
+    param1 = Math.min(param1, w / 3);
+    var geo = new Geometry();
+    var cpyOffset = KAPPA * 0.5;
+    var fig = new PathFigure(param1, 0, true);
+    geo.add(fig);
+    // The body, starting and ending top left
+    fig.add(new PathSegment(SegmentType.Line, w - param1, 0));
+    fig.add(new PathSegment(SegmentType.Bezier, w, 0.5 * h, w - KAPPA * param1, 0, w, (0.5 - cpyOffset) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, w - param1, h, w, (0.5 + cpyOffset) * h, w - KAPPA * param1, h));
+    fig.add(new PathSegment(SegmentType.Line, param1, h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0, 0.5 * h, KAPPA * param1, h, 0, (0.5 + cpyOffset) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, param1, 0, 0, (0.5 - cpyOffset) * h, KAPPA * param1, 0));
+    var fig2 = new PathFigure(param1, 0, false);
+    geo.add(fig2);
+    // Cylinder line (left)
+    fig2.add(new PathSegment(SegmentType.Bezier, 2 * param1, 0.5 * h, param1 + KAPPA * param1, 0, 2 * param1, (0.5 - cpyOffset) * h));
+    fig2.add(new PathSegment(SegmentType.Bezier, param1, h, 2 * param1, (0.5 + cpyOffset) * h, param1 + KAPPA * param1, h));
+    geo.spot1 = new Spot(0, 0, 2 * param1, 0);
+    geo.spot2 = Spot.BottomRight;
+    return geo;
+});
+defineFigureGenerator('Cylinder4', function (shape, w, h) {
+    var param1 = shape ? shape.parameter1 : NaN; // half the width of the ellipse
+    if (isNaN(param1))
+        param1 = 5; // default value
+    param1 = Math.min(param1, w / 3);
+    var geo = new Geometry();
+    var cpyOffset = KAPPA * 0.5;
+    var fig = new PathFigure(w - param1, 0, true);
+    geo.add(fig);
+    // The body, starting and ending top right
+    fig.add(new PathSegment(SegmentType.Bezier, w, 0.5 * h, w - KAPPA * param1, 0, w, (0.5 - cpyOffset) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, w - param1, h, w, (0.5 + cpyOffset) * h, w - KAPPA * param1, h));
+    fig.add(new PathSegment(SegmentType.Line, param1, h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0, 0.5 * h, KAPPA * param1, h, 0, (0.5 + cpyOffset) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, param1, 0, 0, (0.5 - cpyOffset) * h, KAPPA * param1, 0));
+    fig.add(new PathSegment(SegmentType.Line, w - param1, 0));
+    var fig2 = new PathFigure(w - param1, 0, false);
+    geo.add(fig2);
+    // Cylinder line (right)
+    fig2.add(new PathSegment(SegmentType.Bezier, w - 2 * param1, 0.5 * h, w - param1 - KAPPA * param1, 0, w - 2 * param1, (0.5 - cpyOffset) * h));
+    fig2.add(new PathSegment(SegmentType.Bezier, w - param1, h, w - 2 * param1, (0.5 + cpyOffset) * h, w - param1 - KAPPA * param1, h));
+    geo.spot1 = Spot.TopLeft;
+    geo.spot2 = new Spot(1, 1, -2 * param1, 0);
+    return geo;
+});
+defineFigureGenerator('Prism1', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0.25 * w, 0.25 * h, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0.75 * w, 0));
+    fig.add(new PathSegment(SegmentType.Line, w, 0.5 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.5 * w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0, h).close());
+    var fig2 = new PathFigure(0.25 * w, 0.25 * h, false);
+    geo.add(fig2);
+    // Inner prism line
+    fig2.add(new PathSegment(SegmentType.Line, 0.5 * w, h));
+    geo.spot1 = new Spot(0.408, 0.172);
+    geo.spot2 = new Spot(0.833, 0.662);
+    return geo;
+});
+defineFigureGenerator('Prism2', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0, 0.25 * h, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0.75 * w, 0));
+    fig.add(new PathSegment(SegmentType.Line, w, 0.25 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.75 * w, 0.75 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0, h).close());
+    var fig2 = new PathFigure(0, h, false);
+    geo.add(fig2);
+    // Inner prism lines
+    fig2.add(new PathSegment(SegmentType.Line, 0.25 * w, 0.5 * h));
+    fig2.add(new PathSegment(SegmentType.Line, w, 0.25 * h));
+    fig2.add(new PathSegment(SegmentType.Move, 0, 0.25 * h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.25 * w, 0.5 * h));
+    geo.spot1 = new Spot(0.25, 0.5);
+    geo.spot2 = new Spot(0.75, 0.75);
+    return geo;
+});
+defineFigureGenerator('Pyramid1', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0.5 * w, 0, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, w, 0.75 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.5 * w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0, 0.75 * h).close());
+    var fig2 = new PathFigure(0.5 * w, 0, false);
+    geo.add(fig2);
+    // Inner pyramind line
+    fig2.add(new PathSegment(SegmentType.Line, 0.5 * w, h));
+    geo.spot1 = new Spot(0.25, 0.367);
+    geo.spot2 = new Spot(0.75, 0.875);
+    return geo;
+});
+defineFigureGenerator('Pyramid2', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0.5 * w, 0, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, w, 0.85 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.5 * w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0, 0.85 * h).close());
+    var fig2 = new PathFigure(0.5 * w, 0, false);
+    geo.add(fig2);
+    // Inner pyramid lines
+    fig2.add(new PathSegment(SegmentType.Line, 0.5 * w, 0.7 * h));
+    fig2.add(new PathSegment(SegmentType.Line, 0, 0.85 * h));
+    fig2.add(new PathSegment(SegmentType.Move, 0.5 * w, 0.7 * h));
+    fig2.add(new PathSegment(SegmentType.Line, w, 0.85 * h));
+    geo.spot1 = new Spot(0.25, 0.367);
+    geo.spot2 = new Spot(0.75, 0.875);
+    return geo;
+});
+defineFigureGenerator('Actor', function (shape, w, h) {
+    var geo = new Geometry();
+    var radiusw = 0.2;
+    var radiush = 0.1;
+    var offsetw = KAPPA * radiusw;
+    var offseth = KAPPA * radiush;
+    var centerx = 0.5;
+    var centery = 0.1;
+    var fig = new PathFigure(centerx * w, (centery + radiush) * h, true);
+    geo.add(fig);
+    // Head
+    fig.add(new PathSegment(SegmentType.Bezier, (centerx - radiusw) * w, centery * h, (centerx - offsetw) * w, (centery + radiush) * h, (centerx - radiusw) * w, (centery + offseth) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, centerx * w, (centery - radiush) * h, (centerx - radiusw) * w, (centery - offseth) * h, (centerx - offsetw) * w, (centery - radiush) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, (centerx + radiusw) * w, centery * h, (centerx + offsetw) * w, (centery - radiush) * h, (centerx + radiusw) * w, (centery - offseth) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, centerx * w, (centery + radiush) * h, (centerx + radiusw) * w, (centery + offseth) * h, (centerx + offsetw) * w, (centery + radiush) * h));
+    var r = 0.05;
+    var cpOffset = KAPPA * r;
+    centerx = 0.05;
+    centery = 0.25;
+    var fig2 = new PathFigure(0.5 * w, 0.2 * h, true);
+    geo.add(fig2);
+    // Body
+    fig2.add(new PathSegment(SegmentType.Line, 0.95 * w, 0.2 * h));
+    centerx = 0.95;
+    centery = 0.25;
+    // Right arm
+    fig2.add(new PathSegment(SegmentType.Bezier, (centerx + r) * w, centery * h, (centerx + cpOffset) * w, (centery - r) * h, (centerx + r) * w, (centery - cpOffset) * h));
+    fig2.add(new PathSegment(SegmentType.Line, w, 0.6 * h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.85 * w, 0.6 * h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.85 * w, 0.35 * h));
+    r = 0.025;
+    cpOffset = KAPPA * r;
+    centerx = 0.825;
+    centery = 0.35;
+    // Right under arm
+    fig2.add(new PathSegment(SegmentType.Bezier, centerx * w, (centery - r) * h, (centerx + r) * w, (centery - cpOffset) * h, (centerx + cpOffset) * w, (centery - r) * h));
+    fig2.add(new PathSegment(SegmentType.Bezier, (centerx - r) * w, centery * h, (centerx - cpOffset) * w, (centery - r) * h, (centerx - r) * w, (centery - cpOffset) * h));
+    // Right side/leg
+    fig2.add(new PathSegment(SegmentType.Line, 0.8 * w, h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.55 * w, h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.55 * w, 0.7 * h));
+    // Right in between
+    r = 0.05;
+    cpOffset = KAPPA * r;
+    centerx = 0.5;
+    centery = 0.7;
+    fig2.add(new PathSegment(SegmentType.Bezier, centerx * w, (centery - r) * h, (centerx + r) * w, (centery - cpOffset) * h, (centerx + cpOffset) * w, (centery - r) * h));
+    fig2.add(new PathSegment(SegmentType.Bezier, (centerx - r) * w, centery * h, (centerx - cpOffset) * w, (centery - r) * h, (centerx - r) * w, (centery - cpOffset) * h));
+    // Left side/leg
+    fig2.add(new PathSegment(SegmentType.Line, 0.45 * w, h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.2 * w, h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.2 * w, 0.35 * h));
+    r = 0.025;
+    cpOffset = KAPPA * r;
+    centerx = 0.175;
+    centery = 0.35;
+    // Left under arm
+    fig2.add(new PathSegment(SegmentType.Bezier, centerx * w, (centery - r) * h, (centerx + r) * w, (centery - cpOffset) * h, (centerx + cpOffset) * w, (centery - r) * h));
+    fig2.add(new PathSegment(SegmentType.Bezier, (centerx - r) * w, centery * h, (centerx - cpOffset) * w, (centery - r) * h, (centerx - r) * w, (centery - cpOffset) * h));
+    // Left arm
+    fig2.add(new PathSegment(SegmentType.Line, 0.15 * w, 0.6 * h));
+    fig2.add(new PathSegment(SegmentType.Line, 0, 0.6 * h));
+    fig2.add(new PathSegment(SegmentType.Line, 0, 0.25 * h));
+    r = 0.05;
+    cpOffset = KAPPA * r;
+    centerx = 0.05;
+    centery = 0.25;
+    // Left shoulder
+    fig2.add(new PathSegment(SegmentType.Bezier, centerx * w, (centery - r) * h, (centerx - r) * w, (centery - cpOffset) * h, (centerx - cpOffset) * w, (centery - r) * h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.5 * w, 0.2 * h));
+    geo.spot1 = new Spot(0.2, 0.2);
+    geo.spot2 = new Spot(0.8, 0.65);
+    return geo;
+});
+FigureParameter.setFigureParameter('Card', 0, new FigureParameter('CornerCutoutSize', 0.2, 0.1, 0.9));
+defineFigureGenerator('Card', function (shape, w, h) {
+    var param1 = shape ? shape.parameter1 : NaN; // size of corner cutout
+    if (isNaN(param1))
+        param1 = 0.2;
+    var geo = new Geometry();
+    var fig = new PathFigure(w, 0, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0, h));
+    fig.add(new PathSegment(SegmentType.Line, 0, param1 * h));
+    fig.add(new PathSegment(SegmentType.Line, param1 * w, 0).close());
+    geo.spot1 = new Spot(0, param1);
+    geo.spot2 = Spot.BottomRight;
+    return geo;
+});
+defineFigureGenerator('Collate', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0.5 * w, 0.5 * h, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0, 0));
+    fig.add(new PathSegment(SegmentType.Line, w, 0));
+    fig.add(new PathSegment(SegmentType.Line, 0.5 * w, 0.5 * h));
+    var fig2 = new PathFigure(0.5 * w, 0.5 * h, true);
+    geo.add(fig2);
+    fig2.add(new PathSegment(SegmentType.Line, w, h));
+    fig2.add(new PathSegment(SegmentType.Line, 0, h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.5 * w, 0.5 * h));
+    geo.spot1 = new Spot(0.25, 0);
+    geo.spot2 = new Spot(0.75, 0.25);
+    return geo;
+});
+defineFigureGenerator('CreateRequest', function (shape, w, h) {
+    var geo = new Geometry();
+    var param1 = shape ? shape.parameter1 : NaN;
+    if (isNaN(param1))
+        param1 = 0.1;
+    var fig = new PathFigure(0, 0, true);
+    geo.add(fig);
+    // Body
+    fig.add(new PathSegment(SegmentType.Line, w, 0));
+    fig.add(new PathSegment(SegmentType.Line, w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0, h).close());
+    var fig2 = new PathFigure(0, param1 * h, false);
+    geo.add(fig2);
+    // Inside lines
+    fig2.add(new PathSegment(SegmentType.Line, w, param1 * h));
+    fig2.add(new PathSegment(SegmentType.Move, 0, (1 - param1) * h));
+    fig2.add(new PathSegment(SegmentType.Line, w, (1 - param1) * h));
+    // ??? geo.spot1 = new Spot(0, param1);
+    // ??? geo.spot2 = new Spot(1, 1 - param1);
+    return geo;
+});
+defineFigureGenerator('Database', function (shape, w, h) {
+    var geo = new Geometry();
+    var cpxOffset = KAPPA * 0.5;
+    var cpyOffset = KAPPA * 0.1;
+    var fig = new PathFigure(w, 0.1 * h, true);
+    geo.add(fig);
+    // Body
+    fig.add(new PathSegment(SegmentType.Line, w, 0.9 * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.5 * w, h, w, (0.9 + cpyOffset) * h, (0.5 + cpxOffset) * w, h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0, 0.9 * h, (0.5 - cpxOffset) * w, h, 0, (0.9 + cpyOffset) * h));
+    fig.add(new PathSegment(SegmentType.Line, 0, 0.1 * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.5 * w, 0, 0, (0.1 - cpyOffset) * h, (0.5 - cpxOffset) * w, 0));
+    fig.add(new PathSegment(SegmentType.Bezier, w, 0.1 * h, (0.5 + cpxOffset) * w, 0, w, (0.1 - cpyOffset) * h));
+    var fig2 = new PathFigure(w, 0.1 * h, false);
+    geo.add(fig2);
+    // Rings
+    fig2.add(new PathSegment(SegmentType.Bezier, 0.5 * w, 0.2 * h, w, (0.1 + cpyOffset) * h, (0.5 + cpxOffset) * w, 0.2 * h));
+    fig2.add(new PathSegment(SegmentType.Bezier, 0, 0.1 * h, (0.5 - cpxOffset) * w, 0.2 * h, 0, (0.1 + cpyOffset) * h));
+    fig2.add(new PathSegment(SegmentType.Move, w, 0.2 * h));
+    fig2.add(new PathSegment(SegmentType.Bezier, 0.5 * w, 0.3 * h, w, (0.2 + cpyOffset) * h, (0.5 + cpxOffset) * w, 0.3 * h));
+    fig2.add(new PathSegment(SegmentType.Bezier, 0, 0.2 * h, (0.5 - cpxOffset) * w, 0.3 * h, 0, (0.2 + cpyOffset) * h));
+    fig2.add(new PathSegment(SegmentType.Move, w, 0.3 * h));
+    fig2.add(new PathSegment(SegmentType.Bezier, 0.5 * w, 0.4 * h, w, (0.3 + cpyOffset) * h, (0.5 + cpxOffset) * w, 0.4 * h));
+    fig2.add(new PathSegment(SegmentType.Bezier, 0, 0.3 * h, (0.5 - cpxOffset) * w, 0.4 * h, 0, (0.3 + cpyOffset) * h));
+    geo.spot1 = new Spot(0, 0.4);
+    geo.spot2 = new Spot(1, 0.9);
+    return geo;
+});
+defineFigureGenerator('DataStorage', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0, 0, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0.75 * w, 0));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.75 * w, h, w, 0, w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0, h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0, 0, 0.25 * w, 0.9 * h, 0.25 * w, 0.1 * h).close());
+    geo.spot1 = new Spot(0.226, 0);
+    geo.spot2 = new Spot(0.81, 1);
+    return geo;
+});
+defineFigureGenerator('DiskStorage', function (shape, w, h) {
+    var geo = new Geometry();
+    var cpxOffset = KAPPA * 0.5;
+    var cpyOffset = KAPPA * 0.1;
+    var fig = new PathFigure(w, 0.1 * h, true);
+    geo.add(fig);
+    // Body
+    fig.add(new PathSegment(SegmentType.Line, w, 0.9 * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.5 * w, h, w, (0.9 + cpyOffset) * h, (0.5 + cpxOffset) * w, h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0, 0.9 * h, (0.5 - cpxOffset) * w, h, 0, (0.9 + cpyOffset) * h));
+    fig.add(new PathSegment(SegmentType.Line, 0, 0.1 * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.5 * w, 0, 0, (0.1 - cpyOffset) * h, (0.5 - cpxOffset) * w, 0));
+    fig.add(new PathSegment(SegmentType.Bezier, w, 0.1 * h, (0.5 + cpxOffset) * w, 0, w, (0.1 - cpyOffset) * h));
+    var fig2 = new PathFigure(w, 0.1 * h, false);
+    geo.add(fig2);
+    // Rings
+    fig2.add(new PathSegment(SegmentType.Bezier, 0.5 * w, 0.2 * h, w, (0.1 + cpyOffset) * h, (0.5 + cpxOffset) * w, 0.2 * h));
+    fig2.add(new PathSegment(SegmentType.Bezier, 0, 0.1 * h, (0.5 - cpxOffset) * w, 0.2 * h, 0, (0.1 + cpyOffset) * h));
+    fig2.add(new PathSegment(SegmentType.Move, w, 0.2 * h));
+    fig2.add(new PathSegment(SegmentType.Bezier, 0.5 * w, 0.3 * h, w, (0.2 + cpyOffset) * h, (0.5 + cpxOffset) * w, 0.3 * h));
+    fig2.add(new PathSegment(SegmentType.Bezier, 0, 0.2 * h, (0.5 - cpxOffset) * w, 0.3 * h, 0, (0.2 + cpyOffset) * h));
+    geo.spot1 = new Spot(0, 0.3);
+    geo.spot2 = new Spot(1, 0.9);
+    return geo;
+});
+defineFigureGenerator('Display', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0.25 * w, 0, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0.75 * w, 0));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.75 * w, h, w, 0, w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0.25 * w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0, 0.5 * h).close());
+    geo.spot1 = new Spot(0.25, 0);
+    geo.spot2 = new Spot(0.75, 1);
+    return geo;
+});
+defineFigureGenerator('DividedEvent', function (shape, w, h) {
+    var geo = new Geometry();
+    var param1 = shape ? shape.parameter1 : NaN;
+    if (isNaN(param1))
+        param1 = 0.2;
+    else if (param1 < 0.15)
+        param1 = 0.15; // Minimum
+    var cpOffset = KAPPA * 0.2;
+    var fig = new PathFigure(0, 0.2 * h, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Bezier, 0.2 * w, 0, 0, (0.2 - cpOffset) * h, (0.2 - cpOffset) * w, 0));
+    fig.add(new PathSegment(SegmentType.Line, 0.8 * w, 0));
+    fig.add(new PathSegment(SegmentType.Bezier, w, 0.2 * h, (0.8 + cpOffset) * w, 0, w, (0.2 - cpOffset) * h));
+    fig.add(new PathSegment(SegmentType.Line, w, 0.8 * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.8 * w, h, w, (0.8 + cpOffset) * h, (0.8 + cpOffset) * w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0.2 * w, h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0, 0.8 * h, (0.2 - cpOffset) * w, h, 0, (0.8 + cpOffset) * h));
+    fig.add(new PathSegment(SegmentType.Line, 0, 0.2 * h));
+    var fig2 = new PathFigure(0, param1 * h, false);
+    geo.add(fig2);
+    fig2.add(new PathSegment(SegmentType.Line, w, param1 * h));
+    // ??? geo.spot1 = new Spot(0, param1);
+    // ??? geo.spot2 = new Spot(1, 1 - param1);
+    return geo;
+});
+defineFigureGenerator('DividedProcess', function (shape, w, h) {
+    var geo = new Geometry();
+    var param1 = shape ? shape.parameter1 : NaN;
+    if (isNaN(param1) || param1 < 0.1)
+        param1 = 0.1; // Minimum
+    var fig = new PathFigure(0, 0, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, w, 0));
+    fig.add(new PathSegment(SegmentType.Line, w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0, h).close());
+    var fig2 = new PathFigure(0, param1 * h, false);
+    geo.add(fig2);
+    fig2.add(new PathSegment(SegmentType.Line, w, param1 * h));
+    // ??? geo.spot1 = new Spot(0, param1);
+    // ??? geo.spot2 = Spot.BottomRight;
+    return geo;
+});
+defineFigureGenerator('Document', function (shape, w, h) {
+    var geo = new Geometry();
+    h = h / 0.8;
+    var fig = new PathFigure(0, 0.7 * h, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0, 0));
+    fig.add(new PathSegment(SegmentType.Line, w, 0));
+    fig.add(new PathSegment(SegmentType.Line, w, 0.7 * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0, 0.7 * h, 0.5 * w, 0.4 * h, 0.5 * w, h).close());
+    geo.spot1 = Spot.TopLeft;
+    geo.spot2 = new Spot(1, 0.6);
+    return geo;
+});
+defineFigureGenerator('ExternalOrganization', function (shape, w, h) {
+    var geo = new Geometry();
+    var param1 = shape ? shape.parameter1 : NaN;
+    if (isNaN(param1) || param1 < 0.2)
+        param1 = 0.2; // Minimum
+    var fig = new PathFigure(0, 0, true);
+    geo.add(fig);
+    // Body
+    fig.add(new PathSegment(SegmentType.Line, w, 0));
+    fig.add(new PathSegment(SegmentType.Line, w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0, h).close());
+    var fig2 = new PathFigure(param1 * w, 0, false);
+    geo.add(fig2);
+    // Top left triangle
+    fig2.add(new PathSegment(SegmentType.Line, 0, param1 * h));
+    // Top right triangle
+    fig2.add(new PathSegment(SegmentType.Move, w, param1 * h));
+    fig2.add(new PathSegment(SegmentType.Line, (1 - param1) * w, 0));
+    // Bottom left triangle
+    fig2.add(new PathSegment(SegmentType.Move, 0, (1 - param1) * h));
+    fig2.add(new PathSegment(SegmentType.Line, param1 * w, h));
+    // Bottom right triangle
+    fig2.add(new PathSegment(SegmentType.Move, (1 - param1) * w, h));
+    fig2.add(new PathSegment(SegmentType.Line, w, (1 - param1) * h));
+    // ??? geo.spot1 = new Spot(param1 / 2, param1 / 2);
+    // ??? geo.spot2 = new Spot(1 - param1 / 2, 1 - param1 / 2);
+    return geo;
+});
+defineFigureGenerator('ExternalProcess', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0.5 * w, 0, true);
+    geo.add(fig);
+    // Body
+    fig.add(new PathSegment(SegmentType.Line, w, 0.5 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.5 * w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0, 0.5 * h).close());
+    var fig2 = new PathFigure(0.1 * w, 0.4 * h, false);
+    geo.add(fig2);
+    // Top left triangle
+    fig2.add(new PathSegment(SegmentType.Line, 0.1 * w, 0.6 * h));
+    // Top right triangle
+    fig2.add(new PathSegment(SegmentType.Move, 0.9 * w, 0.6 * h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.9 * w, 0.4 * h));
+    // Bottom left triangle
+    fig2.add(new PathSegment(SegmentType.Move, 0.6 * w, 0.1 * h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.4 * w, 0.1 * h));
+    // Bottom right triangle
+    fig2.add(new PathSegment(SegmentType.Move, 0.4 * w, 0.9 * h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.6 * w, 0.9 * h));
+    geo.spot1 = new Spot(0.25, 0.25);
+    geo.spot2 = new Spot(0.75, 0.75);
+    return geo;
+});
+defineFigureGenerator('File', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0, 0, true); // starting point
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0.75 * w, 0));
+    fig.add(new PathSegment(SegmentType.Line, w, 0.25 * h));
+    fig.add(new PathSegment(SegmentType.Line, w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0, h).close());
+    var fig2 = new PathFigure(0.75 * w, 0, false);
+    geo.add(fig2);
+    // The Fold
+    fig2.add(new PathSegment(SegmentType.Line, 0.75 * w, 0.25 * h));
+    fig2.add(new PathSegment(SegmentType.Line, w, 0.25 * h));
+    geo.spot1 = new Spot(0, 0.25);
+    geo.spot2 = Spot.BottomRight;
+    return geo;
+});
+defineFigureGenerator('Interrupt', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(w, 0.5 * h, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0, h));
+    fig.add(new PathSegment(SegmentType.Line, 0, 0));
+    fig.add(new PathSegment(SegmentType.Line, w, 0.5 * h));
+    var fig2 = new PathFigure(w, 0.5 * h, false);
+    geo.add(fig2);
+    fig2.add(new PathSegment(SegmentType.Line, w, h));
+    var fig3 = new PathFigure(w, 0.5 * h, false);
+    geo.add(fig3);
+    fig3.add(new PathSegment(SegmentType.Line, w, 0));
+    geo.spot1 = new Spot(0, 0.25);
+    geo.spot2 = new Spot(0.5, 0.75);
+    return geo;
+});
+defineFigureGenerator('InternalStorage', function (shape, w, h) {
+    var geo = new Geometry();
+    var param1 = shape ? shape.parameter1 : NaN;
+    var param2 = shape ? shape.parameter2 : NaN;
+    if (isNaN(param1))
+        param1 = 0.1; // Distance from left
+    if (isNaN(param2))
+        param2 = 0.1; // Distance from top
+    var fig = new PathFigure(0, 0, true);
+    geo.add(fig);
+    // The main body
+    fig.add(new PathSegment(SegmentType.Line, w, 0));
+    fig.add(new PathSegment(SegmentType.Line, w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0, h).close());
+    var fig2 = new PathFigure(param1 * w, 0, false);
+    geo.add(fig2);
+    // Two lines
+    fig2.add(new PathSegment(SegmentType.Line, param1 * w, h));
+    fig2.add(new PathSegment(SegmentType.Move, 0, param2 * h));
+    fig2.add(new PathSegment(SegmentType.Line, w, param2 * h));
+    // ??? geo.spot1 = new Spot(param1, param2);
+    // ??? geo.spot2 = Spot.BottomRight;
+    return geo;
+});
+defineFigureGenerator('Junction', function (shape, w, h) {
+    var geo = new Geometry();
+    var dist = 1 / Math.SQRT2;
+    var small = (1 - 1 / Math.SQRT2) / 2;
+    var cpOffset = KAPPA * 0.5;
+    var radius = 0.5;
+    var fig = new PathFigure(w, radius * h, true);
+    geo.add(fig);
+    // Circle
+    fig.add(new PathSegment(SegmentType.Bezier, radius * w, h, w, (radius + cpOffset) * h, (radius + cpOffset) * w, h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0, radius * h, (radius - cpOffset) * w, h, 0, (radius + cpOffset) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, radius * w, 0, 0, (radius - cpOffset) * h, (radius - cpOffset) * w, 0));
+    fig.add(new PathSegment(SegmentType.Bezier, w, radius * h, (radius + cpOffset) * w, 0, w, (radius - cpOffset) * h));
+    var fig2 = new PathFigure((small + dist) * w, (small + dist) * h, false);
+    geo.add(fig2);
+    // X
+    fig2.add(new PathSegment(SegmentType.Line, small * w, small * h));
+    fig2.add(new PathSegment(SegmentType.Move, small * w, (small + dist) * h));
+    fig2.add(new PathSegment(SegmentType.Line, (small + dist) * w, small * h));
+    return geo;
+});
+defineFigureGenerator('LinedDocument', function (shape, w, h) {
+    var geo = new Geometry();
+    h = h / 0.8;
+    var fig = new PathFigure(0, 0.7 * h, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0, 0));
+    fig.add(new PathSegment(SegmentType.Line, w, 0));
+    fig.add(new PathSegment(SegmentType.Line, w, 0.7 * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0, 0.7 * h, 0.5 * w, 0.4 * h, 0.5 * w, h).close());
+    var fig2 = new PathFigure(0.1 * w, 0, false);
+    geo.add(fig2);
+    fig2.add(new PathSegment(SegmentType.Line, 0.1 * w, 0.75 * h));
+    geo.spot1 = new Spot(0.1, 0);
+    geo.spot2 = new Spot(1, 0.6);
+    return geo;
+});
+defineFigureGenerator('LoopLimit', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0, h, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0, 0.25 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.25 * w, 0));
+    fig.add(new PathSegment(SegmentType.Line, 0.75 * w, 0));
+    fig.add(new PathSegment(SegmentType.Line, w, 0.25 * h));
+    fig.add(new PathSegment(SegmentType.Line, w, h).close());
+    geo.spot1 = new Spot(0, 0.25);
+    geo.spot2 = Spot.BottomRight;
+    return geo;
+});
+defineFigureGenerator('MagneticTape', function (shape, w, h) {
+    var geo = new Geometry();
+    var cpOffset = KAPPA * 0.5;
+    var radius = 0.5;
+    var fig = new PathFigure(0.5 * w, h, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Bezier, 0, radius * h, (radius - cpOffset) * w, h, 0, (radius + cpOffset) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, radius * w, 0, 0, (radius - cpOffset) * h, (radius - cpOffset) * w, 0));
+    fig.add(new PathSegment(SegmentType.Bezier, w, radius * h, (radius + cpOffset) * w, 0, w, (radius - cpOffset) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, (radius + 0.1) * w, 0.9 * h, w, (radius + cpOffset) * h, (radius + cpOffset) * w, 0.9 * h));
+    fig.add(new PathSegment(SegmentType.Line, w, 0.9 * h));
+    fig.add(new PathSegment(SegmentType.Line, w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0.5 * w, h));
+    geo.spot1 = new Spot(0.15, 0.15);
+    geo.spot2 = new Spot(0.85, 0.8);
+    return geo;
+});
+defineFigureGenerator('ManualInput', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(w, 0, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0, h));
+    fig.add(new PathSegment(SegmentType.Line, 0, 0.25 * h).close());
+    geo.spot1 = new Spot(0, 0.25);
+    geo.spot2 = Spot.BottomRight;
+    return geo;
+});
+defineFigureGenerator('MessageFromUser', function (shape, w, h) {
+    var geo = new Geometry();
+    var param1 = shape ? shape.parameter1 : NaN;
+    if (isNaN(param1))
+        param1 = 0.7; // How far from the right the point is
+    var fig = new PathFigure(0, 0, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, w, 0));
+    fig.add(new PathSegment(SegmentType.Line, param1 * w, 0.5 * h));
+    fig.add(new PathSegment(SegmentType.Line, w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0, h).close());
+    geo.spot1 = Spot.TopLeft;
+    // ??? geo.spot2 = new Spot(param1, 1);
+    return geo;
+});
+defineFigureGenerator('MicroformProcessing', function (shape, w, h) {
+    var geo = new Geometry();
+    var param1 = shape ? shape.parameter1 : NaN;
+    if (isNaN(param1))
+        param1 = 0.25; // How far from the top/bottom the points are
+    var fig = new PathFigure(0, 0, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0.5 * w, param1 * h));
+    fig.add(new PathSegment(SegmentType.Line, w, 0));
+    fig.add(new PathSegment(SegmentType.Line, w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0.5 * w, (1 - param1) * h));
+    fig.add(new PathSegment(SegmentType.Line, 0, h).close());
+    // ??? geo.spot1 = new Spot(0, param1);
+    // ??? geo.spot2 = new Spot(1, 1 - param1);
+    return geo;
+});
+defineFigureGenerator('MicroformRecording', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0, 0, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0.75 * w, 0.25 * h));
+    fig.add(new PathSegment(SegmentType.Line, w, 0.15 * h));
+    fig.add(new PathSegment(SegmentType.Line, w, 0.85 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.75 * w, 0.75 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0, h).close());
+    geo.spot1 = new Spot(0, 0.25);
+    geo.spot2 = new Spot(1, 0.75);
+    return geo;
+});
+defineFigureGenerator('MultiDocument', function (shape, w, h) {
+    var geo = new Geometry();
+    h = h / 0.8;
+    var fig = new PathFigure(w, 0, true);
+    geo.add(fig);
+    // Outline
+    fig.add(new PathSegment(SegmentType.Line, w, 0.5 * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.9 * w, 0.44 * h, 0.96 * w, 0.47 * h, 0.93 * w, 0.45 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.9 * w, 0.6 * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.8 * w, 0.54 * h, 0.86 * w, 0.57 * h, 0.83 * w, 0.55 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.8 * w, 0.7 * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0, 0.7 * h, 0.4 * w, 0.4 * h, 0.4 * w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0, 0.2 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.1 * w, 0.2 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.1 * w, 0.1 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.2 * w, 0.1 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.2 * w, 0).close());
+    var fig2 = new PathFigure(0.1 * w, 0.2 * h, false);
+    geo.add(fig2);
+    // Inside lines
+    fig2.add(new PathSegment(SegmentType.Line, 0.8 * w, 0.2 * h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.8 * w, 0.54 * h));
+    fig2.add(new PathSegment(SegmentType.Move, 0.2 * w, 0.1 * h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.9 * w, 0.1 * h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.9 * w, 0.44 * h));
+    geo.spot1 = new Spot(0, 0.25);
+    geo.spot2 = new Spot(0.8, 0.77);
+    return geo;
+});
+defineFigureGenerator('MultiProcess', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0.1 * w, 0.1 * h, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0.2 * w, 0.1 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.2 * w, 0));
+    fig.add(new PathSegment(SegmentType.Line, w, 0));
+    fig.add(new PathSegment(SegmentType.Line, w, 0.8 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.9 * w, 0.8 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.9 * w, 0.9 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.8 * w, 0.9 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.8 * w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0, h));
+    fig.add(new PathSegment(SegmentType.Line, 0, 0.2 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.1 * w, 0.2 * h).close());
+    var fig2 = new PathFigure(0.2 * w, 0.1 * h, false);
+    geo.add(fig2);
+    fig2.add(new PathSegment(SegmentType.Line, 0.9 * w, 0.1 * h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.9 * w, 0.8 * h));
+    fig2.add(new PathSegment(SegmentType.Move, 0.1 * w, 0.2 * h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.8 * w, 0.2 * h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.8 * w, 0.9 * h));
+    geo.spot1 = new Spot(0, 0.2);
+    geo.spot2 = new Spot(0.8, 1);
+    return geo;
+});
+defineFigureGenerator('OfflineStorage', function (shape, w, h) {
+    var geo = new Geometry();
+    var param1 = shape ? shape.parameter1 : NaN;
+    if (isNaN(param1))
+        param1 = 0.1; // Distance between 2 top lines
+    var fig = new PathFigure(0, 0, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, w, 0));
+    fig.add(new PathSegment(SegmentType.Line, 0.5 * w, h).close());
+    var fig2 = new PathFigure(0.5 * param1 * w, param1 * h, false);
+    geo.add(fig2);
+    fig2.add(new PathSegment(SegmentType.Line, (1 - 0.5 * param1) * w, param1 * h));
+    // ??? geo.spot1 = new Spot(l / 4 + .5 * param1, param1);
+    // ??? geo.spot2 = new Spot(3 * l / 4 + .5 * param1, param1 + .5 * l);
+    return geo;
+});
+defineFigureGenerator('OffPageConnector', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0, 0, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0.75 * w, 0));
+    fig.add(new PathSegment(SegmentType.Line, w, 0.5 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.75 * w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0, h).close());
+    geo.spot1 = Spot.TopLeft;
+    geo.spot2 = new Spot(0.75, 1);
+    return geo;
+});
+defineFigureGenerator('Or', function (shape, w, h) {
+    var geo = new Geometry();
+    var cpOffset = KAPPA * 0.5;
+    var radius = 0.5;
+    var fig = new PathFigure(w, radius * h, true);
+    geo.add(fig);
+    // Circle
+    fig.add(new PathSegment(SegmentType.Bezier, radius * w, h, w, (radius + cpOffset) * h, (radius + cpOffset) * w, h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0, radius * h, (radius - cpOffset) * w, h, 0, (radius + cpOffset) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, radius * w, 0, 0, (radius - cpOffset) * h, (radius - cpOffset) * w, 0));
+    fig.add(new PathSegment(SegmentType.Bezier, w, radius * h, (radius + cpOffset) * w, 0, w, (radius - cpOffset) * h));
+    var fig2 = new PathFigure(w, 0.5 * h, false);
+    geo.add(fig2);
+    // +
+    fig2.add(new PathSegment(SegmentType.Line, 0, 0.5 * h));
+    fig2.add(new PathSegment(SegmentType.Move, 0.5 * w, h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.5 * w, 0));
+    return geo;
+});
+defineFigureGenerator('PaperTape', function (shape, w, h) {
+    var geo = new Geometry();
+    h = h / 0.8;
+    var fig = new PathFigure(0, 0.7 * h, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0, 0.3 * h));
+    fig.add(new PathSegment(SegmentType.Bezier, w, 0.3 * h, 0.5 * w, 0.6 * h, 0.5 * w, 0));
+    fig.add(new PathSegment(SegmentType.Line, w, 0.7 * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0, 0.7 * h, 0.5 * w, 0.4 * h, 0.5 * w, h).close());
+    geo.spot1 = new Spot(0, 0.49);
+    geo.spot2 = new Spot(1, 0.75);
+    return geo;
+});
+defineFigureGenerator('PrimitiveFromCall', function (shape, w, h) {
+    var geo = new Geometry();
+    shape ? shape.parameter1 : NaN;
+    var param2 = shape ? shape.parameter2 : NaN;
+    if (isNaN(param2))
+        param2 = 0.3; // Distance of point from right
+    var fig = new PathFigure(0, 0, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, w, 0));
+    fig.add(new PathSegment(SegmentType.Line, (1 - param2) * w, 0.5 * h));
+    fig.add(new PathSegment(SegmentType.Line, w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0, h).close());
+    // ??? geo.spot1 = new Spot(param1, 0);
+    // ??? geo.spot2 = new Spot(1 - param2, 1);
+    return geo;
+});
+defineFigureGenerator('PrimitiveToCall', function (shape, w, h) {
+    var geo = new Geometry();
+    shape ? shape.parameter1 : NaN;
+    var param2 = shape ? shape.parameter2 : NaN;
+    if (isNaN(param2))
+        param2 = 0.3; // Distance of top and bottom right corners from right
+    var fig = new PathFigure(0, 0, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, (1 - param2) * w, 0));
+    fig.add(new PathSegment(SegmentType.Line, w, 0.5 * h));
+    fig.add(new PathSegment(SegmentType.Line, (1 - param2) * w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0, h).close());
+    // ??? geo.spot1 = new Spot(param1, 0);
+    // ??? geo.spot2 = new Spot(1 - param2, 1);
+    return geo;
+});
+defineFigureGenerator('Procedure', function (shape, w, h) {
+    var geo = new Geometry();
+    var param1 = shape ? shape.parameter1 : NaN;
+    // Distance of left  and right lines from edge
+    if (isNaN(param1))
+        param1 = 0.1;
+    var fig = new PathFigure(0, 0, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, w, 0));
+    fig.add(new PathSegment(SegmentType.Line, w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0, h).close());
+    var fig2 = new PathFigure((1 - param1) * w, 0, false);
+    geo.add(fig2);
+    fig2.add(new PathSegment(SegmentType.Line, (1 - param1) * w, h));
+    fig2.add(new PathSegment(SegmentType.Move, param1 * w, 0));
+    fig2.add(new PathSegment(SegmentType.Line, param1 * w, h));
+    // ??? geo.spot1 = new Spot(param1, 0);
+    // ??? geo.spot2 = new Spot(1 - param1, 1);
+    return geo;
+});
+defineFigureGenerator('Process', function (shape, w, h) {
+    var geo = new Geometry();
+    var param1 = shape ? shape.parameter1 : NaN;
+    if (isNaN(param1))
+        param1 = 0.1; // Distance of left  line from left edge
+    var fig = new PathFigure(0, 0, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, w, 0));
+    fig.add(new PathSegment(SegmentType.Line, w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0, h).close());
+    var fig2 = new PathFigure(param1 * w, 0, false);
+    geo.add(fig2);
+    fig2.add(new PathSegment(SegmentType.Line, param1 * w, h));
+    // ??? geo.spot1 = new Spot(param1, 0);
+    geo.spot2 = Spot.BottomRight;
+    return geo;
+});
+defineFigureGenerator('Sort', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0.5 * w, 0, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, w, 0.5 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.5 * w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0, 0.5 * h).close());
+    var fig2 = new PathFigure(0, 0.5 * h, false);
+    geo.add(fig2);
+    fig2.add(new PathSegment(SegmentType.Line, w, 0.5 * h));
+    geo.spot1 = new Spot(0.25, 0.25);
+    geo.spot2 = new Spot(0.75, 0.5);
+    return geo;
+});
+defineFigureGenerator('Start', function (shape, w, h) {
+    var geo = new Geometry();
+    var param1 = shape ? shape.parameter1 : NaN;
+    if (isNaN(param1))
+        param1 = 0.25;
+    var fig = new PathFigure(param1 * w, 0, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Arc, 270, 180, 0.75 * w, 0.5 * h, 0.25 * w, 0.5 * h));
+    fig.add(new PathSegment(SegmentType.Arc, 90, 180, 0.25 * w, 0.5 * h, 0.25 * w, 0.5 * h));
+    var fig2 = new PathFigure(param1 * w, 0, false);
+    geo.add(fig2);
+    fig2.add(new PathSegment(SegmentType.Line, param1 * w, h));
+    fig2.add(new PathSegment(SegmentType.Move, (1 - param1) * w, 0));
+    fig2.add(new PathSegment(SegmentType.Line, (1 - param1) * w, h));
+    geo.spot1 = new Spot(param1, 0);
+    geo.spot2 = new Spot(1 - param1, 1);
+    return geo;
+});
+defineFigureGenerator('Terminator', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0.25 * w, 0, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Arc, 270, 180, 0.75 * w, 0.5 * h, 0.25 * w, 0.5 * h));
+    fig.add(new PathSegment(SegmentType.Arc, 90, 180, 0.25 * w, 0.5 * h, 0.25 * w, 0.5 * h));
+    geo.spot1 = new Spot(0.23, 0);
+    geo.spot2 = new Spot(0.77, 1);
+    return geo;
+});
+defineFigureGenerator('TransmittalTape', function (shape, w, h) {
+    var geo = new Geometry();
+    var param1 = shape ? shape.parameter1 : NaN;
+    if (isNaN(param1))
+        param1 = 0.1; // Bottom line's distance from the point on the triangle
+    var fig = new PathFigure(0, 0, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, w, 0));
+    fig.add(new PathSegment(SegmentType.Line, w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0.75 * w, (1 - param1) * h));
+    fig.add(new PathSegment(SegmentType.Line, 0, (1 - param1) * h).close());
+    geo.spot1 = Spot.TopLeft;
+    // ??? geo.spot2 = new Spot(1, 1 - param1);
+    return geo;
+});
+defineFigureGenerator('AndGate', function (shape, w, h) {
+    var geo = new Geometry();
+    var cpOffset = KAPPA * 0.5;
+    var fig = new PathFigure(0, 0, true);
+    geo.add(fig);
+    // The gate body
+    fig.add(new PathSegment(SegmentType.Line, 0.5 * w, 0));
+    fig.add(new PathSegment(SegmentType.Bezier, w, 0.5 * h, (0.5 + cpOffset) * w, 0, w, (0.5 - cpOffset) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.5 * w, h, w, (0.5 + cpOffset) * h, (0.5 + cpOffset) * w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0, h).close());
+    geo.spot1 = Spot.TopLeft;
+    geo.spot2 = new Spot(0.55, 1);
+    return geo;
+});
+defineFigureGenerator('Buffer', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0, 0, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, w, 0.5 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0, h).close());
+    geo.spot1 = new Spot(0, 0.25);
+    geo.spot2 = new Spot(0.5, 0.75);
+    return geo;
+});
+defineFigureGenerator('Clock', function (shape, w, h) {
+    var geo = new Geometry();
+    var cpOffset = KAPPA * 0.5;
+    var radius = 0.5;
+    var fig = new PathFigure(w, radius * h, true);
+    geo.add(fig);
+    // Ellipse
+    fig.add(new PathSegment(SegmentType.Bezier, radius * w, h, w, (radius + cpOffset) * h, (radius + cpOffset) * w, h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0, radius * h, (radius - cpOffset) * w, h, 0, (radius + cpOffset) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, radius * w, 0, 0, (radius - cpOffset) * h, (radius - cpOffset) * w, 0));
+    fig.add(new PathSegment(SegmentType.Bezier, w, radius * h, (radius + cpOffset) * w, 0, w, (radius - cpOffset) * h));
+    var fig2 = new PathFigure(w, radius * h, false);
+    geo.add(fig2);
+    fig2.add(new PathSegment(SegmentType.Line, w, radius * h));
+    var fig3 = new PathFigure(0.8 * w, 0.75 * h, false);
+    geo.add(fig3);
+    // Inside clock
+    // This first line solves a GDI+ graphical error with
+    // more complex gradient brushes
+    fig3.add(new PathSegment(SegmentType.Line, 0.8 * w, 0.25 * h));
+    fig3.add(new PathSegment(SegmentType.Line, 0.6 * w, 0.25 * h));
+    fig3.add(new PathSegment(SegmentType.Line, 0.6 * w, 0.75 * h));
+    fig3.add(new PathSegment(SegmentType.Line, 0.4 * w, 0.75 * h));
+    fig3.add(new PathSegment(SegmentType.Line, 0.4 * w, 0.25 * h));
+    fig3.add(new PathSegment(SegmentType.Line, 0.2 * w, 0.25 * h));
+    fig3.add(new PathSegment(SegmentType.Line, 0.2 * w, 0.75 * h));
+    return geo;
+});
+defineFigureGenerator('Ground', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0.5 * w, 0, false);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0.5 * w, 0.4 * h));
+    fig.add(new PathSegment(SegmentType.Move, 0.2 * w, 0.6 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.8 * w, 0.6 * h));
+    fig.add(new PathSegment(SegmentType.Move, 0.3 * w, 0.8 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.7 * w, 0.8 * h));
+    fig.add(new PathSegment(SegmentType.Move, 0.4 * w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0.6 * w, h));
+    return geo;
+});
+defineFigureGenerator('Inverter', function (shape, w, h) {
+    var geo = new Geometry();
+    var cpOffset = KAPPA * 0.1;
+    var radius = 0.1;
+    var centerx = 0.9;
+    var centery = 0.5;
+    var fig = new PathFigure(0.8 * w, 0.5 * h, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0, h));
+    fig.add(new PathSegment(SegmentType.Line, 0, 0));
+    fig.add(new PathSegment(SegmentType.Line, 0.8 * w, 0.5 * h));
+    var fig2 = new PathFigure((centerx + radius) * w, centery * h, true);
+    geo.add(fig2);
+    fig2.add(new PathSegment(SegmentType.Bezier, centerx * w, (centery + radius) * h, (centerx + radius) * w, (centery + cpOffset) * h, (centerx + cpOffset) * w, (centery + radius) * h));
+    fig2.add(new PathSegment(SegmentType.Bezier, (centerx - radius) * w, centery * h, (centerx - cpOffset) * w, (centery + radius) * h, (centerx - radius) * w, (centery + cpOffset) * h));
+    fig2.add(new PathSegment(SegmentType.Bezier, centerx * w, (centery - radius) * h, (centerx - radius) * w, (centery - cpOffset) * h, (centerx - cpOffset) * w, (centery - radius) * h));
+    fig2.add(new PathSegment(SegmentType.Bezier, (centerx + radius) * w, centery * h, (centerx + cpOffset) * w, (centery - radius) * h, (centerx + radius) * w, (centery - cpOffset) * h));
+    geo.spot1 = new Spot(0, 0.25);
+    geo.spot2 = new Spot(0.4, 0.75);
+    return geo;
+});
+defineFigureGenerator('NandGate', function (shape, w, h) {
+    var geo = new Geometry();
+    var cpxOffset = KAPPA * 0.5;
+    var cpyOffset = KAPPA * 0.4;
+    var cpOffset = KAPPA * 0.1;
+    var radius = 0.1;
+    var centerx = 0.9;
+    var centery = 0.5;
+    var fig = new PathFigure(0.8 * w, 0.5 * h, true);
+    geo.add(fig);
+    // The gate body
+    fig.add(new PathSegment(SegmentType.Bezier, 0.4 * w, h, 0.8 * w, (0.5 + cpyOffset) * h, (0.4 + cpxOffset) * w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0, h));
+    fig.add(new PathSegment(SegmentType.Line, 0, 0));
+    fig.add(new PathSegment(SegmentType.Line, 0.4 * w, 0));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.8 * w, 0.5 * h, (0.4 + cpxOffset) * w, 0, 0.8 * w, (0.5 - cpyOffset) * h));
+    var fig2 = new PathFigure((centerx + radius) * w, centery * h, true);
+    geo.add(fig2);
+    // Inversion
+    fig2.add(new PathSegment(SegmentType.Bezier, centerx * w, (centery + radius) * h, (centerx + radius) * w, (centery + cpOffset) * h, (centerx + cpOffset) * w, (centery + radius) * h));
+    fig2.add(new PathSegment(SegmentType.Bezier, (centerx - radius) * w, centery * h, (centerx - cpOffset) * w, (centery + radius) * h, (centerx - radius) * w, (centery + cpOffset) * h));
+    fig2.add(new PathSegment(SegmentType.Bezier, centerx * w, (centery - radius) * h, (centerx - radius) * w, (centery - cpOffset) * h, (centerx - cpOffset) * w, (centery - radius) * h));
+    fig2.add(new PathSegment(SegmentType.Bezier, (centerx + radius) * w, centery * h, (centerx + cpOffset) * w, (centery - radius) * h, (centerx + radius) * w, (centery - cpOffset) * h));
+    geo.spot1 = new Spot(0, 0.05);
+    geo.spot2 = new Spot(0.55, 0.95);
+    return geo;
+});
+defineFigureGenerator('NorGate', function (shape, w, h) {
+    var geo = new Geometry();
+    var radius = 0.5;
+    var cpOffset = KAPPA * radius;
+    var centerx = 0;
+    var centery = 0.5;
+    var fig = new PathFigure(0.8 * w, 0.5 * h, true);
+    geo.add(fig);
+    // Normal
+    fig.add(new PathSegment(SegmentType.Bezier, 0, h, 0.7 * w, (centery + cpOffset) * h, (centerx + cpOffset) * w, (centery + radius) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0, 0, 0.25 * w, 0.75 * h, 0.25 * w, 0.25 * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.8 * w, 0.5 * h, (centerx + cpOffset) * w, (centery - radius) * h, 0.7 * w, (centery - cpOffset) * h));
+    radius = 0.1;
+    cpOffset = KAPPA * 0.1;
+    centerx = 0.9;
+    centery = 0.5;
+    var fig2 = new PathFigure((centerx - radius) * w, centery * h, true);
+    geo.add(fig2);
+    // Inversion
+    fig2.add(new PathSegment(SegmentType.Bezier, centerx * w, (centery - radius) * h, (centerx - radius) * w, (centery - cpOffset) * h, (centerx - cpOffset) * w, (centery - radius) * h));
+    fig2.add(new PathSegment(SegmentType.Bezier, (centerx + radius) * w, centery * h, (centerx + cpOffset) * w, (centery - radius) * h, (centerx + radius) * w, (centery - cpOffset) * h));
+    fig2.add(new PathSegment(SegmentType.Bezier, centerx * w, (centery + radius) * h, (centerx + radius) * w, (centery + cpOffset) * h, (centerx + cpOffset) * w, (centery + radius) * h));
+    fig2.add(new PathSegment(SegmentType.Bezier, (centerx - radius) * w, centery * h, (centerx - cpOffset) * w, (centery + radius) * h, (centerx - radius) * w, (centery + cpOffset) * h));
+    geo.spot1 = new Spot(0.2, 0.25);
+    geo.spot2 = new Spot(0.6, 0.75);
+    return geo;
+});
+defineFigureGenerator('OrGate', function (shape, w, h) {
+    var geo = new Geometry();
+    var radius = 0.5;
+    var cpOffset = KAPPA * radius;
+    var centerx = 0;
+    var centery = 0.5;
+    var fig = new PathFigure(0, 0, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Bezier, w, 0.5 * h, (centerx + cpOffset + cpOffset) * w, (centery - radius) * h, 0.8 * w, (centery - cpOffset) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0, h, 0.8 * w, (centery + cpOffset) * h, (centerx + cpOffset + cpOffset) * w, (centery + radius) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0, 0, 0.25 * w, 0.75 * h, 0.25 * w, 0.25 * h).close());
+    geo.spot1 = new Spot(0.2, 0.25);
+    geo.spot2 = new Spot(0.75, 0.75);
+    return geo;
+});
+defineFigureGenerator('XnorGate', function (shape, w, h) {
+    var geo = new Geometry();
+    var radius = 0.5;
+    var cpOffset = KAPPA * radius;
+    var centerx = 0.2;
+    var centery = 0.5;
+    var fig = new PathFigure(0.1 * w, 0, false);
+    geo.add(fig);
+    // Normal
+    fig.add(new PathSegment(SegmentType.Bezier, 0.1 * w, h, 0.35 * w, 0.25 * h, 0.35 * w, 0.75 * h));
+    var fig2 = new PathFigure(0.8 * w, 0.5 * h, true);
+    geo.add(fig2);
+    fig2.add(new PathSegment(SegmentType.Bezier, 0.2 * w, h, 0.7 * w, (centery + cpOffset) * h, (centerx + cpOffset) * w, (centery + radius) * h));
+    fig2.add(new PathSegment(SegmentType.Bezier, 0.2 * w, 0, 0.45 * w, 0.75 * h, 0.45 * w, 0.25 * h));
+    fig2.add(new PathSegment(SegmentType.Bezier, 0.8 * w, 0.5 * h, (centerx + cpOffset) * w, (centery - radius) * h, 0.7 * w, (centery - cpOffset) * h));
+    radius = 0.1;
+    cpOffset = KAPPA * 0.1;
+    centerx = 0.9;
+    centery = 0.5;
+    var fig3 = new PathFigure((centerx - radius) * w, centery * h, true);
+    geo.add(fig3);
+    // Inversion
+    fig3.add(new PathSegment(SegmentType.Bezier, centerx * w, (centery - radius) * h, (centerx - radius) * w, (centery - cpOffset) * h, (centerx - cpOffset) * w, (centery - radius) * h));
+    fig3.add(new PathSegment(SegmentType.Bezier, (centerx + radius) * w, centery * h, (centerx + cpOffset) * w, (centery - radius) * h, (centerx + radius) * w, (centery - cpOffset) * h));
+    fig3.add(new PathSegment(SegmentType.Bezier, centerx * w, (centery + radius) * h, (centerx + radius) * w, (centery + cpOffset) * h, (centerx + cpOffset) * w, (centery + radius) * h));
+    fig3.add(new PathSegment(SegmentType.Bezier, (centerx - radius) * w, centery * h, (centerx - cpOffset) * w, (centery + radius) * h, (centerx - radius) * w, (centery + cpOffset) * h));
+    geo.spot1 = new Spot(0.4, 0.25);
+    geo.spot2 = new Spot(0.65, 0.75);
+    return geo;
+});
+defineFigureGenerator('XorGate', function (shape, w, h) {
+    var geo = new Geometry();
+    var radius = 0.5;
+    var cpOffset = KAPPA * radius;
+    var centerx = 0.2;
+    var centery = 0.5;
+    var fig = new PathFigure(0.1 * w, 0, false);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Bezier, 0.1 * w, h, 0.35 * w, 0.25 * h, 0.35 * w, 0.75 * h));
+    var fig2 = new PathFigure(0.2 * w, 0, true);
+    geo.add(fig2);
+    fig2.add(new PathSegment(SegmentType.Bezier, w, 0.5 * h, (centerx + cpOffset) * w, (centery - radius) * h, 0.9 * w, (centery - cpOffset) * h));
+    fig2.add(new PathSegment(SegmentType.Bezier, 0.2 * w, h, 0.9 * w, (centery + cpOffset) * h, (centerx + cpOffset) * w, (centery + radius) * h));
+    fig2.add(new PathSegment(SegmentType.Bezier, 0.2 * w, 0, 0.45 * w, 0.75 * h, 0.45 * w, 0.25 * h).close());
+    geo.spot1 = new Spot(0.4, 0.25);
+    geo.spot2 = new Spot(0.8, 0.75);
+    return geo;
+});
+defineFigureGenerator('Capacitor', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0, 0, false);
+    geo.add(fig);
+    // Two vertical lines
+    fig.add(new PathSegment(SegmentType.Line, 0, h));
+    fig.add(new PathSegment(SegmentType.Move, w, 0));
+    fig.add(new PathSegment(SegmentType.Line, w, h));
+    return geo;
+});
+defineFigureGenerator('Resistor', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0, 0.5 * h, false);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0.1 * w, 0));
+    fig.add(new PathSegment(SegmentType.Line, 0.2 * w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0.3 * w, 0));
+    fig.add(new PathSegment(SegmentType.Line, 0.4 * w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0.5 * w, 0));
+    fig.add(new PathSegment(SegmentType.Line, 0.6 * w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0.7 * w, 0.5 * h));
+    return geo;
+});
+defineFigureGenerator('Inductor', function (shape, w, h) {
+    var geo = new Geometry();
+    var cpOffset = KAPPA * 0.1;
+    var radius = 0.1;
+    var centerx = 0.1;
+    // Up
+    var fig = new PathFigure((centerx - cpOffset * 0.5) * w, h, false);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Bezier, (centerx + radius) * w, 0, (centerx - cpOffset) * w, h, (centerx - radius) * w, 0));
+    // Down up
+    centerx = 0.3;
+    fig.add(new PathSegment(SegmentType.Bezier, centerx * w, h, (centerx + radius) * w, 0, (centerx + cpOffset) * w, h));
+    fig.add(new PathSegment(SegmentType.Bezier, (centerx + radius) * w, 0, (centerx - cpOffset) * w, h, (centerx - radius) * w, 0));
+    // Down up
+    centerx = 0.5;
+    fig.add(new PathSegment(SegmentType.Bezier, centerx * w, h, (centerx + radius) * w, 0, (centerx + cpOffset) * w, h));
+    fig.add(new PathSegment(SegmentType.Bezier, (centerx + radius) * w, 0, (centerx - cpOffset) * w, h, (centerx - radius) * w, 0));
+    // Down up
+    centerx = 0.7;
+    fig.add(new PathSegment(SegmentType.Bezier, centerx * w, h, (centerx + radius) * w, 0, (centerx + cpOffset) * w, h));
+    fig.add(new PathSegment(SegmentType.Bezier, (centerx + radius) * w, 0, (centerx - cpOffset) * w, h, (centerx - radius) * w, 0));
+    // Down up
+    centerx = 0.9;
+    fig.add(new PathSegment(SegmentType.Bezier, (centerx + cpOffset * 0.5) * w, h, (centerx + radius) * w, 0, (centerx + cpOffset) * w, h));
+    return geo;
+});
+defineFigureGenerator('ACvoltageSource', function (shape, w, h) {
+    var geo = new Geometry();
+    var cpOffset = KAPPA * 0.5;
+    var radius = 0.5;
+    var centerx = 0.5;
+    var centery = 0.5;
+    var fig = new PathFigure((centerx - radius) * w, centery * h, false);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Bezier, centerx * w, (centery - radius) * h, (centerx - radius) * w, (centery - cpOffset) * h, (centerx - cpOffset) * w, (centery - radius) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, (centerx + radius) * w, centery * h, (centerx + cpOffset) * w, (centery - radius) * h, (centerx + radius) * w, (centery - cpOffset) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, centerx * w, (centery + radius) * h, (centerx + radius) * w, (centery + cpOffset) * h, (centerx + cpOffset) * w, (centery + radius) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, (centerx - radius) * w, centery * h, (centerx - cpOffset) * w, (centery + radius) * h, (centerx - radius) * w, (centery + cpOffset) * h));
+    fig.add(new PathSegment(SegmentType.Move, (centerx - radius + 0.1) * w, centery * h));
+    fig.add(new PathSegment(SegmentType.Bezier, (centerx + radius - 0.1) * w, centery * h, centerx * w, (centery - radius) * h, centerx * w, (centery + radius) * h));
+    return geo;
+});
+defineFigureGenerator('DCvoltageSource', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0, 0.75 * h, false);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0, 0.25 * h));
+    fig.add(new PathSegment(SegmentType.Move, w, 0));
+    fig.add(new PathSegment(SegmentType.Line, w, h));
+    return geo;
+});
+defineFigureGenerator('Diode', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(w, 0, false);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, w, 0.5 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0, h));
+    fig.add(new PathSegment(SegmentType.Line, 0, 0));
+    fig.add(new PathSegment(SegmentType.Line, w, 0.5 * h));
+    fig.add(new PathSegment(SegmentType.Line, w, h));
+    geo.spot1 = new Spot(0, 0.25);
+    geo.spot2 = new Spot(0.5, 0.75);
+    return geo;
+});
+defineFigureGenerator('Wifi', function (shape, w, h) {
+    var geo = new Geometry();
+    var origw = w;
+    var origh = h;
+    w = w * 0.38;
+    h = h * 0.6;
+    var cpOffset = KAPPA * 0.8;
+    var radius = 0.8;
+    var centerx = 0;
+    var centery = 0.5;
+    var xOffset = (origw - w) / 2;
+    var yOffset = (origh - h) / 2;
+    var fig = new PathFigure(centerx * w + xOffset, (centery + radius) * h + yOffset, true);
+    geo.add(fig);
+    // Left curves
+    fig.add(new PathSegment(SegmentType.Bezier, (centerx - radius) * w + xOffset, centery * h + yOffset, (centerx - cpOffset) * w + xOffset, (centery + radius) * h + yOffset, (centerx - radius) * w + xOffset, (centery + cpOffset) * h + yOffset));
+    fig.add(new PathSegment(SegmentType.Bezier, centerx * w + xOffset, (centery - radius) * h + yOffset, (centerx - radius) * w + xOffset, (centery - cpOffset) * h + yOffset, (centerx - cpOffset) * w + xOffset, (centery - radius) * h + yOffset));
+    fig.add(new PathSegment(SegmentType.Bezier, (centerx - radius + cpOffset * 0.5) * w + xOffset, centery * h + yOffset, centerx * w + xOffset, (centery - radius) * h + yOffset, (centerx - radius + cpOffset * 0.5) * w + xOffset, (centery - cpOffset) * h + yOffset));
+    fig.add(new PathSegment(SegmentType.Bezier, centerx * w + xOffset, (centery + radius) * h + yOffset, (centerx - radius + cpOffset * 0.5) * w + xOffset, (centery + cpOffset) * h + yOffset, centerx * w + xOffset, (centery + radius) * h + yOffset).close());
+    cpOffset = KAPPA * 0.4;
+    radius = 0.4;
+    centerx = 0.2;
+    centery = 0.5;
+    var fig2 = new PathFigure(centerx * w + xOffset, (centery + radius) * h + yOffset, true);
+    geo.add(fig2);
+    fig2.add(new PathSegment(SegmentType.Bezier, (centerx - radius) * w + xOffset, centery * h + yOffset, (centerx - cpOffset) * w + xOffset, (centery + radius) * h + yOffset, (centerx - radius) * w + xOffset, (centery + cpOffset) * h + yOffset));
+    fig2.add(new PathSegment(SegmentType.Bezier, centerx * w + xOffset, (centery - radius) * h + yOffset, (centerx - radius) * w + xOffset, (centery - cpOffset) * h + yOffset, (centerx - cpOffset) * w + xOffset, (centery - radius) * h + yOffset));
+    fig2.add(new PathSegment(SegmentType.Bezier, (centerx - radius + cpOffset * 0.5) * w + xOffset, centery * h + yOffset, centerx * w + xOffset, (centery - radius) * h + yOffset, (centerx - radius + cpOffset * 0.5) * w + xOffset, (centery - cpOffset) * h + yOffset));
+    fig2.add(new PathSegment(SegmentType.Bezier, centerx * w + xOffset, (centery + radius) * h + yOffset, (centerx - radius + cpOffset * 0.5) * w + xOffset, (centery + cpOffset) * h + yOffset, centerx * w + xOffset, (centery + radius) * h + yOffset).close());
+    cpOffset = KAPPA * 0.2;
+    radius = 0.2;
+    centerx = 0.5;
+    centery = 0.5;
+    var fig3 = new PathFigure((centerx - radius) * w + xOffset, centery * h + yOffset, true);
+    geo.add(fig3);
+    // Center circle
+    fig3.add(new PathSegment(SegmentType.Bezier, centerx * w + xOffset, (centery - radius) * h + yOffset, (centerx - radius) * w + xOffset, (centery - cpOffset) * h + yOffset, (centerx - cpOffset) * w + xOffset, (centery - radius) * h + yOffset));
+    fig3.add(new PathSegment(SegmentType.Bezier, (centerx + radius) * w + xOffset, centery * h + yOffset, (centerx + cpOffset) * w + xOffset, (centery - radius) * h + yOffset, (centerx + radius) * w + xOffset, (centery - cpOffset) * h + yOffset));
+    fig3.add(new PathSegment(SegmentType.Bezier, centerx * w + xOffset, (centery + radius) * h + yOffset, (centerx + radius) * w + xOffset, (centery + cpOffset) * h + yOffset, (centerx + cpOffset) * w + xOffset, (centery + radius) * h + yOffset));
+    fig3.add(new PathSegment(SegmentType.Bezier, (centerx - radius) * w + xOffset, centery * h + yOffset, (centerx - cpOffset) * w + xOffset, (centery + radius) * h + yOffset, (centerx - radius) * w + xOffset, (centery + cpOffset) * h + yOffset));
+    cpOffset = KAPPA * 0.4;
+    radius = 0.4;
+    centerx = 0.8;
+    centery = 0.5;
+    var fig4 = new PathFigure(centerx * w + xOffset, (centery - radius) * h + yOffset, true);
+    geo.add(fig4);
+    // Right curves
+    fig4.add(new PathSegment(SegmentType.Bezier, (centerx + radius) * w + xOffset, centery * h + yOffset, (centerx + cpOffset) * w + xOffset, (centery - radius) * h + yOffset, (centerx + radius) * w + xOffset, (centery - cpOffset) * h + yOffset));
+    fig4.add(new PathSegment(SegmentType.Bezier, centerx * w + xOffset, (centery + radius) * h + yOffset, (centerx + radius) * w + xOffset, (centery + cpOffset) * h + yOffset, (centerx + cpOffset) * w + xOffset, (centery + radius) * h + yOffset));
+    fig4.add(new PathSegment(SegmentType.Bezier, (centerx + radius - cpOffset * 0.5) * w + xOffset, centery * h + yOffset, centerx * w + xOffset, (centery + radius) * h + yOffset, (centerx + radius - cpOffset * 0.5) * w + xOffset, (centery + cpOffset) * h + yOffset));
+    fig4.add(new PathSegment(SegmentType.Bezier, centerx * w + xOffset, (centery - radius) * h + yOffset, (centerx + radius - cpOffset * 0.5) * w + xOffset, (centery - cpOffset) * h + yOffset, centerx * w + xOffset, (centery - radius) * h + yOffset).close());
+    cpOffset = KAPPA * 0.8;
+    radius = 0.8;
+    centerx = 1;
+    centery = 0.5;
+    var fig5 = new PathFigure(centerx * w + xOffset, (centery - radius) * h + yOffset, true);
+    geo.add(fig5);
+    fig5.add(new PathSegment(SegmentType.Bezier, (centerx + radius) * w + xOffset, centery * h + yOffset, (centerx + cpOffset) * w + xOffset, (centery - radius) * h + yOffset, (centerx + radius) * w + xOffset, (centery - cpOffset) * h + yOffset));
+    fig5.add(new PathSegment(SegmentType.Bezier, centerx * w + xOffset, (centery + radius) * h + yOffset, (centerx + radius) * w + xOffset, (centery + cpOffset) * h + yOffset, (centerx + cpOffset) * w + xOffset, (centery + radius) * h + yOffset));
+    fig5.add(new PathSegment(SegmentType.Bezier, (centerx + radius - cpOffset * 0.5) * w + xOffset, centery * h + yOffset, centerx * w + xOffset, (centery + radius) * h + yOffset, (centerx + radius - cpOffset * 0.5) * w + xOffset, (centery + cpOffset) * h + yOffset));
+    fig5.add(new PathSegment(SegmentType.Bezier, centerx * w + xOffset, (centery - radius) * h + yOffset, (centerx + radius - cpOffset * 0.5) * w + xOffset, (centery - cpOffset) * h + yOffset, centerx * w + xOffset, (centery - radius) * h + yOffset).close());
+    return geo;
+});
+defineFigureGenerator('Email', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0, 0, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, w, 0));
+    fig.add(new PathSegment(SegmentType.Line, w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0, h));
+    fig.add(new PathSegment(SegmentType.Line, 0, 0).close());
+    var fig2 = new PathFigure(0, 0, false);
+    geo.add(fig2);
+    fig2.add(new PathSegment(SegmentType.Line, 0.5 * w, 0.6 * h));
+    fig2.add(new PathSegment(SegmentType.Line, w, 0));
+    fig2.add(new PathSegment(SegmentType.Move, 0, h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.45 * w, 0.54 * h));
+    fig2.add(new PathSegment(SegmentType.Move, w, h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.55 * w, 0.54 * h));
+    return geo;
+});
+defineFigureGenerator('Ethernet', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0.35 * w, 0, true);
+    geo.add(fig);
+    // Boxes above the wire
+    fig.add(new PathSegment(SegmentType.Line, 0.65 * w, 0));
+    fig.add(new PathSegment(SegmentType.Line, 0.65 * w, 0.4 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.35 * w, 0.4 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.35 * w, 0).close());
+    var fig2 = new PathFigure(0.1 * w, h, true, true);
+    geo.add(fig2);
+    // Boxes under the wire
+    fig2.add(new PathSegment(SegmentType.Line, 0.4 * w, h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.4 * w, 0.6 * h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.1 * w, 0.6 * h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.1 * w, h).close());
+    var fig3 = new PathFigure(0.6 * w, h, true, true);
+    geo.add(fig3);
+    fig3.add(new PathSegment(SegmentType.Line, 0.9 * w, h));
+    fig3.add(new PathSegment(SegmentType.Line, 0.9 * w, 0.6 * h));
+    fig3.add(new PathSegment(SegmentType.Line, 0.6 * w, 0.6 * h));
+    fig3.add(new PathSegment(SegmentType.Line, 0.6 * w, h).close());
+    var fig4 = new PathFigure(0, 0.5 * h, false);
+    geo.add(fig4);
+    // Wire
+    fig4.add(new PathSegment(SegmentType.Line, w, 0.5 * h));
+    fig4.add(new PathSegment(SegmentType.Move, 0.5 * w, 0.5 * h));
+    fig4.add(new PathSegment(SegmentType.Line, 0.5 * w, 0.4 * h));
+    fig4.add(new PathSegment(SegmentType.Move, 0.75 * w, 0.5 * h));
+    fig4.add(new PathSegment(SegmentType.Line, 0.75 * w, 0.6 * h));
+    fig4.add(new PathSegment(SegmentType.Move, 0.25 * w, 0.5 * h));
+    fig4.add(new PathSegment(SegmentType.Line, 0.25 * w, 0.6 * h));
+    return geo;
+});
+defineFigureGenerator('Power', function (shape, w, h) {
+    var geo = new Geometry();
+    var cpOffset = KAPPA * 0.4;
+    var radius = 0.4;
+    var centerx = 0.5;
+    var centery = 0.5;
+    var unused = tempPoint();
+    var mid = tempPoint();
+    var c1 = tempPoint();
+    var c2 = tempPoint();
+    // Find the 45 degree midpoint for the first bezier
+    breakUpBezier(centerx, centery - radius, centerx + cpOffset, centery - radius, centerx + radius, centery - cpOffset, centerx + radius, centery, 0.5, unused, unused, mid, c1, c2);
+    var start = tempPointAt(mid.x, mid.y);
+    var fig = new PathFigure(mid.x * w, mid.y * h, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Bezier, (centerx + radius) * w, centery * h, c1.x * w, c1.y * h, c2.x * w, c2.y * h));
+    fig.add(new PathSegment(SegmentType.Bezier, centerx * w, (centery + radius) * h, (centerx + radius) * w, (centery + cpOffset) * h, (centerx + cpOffset) * w, (centery + radius) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, (centerx - radius) * w, centery * h, (centerx - cpOffset) * w, (centery + radius) * h, (centerx - radius) * w, (centery + cpOffset) * h));
+    // Find the 45 degree midpoint of for the fourth bezier
+    breakUpBezier(centerx - radius, centery, centerx - radius, centery - cpOffset, centerx - cpOffset, centery - radius, centerx, centery - radius, 0.5, c1, c2, mid, unused, unused);
+    fig.add(new PathSegment(SegmentType.Bezier, mid.x * w, mid.y * h, c1.x * w, c1.y * h, c2.x * w, c2.y * h));
+    // now make a smaller circle
+    cpOffset = KAPPA * 0.3;
+    radius = 0.3;
+    // Find the 45 degree midpoint for the first bezier
+    breakUpBezier(centerx - radius, centery, centerx - radius, centery - cpOffset, centerx - cpOffset, centery - radius, centerx, centery - radius, 0.5, c1, c2, mid, unused, unused);
+    fig.add(new PathSegment(SegmentType.Line, mid.x * w, mid.y * h));
+    fig.add(new PathSegment(SegmentType.Bezier, (centerx - radius) * w, centery * h, c2.x * w, c2.y * h, c1.x * w, c1.y * h));
+    fig.add(new PathSegment(SegmentType.Bezier, centerx * w, (centery + radius) * h, (centerx - radius) * w, (centery + cpOffset) * h, (centerx - cpOffset) * w, (centery + radius) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, (centerx + radius) * w, centery * h, (centerx + cpOffset) * w, (centery + radius) * h, (centerx + radius) * w, (centery + cpOffset) * h));
+    // Find the 45 degree midpoint for the fourth bezier
+    breakUpBezier(centerx, centery - radius, centerx + cpOffset, centery - radius, centerx + radius, centery - cpOffset, centerx + radius, centery, 0.5, unused, unused, mid, c1, c2);
+    fig.add(new PathSegment(SegmentType.Bezier, mid.x * w, mid.y * h, c2.x * w, c2.y * h, c1.x * w, c1.y * h).close());
+    fig = new PathFigure(0.45 * w, 0, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0.45 * w, 0.5 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.55 * w, 0.5 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.55 * w, 0).close());
+    freePoint(unused);
+    freePoint(mid);
+    freePoint(c1);
+    freePoint(c2);
+    freePoint(start);
+    geo.spot1 = new Spot(0.25, 0.45);
+    geo.spot2 = new Spot(0.75, 0.8);
+    return geo;
+});
+defineFigureGenerator('Fallout', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0, h / 2, true);
+    geo.add(fig);
+    // Containing circle
+    fig.add(new PathSegment(SegmentType.Arc, 180, 360, w / 2, h / 2, w / 2, h / 2));
+    function drawTriangle(f, offsetx, offsety) {
+        f.add(new PathSegment(SegmentType.Move, (0.3 + offsetx) * w, (0.8 + offsety) * h));
+        f.add(new PathSegment(SegmentType.Line, (0.5 + offsetx) * w, (0.5 + offsety) * h));
+        f.add(new PathSegment(SegmentType.Line, (0.1 + offsetx) * w, (0.5 + offsety) * h));
+        f.add(new PathSegment(SegmentType.Line, (0.3 + offsetx) * w, (0.8 + offsety) * h).close());
+    }
+    // Triangles
+    drawTriangle(fig, 0, 0);
+    drawTriangle(fig, 0.4, 0);
+    drawTriangle(fig, 0.2, -0.3);
+    return geo;
+});
+defineFigureGenerator('IrritationHazard', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0.2 * w, 0, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0.5 * w, 0.3 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.8 * w, 0));
+    fig.add(new PathSegment(SegmentType.Line, w, 0.2 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.7 * w, 0.5 * h));
+    fig.add(new PathSegment(SegmentType.Line, w, 0.8 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.8 * w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0.5 * w, 0.7 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.2 * w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0, 0.8 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.3 * w, 0.5 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0, 0.2 * h).close());
+    geo.spot1 = new Spot(0.3, 0.3);
+    geo.spot2 = new Spot(0.7, 0.7);
+    return geo;
+});
+defineFigureGenerator('ElectricalHazard', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0.37 * w, 0, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0.5 * w, 0.11 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.77 * w, 0.04 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.33 * w, 0.49 * h));
+    fig.add(new PathSegment(SegmentType.Line, w, 0.37 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.63 * w, 0.86 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.77 * w, 0.91 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.34 * w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0.34 * w, 0.78 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.44 * w, 0.8 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.65 * w, 0.56 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0, 0.68 * h).close());
+    return geo;
+});
+defineFigureGenerator('FireHazard', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0.1 * w, h, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Bezier, 0.29 * w, 0, -0.25 * w, 0.63 * h, 0.45 * w, 0.44 * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.51 * w, 0.42 * h, 0.48 * w, 0.17 * h, 0.54 * w, 0.35 * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.59 * w, 0.18 * h, 0.59 * w, 0.29 * h, 0.58 * w, 0.28 * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.75 * w, 0.6 * h, 0.8 * w, 0.34 * h, 0.88 * w, 0.43 * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.88 * w, 0.31 * h, 0.87 * w, 0.48 * h, 0.88 * w, 0.43 * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.9 * w, h, 1.17 * w, 0.76 * h, 0.82 * w, 0.8 * h).close());
+    geo.spot1 = new Spot(0.07, 0.445);
+    geo.spot2 = new Spot(0.884, 0.958);
+    return geo;
+});
+defineFigureGenerator('BpmnActivityLoop', function (shape, w, h) {
+    var geo = new Geometry();
+    var r = 0.5;
+    var cx = 0; // offset from Center x
+    var cy = 0; // offset from Center y
+    var d = r * KAPPA;
+    var mx1 = (0.4 * Math.SQRT2) / 2 + 0.5;
+    var my1 = 0.5 - (0.5 * Math.SQRT2) / 2;
+    var x1 = 1;
+    var y1 = 0.5;
+    var x2 = 0.5;
+    var y2 = 0;
+    var fig = new PathFigure(mx1 * w, (1 - my1) * h, false);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Bezier, x1 * w, y1 * h, x1 * w, 0.7 * h, x1 * w, y1 * h));
+    fig.add(new PathSegment(SegmentType.Bezier, (x2 + cx) * w, (y2 + cx) * h, (0.5 + r + cx) * w, (0.5 - d + cx) * h, (0.5 + d + cx) * w, (0.5 - r + cx) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, (0.5 - r + cx) * w, (0.5 + cy) * h, (0.5 - d + cx) * w, (0.5 - r + cy) * h, (0.5 - r + cx) * w, (0.5 - d + cy) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, (0.35 + cx) * w, 0.9 * h, (0.5 - r + cx) * w, (0.5 + d + cy) * h, (0.5 - d + cx) * w, 0.9 * h));
+    // Arrowhead
+    fig.add(new PathSegment(SegmentType.Move, (0.25 + cx) * w, 0.8 * h));
+    fig.add(new PathSegment(SegmentType.Line, (0.35 + cx) * w, 0.9 * h));
+    fig.add(new PathSegment(SegmentType.Line, (0.2 + cx) * w, 0.95 * h));
+    return geo;
+});
+defineFigureGenerator('BpmnActivityParallel', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0, 0, false);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0, h));
+    fig.add(new PathSegment(SegmentType.Move, 0.5 * w, 0));
+    fig.add(new PathSegment(SegmentType.Line, 0.5 * w, h));
+    fig.add(new PathSegment(SegmentType.Move, w, 0));
+    fig.add(new PathSegment(SegmentType.Line, w, h));
+    return geo;
+});
+defineFigureGenerator('BpmnActivitySequential', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0, 0, false);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, w, 0));
+    fig.add(new PathSegment(SegmentType.Move, 0, 0.5 * h));
+    fig.add(new PathSegment(SegmentType.Line, w, 0.5 * h));
+    fig.add(new PathSegment(SegmentType.Move, 0, h));
+    fig.add(new PathSegment(SegmentType.Line, w, h));
+    return geo;
+});
+defineFigureGenerator('BpmnActivityAdHoc', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0, 0, false);
+    geo.add(fig);
+    var fig2 = new PathFigure(w, h, false);
+    geo.add(fig2);
+    var fig3 = new PathFigure(0, 0.5 * h, false);
+    geo.add(fig3);
+    fig3.add(new PathSegment(SegmentType.Bezier, 0.5 * w, 0.5 * h, 0.2 * w, 0.35 * h, 0.3 * w, 0.35 * h));
+    fig3.add(new PathSegment(SegmentType.Bezier, w, 0.5 * h, 0.7 * w, 0.65 * h, 0.8 * w, 0.65 * h));
+    return geo;
+});
+defineFigureGenerator('BpmnActivityCompensation', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0, 0.5 * h, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0.5 * w, 0));
+    fig.add(new PathSegment(SegmentType.Line, 0.5 * w, 0.5 * h));
+    fig.add(new PathSegment(SegmentType.Line, w, h));
+    fig.add(new PathSegment(SegmentType.Line, w, 0));
+    fig.add(new PathSegment(SegmentType.Line, 0.5 * w, 0.5 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.5 * w, h).close());
+    return geo;
+});
+defineFigureGenerator('BpmnTaskMessage', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0, 0.2 * h, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, w, 0.2 * h));
+    fig.add(new PathSegment(SegmentType.Line, w, 0.8 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0, 0.8 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0, 0.8 * h).close());
+    fig = new PathFigure(0, 0.2 * h, false);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0.5 * w, 0.5 * h));
+    fig.add(new PathSegment(SegmentType.Line, w, 0.2 * h));
+    return geo;
+});
+defineFigureGenerator('BpmnTaskScript', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0.7 * w, h, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0.3 * w, h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.3 * w, 0, 0.6 * w, 0.5 * h, 0, 0.5 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.7 * w, 0));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.7 * w, h, 0.4 * w, 0.5 * h, w, 0.5 * h).close());
+    var fig2 = new PathFigure(0.45 * w, 0.73 * h, false);
+    geo.add(fig2);
+    // Lines on script
+    fig2.add(new PathSegment(SegmentType.Line, 0.7 * w, 0.73 * h));
+    fig2.add(new PathSegment(SegmentType.Move, 0.38 * w, 0.5 * h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.63 * w, 0.5 * h));
+    fig2.add(new PathSegment(SegmentType.Move, 0.31 * w, 0.27 * h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.56 * w, 0.27 * h));
+    return geo;
+});
+defineFigureGenerator('BpmnTaskUser', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0, 0, false);
+    geo.add(fig);
+    var fig2 = new PathFigure(0.335 * w, (1 - 0.555) * h, true);
+    geo.add(fig2);
+    // Shirt
+    fig2.add(new PathSegment(SegmentType.Line, 0.335 * w, (1 - 0.405) * h));
+    fig2.add(new PathSegment(SegmentType.Line, (1 - 0.335) * w, (1 - 0.405) * h));
+    fig2.add(new PathSegment(SegmentType.Line, (1 - 0.335) * w, (1 - 0.555) * h));
+    fig2.add(new PathSegment(SegmentType.Bezier, w, 0.68 * h, (1 - 0.12) * w, 0.46 * h, (1 - 0.02) * w, 0.54 * h));
+    fig2.add(new PathSegment(SegmentType.Line, w, h));
+    fig2.add(new PathSegment(SegmentType.Line, 0, h));
+    fig2.add(new PathSegment(SegmentType.Line, 0, 0.68 * h));
+    fig2.add(new PathSegment(SegmentType.Bezier, 0.335 * w, (1 - 0.555) * h, 0.02 * w, 0.54 * h, 0.12 * w, 0.46 * h));
+    // Start of neck
+    fig2.add(new PathSegment(SegmentType.Line, 0.365 * w, (1 - 0.595) * h));
+    var radiushead = 0.5 - 0.285;
+    var centerx = 0.5;
+    var centery = radiushead;
+    var alpha2 = Math.PI / 4;
+    var KAPPA2 = (4 * (1 - Math.cos(alpha2))) / (3 * Math.sin(alpha2));
+    var radiusw = radiushead;
+    var radiush = radiushead;
+    var offsetw = KAPPA2 * radiusw;
+    var offseth = KAPPA2 * radiush;
+    // Circle (head)
+    fig2.add(new PathSegment(SegmentType.Bezier, (centerx - radiusw) * w, centery * h, (centerx - (offsetw + radiusw) / 2) * w, (centery + (radiush + offseth) / 2) * h, (centerx - radiusw) * w, (centery + offseth) * h));
+    fig2.add(new PathSegment(SegmentType.Bezier, centerx * w, (centery - radiush) * h, (centerx - radiusw) * w, (centery - offseth) * h, (centerx - offsetw) * w, (centery - radiush) * h));
+    fig2.add(new PathSegment(SegmentType.Bezier, (centerx + radiusw) * w, centery * h, (centerx + offsetw) * w, (centery - radiush) * h, (centerx + radiusw) * w, (centery - offseth) * h));
+    fig2.add(new PathSegment(SegmentType.Bezier, (1 - 0.365) * w, (1 - 0.595) * h, (centerx + radiusw) * w, (centery + offseth) * h, (centerx + (offsetw + radiusw) / 2) * w, (centery + (radiush + offseth) / 2) * h));
+    fig2.add(new PathSegment(SegmentType.Line, (1 - 0.365) * w, (1 - 0.595) * h));
+    // Neckline
+    fig2.add(new PathSegment(SegmentType.Line, (1 - 0.335) * w, (1 - 0.555) * h));
+    fig2.add(new PathSegment(SegmentType.Line, (1 - 0.335) * w, (1 - 0.405) * h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.335 * w, (1 - 0.405) * h));
+    var fig3 = new PathFigure(0.2 * w, h, false);
+    geo.add(fig3);
+    // Arm lines
+    fig3.add(new PathSegment(SegmentType.Line, 0.2 * w, 0.8 * h));
+    var fig4 = new PathFigure(0.8 * w, h, false);
+    geo.add(fig4);
+    fig4.add(new PathSegment(SegmentType.Line, 0.8 * w, 0.8 * h));
+    return geo;
+});
+defineFigureGenerator('BpmnEventConditional', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0.1 * w, 0, true);
+    geo.add(fig);
+    // Body
+    fig.add(new PathSegment(SegmentType.Line, 0.9 * w, 0));
+    fig.add(new PathSegment(SegmentType.Line, 0.9 * w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0.1 * w, h).close());
+    var fig2 = new PathFigure(0.2 * w, 0.2 * h, false);
+    geo.add(fig2);
+    // Inside lines
+    fig2.add(new PathSegment(SegmentType.Line, 0.8 * w, 0.2 * h));
+    fig2.add(new PathSegment(SegmentType.Move, 0.2 * w, 0.4 * h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.8 * w, 0.4 * h));
+    fig2.add(new PathSegment(SegmentType.Move, 0.2 * w, 0.6 * h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.8 * w, 0.6 * h));
+    fig2.add(new PathSegment(SegmentType.Move, 0.2 * w, 0.8 * h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.8 * w, 0.8 * h));
+    return geo;
+});
+defineFigureGenerator('BpmnEventError', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0, h, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0.33 * w, 0));
+    fig.add(new PathSegment(SegmentType.Line, 0.66 * w, 0.5 * h));
+    fig.add(new PathSegment(SegmentType.Line, w, 0));
+    fig.add(new PathSegment(SegmentType.Line, 0.66 * w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0.33 * w, 0.5 * h).close());
+    return geo;
+});
+defineFigureGenerator('BpmnEventEscalation', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0, 0, false);
+    geo.add(fig);
+    // Set dimensions
+    var fig2 = new PathFigure(w, h, false);
+    geo.add(fig2);
+    var fig3 = new PathFigure(0.1 * w, h, true);
+    geo.add(fig3);
+    fig3.add(new PathSegment(SegmentType.Line, 0.5 * w, 0));
+    fig3.add(new PathSegment(SegmentType.Line, 0.9 * w, h));
+    fig3.add(new PathSegment(SegmentType.Line, 0.5 * w, 0.5 * h).close());
+    return geo;
+});
+defineFigureGenerator('Caution', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0.05 * w, h, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Bezier, 0.1 * w, 0.8 * h, 0, h, 0, h));
+    fig.add(new PathSegment(SegmentType.Line, 0.45 * w, 0.1 * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.55 * w, 0.1 * h, 0.5 * w, 0, 0.5 * w, 0));
+    fig.add(new PathSegment(SegmentType.Line, 0.95 * w, 0.9 * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.9 * w, h, w, h, w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0.05 * w, h));
+    var radius = 0.05;
+    // Bottom circle of exclamation point
+    fig.add(new PathSegment(SegmentType.Move, (0.5 - radius) * w, 0.875 * h));
+    fig.add(new PathSegment(SegmentType.Arc, 180, -360, 0.5 * w, 0.875 * h, radius * w, radius * h));
+    // Upper rectangle of exclamation point
+    fig.add(new PathSegment(SegmentType.Move, 0.5 * w, 0.75 * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.5 * w, 0.325 * h, 0.575 * w, 0.725 * h, 0.625 * w, 0.375 * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.5 * w, 0.75 * h, 0.375 * w, 0.375 * h, 0.425 * w, 0.725 * h));
+    return geo;
+});
+defineFigureGenerator('Recycle', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0.45 * w, 0.95 * h, false);
+    geo.add(fig);
+    // Bottom left arrow
+    fig.add(new PathSegment(SegmentType.Line, 0.2 * w, 0.95 * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.185 * w, 0.85 * h, 0.17 * w, 0.95 * h, 0.15 * w, 0.9 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.235 * w, 0.75 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.3 * w, 0.625 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.35 * w, 0.65 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.275 * w, 0.45 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.05 * w, 0.45 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.1 * w, 0.5 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.05 * w, 0.575 * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.1875 * w, 0.95 * h, 0, 0.675 * h, 0, 0.7 * h));
+    fig.add(new PathSegment(SegmentType.Move, 0.45 * w, 0.95 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.45 * w, 0.775 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.22 * w, 0.775 * h));
+    var fig2 = new PathFigure(0.475 * w, 0.2 * h, false);
+    geo.add(fig2);
+    // Top arrow
+    fig2.add(new PathSegment(SegmentType.Line, 0.4 * w, 0.4 * h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.225 * w, 0.3 * h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.275 * w, 0.175 * h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.325 * w, 0.05 * h));
+    fig2.add(new PathSegment(SegmentType.Bezier, 0.4 * w, 0.05 * h, 0.35 * w, 0, 0.375 * w, 0));
+    fig2.add(new PathSegment(SegmentType.Line, 0.575 * w, 0.375 * h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.525 * w, 0.4 * h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.75 * w, 0.475 * h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.85 * w, 0.315 * h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.8 * w, 0.32 * h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.65 * w, 0.05 * h));
+    fig2.add(new PathSegment(SegmentType.Bezier, 0.575 * w, 0, 0.65 * w, 0.05 * h, 0.625 * w, 0));
+    fig2.add(new PathSegment(SegmentType.Line, 0.38 * w, 0.0105 * h));
+    var fig3 = new PathFigure(0.675 * w, 0.575 * h, false);
+    geo.add(fig3);
+    // Bottom right arrow
+    fig3.add(new PathSegment(SegmentType.Line, 0.875 * w, 0.525 * h));
+    fig3.add(new PathSegment(SegmentType.Line, w, 0.775 * h));
+    fig3.add(new PathSegment(SegmentType.Bezier, 0.85 * w, 0.95 * h, w, 0.8 * h, w, 0.85 * h));
+    fig3.add(new PathSegment(SegmentType.Line, 0.65 * w, 0.95 * h));
+    fig3.add(new PathSegment(SegmentType.Line, 0.65 * w, h));
+    fig3.add(new PathSegment(SegmentType.Line, 0.55 * w, 0.85 * h));
+    fig3.add(new PathSegment(SegmentType.Line, 0.65 * w, 0.725 * h));
+    fig3.add(new PathSegment(SegmentType.Line, 0.65 * w, 0.775 * h));
+    fig3.add(new PathSegment(SegmentType.Line, 0.7 * w, 0.775 * h));
+    fig3.add(new PathSegment(SegmentType.Line, w, 0.775 * h));
+    fig3.add(new PathSegment(SegmentType.Move, 0.675 * w, 0.575 * h));
+    fig3.add(new PathSegment(SegmentType.Line, 0.775 * w, 0.775 * h));
+    return geo;
+});
+defineFigureGenerator('BpmnEventTimer', function (shape, w, h) {
+    var geo = new Geometry();
+    var radius = 0.5;
+    var cpOffset = KAPPA * 0.5;
+    var fig = new PathFigure(w, radius * h, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Bezier, radius * w, h, w, (radius + cpOffset) * h, (radius + cpOffset) * w, h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0, radius * h, (radius - cpOffset) * w, h, 0, (radius + cpOffset) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, radius * w, 0, 0, (radius - cpOffset) * h, (radius - cpOffset) * w, 0));
+    fig.add(new PathSegment(SegmentType.Bezier, w, radius * h, (radius + cpOffset) * w, 0, w, (radius - cpOffset) * h));
+    var fig2 = new PathFigure(radius * w, 0, false);
+    geo.add(fig2);
+    // Hour lines
+    fig2.add(new PathSegment(SegmentType.Line, radius * w, 0.15 * h));
+    fig2.add(new PathSegment(SegmentType.Move, radius * w, h));
+    fig2.add(new PathSegment(SegmentType.Line, radius * w, 0.85 * h));
+    fig2.add(new PathSegment(SegmentType.Move, 0, radius * h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.15 * w, radius * h));
+    fig2.add(new PathSegment(SegmentType.Move, w, radius * h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.85 * w, radius * h));
+    // Clock hands
+    fig2.add(new PathSegment(SegmentType.Move, radius * w, radius * h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.58 * w, 0.1 * h));
+    fig2.add(new PathSegment(SegmentType.Move, radius * w, radius * h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.78 * w, 0.54 * h));
+    return geo;
+});
+defineFigureGenerator('Package', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0, 0.15 * h, true);
+    geo.add(fig);
+    // Package bottom rectangle
+    fig.add(new PathSegment(SegmentType.Line, w, 0.15 * h));
+    fig.add(new PathSegment(SegmentType.Line, w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0, h).close());
+    var fig2 = new PathFigure(0, 0.15 * h, true);
+    geo.add(fig2);
+    // Package top flap
+    fig2.add(new PathSegment(SegmentType.Line, 0, 0));
+    fig2.add(new PathSegment(SegmentType.Line, 0.6 * w, 0));
+    fig2.add(new PathSegment(SegmentType.Line, 0.65 * w, 0.15 * h).close());
+    geo.spot1 = new Spot(0, 0.1);
+    geo.spot2 = Spot.BottomRight;
+    return geo;
+});
+defineFigureGenerator('Class', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0, 0, true);
+    geo.add(fig);
+    // Class box
+    fig.add(new PathSegment(SegmentType.Line, w, 0));
+    fig.add(new PathSegment(SegmentType.Line, w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0, h));
+    fig.add(new PathSegment(SegmentType.Line, 0, 0).close());
+    var fig2 = new PathFigure(0, 0.2 * h, false);
+    geo.add(fig2);
+    // Top box separater
+    fig2.add(new PathSegment(SegmentType.Line, w, 0.2 * h).close());
+    var fig3 = new PathFigure(0, 0.5 * h, false);
+    geo.add(fig3);
+    // Middle box separater
+    fig3.add(new PathSegment(SegmentType.Line, w, 0.5 * h).close());
+    return geo;
+});
+defineFigureGenerator('Component', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(w, h, true);
+    geo.add(fig);
+    // Component Box
+    fig.add(new PathSegment(SegmentType.Line, w, 0));
+    fig.add(new PathSegment(SegmentType.Line, 0.15 * w, 0));
+    fig.add(new PathSegment(SegmentType.Line, 0.15 * w, h));
+    fig.add(new PathSegment(SegmentType.Line, w, h).close());
+    var fig2 = new PathFigure(0, 0.2 * h, true);
+    geo.add(fig2);
+    // Component top sub box
+    fig2.add(new PathSegment(SegmentType.Line, 0.45 * w, 0.2 * h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.45 * w, 0.4 * h));
+    fig2.add(new PathSegment(SegmentType.Line, 0, 0.4 * h));
+    fig2.add(new PathSegment(SegmentType.Line, 0, 0.2 * h).close());
+    var fig3 = new PathFigure(0, 0.6 * h, true);
+    geo.add(fig3);
+    // Component bottom sub box
+    fig3.add(new PathSegment(SegmentType.Line, 0.45 * w, 0.6 * h));
+    fig3.add(new PathSegment(SegmentType.Line, 0.45 * w, 0.8 * h));
+    fig3.add(new PathSegment(SegmentType.Line, 0, 0.8 * h));
+    fig3.add(new PathSegment(SegmentType.Line, 0, 0.6 * h).close());
+    return geo;
+});
+defineFigureGenerator('Boat Shipment', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0.15 * w, 0.6 * h, true);
+    geo.add(fig);
+    // Boat shipment flag
+    fig.add(new PathSegment(SegmentType.Line, 0.15 * w, 0.6 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0, 0.6 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.15 * w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0.85 * w, h));
+    fig.add(new PathSegment(SegmentType.Line, w, 0.6 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.85 * w, 0.6 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.5 * w, 0));
+    fig.add(new PathSegment(SegmentType.Line, 0.15 * w, 0.6 * h));
+    var fig2 = new PathFigure(0.15 * w, 0.6 * h, false);
+    geo.add(fig2);
+    fig2.add(new PathSegment(SegmentType.Line, 0.85 * w, 0.6 * h));
+    return geo;
+});
+defineFigureGenerator('Customer/Supplier', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(w, h, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, w, 0));
+    fig.add(new PathSegment(SegmentType.Line, 0.66 * w, 0.33 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.66 * w, 0));
+    fig.add(new PathSegment(SegmentType.Line, 0.33 * w, 0.33 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.33 * w, 0));
+    fig.add(new PathSegment(SegmentType.Line, 0, 0.33 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0, h));
+    fig.add(new PathSegment(SegmentType.Line, w, h).close());
+    return geo;
+});
+defineFigureGenerator('Workcell', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0, h, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0, 0));
+    fig.add(new PathSegment(SegmentType.Line, w, 0));
+    fig.add(new PathSegment(SegmentType.Line, w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0.65 * w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0.65 * w, 0.4 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.35 * w, 0.4 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.35 * w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0, h).close());
+    return geo;
+});
+defineFigureGenerator('Supermarket', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0, 0, false);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, w, 0));
+    fig.add(new PathSegment(SegmentType.Line, w, 0.33 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0, 0.33 * h));
+    fig.add(new PathSegment(SegmentType.Move, w, 0.33 * h));
+    fig.add(new PathSegment(SegmentType.Line, w, 0.66 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0, 0.66 * h));
+    fig.add(new PathSegment(SegmentType.Move, w, 0.66 * h));
+    fig.add(new PathSegment(SegmentType.Line, w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0, h));
+    return geo;
+});
+defineFigureGenerator('TruckShipment', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0, 0, true);
+    geo.add(fig);
+    // Left rectangle
+    fig.add(new PathSegment(SegmentType.Line, 0.6 * w, 0));
+    fig.add(new PathSegment(SegmentType.Line, 0.6 * w, 0.8 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0, 0.8 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0, 0).close());
+    var fig2 = new PathFigure(w, 0.8 * h, true);
+    geo.add(fig2);
+    // Right rectangle
+    fig2.add(new PathSegment(SegmentType.Line, w, 0.4 * h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.6 * w, 0.4 * h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.6 * w, 0.8 * h));
+    fig2.add(new PathSegment(SegmentType.Line, w, 0.8 * h).close());
+    var radius = 0.1;
+    var cpOffset = KAPPA * 0.1;
+    var centerx = 0.2;
+    var centery = 0.9;
+    var fig3 = new PathFigure((centerx - radius) * w, centery * h, true);
+    geo.add(fig3);
+    // Left wheel
+    fig3.add(new PathSegment(SegmentType.Bezier, centerx * w, (centery - radius) * h, (centerx - radius) * w, (centery - cpOffset) * h, (centerx - cpOffset) * w, (centery - radius) * h));
+    fig3.add(new PathSegment(SegmentType.Bezier, (centerx + radius) * w, centery * h, (centerx + cpOffset) * w, (centery - radius) * h, (centerx + radius) * w, (centery - cpOffset) * h));
+    fig3.add(new PathSegment(SegmentType.Bezier, centerx * w, (centery + radius) * h, (centerx + radius) * w, (centery + cpOffset) * h, (centerx + cpOffset) * w, (centery + radius) * h));
+    fig3.add(new PathSegment(SegmentType.Bezier, (centerx - radius) * w, centery * h, (centerx - cpOffset) * w, (centery + radius) * h, (centerx - radius) * w, (centery + cpOffset) * h).close());
+    radius = 0.1;
+    cpOffset = KAPPA * 0.1;
+    centerx = 0.8;
+    centery = 0.9;
+    var fig4 = new PathFigure((centerx - radius) * w, centery * h, true);
+    geo.add(fig4);
+    // Right wheel
+    fig4.add(new PathSegment(SegmentType.Bezier, centerx * w, (centery - radius) * h, (centerx - radius) * w, (centery - cpOffset) * h, (centerx - cpOffset) * w, (centery - radius) * h));
+    fig4.add(new PathSegment(SegmentType.Bezier, (centerx + radius) * w, centery * h, (centerx + cpOffset) * w, (centery - radius) * h, (centerx + radius) * w, (centery - cpOffset) * h));
+    fig4.add(new PathSegment(SegmentType.Bezier, centerx * w, (centery + radius) * h, (centerx + radius) * w, (centery + cpOffset) * h, (centerx + cpOffset) * w, (centery + radius) * h));
+    fig4.add(new PathSegment(SegmentType.Bezier, (centerx - radius) * w, centery * h, (centerx - cpOffset) * w, (centery + radius) * h, (centerx - radius) * w, (centery + cpOffset) * h).close());
+    return geo;
+});
+defineFigureGenerator('KanbanPost', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0.2 * w, 0, false);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0.2 * w, 0.5 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.8 * w, 0.5 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.8 * w, 0));
+    fig.add(new PathSegment(SegmentType.Move, 0.5 * w, 0.5 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.5 * w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0.2 * w, h));
+    fig.add(new PathSegment(SegmentType.Move, 0.5 * w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0.8 * w, h));
+    return geo;
+});
+defineFigureGenerator('Forklift', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0, 0, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0, 0.5 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.5 * w, 0.5 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.4 * w, 0));
+    fig.add(new PathSegment(SegmentType.Line, 0, 0));
+    var fig2 = new PathFigure(0, 0.5 * h, true);
+    geo.add(fig2);
+    fig2.add(new PathSegment(SegmentType.Line, 0, 0.8 * h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.5 * w, 0.8 * h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.5 * w, 0.5 * h));
+    fig2.add(new PathSegment(SegmentType.Line, 0, 0.5 * h));
+    var fig3 = new PathFigure(0.5 * w, 0.8 * h, true);
+    geo.add(fig3);
+    fig3.add(new PathSegment(SegmentType.Line, 0.5 * w, 0.1 * h));
+    fig3.add(new PathSegment(SegmentType.Line, 0.55 * w, 0.1 * h));
+    fig3.add(new PathSegment(SegmentType.Line, 0.55 * w, 0.8 * h));
+    fig3.add(new PathSegment(SegmentType.Line, 0.5 * w, 0.8 * h));
+    var fig4 = new PathFigure(0.5 * w, 0.7 * h, false);
+    geo.add(fig4);
+    fig4.add(new PathSegment(SegmentType.Line, w, 0.7 * h));
+    var radius = 0.1;
+    var cpOffset = KAPPA * 0.1;
+    var centerx = 0.1;
+    var centery = 0.9;
+    var fig5 = new PathFigure((centerx - radius) * w, centery * h, true);
+    geo.add(fig5);
+    fig5.add(new PathSegment(SegmentType.Bezier, centerx * w, (centery - radius) * h, (centerx - radius) * w, (centery - cpOffset) * h, (centerx - cpOffset) * w, (centery - radius) * h));
+    fig5.add(new PathSegment(SegmentType.Bezier, (centerx + radius) * w, centery * h, (centerx + cpOffset) * w, (centery - radius) * h, (centerx + radius) * w, (centery - cpOffset) * h));
+    fig5.add(new PathSegment(SegmentType.Bezier, centerx * w, (centery + radius) * h, (centerx + radius) * w, (centery + cpOffset) * h, (centerx + cpOffset) * w, (centery + radius) * h));
+    fig5.add(new PathSegment(SegmentType.Bezier, (centerx - radius) * w, centery * h, (centerx - cpOffset) * w, (centery + radius) * h, (centerx - radius) * w, (centery + cpOffset) * h));
+    radius = 0.1;
+    cpOffset = KAPPA * 0.1;
+    centerx = 0.4;
+    centery = 0.9;
+    var fig6 = new PathFigure((centerx - radius) * w, centery * h, true);
+    geo.add(fig6);
+    fig6.add(new PathSegment(SegmentType.Bezier, centerx * w, (centery - radius) * h, (centerx - radius) * w, (centery - cpOffset) * h, (centerx - cpOffset) * w, (centery - radius) * h));
+    fig6.add(new PathSegment(SegmentType.Bezier, (centerx + radius) * w, centery * h, (centerx + cpOffset) * w, (centery - radius) * h, (centerx + radius) * w, (centery - cpOffset) * h));
+    fig6.add(new PathSegment(SegmentType.Bezier, centerx * w, (centery + radius) * h, (centerx + radius) * w, (centery + cpOffset) * h, (centerx + cpOffset) * w, (centery + radius) * h));
+    fig6.add(new PathSegment(SegmentType.Bezier, (centerx - radius) * w, centery * h, (centerx - cpOffset) * w, (centery + radius) * h, (centerx - radius) * w, (centery + cpOffset) * h));
+    return geo;
+});
+defineFigureGenerator('RailShipment', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0.1 * w, 0.4 * h, true);
+    geo.add(fig);
+    // Left cart
+    fig.add(new PathSegment(SegmentType.Line, 0.45 * w, 0.4 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.45 * w, 0.9 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.1 * w, 0.9 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.1 * w, 0.4 * h).close());
+    var fig2 = new PathFigure(0.45 * w, 0.7 * h, false);
+    geo.add(fig2);
+    // Line connecting carts
+    fig2.add(new PathSegment(SegmentType.Line, 0.55 * w, 0.7 * h));
+    var fig3 = new PathFigure(0.55 * w, 0.4 * h, true);
+    geo.add(fig3);
+    // Right cart
+    fig3.add(new PathSegment(SegmentType.Line, 0.9 * w, 0.4 * h));
+    fig3.add(new PathSegment(SegmentType.Line, 0.9 * w, 0.9 * h));
+    fig3.add(new PathSegment(SegmentType.Line, 0.55 * w, 0.9 * h));
+    fig3.add(new PathSegment(SegmentType.Line, 0.55 * w, 0.4 * h).close());
+    var radius = 0.05;
+    var cpOffset = KAPPA * 0.05;
+    var centerx = 0.175;
+    var centery = 0.95;
+    var fig4 = new PathFigure((centerx - radius) * w, centery * h, true);
+    geo.add(fig4);
+    // Wheels
+    fig4.add(new PathSegment(SegmentType.Bezier, centerx * w, (centery - radius) * h, (centerx - radius) * w, (centery - cpOffset) * h, (centerx - cpOffset) * w, (centery - radius) * h));
+    fig4.add(new PathSegment(SegmentType.Bezier, (centerx + radius) * w, centery * h, (centerx + cpOffset) * w, (centery - radius) * h, (centerx + radius) * w, (centery - cpOffset) * h));
+    fig4.add(new PathSegment(SegmentType.Bezier, centerx * w, (centery + radius) * h, (centerx + radius) * w, (centery + cpOffset) * h, (centerx + cpOffset) * w, (centery + radius) * h));
+    fig4.add(new PathSegment(SegmentType.Bezier, (centerx - radius) * w, centery * h, (centerx - cpOffset) * w, (centery + radius) * h, (centerx - radius) * w, (centery + cpOffset) * h));
+    radius = 0.05;
+    cpOffset = KAPPA * 0.05;
+    centerx = 0.375;
+    centery = 0.95;
+    var fig5 = new PathFigure((centerx - radius) * w, centery * h, true);
+    geo.add(fig5);
+    fig5.add(new PathSegment(SegmentType.Bezier, centerx * w, (centery - radius) * h, (centerx - radius) * w, (centery - cpOffset) * h, (centerx - cpOffset) * w, (centery - radius) * h));
+    fig5.add(new PathSegment(SegmentType.Bezier, (centerx + radius) * w, centery * h, (centerx + cpOffset) * w, (centery - radius) * h, (centerx + radius) * w, (centery - cpOffset) * h));
+    fig5.add(new PathSegment(SegmentType.Bezier, centerx * w, (centery + radius) * h, (centerx + radius) * w, (centery + cpOffset) * h, (centerx + cpOffset) * w, (centery + radius) * h));
+    fig5.add(new PathSegment(SegmentType.Bezier, (centerx - radius) * w, centery * h, (centerx - cpOffset) * w, (centery + radius) * h, (centerx - radius) * w, (centery + cpOffset) * h));
+    radius = 0.05;
+    cpOffset = KAPPA * 0.05;
+    centerx = 0.625;
+    centery = 0.95;
+    var fig6 = new PathFigure((centerx - radius) * w, centery * h, true);
+    geo.add(fig6);
+    fig6.add(new PathSegment(SegmentType.Bezier, centerx * w, (centery - radius) * h, (centerx - radius) * w, (centery - cpOffset) * h, (centerx - cpOffset) * w, (centery - radius) * h));
+    fig6.add(new PathSegment(SegmentType.Bezier, (centerx + radius) * w, centery * h, (centerx + cpOffset) * w, (centery - radius) * h, (centerx + radius) * w, (centery - cpOffset) * h));
+    fig6.add(new PathSegment(SegmentType.Bezier, centerx * w, (centery + radius) * h, (centerx + radius) * w, (centery + cpOffset) * h, (centerx + cpOffset) * w, (centery + radius) * h));
+    fig6.add(new PathSegment(SegmentType.Bezier, (centerx - radius) * w, centery * h, (centerx - cpOffset) * w, (centery + radius) * h, (centerx - radius) * w, (centery + cpOffset) * h));
+    radius = 0.05;
+    cpOffset = KAPPA * 0.05;
+    centerx = 0.825;
+    centery = 0.95;
+    var fig7 = new PathFigure((centerx - radius) * w, centery * h, true);
+    geo.add(fig7);
+    fig7.add(new PathSegment(SegmentType.Bezier, centerx * w, (centery - radius) * h, (centerx - radius) * w, (centery - cpOffset) * h, (centerx - cpOffset) * w, (centery - radius) * h));
+    fig7.add(new PathSegment(SegmentType.Bezier, (centerx + radius) * w, centery * h, (centerx + cpOffset) * w, (centery - radius) * h, (centerx + radius) * w, (centery - cpOffset) * h));
+    fig7.add(new PathSegment(SegmentType.Bezier, centerx * w, (centery + radius) * h, (centerx + radius) * w, (centery + cpOffset) * h, (centerx + cpOffset) * w, (centery + radius) * h));
+    fig7.add(new PathSegment(SegmentType.Bezier, (centerx - radius) * w, centery * h, (centerx - cpOffset) * w, (centery + radius) * h, (centerx - radius) * w, (centery + cpOffset) * h).close());
+    var fig8 = new PathFigure(0, h, false);
+    geo.add(fig8);
+    fig8.add(new PathSegment(SegmentType.Line, w, h).close());
+    return geo;
+});
+defineFigureGenerator('Warehouse', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0, 0, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, w, 0));
+    fig.add(new PathSegment(SegmentType.Line, w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0, h));
+    fig.add(new PathSegment(SegmentType.Line, 0, 0).close());
+    var fig2 = new PathFigure(0, 0.2 * h, false);
+    geo.add(fig2);
+    fig2.add(new PathSegment(SegmentType.Line, w, 0.2 * h).close());
+    var fig3 = new PathFigure(0.15 * w, h, true);
+    geo.add(fig3);
+    fig3.add(new PathSegment(SegmentType.Line, 0.15 * w, 0.5 * h));
+    fig3.add(new PathSegment(SegmentType.Line, 0.4 * w, 0.5 * h));
+    fig3.add(new PathSegment(SegmentType.Line, 0.4 * w, h));
+    fig3.add(new PathSegment(SegmentType.Line, 0.15 * w, h).close());
+    var radius = 0.05;
+    var cpOffset = KAPPA * 0.05;
+    var centerx = 0.35;
+    var centery = 0.775;
+    var fig4 = new PathFigure((centerx - radius) * w, centery * h, true);
+    geo.add(fig4);
+    // Door handle
+    fig4.add(new PathSegment(SegmentType.Bezier, centerx * w, (centery - radius) * h, (centerx - radius) * w, (centery - cpOffset) * h, (centerx - cpOffset) * w, (centery - radius) * h));
+    fig4.add(new PathSegment(SegmentType.Bezier, (centerx + radius) * w, centery * h, (centerx + cpOffset) * w, (centery - radius) * h, (centerx + radius) * w, (centery - cpOffset) * h));
+    fig4.add(new PathSegment(SegmentType.Bezier, centerx * w, (centery + radius) * h, (centerx + radius) * w, (centery + cpOffset) * h, (centerx + cpOffset) * w, (centery + radius) * h));
+    fig4.add(new PathSegment(SegmentType.Bezier, (centerx - radius) * w, centery * h, (centerx - cpOffset) * w, (centery + radius) * h, (centerx - radius) * w, (centery + cpOffset) * h).close());
+    return geo;
+});
+defineFigureGenerator('ControlCenter', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0, h, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0, 0.8 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.1 * w, 0.8 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.1 * w, 0));
+    fig.add(new PathSegment(SegmentType.Line, 0.9 * w, 0));
+    fig.add(new PathSegment(SegmentType.Line, 0.9 * w, 0.8 * h));
+    fig.add(new PathSegment(SegmentType.Line, w, 0.8 * h));
+    fig.add(new PathSegment(SegmentType.Line, w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0, h));
+    fig.add(new PathSegment(SegmentType.Move, 0.1 * w, 0.8 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.9 * w, 0.8 * h).close());
+    return geo;
+});
+defineFigureGenerator('Bluetooth', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0, 0.75 * h, false);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0, 0.75 * h));
+    fig.add(new PathSegment(SegmentType.Line, w, 0.25 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.5 * w, 0));
+    fig.add(new PathSegment(SegmentType.Line, 0.5 * w, h));
+    fig.add(new PathSegment(SegmentType.Line, w, 0.75 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0, 0.25 * h));
+    return geo;
+});
+defineFigureGenerator('Bookmark', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0, 0, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0, h));
+    fig.add(new PathSegment(SegmentType.Line, 0.5 * w, 0.6 * h));
+    fig.add(new PathSegment(SegmentType.Line, w, h));
+    fig.add(new PathSegment(SegmentType.Line, w, 0));
+    fig.add(new PathSegment(SegmentType.Line, 0, 0));
+    fig.add(new PathSegment(SegmentType.Move, 0.2 * w, 0.2 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.8 * w, 0.2 * h));
+    fig.add(new PathSegment(SegmentType.Move, 0.2 * w, 0.4 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.8 * w, 0.4 * h));
+    return geo;
+});
+defineFigureGenerator('Bookmark', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0, 0, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0, h));
+    fig.add(new PathSegment(SegmentType.Line, 0.5 * w, 0.6 * h));
+    fig.add(new PathSegment(SegmentType.Line, w, h));
+    fig.add(new PathSegment(SegmentType.Line, w, 0));
+    fig.add(new PathSegment(SegmentType.Line, 0, 0));
+    fig.add(new PathSegment(SegmentType.Move, 0.2 * w, 0.2 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.8 * w, 0.2 * h));
+    fig.add(new PathSegment(SegmentType.Move, 0.2 * w, 0.4 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.8 * w, 0.4 * h));
+    return geo;
+});
+defineFigureGenerator('Globe', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0.5 * w, 0, false);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0.5 * w, h));
+    fig.add(new PathSegment(SegmentType.Move, 0, 0.5 * h));
+    fig.add(new PathSegment(SegmentType.Line, w, 0.5 * h));
+    fig.add(new PathSegment(SegmentType.Move, 0.5 * w, 0));
+    fig.add(new PathSegment(SegmentType.Bezier, w, 0.5 * h, 0.75 * w, 0, w, 0.25 * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.5 * w, h, w, 0.75 * h, 0.75 * w, h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0, 0.5 * h, 0.25 * w, h, 0, 0.75 * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.5 * w, 0, 0, 0.25 * h, 0.25 * w, 0));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.5 * w, h, 0.15 * w, 0.25 * h, 0.15 * w, 0.75 * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.5 * w, 0, 0.85 * w, 0.75 * h, 0.85 * w, 0.25 * h));
+    fig.add(new PathSegment(SegmentType.Move, 0.1675 * w, 0.15 * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.8325 * w, 0.15 * h, 0.35 * w, 0.3 * h, 0.65 * w, 0.3 * h));
+    fig.add(new PathSegment(SegmentType.Move, 0.1675 * w, 0.85 * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.8325 * w, 0.85 * h, 0.35 * w, 0.7 * h, 0.65 * w, 0.7 * h));
+    return geo;
+});
+defineFigureGenerator('Wave', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0, 0.25 * h, false);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Bezier, 0.3 * w, 0.25 * h, 0.1 * w, 0, 0.2 * w, 0));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.7 * w, 0.25 * h, 0.425 * w, 0.5 * h, 0.575 * w, 0.5 * h));
+    fig.add(new PathSegment(SegmentType.Bezier, w, 0.25 * h, 0.8 * w, 0, 0.9 * w, 0));
+    fig.add(new PathSegment(SegmentType.Line, w, 0.75 * h));
+    fig.add(new PathSegment(SegmentType.Move, 0, 0.25 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0, 0.75 * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.3 * w, 0.75 * h, 0.1 * w, 0.5 * h, 0.2 * w, 0.5 * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.7 * w, 0.75 * h, 0.425 * w, h, 0.575 * w, h));
+    fig.add(new PathSegment(SegmentType.Bezier, w, 0.75 * h, 0.8 * w, 0.5 * h, 0.9 * w, 0.5 * h));
+    return geo;
+});
+defineFigureGenerator('Operator', function (shape, w, h) {
+    var geo = new Geometry();
+    var radius = 0.3;
+    var cpOffset = KAPPA * 0.3;
+    var centerx = 0.5;
+    var centery = 0.7;
+    var fig = new PathFigure((centerx - radius) * w, centery * h, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Bezier, centerx * w, (centery - radius) * h, (centerx - radius) * w, (centery - cpOffset) * h, (centerx - cpOffset) * w, (centery - radius) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, (centerx + radius) * w, centery * h, (centerx + cpOffset) * w, (centery - radius) * h, (centerx + radius) * w, (centery - cpOffset) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, centerx * w, (centery + radius) * h, (centerx + radius) * w, (centery + cpOffset) * h, (centerx + cpOffset) * w, (centery + radius) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, (centerx - radius) * w, centery * h, (centerx - cpOffset) * w, (centery + radius) * h, (centerx - radius) * w, (centery + cpOffset) * h));
+    var fig2 = new PathFigure(0, 0.7 * h, false);
+    geo.add(fig2);
+    fig2.add(new PathSegment(SegmentType.Bezier, w, 0.7 * h, 0, 0, w, 0));
+    return geo;
+});
+defineFigureGenerator('TripleFanBlades', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0.5 * w, 0, true);
+    geo.add(fig);
+    // Top blade
+    fig.add(new PathSegment(SegmentType.Bezier, 0.5 * w, 0.65 * h, 0.65 * w, 0.3 * h, 0.65 * w, 0.5 * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.5 * w, 0, 0.35 * w, 0.5 * h, 0.35 * w, 0.3 * h));
+    // Bottom left blade
+    fig.add(new PathSegment(SegmentType.Move, 0.5 * w, 0.65 * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0, h, 0.3 * w, 0.6 * h, 0.1 * w, 0.8 * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.5 * w, 0.65 * h, 0.2 * w, h, 0.35 * w, 0.95 * h));
+    // Bottom right blade
+    fig.add(new PathSegment(SegmentType.Move, 0.5 * w, 0.65 * h));
+    fig.add(new PathSegment(SegmentType.Bezier, w, h, 0.7 * w, 0.6 * h, 0.9 * w, 0.8 * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.5 * w, 0.65 * h, 0.8 * w, h, 0.65 * w, 0.95 * h));
+    return geo;
+});
+defineFigureGenerator('CentrifugalPump', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(w, 0, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0.4 * w, 0));
+    fig.add(new PathSegment(SegmentType.Bezier, 0, 0.5 * h, 0, 0.075 * h, 0, 0.5 * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.4 * w, h, 0, h, 0.4 * w, h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.8 * w, 0.4 * h, 0.8 * w, h, 0.85 * w, 0.6 * h));
+    fig.add(new PathSegment(SegmentType.Line, w, 0.4 * h));
+    fig.add(new PathSegment(SegmentType.Line, w, 0));
+    return geo;
+});
+defineFigureGenerator('Battery', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0, h, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0, 0.1 * h));
+    fig.add(new PathSegment(SegmentType.Line, w, 0.1 * h));
+    fig.add(new PathSegment(SegmentType.Line, w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0, h));
+    fig.add(new PathSegment(SegmentType.Move, 0.4 * w, 0.1 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.4 * w, 0));
+    fig.add(new PathSegment(SegmentType.Line, 0.6 * w, 0));
+    fig.add(new PathSegment(SegmentType.Line, 0.6 * w, 0.1 * h));
+    var fig2 = new PathFigure(0, 0.6 * h, false);
+    geo.add(fig2);
+    fig2.add(new PathSegment(SegmentType.Move, 0, 0.4 * h));
+    fig2.add(new PathSegment(SegmentType.Line, w, 0.4 * h));
+    return geo;
+});
+defineFigureGenerator('Delete', function (shape, w, h) {
+    var geo = new Geometry();
+    var radius = 0.5;
+    var cpOffset = KAPPA * 0.5;
+    var centerx = 0.5;
+    var centery = 0.5;
+    var fig = new PathFigure((centerx - radius) * w, centery * h, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Bezier, centerx * w, (centery - radius) * h, (centerx - radius) * w, (centery - cpOffset) * h, (centerx - cpOffset) * w, (centery - radius) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, (centerx + radius) * w, centery * h, (centerx + cpOffset) * w, (centery - radius) * h, (centerx + radius) * w, (centery - cpOffset) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, centerx * w, (centery + radius) * h, (centerx + radius) * w, (centery + cpOffset) * h, (centerx + cpOffset) * w, (centery + radius) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, (centerx - radius) * w, centery * h, (centerx - cpOffset) * w, (centery + radius) * h, (centerx - radius) * w, (centery + cpOffset) * h));
+    var fig2 = new PathFigure(0.15 * w, 0.5 * h, false);
+    geo.add(fig2);
+    fig2.add(new PathSegment(SegmentType.Line, 0.85 * w, 0.5 * h));
+    return geo;
+});
+defineFigureGenerator('Flag', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0, 0.1 * h, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0, h));
+    fig.add(new PathSegment(SegmentType.Move, 0, 0.1 * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.5 * w, 0.1 * h, 0.15 * w, 0, 0.35 * w, 0));
+    fig.add(new PathSegment(SegmentType.Bezier, w, 0.1 * h, 0.65 * w, 0.2 * h, 0.85 * w, 0.2 * h));
+    fig.add(new PathSegment(SegmentType.Line, w, 0.5 * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.5 * w, 0.5 * h, 0.85 * w, 0.6 * h, 0.65 * w, 0.6 * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0, 0.5 * h, 0.35 * w, 0.4 * h, 0.15 * w, 0.4 * h).close());
+    return geo;
+});
+defineFigureGenerator('Help', function (shape, w, h) {
+    var geo = new Geometry();
+    var radius = 0.5;
+    var cpOffset = KAPPA * 0.5;
+    var centerx = 0.5;
+    var centery = 0.5;
+    var fig = new PathFigure((centerx - radius) * w, centery * h, false);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Bezier, centerx * w, (centery - radius) * h, (centerx - radius) * w, (centery - cpOffset) * h, (centerx - cpOffset) * w, (centery - radius) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, (centerx + radius) * w, centery * h, (centerx + cpOffset) * w, (centery - radius) * h, (centerx + radius) * w, (centery - cpOffset) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, centerx * w, (centery + radius) * h, (centerx + radius) * w, (centery + cpOffset) * h, (centerx + cpOffset) * w, (centery + radius) * h));
+    fig.add(new PathSegment(SegmentType.Bezier, (centerx - radius) * w, centery * h, (centerx - cpOffset) * w, (centery + radius) * h, (centerx - radius) * w, (centery + cpOffset) * h).close());
+    radius = 0.05;
+    cpOffset = KAPPA * 0.05;
+    centerx = 0.5;
+    centery = 0.8;
+    var fig2 = new PathFigure((centerx - radius) * w, centery * h, false);
+    geo.add(fig2);
+    fig2.add(new PathSegment(SegmentType.Bezier, centerx * w, (centery - radius) * h, (centerx - radius) * w, (centery - cpOffset) * h, (centerx - cpOffset) * w, (centery - radius) * h));
+    fig2.add(new PathSegment(SegmentType.Bezier, (centerx + radius) * w, centery * h, (centerx + cpOffset) * w, (centery - radius) * h, (centerx + radius) * w, (centery - cpOffset) * h));
+    fig2.add(new PathSegment(SegmentType.Bezier, centerx * w, (centery + radius) * h, (centerx + radius) * w, (centery + cpOffset) * h, (centerx + cpOffset) * w, (centery + radius) * h));
+    fig2.add(new PathSegment(SegmentType.Bezier, (centerx - radius) * w, centery * h, (centerx - cpOffset) * w, (centery + radius) * h, (centerx - radius) * w, (centery + cpOffset) * h).close());
+    fig2.add(new PathSegment(SegmentType.Move, 0.5 * w, 0.7 * h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.5 * w, 0.5 * h));
+    fig2.add(new PathSegment(SegmentType.Bezier, 0.5 * w, 0.2 * h, 0.75 * w, 0.475 * h, 0.75 * w, 0.225 * h));
+    fig2.add(new PathSegment(SegmentType.Bezier, 0.3 * w, 0.35 * h, 0.4 * w, 0.2 * h, 0.3 * w, 0.25 * h));
+    return geo;
+});
+defineFigureGenerator('Location', function (shape, w, h) { return new Geometry().add(new PathFigure(0.5 * w, h, true)
+    .add(new PathSegment(SegmentType.Line, 0.75 * w, 0.5 * h))
+    .add(new PathSegment(SegmentType.Bezier, 0.5 * w, 0, 0.975 * w, 0.025 * h, 0.5 * w, 0))
+    .add(new PathSegment(SegmentType.Bezier, 0.25 * w, 0.5 * h, 0.5 * w, 0, 0.025 * w, 0.025 * h).close())
+    .add(new PathSegment(SegmentType.Move, 0.5 * w, 0.2 * h))
+    .add(new PathSegment(SegmentType.Arc, 270, 360, 0.5 * w, 0.3 * h, 0.1 * w, 0.1 * h).close())); });
+defineFigureGenerator('Lock', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0, 0.5 * h, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0, h));
+    fig.add(new PathSegment(SegmentType.Line, w, h));
+    fig.add(new PathSegment(SegmentType.Line, w, 0.5 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0, 0.5 * h));
+    var fig2 = new PathFigure(0.2 * w, 0.5 * h, false);
+    geo.add(fig2);
+    fig2.add(new PathSegment(SegmentType.Move, 0.2 * w, 0.5 * h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.2 * w, 0.3 * h));
+    fig2.add(new PathSegment(SegmentType.Bezier, 0.8 * w, 0.3 * h, 0.25 * w, 0, 0.75 * w, 0));
+    fig2.add(new PathSegment(SegmentType.Line, 0.8 * w, 0.5 * h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.8 * w, 0.3 * h));
+    return geo;
+});
+defineFigureGenerator('Unlocked', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0, 0.5 * h, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0, h));
+    fig.add(new PathSegment(SegmentType.Line, w, h));
+    fig.add(new PathSegment(SegmentType.Line, w, 0.5 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0, 0.5 * h));
+    var fig2 = new PathFigure(0.2 * w, 0.5 * h, false);
+    geo.add(fig2);
+    fig2.add(new PathSegment(SegmentType.Move, 0.2 * w, 0.5 * h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.2 * w, 0.3 * h));
+    fig2.add(new PathSegment(SegmentType.Bezier, 0.8 * w, 0.3 * h, 0.25 * w, 0, 0.75 * w, 0));
+    fig2.add(new PathSegment(SegmentType.Line, 0.8 * w, 0.35 * h));
+    return geo;
+});
+defineFigureGenerator('Gear', function (shape, w, h) { return new Geometry().add(new PathFigure(0.9375 * w, 0.56246875 * h, true)
+    .add(new PathSegment(SegmentType.Line, 0.9375 * w, 0.4375 * h))
+    .add(new PathSegment(SegmentType.Line, 0.80621875 * w, 0.4375 * h))
+    .add(new PathSegment(SegmentType.Bezier, 0.763 * w, 0.3316875 * h, 0.79840625 * w, 0.39915625 * h, 0.7834375 * w, 0.3635 * h))
+    .add(new PathSegment(SegmentType.Line, 0.8566875 * w, 0.23796875 * h))
+    .add(new PathSegment(SegmentType.Line, 0.76825 * w, 0.14959375 * h))
+    .add(new PathSegment(SegmentType.Line, 0.67596875 * w, 0.24184375 * h))
+    .add(new PathSegment(SegmentType.Bezier, 0.5625 * w, 0.19378125 * h, 0.64228125 * w, 0.2188125 * h, 0.603875 * w, 0.2021875 * h))
+    .add(new PathSegment(SegmentType.Line, 0.5625 * w, 0.0625 * h))
+    .add(new PathSegment(SegmentType.Line, 0.4375 * w, 0.0625 * h))
+    .add(new PathSegment(SegmentType.Line, 0.4375 * w, 0.19378125 * h))
+    .add(new PathSegment(SegmentType.Bezier, 0.32775 * w, 0.239375 * h, 0.39759375 * w, 0.20190625 * h, 0.36053125 * w, 0.2176875 * h))
+    .add(new PathSegment(SegmentType.Line, 0.2379375 * w, 0.14959375 * h))
+    .add(new PathSegment(SegmentType.Line, 0.14953125 * w, 0.2379375 * h))
+    .add(new PathSegment(SegmentType.Line, 0.23934375 * w, 0.3278125 * h))
+    .add(new PathSegment(SegmentType.Bezier, 0.19378125 * w, 0.4375 * h, 0.21765625 * w, 0.36059375 * h, 0.201875 * w, 0.397625 * h))
+    .add(new PathSegment(SegmentType.Line, 0.0625 * w, 0.4375 * h))
+    .add(new PathSegment(SegmentType.Line, 0.0625 * w, 0.5625 * h))
+    .add(new PathSegment(SegmentType.Line, 0.1938125 * w, 0.5625 * h))
+    .add(new PathSegment(SegmentType.Bezier, 0.241875 * w, 0.67596875 * h, 0.20221875 * w, 0.603875 * h, 0.21884375 * w, 0.64228125 * h))
+    .add(new PathSegment(SegmentType.Line, 0.1495625 * w, 0.76825 * h))
+    .add(new PathSegment(SegmentType.Line, 0.238 * w, 0.8566875 * h))
+    .add(new PathSegment(SegmentType.Line, 0.3316875 * w, 0.76296875 * h))
+    .add(new PathSegment(SegmentType.Bezier, 0.43753125 * w, 0.80621875 * h, 0.36353125 * w, 0.78340625 * h, 0.3991875 * w, 0.79840625 * h))
+    .add(new PathSegment(SegmentType.Line, 0.43753125 * w, 0.9375 * h))
+    .add(new PathSegment(SegmentType.Line, 0.5625 * w, 0.9375 * h))
+    .add(new PathSegment(SegmentType.Line, 0.5625 * w, 0.80621875 * h))
+    .add(new PathSegment(SegmentType.Bezier, 0.67225 * w, 0.760625 * h, 0.602375 * w, 0.79809375 * h, 0.63946875 * w, 0.78234375 * h))
+    .add(new PathSegment(SegmentType.Line, 0.76828125 * w, 0.8566875 * h))
+    .add(new PathSegment(SegmentType.Line, 0.85671875 * w, 0.76825 * h))
+    .add(new PathSegment(SegmentType.Line, 0.76065625 * w, 0.67221875 * h))
+    .add(new PathSegment(SegmentType.Bezier, 0.80621875 * w, 0.56246875 * h, 0.78234375 * w, 0.63940625 * h, 0.798125 * w, 0.602375 * h))
+    .add(new PathSegment(SegmentType.Line, 0.9375 * w, 0.56246875 * h).close())
+    .add(new PathSegment(SegmentType.Move, 0.5 * w, 0.6 * h))
+    .add(new PathSegment(SegmentType.Arc, 90, 360, 0.5 * w, 0.5 * h, 0.1 * w, 0.1 * h).close())); });
+defineFigureGenerator('Hand', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0, 0.5 * h, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Bezier, 0.1 * w, 0.3 * h, 0, 0.375 * h, 0.05 * w, 0.325 * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.45 * w, 0.075 * h, 0.3 * w, 0.225 * h, 0.4 * w, 0.175 * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.525 * w, 0.075 * h, 0.46 * w, 0.05 * h, 0.525 * w, 0.05 * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.3 * w, 0.4 * h, 0.525 * w, 0.275 * h, 0.475 * w, 0.325 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.9 * w, 0.4 * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.9 * w, 0.55 * h, w, 0.4 * h, w, 0.55 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.425 * w, 0.55 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.6 * w, 0.55 * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.6 * w, 0.7 * h, 0.675 * w, 0.55 * h, 0.675 * w, 0.7 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.4 * w, 0.7 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.575 * w, 0.7 * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.575 * w, 0.85 * h, 0.65 * w, 0.7 * h, 0.65 * w, 0.85 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.4 * w, 0.85 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.525 * w, 0.85 * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.535 * w, h, 0.61 * w, 0.85 * h, 0.61 * w, h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0, 0.9 * h, 0.435 * w, h, 0, h).close());
+    return geo;
+});
+defineFigureGenerator('Map', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0, 0.2 * h, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0.25 * w, 0));
+    fig.add(new PathSegment(SegmentType.Line, 0.5 * w, 0.2 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.75 * w, 0));
+    fig.add(new PathSegment(SegmentType.Line, w, 0.2 * h));
+    fig.add(new PathSegment(SegmentType.Line, w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0.75 * w, 0.8 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.5 * w, h));
+    fig.add(new PathSegment(SegmentType.Line, 0.25 * w, 0.8 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0, h).close());
+    fig.add(new PathSegment(SegmentType.Move, 0.25 * w, 0));
+    fig.add(new PathSegment(SegmentType.Line, 0.25 * w, 0.8 * h));
+    fig.add(new PathSegment(SegmentType.Move, 0.5 * w, 0.2 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.5 * w, h));
+    fig.add(new PathSegment(SegmentType.Move, 0.75 * w, 0));
+    fig.add(new PathSegment(SegmentType.Line, 0.75 * w, 0.8 * h));
+    return geo;
+});
+defineFigureGenerator('Eject', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0, h, true);
+    geo.add(fig);
+    // bottam rectangle section
+    fig.add(new PathSegment(SegmentType.Line, w, h));
+    fig.add(new PathSegment(SegmentType.Line, w, h * 0.7));
+    fig.add(new PathSegment(SegmentType.Line, 0, h * 0.7).close());
+    var fig2 = new PathFigure(0, h * 0.6, true);
+    geo.add(fig2);
+    fig2.add(new PathSegment(SegmentType.Line, w, 0.6 * h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.5 * w, 0).close());
+    return geo;
+});
+defineFigureGenerator('Pencil', function (shape, w, h) { return new Geometry().add(new PathFigure(0, 0, true)
+    .add(new PathSegment(SegmentType.Line, 0.2 * w, 0.1 * h))
+    .add(new PathSegment(SegmentType.Line, w, 0.9 * h))
+    .add(new PathSegment(SegmentType.Line, 0.9 * w, h))
+    .add(new PathSegment(SegmentType.Line, 0.1 * w, 0.2 * h).close())); });
+defineFigureGenerator('Building', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(w * 1, h * 1, false);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0, h * 1)); // bottom part
+    fig.add(new PathSegment(SegmentType.Line, 0, h * 0.85));
+    fig.add(new PathSegment(SegmentType.Line, 0.046 * w, h * 0.85));
+    fig.add(new PathSegment(SegmentType.Line, 0.046 * w, h * 0.45));
+    fig.add(new PathSegment(SegmentType.Line, 0, h * 0.45));
+    fig.add(new PathSegment(SegmentType.Line, 0, h * 0.3));
+    fig.add(new PathSegment(SegmentType.Line, 0.046 * w, h * 0.3));
+    fig.add(new PathSegment(SegmentType.Line, 0.5 * w, h * 0));
+    fig.add(new PathSegment(SegmentType.Line, (1 - 0.046) * w, h * 0.3));
+    fig.add(new PathSegment(SegmentType.Line, w, h * 0.3));
+    fig.add(new PathSegment(SegmentType.Line, w, h * 0.45));
+    fig.add(new PathSegment(SegmentType.Line, (1 - 0.046) * w, h * 0.45));
+    fig.add(new PathSegment(SegmentType.Line, (1 - 0.046) * w, h * 0.85));
+    fig.add(new PathSegment(SegmentType.Line, w, h * 0.85).close());
+    var fig2 = new PathFigure(0.126 * w, 0.85 * h, false); // is filled in our not
+    geo.add(fig2);
+    fig2.add(new PathSegment(SegmentType.Line, 0.126 * w, 0.45 * h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.322 * w, 0.45 * h));
+    fig2.add(new PathSegment(SegmentType.Line, 0.322 * w, 0.85 * h).close());
+    var fig3 = new PathFigure(0.402 * w, 0.85 * h, false); // is filled in our not
+    geo.add(fig3);
+    fig3.add(new PathSegment(SegmentType.Line, 0.402 * w, 0.45 * h));
+    fig3.add(new PathSegment(SegmentType.Line, 0.598 * w, 0.45 * h));
+    fig3.add(new PathSegment(SegmentType.Line, 0.598 * w, 0.85 * h).close());
+    var fig4 = new PathFigure(0.678 * w, 0.85 * h, false); // is filled in our not
+    geo.add(fig4);
+    fig4.add(new PathSegment(SegmentType.Line, 0.678 * w, 0.45 * h));
+    fig4.add(new PathSegment(SegmentType.Line, 0.874 * w, 0.45 * h));
+    fig4.add(new PathSegment(SegmentType.Line, 0.874 * w, 0.85 * h).close());
+    // the top inner triangle
+    var fig5 = new PathFigure(0.5 * w, 0.1 * h, false); // is filled in our not
+    geo.add(fig5);
+    fig5.add(new PathSegment(SegmentType.Line, (0.046 + 0.15) * w, 0.3 * h));
+    fig5.add(new PathSegment(SegmentType.Line, (1 - (0.046 + 0.15)) * w, 0.3 * h).close());
+    return geo;
+});
+defineFigureGenerator('Staircase', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0, h * 1, true);
+    geo.add(fig);
+    // Bottom part
+    fig.add(new PathSegment(SegmentType.Line, w * 0.2, h * 1)); // bottom left part
+    fig.add(new PathSegment(SegmentType.Line, w * 0.2, h * 0.8));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.4, h * 0.8));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.4, h * 0.6));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.6, h * 0.6));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.6, h * 0.4));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.8, h * 0.4));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.8, h * 0.2));
+    fig.add(new PathSegment(SegmentType.Line, w * 1, h * 0.2));
+    fig.add(new PathSegment(SegmentType.Line, w * 1, h * 0.15));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.75, h * 0.15));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.75, h * 0.35));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.55, h * 0.35));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.55, h * 0.55));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.35, h * 0.55));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.35, h * 0.75));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.15, h * 0.75));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.15, h * 0.95));
+    fig.add(new PathSegment(SegmentType.Line, 0, h * 0.95).close());
+    return geo;
+});
+defineFigureGenerator('5Bars', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0, h * 1, true); // bottom left
+    geo.add(fig);
+    // Width of each bar is .184
+    // space in between each bar is .2
+    fig.add(new PathSegment(SegmentType.Line, w * 0.184, h * 1)); // bottom left part
+    fig.add(new PathSegment(SegmentType.Line, w * 0.184, h * (1 - 0.184)).close());
+    var fig3 = new PathFigure(w * 0.204, h, true); // is filled in our not
+    geo.add(fig3);
+    fig3.add(new PathSegment(SegmentType.Line, w * 0.204, h * (1 - 0.184)));
+    fig3.add(new PathSegment(SegmentType.Line, w * 0.388, h * (1 - 0.184 * 2)));
+    fig3.add(new PathSegment(SegmentType.Line, w * 0.388, h * 1).close());
+    var fig4 = new PathFigure(w * 0.408, h, true); // is filled in our not
+    geo.add(fig4);
+    fig4.add(new PathSegment(SegmentType.Line, w * 0.408, h * (1 - 0.184 * 2)));
+    fig4.add(new PathSegment(SegmentType.Line, w * 0.592, h * (1 - 0.184 * 3)));
+    fig4.add(new PathSegment(SegmentType.Line, w * 0.592, h * 1).close());
+    var fig5 = new PathFigure(w * 0.612, h, true); // is filled in our not
+    geo.add(fig5);
+    fig5.add(new PathSegment(SegmentType.Line, w * 0.612, h * (1 - 0.184 * 3)));
+    fig5.add(new PathSegment(SegmentType.Line, w * 0.796, h * (1 - 0.184 * 4)));
+    fig5.add(new PathSegment(SegmentType.Line, w * 0.796, h * 1).close());
+    var fig6 = new PathFigure(w * 0.816, h, true); // is filled in our not
+    geo.add(fig6);
+    fig6.add(new PathSegment(SegmentType.Line, w * 0.816, h * (1 - 0.184 * 4)));
+    fig6.add(new PathSegment(SegmentType.Line, w * 1, h * (1 - 0.184 * 5)));
+    fig6.add(new PathSegment(SegmentType.Line, w * 1, h * 1).close());
+    return geo;
+});
+// desktop
+defineFigureGenerator('PC', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0, 0, true); // top right
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0, h * 1));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.3, h * 1));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.3, 0).close());
+    // Drive looking rectangle 1
+    var fig2 = new PathFigure(w * 0.055, 0.07 * h, true); // is filled in our not
+    geo.add(fig2);
+    fig2.add(new PathSegment(SegmentType.Line, w * 0.245, h * 0.07));
+    fig2.add(new PathSegment(SegmentType.Line, w * 0.245, h * 0.1));
+    fig2.add(new PathSegment(SegmentType.Line, w * 0.055, h * 0.1).close());
+    // Drive looking rectangle 2
+    var fig3 = new PathFigure(w * 0.055, 0.13 * h, true); // is filled in our not
+    geo.add(fig3);
+    fig3.add(new PathSegment(SegmentType.Line, w * 0.245, h * 0.13));
+    fig3.add(new PathSegment(SegmentType.Line, w * 0.245, h * 0.16));
+    fig3.add(new PathSegment(SegmentType.Line, w * 0.055, h * 0.16).close());
+    // Drive/cd rom looking rectangle 3
+    var fig4 = new PathFigure(w * 0.055, 0.18 * h, true); // is filled in our not
+    geo.add(fig4);
+    fig4.add(new PathSegment(SegmentType.Line, w * 0.245, h * 0.18));
+    fig4.add(new PathSegment(SegmentType.Line, w * 0.245, h * 0.21));
+    fig4.add(new PathSegment(SegmentType.Line, w * 0.055, h * 0.21).close());
+    var fig5 = new PathFigure(w * 1, 0, true); // is filled in our not
+    geo.add(fig5);
+    fig5.add(new PathSegment(SegmentType.Line, w * 0.4, 0));
+    fig5.add(new PathSegment(SegmentType.Line, w * 0.4, h * 0.65));
+    fig5.add(new PathSegment(SegmentType.Line, w * 1, h * 0.65).close());
+    return geo;
+});
+defineFigureGenerator('Plane', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0.55 * w, h, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, 0.5 * w, 0.6 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.4 * w, 0.7 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.1 * w, 0.475 * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.35 * w, 0.525 * h, 0, 0.4 * h, 0.225 * w, 0.45 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.4 * w, 0.475 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.15 * w, 0.35 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.2 * w, 0.325 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.6 * w, 0.325 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.85 * w, 0.1 * h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0.9 * w, 0.2 * h, 0.975 * w, 0, w, 0.08 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.7 * w, 0.45 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.6 * w, 0.95 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0.55 * w, h).close());
+    return geo;
+});
+defineFigureGenerator('Key', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(w * 1, h * 0.5, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, w * 0.9, 0.4 * h));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.5, 0.4 * h));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.5, 0.35 * h));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.45, 0.35 * h));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.3, 0.2 * h));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.15, 0.2 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0, 0.35 * h));
+    fig.add(new PathSegment(SegmentType.Line, 0, 0.65 * h));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.15, 0.8 * h));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.3, 0.8 * h));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.45, 0.65 * h));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.5, 0.65 * h));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.5, 0.6 * h));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.6, 0.6 * h));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.65, 0.55 * h));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.7, 0.6 * h));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.75, 0.55 * h));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.8, 0.6 * h));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.85, 0.575 * h));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.9, 0.6 * h).close());
+    fig.add(new PathSegment(SegmentType.Move, 0.17 * w, 0.425 * h));
+    fig.add(new PathSegment(SegmentType.Arc, 270, 360, 0.17 * w, 0.5 * h, 0.075 * w, 0.075 * h).close());
+    return geo;
+});
+// movie like logo
+defineFigureGenerator('FilmTape', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(0, 0, false);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Arc, 270, 180, w * 0, w * 0.3, w * 0.055)); // left semi-circle
+    fig.add(new PathSegment(SegmentType.Line, 0, h * 1));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.08, h * 1));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.08, h * 0.95));
+    fig.add(new PathSegment(SegmentType.Line, w * (0.08 + 0.056 * 1), h * 0.95));
+    fig.add(new PathSegment(SegmentType.Line, w * (0.08 + 0.056 * 1), h * 1));
+    fig.add(new PathSegment(SegmentType.Line, w * (0.08 + 0.056 * 2), h * 1));
+    fig.add(new PathSegment(SegmentType.Line, w * (0.08 + 0.056 * 2), h * 0.95));
+    fig.add(new PathSegment(SegmentType.Line, w * (0.08 + 0.056 * 3), h * 0.95));
+    fig.add(new PathSegment(SegmentType.Line, w * (0.08 + 0.056 * 3), h * 1));
+    fig.add(new PathSegment(SegmentType.Line, w * (0.08 + 0.056 * 4), h * 1));
+    fig.add(new PathSegment(SegmentType.Line, w * (0.08 + 0.056 * 4), h * 0.95));
+    fig.add(new PathSegment(SegmentType.Line, w * (0.08 + 0.056 * 5), h * 0.95));
+    fig.add(new PathSegment(SegmentType.Line, w * (0.08 + 0.056 * 5), h * 1));
+    fig.add(new PathSegment(SegmentType.Line, w * (0.08 + 0.056 * 6), h * 1));
+    fig.add(new PathSegment(SegmentType.Line, w * (0.08 + 0.056 * 6), h * 0.95));
+    fig.add(new PathSegment(SegmentType.Line, w * (0.08 + 0.056 * 7), h * 0.95));
+    fig.add(new PathSegment(SegmentType.Line, w * (0.08 + 0.056 * 7), h * 1));
+    fig.add(new PathSegment(SegmentType.Line, w * (0.08 + 0.056 * 8), h * 1));
+    fig.add(new PathSegment(SegmentType.Line, w * (0.08 + 0.056 * 8), h * 0.95));
+    fig.add(new PathSegment(SegmentType.Line, w * (0.08 + 0.056 * 9), h * 0.95));
+    fig.add(new PathSegment(SegmentType.Line, w * (0.08 + 0.056 * 9), h * 1));
+    fig.add(new PathSegment(SegmentType.Line, w * (0.08 + 0.056 * 10), h * 1));
+    fig.add(new PathSegment(SegmentType.Line, w * (0.08 + 0.056 * 10), h * 0.95));
+    fig.add(new PathSegment(SegmentType.Line, w * (0.08 + 0.056 * 11), h * 0.95));
+    fig.add(new PathSegment(SegmentType.Line, w * (0.08 + 0.056 * 11), h * 1));
+    fig.add(new PathSegment(SegmentType.Line, w * (0.08 + 0.056 * 12), h * 1));
+    fig.add(new PathSegment(SegmentType.Line, w * (0.08 + 0.056 * 12), h * 0.95));
+    fig.add(new PathSegment(SegmentType.Line, w * (0.08 + 0.056 * 13), h * 0.95));
+    fig.add(new PathSegment(SegmentType.Line, w * (0.08 + 0.056 * 13), h * 1));
+    fig.add(new PathSegment(SegmentType.Line, w * (0.08 + 0.056 * 14), h * 1));
+    fig.add(new PathSegment(SegmentType.Line, w * (0.08 + 0.056 * 14), h * 0.95));
+    fig.add(new PathSegment(SegmentType.Line, w * (0.08 + 0.056 * 15), h * 0.95));
+    fig.add(new PathSegment(SegmentType.Line, w * (0.08 + 0.056 * 15), h * 1));
+    fig.add(new PathSegment(SegmentType.Line, w * 1, h * 1));
+    fig.add(new PathSegment(SegmentType.Line, w * 1, h * 1));
+    var fig2 = new PathFigure(0, 0, false); // is filled in our not
+    geo.add(fig2);
+    fig2.add(new PathSegment(SegmentType.Line, w * 1, h * 0));
+    fig2.add(new PathSegment(SegmentType.Arc, 270, -180, w * 1, w * 0.3, w * 0.055)); // right semi circle
+    fig2.add(new PathSegment(SegmentType.Line, w * 1, h * 1));
+    // Each of the little square boxes on the tape
+    var fig3 = new PathFigure(w * 0.11, h * 0.1, false); // is filled in our not
+    geo.add(fig3);
+    fig3.add(new PathSegment(SegmentType.Line, w * (0.11 + 0.24133333 * 1 + 0.028 * 0), h * 0.1));
+    fig3.add(new PathSegment(SegmentType.Line, w * (0.11 + 0.24133333 * 1 + 0.028 * 0), h * 0.8));
+    fig3.add(new PathSegment(SegmentType.Line, w * 0.11, h * 0.8).close());
+    var fig4 = new PathFigure(w * (0.11 + 0.24133333 * 1 + 0.028 * 1), h * 0.1, false); // is filled in our not
+    geo.add(fig4);
+    fig4.add(new PathSegment(SegmentType.Line, w * (0.11 + 0.24133333 * 2 + 0.028 * 1), h * 0.1));
+    fig4.add(new PathSegment(SegmentType.Line, w * (0.11 + 0.24133333 * 2 + 0.028 * 1), h * 0.8));
+    fig4.add(new PathSegment(SegmentType.Line, w * (0.11 + 0.24133333 * 1 + 0.028 * 1), h * 0.8).close());
+    var fig5 = new PathFigure(w * (0.11 + 0.24133333 * 2 + 0.028 * 2), h * 0.1, false); // is filled in our not
+    geo.add(fig5);
+    fig5.add(new PathSegment(SegmentType.Line, w * (0.11 + 0.24133333 * 3 + 0.028 * 2), h * 0.1));
+    fig5.add(new PathSegment(SegmentType.Line, w * (0.11 + 0.24133333 * 3 + 0.028 * 2), h * 0.8));
+    fig5.add(new PathSegment(SegmentType.Line, w * (0.11 + 0.24133333 * 2 + 0.028 * 2), h * 0.8).close());
+    return geo;
+});
+defineFigureGenerator('FloppyDisk', function (shape, w, h) {
+    var geo = new Geometry();
+    var roundValue = 8;
+    var cpOffset = roundValue * KAPPA;
+    var fig = new PathFigure(roundValue, 0, false);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, w * 0.86, 0));
+    fig.add(new PathSegment(SegmentType.Line, w * 1, h * 0.14));
+    fig.add(new PathSegment(SegmentType.Line, w, h - roundValue));
+    fig.add(new PathSegment(SegmentType.Bezier, w - roundValue, h, w, h - cpOffset, w - cpOffset, h));
+    fig.add(new PathSegment(SegmentType.Line, roundValue, h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0, h - roundValue, cpOffset, h, 0, h - cpOffset));
+    fig.add(new PathSegment(SegmentType.Line, 0, roundValue));
+    fig.add(new PathSegment(SegmentType.Bezier, roundValue, 0, 0, cpOffset, cpOffset, 0).close());
+    // interior slightly  rectangle
+    var fig2 = new PathFigure(w * 0.83, 0, false);
+    geo.add(fig2);
+    fig2.add(new PathSegment(SegmentType.Line, w * 0.83, h * 0.3));
+    fig2.add(new PathSegment(SegmentType.Line, w * 0.17, h * 0.3));
+    fig2.add(new PathSegment(SegmentType.Line, w * 0.17, h * 0).close());
+    var fig3 = new PathFigure(w * 0.83, h * 1, false);
+    geo.add(fig3);
+    fig3.add(new PathSegment(SegmentType.Line, w * 0.83, h * 0.5));
+    fig3.add(new PathSegment(SegmentType.Line, w * 0.17, h * 0.5));
+    fig3.add(new PathSegment(SegmentType.Line, w * 0.17, h * 1).close());
+    var fig4 = new PathFigure(w * 0.78, h * 0.05, false);
+    geo.add(fig4);
+    fig4.add(new PathSegment(SegmentType.Line, w * 0.66, h * 0.05));
+    fig4.add(new PathSegment(SegmentType.Line, w * 0.66, h * 0.25));
+    fig4.add(new PathSegment(SegmentType.Line, w * 0.78, h * 0.25).close());
+    return geo;
+});
+defineFigureGenerator('SpeechBubble', function (shape, w, h) {
+    var param1 = shape ? shape.parameter1 : NaN;
+    if (isNaN(param1) || param1 < 0)
+        param1 = 15; // default corner
+    param1 = Math.min(param1, w / 3);
+    param1 = Math.min(param1, h / 3);
+    var cpOffset = param1 * KAPPA;
+    var bubbleH = h * 0.8; // leave some room at bottom for pointer
+    var geo = new Geometry();
+    var fig = new PathFigure(param1, 0, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, w - param1, 0));
+    fig.add(new PathSegment(SegmentType.Bezier, w, param1, w - cpOffset, 0, w, cpOffset));
+    fig.add(new PathSegment(SegmentType.Line, w, bubbleH - param1));
+    fig.add(new PathSegment(SegmentType.Bezier, w - param1, bubbleH, w, bubbleH - cpOffset, w - cpOffset, bubbleH));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.7, bubbleH));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.7, h));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.55, bubbleH));
+    fig.add(new PathSegment(SegmentType.Line, param1, bubbleH));
+    fig.add(new PathSegment(SegmentType.Bezier, 0, bubbleH - param1, cpOffset, bubbleH, 0, bubbleH - cpOffset));
+    fig.add(new PathSegment(SegmentType.Line, 0, param1));
+    fig.add(new PathSegment(SegmentType.Bezier, param1, 0, 0, cpOffset, cpOffset, 0).close());
+    if (cpOffset > 1) {
+        geo.spot1 = new Spot(0, 0, cpOffset, cpOffset);
+        geo.spot2 = new Spot(1, 0.8, -cpOffset, -cpOffset);
+    }
+    else {
+        geo.spot1 = Spot.TopLeft;
+        geo.spot2 = new Spot(1, 0.8);
+    }
+    return geo;
+});
+defineFigureGenerator('Repeat', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(w * 0, h * 0.45, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, w * 0.25, h * 0));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.5, h * 0.45));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.3, h * 0.45));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.3, h * 0.9));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.6, h * 0.9));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.65, h * 1));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.2, h * 1));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.2, h * 0.45).close());
+    var fig2 = new PathFigure(w * 1, h * 0.55, true); // is filled in our not
+    geo.add(fig2);
+    fig2.add(new PathSegment(SegmentType.Line, w * 0.75, h * 1));
+    fig2.add(new PathSegment(SegmentType.Line, w * 0.5, h * 0.55));
+    fig2.add(new PathSegment(SegmentType.Line, w * 0.7, h * 0.55));
+    fig2.add(new PathSegment(SegmentType.Line, w * 0.7, h * 0.1));
+    fig2.add(new PathSegment(SegmentType.Line, w * 0.4, h * 0.1));
+    fig2.add(new PathSegment(SegmentType.Line, w * 0.35, h * 0));
+    fig2.add(new PathSegment(SegmentType.Line, w * 0.8, h * 0));
+    fig2.add(new PathSegment(SegmentType.Line, w * 0.8, h * 0.55).close());
+    return geo;
+});
+defineFigureGenerator('Windows', function (shape, w, h) { return new Geometry().add(new PathFigure(0, 0, true)
+    .add(new PathSegment(SegmentType.Line, w, 0))
+    .add(new PathSegment(SegmentType.Line, w, h))
+    .add(new PathSegment(SegmentType.Line, 0, h).close())
+    .add(new PathSegment(SegmentType.Move, 0.4 * w, 0.4 * h))
+    .add(new PathSegment(SegmentType.Line, 0.4 * w, 0.8 * h))
+    .add(new PathSegment(SegmentType.Line, 0.9 * w, 0.8 * h))
+    .add(new PathSegment(SegmentType.Line, 0.9 * w, 0.4 * h).close())
+    .add(new PathSegment(SegmentType.Move, 0.2 * w, 0.1 * h))
+    .add(new PathSegment(SegmentType.Line, 0.2 * w, 0.6 * h))
+    .add(new PathSegment(SegmentType.Line, 0.7 * w, 0.6 * h))
+    .add(new PathSegment(SegmentType.Line, 0.7 * w, 0.1 * h).close())
+    .add(new PathSegment(SegmentType.Move, 0.1 * w, 0.6 * h))
+    .add(new PathSegment(SegmentType.Line, 0.1 * w, 0.9 * h))
+    .add(new PathSegment(SegmentType.Line, 0.5 * w, 0.9 * h))
+    .add(new PathSegment(SegmentType.Line, 0.5 * w, 0.6 * h).close())); });
+defineFigureGenerator('Terminal', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(w * 0, h * 0.1, false);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, w * 1, h * 0.1));
+    fig.add(new PathSegment(SegmentType.Line, w * 1, h * 0.9));
+    fig.add(new PathSegment(SegmentType.Line, w * 0, h * 0.9).close());
+    var fig2 = new PathFigure(w * 0.1, h * 0.2, true); // is filled in our not
+    geo.add(fig2);
+    fig2.add(new PathSegment(SegmentType.Line, w * 0.1, h * 0.25));
+    fig2.add(new PathSegment(SegmentType.Line, w * 0.22, h * 0.285)); // midpoint
+    fig2.add(new PathSegment(SegmentType.Line, w * 0.1, h * 0.32));
+    fig2.add(new PathSegment(SegmentType.Line, w * 0.1, h * 0.37));
+    fig2.add(new PathSegment(SegmentType.Line, w * 0.275, h * 0.32));
+    fig2.add(new PathSegment(SegmentType.Line, w * 0.275, h * 0.25).close());
+    var fig3 = new PathFigure(w * 0.28, h * 0.37, true); // is filled in our not
+    geo.add(fig3);
+    fig3.add(new PathSegment(SegmentType.Line, w * 0.45, h * 0.37));
+    fig3.add(new PathSegment(SegmentType.Line, w * 0.45, h * 0.41));
+    fig3.add(new PathSegment(SegmentType.Line, w * 0.28, h * 0.41).close());
+    return geo;
+});
+defineFigureGenerator('Beaker', function (shape, w, h) {
+    var geo = new Geometry();
+    var param1 = 15;
+    var cpOffset = param1 * KAPPA;
+    var fig = new PathFigure(w * 0.62, h * 0.475, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, w, h - param1));
+    fig.add(new PathSegment(SegmentType.Bezier, w - param1, h, w, h - cpOffset, w - cpOffset, h));
+    fig.add(new PathSegment(SegmentType.Line, param1, h));
+    fig.add(new PathSegment(SegmentType.Bezier, 0, h - param1, cpOffset, h, 0, h - cpOffset));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.38, h * 0.475));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.38, h * 0.03));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.36, h * 0));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.64, h * 0));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.62, h * 0.03).close());
+    if (cpOffset > 1) {
+        geo.spot1 = new Spot(0, 0, cpOffset, cpOffset);
+        geo.spot2 = new Spot(1, 1, -cpOffset, -cpOffset);
+    }
+    else {
+        geo.spot1 = Spot.TopLeft;
+        geo.spot2 = Spot.BottomRight;
+    }
+    return geo;
+});
+defineFigureGenerator('Download', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(w * 0, h * 1, true);
+    geo.add(fig);
+    var third = 0.1 / 0.3; // just to keep values consistent
+    // outer frame
+    // starts bottom left
+    fig.add(new PathSegment(SegmentType.Line, w * 1, h * 1));
+    fig.add(new PathSegment(SegmentType.Line, w * 1, h * (1 - third)));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.8, h * 0));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.66, h * 0));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.66, h * 0.055));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.755, h * 0.055));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.93, h * (1 - third)));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.64, h * (1 - third)));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.61, h * 0.75));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.5, h * 0.75));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.39, h * 0.75));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.36, h * (1 - third)));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.07, h * (1 - third)));
+    fig.add(new PathSegment(SegmentType.Line, w * (1 - 0.755), h * 0.055));
+    fig.add(new PathSegment(SegmentType.Line, w * (1 - 0.66), h * 0.055));
+    fig.add(new PathSegment(SegmentType.Line, w * (1 - 0.66), h * 0));
+    fig.add(new PathSegment(SegmentType.Line, w * (1 - 0.8), h * 0));
+    fig.add(new PathSegment(SegmentType.Line, w * 0, h * (1 - third)).close());
+    // arrow pointing down
+    var fig2 = new PathFigure(w * 0.4, h * 0, true);
+    geo.add(fig2);
+    fig2.add(new PathSegment(SegmentType.Line, w * 0.4, h * 0.44));
+    fig2.add(new PathSegment(SegmentType.Line, w * 0.26, h * 0.44));
+    fig2.add(new PathSegment(SegmentType.Line, w * 0.5, h * 0.66));
+    fig2.add(new PathSegment(SegmentType.Line, w * (1 - 0.26), h * 0.44));
+    fig2.add(new PathSegment(SegmentType.Line, w * 0.6, h * 0.44));
+    fig2.add(new PathSegment(SegmentType.Line, w * 0.6, h * 0).close());
+    return geo;
+});
+defineFigureGenerator('Bin', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(w * 0, h * 1, true);
+    geo.add(fig);
+    var third = 0.1 / 0.3; // just to keep values consistent
+    // outer frame
+    // starts bottom left
+    fig.add(new PathSegment(SegmentType.Line, w * 1, h * 1));
+    fig.add(new PathSegment(SegmentType.Line, w * 1, h * (1 - third)));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.8, h * 0));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.66, h * 0));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.66, h * 0.055));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.755, h * 0.055));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.93, h * (1 - third)));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.64, h * (1 - third)));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.61, h * 0.75));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.5, h * 0.75));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.39, h * 0.75));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.36, h * (1 - third)));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.07, h * (1 - third)));
+    fig.add(new PathSegment(SegmentType.Line, w * (1 - 0.755), h * 0.055));
+    fig.add(new PathSegment(SegmentType.Line, w * (1 - 0.66), h * 0.055));
+    fig.add(new PathSegment(SegmentType.Line, w * (1 - 0.66), h * 0));
+    fig.add(new PathSegment(SegmentType.Line, w * (1 - 0.8), h * 0));
+    fig.add(new PathSegment(SegmentType.Line, w * 0, h * (1 - third)).close());
+    return geo;
+});
+defineFigureGenerator('Upload', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(w * 0, h * 1, true);
+    geo.add(fig);
+    var third = 0.1 / 0.3; // just to keep values consistent
+    // outer frame
+    // starts bottom left
+    fig.add(new PathSegment(SegmentType.Line, w * 1, h * 1));
+    fig.add(new PathSegment(SegmentType.Line, w * 1, h * (1 - third)));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.8, h * 0));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.66, h * 0));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.66, h * 0.055));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.755, h * 0.055));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.93, h * (1 - third)));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.64, h * (1 - third)));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.61, h * 0.75));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.5, h * 0.75));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.39, h * 0.75));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.36, h * (1 - third)));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.07, h * (1 - third)));
+    fig.add(new PathSegment(SegmentType.Line, w * (1 - 0.755), h * 0.055));
+    fig.add(new PathSegment(SegmentType.Line, w * (1 - 0.66), h * 0.055));
+    fig.add(new PathSegment(SegmentType.Line, w * (1 - 0.66), h * 0));
+    fig.add(new PathSegment(SegmentType.Line, w * (1 - 0.8), h * 0));
+    fig.add(new PathSegment(SegmentType.Line, w * 0, h * (1 - third)).close());
+    var fig2 = new PathFigure(w * 0.5, h * 0, true);
+    geo.add(fig2);
+    fig2.add(new PathSegment(SegmentType.Line, w * 0.26, h * 0.25));
+    fig2.add(new PathSegment(SegmentType.Line, w * 0.4, h * 0.25));
+    fig2.add(new PathSegment(SegmentType.Line, w * 0.4, h * 0.63));
+    fig2.add(new PathSegment(SegmentType.Line, w * 0.6, h * 0.63));
+    fig2.add(new PathSegment(SegmentType.Line, w * 0.6, h * 0.25));
+    fig2.add(new PathSegment(SegmentType.Line, w * 0.74, h * 0.25).close());
+    return geo;
+});
+defineFigureGenerator('EmptyDrink', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(w * 0.15, h * 0, false);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, w * 0.85, h * 0));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.7, h * 1));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.3, h * 1).close());
+    return geo;
+});
+defineFigureGenerator('Drink', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(w * 0.15, h * 0, false);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, w * 0.85, h * 0));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.7, h * 1));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.3, h * 1).close());
+    var fig2 = new PathFigure(w * 0.235, h * 0.28, true);
+    geo.add(fig2);
+    fig2.add(new PathSegment(SegmentType.Line, w * 0.765, h * 0.28));
+    fig2.add(new PathSegment(SegmentType.Line, w * 0.655, h * 0.97));
+    fig2.add(new PathSegment(SegmentType.Line, w * 0.345, h * 0.97).close());
+    return geo;
+});
+defineFigureGenerator('4Arrows', function (shape, w, h) {
+    var geo = new Geometry();
+    var fig = new PathFigure(w * 0.5, h * 0, true);
+    geo.add(fig);
+    fig.add(new PathSegment(SegmentType.Line, w * 0.65, h * 0.25));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.55, h * 0.25));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.55, h * 0.45));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.75, h * 0.45));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.75, h * 0.35));
+    fig.add(new PathSegment(SegmentType.Line, w * 1, h * 0.5));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.75, h * 0.65));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.75, h * 0.55));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.55, h * 0.55));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.55, h * 0.75));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.65, h * 0.75));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.5, h * 1));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.35, h * 0.75));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.45, h * 0.75));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.45, h * 0.55));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.25, h * 0.55));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.25, h * 0.65));
+    fig.add(new PathSegment(SegmentType.Line, w * 0, h * 0.5));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.25, h * 0.35));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.25, h * 0.45));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.45, h * 0.45));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.45, h * 0.25));
+    fig.add(new PathSegment(SegmentType.Line, w * 0.35, h * 0.25).close());
+    return geo;
+});
+defineFigureGenerator('Connector', 'Ellipse');
+defineFigureGenerator('Alternative', 'TriangleUp');
+defineFigureGenerator('Merge', 'TriangleUp');
+defineFigureGenerator('Decision', 'Diamond');
+defineFigureGenerator('DataTransmissions', 'Hexagon');
+defineFigureGenerator('Gate', 'Crescent');
+defineFigureGenerator('Delay', 'HalfEllipse');
+defineFigureGenerator('Input', 'Parallelogram1');
+defineFigureGenerator('ManualLoop', 'ManualOperation');
+defineFigureGenerator('ISOProcess', 'Chevron');
+defineFigureGenerator('MessageToUser', 'SquareArrow');
+defineFigureGenerator('MagneticData', 'Cylinder1');
+defineFigureGenerator('DirectData', 'Cylinder4');
+defineFigureGenerator('StoredData', 'DataStorage');
+defineFigureGenerator('SequentialData', 'MagneticTape');
+defineFigureGenerator('Subroutine', 'Procedure');
 
 /** 官方内置箭头几何路径串（与官方 G.Nm 一致，键为箭头名） */
 var ARROWHEAD_PATH_STRINGS = {
@@ -14200,7 +18984,7 @@ var Shape = /** @class */ (function (_super) {
     function Shape(figOrGeo, init) {
         var _this = _super.call(this) || this;
         // ============ Shape-specific properties ============
-        _this._fill = '';
+        _this._fill = 'black';
         _this._stroke = 'black';
         _this._strokeWidth = 1;
         _this._strokeDashArray = null;
@@ -14426,6 +19210,7 @@ var Shape = /** @class */ (function (_super) {
             if (this._toArrow !== val) {
                 this._toArrow = val;
                 this._invalidateMeasure();
+                this._applyArrowLinkDefaults();
             }
         },
         enumerable: false,
@@ -14437,11 +19222,35 @@ var Shape = /** @class */ (function (_super) {
             if (this._fromArrow !== val) {
                 this._fromArrow = val;
                 this._invalidateMeasure();
+                this._applyArrowLinkDefaults();
             }
         },
         enumerable: false,
         configurable: true
     });
+    /**
+     * 官方 `Shape.lF()`：设置 toArrow/fromArrow 后的连带默认值。
+     * `JE()` 把 segmentOrientation 置为 Along(21)；toArrow 有效 → segmentIndex=-1、
+     * alignmentFocus=Spot.Right；否则 fromArrow 有效 → segmentIndex=0、Spot.Left。
+     * 官方在 undo/redo 期间跳过（`diagram.undoManager.isUndoingRedoing`）。
+     * 缺这一步时箭头元素在 measure 里走错锚点分支，箭头位置与官方不一致。
+     */
+    Shape.prototype._applyArrowLinkDefaults = function () {
+        var d = this.diagram;
+        if (d && d.undoManager && d.undoManager.isUndoingRedoing)
+            return;
+        this.segmentOrientation = OrientationAlong;
+        var hasTo = !!this._toArrow && this._toArrow !== 'None';
+        var hasFrom = !!this._fromArrow && this._fromArrow !== 'None';
+        if (hasTo) {
+            this.segmentIndex = -1;
+            this.alignmentFocus = Spot.Right;
+        }
+        else if (hasFrom) {
+            this.segmentIndex = 0;
+            this.alignmentFocus = Spot.Left;
+        }
+    };
     // ============ Methods ============
     /**
      * 官方 `Shape.polygonContainsRect(b)`：本 Shape 的填充多边形是否包含给定矩形。
@@ -15385,7 +20194,7 @@ var TextBlock = /** @class */ (function (_super) {
         _this._textAlign = 'start';
         _this._isMultiline = true;
         _this._editable = false;
-        _this._wrap = WrapFit;
+        _this._wrap = WrapDesiredSize;
         _this._overflow = OverflowClip;
         _this._lineCount = 1;
         _this._spacingAbove = 0;
@@ -15746,12 +20555,17 @@ var TextBlock = /** @class */ (function (_super) {
             // documentBounds 全错。这里按同样规则补上行高。
             var canvas_1 = TextBlock._tempCanvas;
             var ctx_1 = canvas_1.getContext('2d');
+            // 官方 hF：空文本 `return Pi=0, Te=1, s`，其中 s = max(0, ky()+spacing)，
+            // ky() 用**本对象字体**测 "M" 的宽度 ×1.3。若不先设置 ctx.font，
+            // 会沿用上次 measure 残留的字体（如 bold）导致行高偏大。
+            ctx_1.font = this._font;
+            this._applySpacing(ctx_1);
             var fontSize = TextBlock._getFontSize(this._font);
             var lh = this._getLineHeight(ctx_1, fontSize);
             var h = lh + this._spacingAbove + this._spacingBelow;
             this._naturalBounds = new Rect(0, 0, 0, h);
             this._measuredBounds = new Rect(0, 0, 0, h);
-            this._lineCount = 0;
+            this._lineCount = 1;
             this._metricsWidth = 0;
             this._metricsConstraint = widthConstraint;
             this._metricsFontHeight = null;
@@ -15812,7 +20626,7 @@ var TextBlock = /** @class */ (function (_super) {
         this._applySpacing(ctx);
         var fontSize = TextBlock._getFontSize(this._font);
         var lineHeight = this._getLineHeight(ctx, fontSize);
-        if (!this._isMultiline || this._wrap === WrapNone) {
+        if (this._wrap === WrapNone) {
             var m = ctx.measureText(this._text);
             var lines_2 = [this._text];
             var lineWidths_1 = [m.width];
@@ -15826,28 +20640,24 @@ var TextBlock = /** @class */ (function (_super) {
                 lineHeight: lineHeight,
             };
         }
+        // 官方 hF：isMultiline=false 时先截断到第一个 \n，随后仍按宽度换行
+        var rawText = this._text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+        if (!this._isMultiline) {
+            var nl = rawText.indexOf('\n');
+            if (nl >= 0)
+                rawText = rawText.substring(0, nl);
+        }
         var wrapWidth = widthConstraint;
         if (this._wrap === WrapDesiredSize) {
             var dw = this.desiredSize;
+            // 官方 Yd：desiredSize.width 为 NaN 时按**测量约束**换行
+            //（faultTree 的 maxSize(100,NaN) → 约束被收紧为 100 → 两行）；
+            // 只有 desiredSize.width 是有效数值时才按它换行。
             if (dw && dw.width > 0 && isFinite(dw.width)) {
                 wrapWidth = dw.width;
             }
-            else {
-                var m = ctx.measureText(this._text);
-                var lines_3 = [this._text];
-                var lineWidths_2 = [m.width];
-                this._isOverflowed = false;
-                return {
-                    width: m.width,
-                    height: lineHeight + this._spacingAbove + this._spacingBelow,
-                    lineCount: 1,
-                    lines: lines_3,
-                    lineWidths: lineWidths_2,
-                    lineHeight: lineHeight,
-                };
-            }
         }
-        var lines = this._wrapText(ctx, this._text, wrapWidth);
+        var lines = this._wrapText(ctx, rawText, wrapWidth);
         // 官方：超出 maxLines 时截断并置位 isOverflowed
         this._isOverflowed = false;
         if (this._maxLines !== Infinity && lines.length > this._maxLines) {
@@ -16157,6 +20967,8 @@ var Picture = /** @class */ (function (_super) {
         _this._source = '';
         _this._image = null;
         _this._loadedImage = null;
+        /** source 直接是 <canvas>/<img>/<video> 元素时的可绘制对象（官方 4.x 支持）。 */
+        _this._canvasSource = null;
         _this._imageStretch = ImageStretchUniform;
         _this._imageAlignment = 'center';
         _this._sourceRect = null;
@@ -16198,7 +21010,27 @@ var Picture = /** @class */ (function (_super) {
         configurable: true
     });
     Object.defineProperty(Picture.prototype, "element", {
-        get: function () { return this._loadedImage || this._image; },
+        /**
+         * 官方 4.x 的 `Picture.element`：直接给一个 <canvas>/<img>/<video> 元素来绘制
+         * （canvases 样例用 Chart.js 画到 canvas 上再 `.bind('element', 'datasets', fn)`）。
+         * 官方只接受 Image/Canvas/Video 三种，其他类型直接报错。
+         */
+        get: function () {
+            return this._canvasSource || this._loadedImage || this._image;
+        },
+        set: function (val) {
+            if (this._canvasSource === val)
+                return;
+            this._canvasSource = val || null;
+            this._image = null;
+            this._loadedImage = null;
+            if (val !== null && this._successFunction)
+                this._successFunction(this, new Event('load'));
+            this._invalidateMeasure();
+            var d = this.diagram;
+            if (d && typeof d.requestUpdate === 'function')
+                d.requestUpdate();
+        },
         enumerable: false,
         configurable: true
     });
@@ -16283,9 +21115,27 @@ var Picture = /** @class */ (function (_super) {
         if (!src) {
             this._image = null;
             this._loadedImage = null;
+            this._canvasSource = null;
             return;
         }
         this._loadedImage = null;
+        // 官方 4.x 的 Picture.source 除了 url，还接受现成的 HTMLCanvasElement /
+        // HTMLImageElement / HTMLVideoElement 等可直接 drawImage 的元素
+        // （canvases 样例就是用 Chart.js 画到 canvas 上再交给 Picture）。
+        if (typeof src !== 'string') {
+            var el = src;
+            var tag = el.tagName;
+            this._image = null;
+            this._canvasSource = tag === 'CANVAS' || tag === 'IMG' || tag === 'VIDEO' ? el : null;
+            if (this._successFunction)
+                this._successFunction(this, new Event('load'));
+            this._invalidateMeasure();
+            var d0 = this.diagram;
+            if (d0 && typeof d0.requestUpdate === 'function')
+                d0.requestUpdate();
+            return;
+        }
+        this._canvasSource = null;
         // 官方按 url 缓存 HTMLImageElement：模板被 copy() 成上百个 Picture 时
         // 共享同一个已加载的图片对象，而不是每个副本各自去加载。
         var img = Picture._imageCache.get(src);
@@ -16375,6 +21225,8 @@ var Picture = /** @class */ (function (_super) {
         pic._crossOrigin = this._crossOrigin;
         // 走 setter，副本自己去接上（共享的）图片对象并注册自己的 load 回调
         pic.source = this._source;
+        if (this._canvasSource)
+            pic.element = this._canvasSource;
         return pic;
     };
     Picture.className = "Picture";
@@ -16565,6 +21417,10 @@ var Panel = /** @class */ (function (_super) {
         _this._originX = 0;
         _this._originY = 0;
         _this._unionRect = new Rect();
+        /** 官方 `PanelLayoutLink.or`：measure 算出的 route-local 并集帧（子元素 z 都相对它） */
+        _this._linkOrRect = null;
+        /** 官方 `PanelLayoutLink.qf`：measure 时按固定顺序存下的子元素 z 矩形，arrange 按序消费 */
+        _this._linkQfRects = null;
         _this._defaultColumnSeparatorStroke = null;
         _this._defaultColumnSeparatorStrokeWidth = 1;
         _this._defaultRowSeparatorStroke = null;
@@ -18034,8 +22890,11 @@ var Panel = /** @class */ (function (_super) {
         main._measure(availW, availH);
         var mb = main.measuredBounds;
         var stroke = 0;
-        if (main instanceof Shape)
+        var mainUniform = false;
+        if (main instanceof Shape) {
             stroke = main.strokeWidth * main.scale;
+            mainUniform = main._resolvedGeometryStretch() === 6;
+        }
         var y = Math.max(mb.width + u, 0);
         var x = Math.max(mb.height + d, 0);
         var s1 = this._panelSpot1(main);
@@ -18046,13 +22905,10 @@ var Panel = /** @class */ (function (_super) {
             holeW = Math.max(Math.abs(s1.x * y + s1.offsetX - (s2.x * y + s2.offsetX)) - stroke, 0);
         if (isFinite(availH))
             holeH = Math.max(Math.abs(s1.y * x + s1.offsetY - (s2.y * x + s2.offsetY)) - stroke, 0);
-        // 官方 PanelLayoutAuto：可用尺寸无限时用主元素的尺寸约束其余子元素。
-        // 否则 Node 里的 TextBlock 会按无限宽测量而不换行，
-        // 文字直接溢出节点被裁掉（absolute.html 的 "lightblue" 应排成两行）。
-        if (!isFinite(holeW))
-            holeW = Math.max(y - stroke, 0);
-        if (!isFinite(holeH))
-            holeH = Math.max(x - stroke, 0);
+        // 官方 PanelLayoutAuto：holeW/holeH 只有在面板约束有限时才用主元素尺寸改写；
+        // 约束为 Infinity 时**保持 Infinity** 直接传给其余子元素
+        //（TextBlock 随后只按自身 maxSize 换行 —— flowchart 默认模板 maxSize 160）。
+        // 约束有限的节点（如 absolute.html 的 size:'50 50'）走上面 isFinite 分支，不受影响。
         var maxT = 0;
         var maxTh = 0;
         try {
@@ -18090,6 +22946,9 @@ var Panel = /** @class */ (function (_super) {
         }
         D += Math.abs(s1.offsetX) + Math.abs(s2.offsetX) + stroke;
         F += Math.abs(s1.offsetY) + Math.abs(s2.offsetY) + stroke;
+        // 官方：p.yM()===6（geometryStretch Uniform）→ D=F=max(D,F)
+        if (mainUniform)
+            D = F = Math.max(D, F);
         var R = main.stretch;
         if (R === StretchDefault)
             R = main._getStretch(false);
@@ -19519,243 +24378,417 @@ var Panel = /** @class */ (function (_super) {
         }
         return fallback;
     };
-    Panel.prototype._measureLink = function (availW, availH) {
+    /**
+     * 官方 `PanelLayoutLink.measure(t, i, e, s, n, o, r)`（go-debug.js 全文解码）。
+     *
+     * 帧约定（已用官方探针数值验证）：
+     * - `or`：从 routeRect(0,0,w,h) 起，依次并入 path、各主 Shape、各子元素的 z，
+     *   最终 `union` 只取尺寸（x,y 归 0），link.position = routeBounds 原点 + or.origin。
+     * - `qf[i]`：与「可见元素顺序（path 单独在最前）」一一对应的 z 矩形（route-local），
+     *   arrange 时按同一顺序消费，child.actualBounds = z − or.origin。
+     * - 子元素锚点三分支：segmentIndex 为 NaN → 几何分数点；越界（含默认 -Infinity）→
+     *   路线中点；否则 → 点列线段插值。锚点均为 route-local（doc − routeBounds 原点）。
+     */
+    Panel.prototype._measureLink = function (_availW, _availH) {
         var e_45, _a, e_46, _b;
-        // 官方 Link 在 measure 前保证路线已算出（computePoints 依赖两端节点的
-        // actualBounds）。缺这一步时 link.points 此刻仍为空，_unionRect 退化成
-        // [0,0,1,1]，link 自身的 natural/measured/actual bounds 全部作废，
-        // documentBounds 随之错位。
-        var linkSelf = this;
-        if (typeof linkSelf.updateRoute === 'function') {
-            try {
-                linkSelf.updateRoute();
-            }
-            catch (_c) {
-                /* 无端口/未入图时保持退化矩形 */
-            }
-        }
-        try {
-            for (var _d = __values(this._elements), _e = _d.next(); !_e.done; _e = _d.next()) {
-                var elem = _e.value;
-                if (!elem.visible)
-                    continue;
-                elem._measure(Infinity, Infinity);
-            }
-        }
-        catch (e_45_1) { e_45 = { error: e_45_1 }; }
-        finally {
-            try {
-                if (_e && !_e.done && (_a = _d.return)) _a.call(_d);
-            }
-            finally { if (e_45) throw e_45.error; }
-        }
-        var link = this;
-        var points = link.points;
-        if (points && points.count >= 2) {
-            var minX = Infinity;
-            var minY = Infinity;
-            var maxX = -Infinity;
-            var maxY = -Infinity;
-            var it = points.iterator;
-            while (it.next()) {
-                var p = it.value;
-                minX = Math.min(minX, p.x);
-                minY = Math.min(minY, p.y);
-                maxX = Math.max(maxX, p.x);
-                maxY = Math.max(maxY, p.y);
-            }
-            this._unionRect.setTo(0, 0, maxX - minX, maxY - minY);
-            // 官方把「画线」的主图元 measured 尺寸设为 (路线长, 线宽)，并让它在起点前
-            // 留出半个线宽。缺这一步时主图元保持默认 1×1（加描边后 2×2），
-            // link 的 naturalBounds 塌缩成箭头大小，包围盒与官方差一大截。
-            var main = this._findLinkMainElement();
-            if (main) {
-                var sw = main.strokeWidth > 0 ? main.strokeWidth : 0;
-                var len = maxX - minX;
-                if (sw > 0 && len > 0) {
-                    main._measuredBounds = new Rect(-sw / 2, -sw / 2, len, sw);
-                }
-            }
-            try {
-                // 官方 natural bounds 是「路线范围 ∪ 各子图元 measured 尺寸」的并集：
-                // 箭头(measured = natural×scale)比路线高，缺了它 link 只有一条零高度线。
-                for (var _f = __values(this._elements), _g = _f.next(); !_g.done; _g = _f.next()) {
-                    var elem = _g.value;
-                    if (!elem.visible)
-                        continue;
-                    var mb = elem.measuredBounds;
-                    if (!mb || !(mb.width > 0) || !(mb.height > 0))
-                        continue;
-                    if (mb.width > this._unionRect.width)
-                        this._unionRect.width = mb.width;
-                    if (mb.height > this._unionRect.height)
-                        this._unionRect.height = mb.height;
-                }
-            }
-            catch (e_46_1) { e_46 = { error: e_46_1 }; }
-            finally {
-                try {
-                    if (_g && !_g.done && (_b = _f.return)) _b.call(_f);
-                }
-                finally { if (e_46) throw e_46.error; }
-            }
-        }
-        else {
-            this._unionRect.setTo(0, 0, 1, 1);
-        }
-    };
-    Panel.prototype._arrangeLink = function (bounds) {
-        var e_47, _a, e_48, _b, e_49, _c, e_50, _d, e_51, _e;
-        var link = this;
-        var points = link.points;
-        if (!points || points.count < 2) {
-            try {
-                for (var _f = __values(this._elements), _g = _f.next(); !_g.done; _g = _f.next()) {
-                    var elem = _g.value;
-                    if (!elem.visible)
-                        continue;
-                    var mb = elem.measuredBounds;
-                    elem._arrange(new Rect(0, 0, mb.width, mb.height));
-                }
-            }
-            catch (e_47_1) { e_47 = { error: e_47_1 }; }
-            finally {
-                try {
-                    if (_g && !_g.done && (_a = _f.return)) _a.call(_f);
-                }
-                finally { if (e_47) throw e_47.error; }
-            }
+        var panel = this;
+        var host = typeof panel.updateRoute === 'function'
+            ? panel
+            : panel.adornedPart !== undefined ? panel.adornedPart : null;
+        // 官方：t 不是 Link/Adornment、或取不到 Link 时直接 return（union 保持 (0,0,0,0)）
+        if (host === null || host === undefined || typeof host.routeBounds !== 'object')
             return;
-        }
-        var pts = points.toArray();
-        var minX = Infinity;
-        var minY = Infinity;
+        var els = this._elements; // 官方 s = this.E.h（**全部**元素，含不可见）
+        if (els.length === 0)
+            return; // 官方 l===0 分支
+        var isAdorn = host !== panel;
+        var pathEl = isAdorn ? null : panel.path;
         try {
-            for (var pts_1 = __values(pts), pts_1_1 = pts_1.next(); !pts_1_1.done; pts_1_1 = pts_1.next()) {
-                var p = pts_1_1.value;
-                minX = Math.min(minX, p.x);
-                minY = Math.min(minY, p.y);
-            }
+            host.updateRoute();
         }
-        catch (e_48_1) { e_48 = { error: e_48_1 }; }
-        finally {
-            try {
-                if (pts_1_1 && !pts_1_1.done && (_b = pts_1.return)) _b.call(pts_1);
-            }
-            finally { if (e_48) throw e_48.error; }
-        }
-        var segLengths = [];
-        var totalLength = 0;
-        for (var i = 0; i < pts.length - 1; i++) {
-            var len = Math.sqrt(pts[i].distanceSquaredPoint(pts[i + 1]));
-            segLengths.push(len);
-            totalLength += len;
-        }
-        var mainElement = null;
-        var foundPanelMain = false;
+        catch ( /* 无端口/未入图时按空路线处理 */_c) { /* 无端口/未入图时按空路线处理 */ }
+        // 官方 h.CN()/a.CN()：重建 link 几何并同步给各主 Shape
         try {
-            for (var _h = __values(this._elements), _j = _h.next(); !_j.done; _j = _h.next()) {
-                var elem = _j.value;
-                if (!elem.visible)
-                    continue;
-                if (elem.isPanelMain) {
-                    mainElement = elem;
-                    foundPanelMain = true;
-                    break;
-                }
-            }
+            if (typeof host._syncGeometryToMainShapes === 'function')
+                host._syncGeometryToMainShapes();
         }
-        catch (e_49_1) { e_49 = { error: e_49_1 }; }
-        finally {
-            try {
-                if (_j && !_j.done && (_c = _h.return)) _c.call(_h);
-            }
-            finally { if (e_49) throw e_49.error; }
-        }
-        if (!foundPanelMain) {
-            try {
-                for (var _k = __values(this._elements), _l = _k.next(); !_l.done; _l = _k.next()) {
-                    var elem = _l.value;
-                    if (!elem.visible)
-                        continue;
-                    if ('fill' in elem && 'stroke' in elem) {
-                        mainElement = elem;
-                        break;
+        catch ( /* ignore */_d) { /* ignore */ }
+        if (isAdorn) {
+            var geo = host.geometry;
+            if (geo) {
+                try {
+                    for (var _e = __values(this._elements), _f = _e.next(); !_f.done; _f = _e.next()) {
+                        var e = _f.value;
+                        if (e.isPanelMain && e instanceof Shape)
+                            e._geometry = geo;
                     }
                 }
-            }
-            catch (e_50_1) { e_50 = { error: e_50_1 }; }
-            finally {
-                try {
-                    if (_l && !_l.done && (_d = _k.return)) _d.call(_k);
+                catch (e_45_1) { e_45 = { error: e_45_1 }; }
+                finally {
+                    try {
+                        if (_f && !_f.done && (_a = _e.return)) _a.call(_e);
+                    }
+                    finally { if (e_45) throw e_45.error; }
                 }
-                finally { if (e_50) throw e_50.error; }
             }
         }
+        var u = host.routeBounds;
+        var d = new Rect(0, 0, u.width, u.height);
+        this._linkOrRect = d;
+        var qf = [];
+        this._linkQfRects = qf;
+        var p = u.width;
+        var y = u.height;
+        if (pathEl !== null) {
+            this._measureLinkPath(pathEl, host, p, y);
+            var P = pathEl.measuredBounds;
+            d.unionRect(P);
+            qf.push(P.copy());
+        }
+        var g = host.pointsCount;
+        var pts = host.points;
+        var mid = new Point();
         try {
-            for (var _m = __values(this._elements), _o = _m.next(); !_o.done; _o = _m.next()) {
-                var elem = _o.value;
-                if (!elem.visible)
+            for (var els_6 = __values(els), els_6_1 = els_6.next(); !els_6_1.done; els_6_1 = els_6.next()) {
+                var A = els_6_1.value;
+                if (A === pathEl)
                     continue;
-                if (elem === mainElement) {
-                    elem._arrange(new Rect(0, 0, bounds.width, bounds.height));
+                if (A.isPanelMain && A instanceof Shape) {
+                    this._measureLinkPath(A, host, p, y);
+                    var P = A.measuredBounds;
+                    d.unionRect(P);
+                    qf.push(P.copy());
                     continue;
                 }
-                var mb = elem.measuredBounds;
-                var segIndex = elem.segmentIndex;
-                var segFraction = elem.segmentFraction;
-                var segOffset = elem.segmentOffset;
-                var segOrientation = elem.segmentOrientation;
-                var basePos = void 0;
-                var segAngle = void 0;
-                if (isNaN(segIndex)) {
-                    if (totalLength > 0) {
-                        var targetDist = segFraction * totalLength;
-                        basePos = this._getPointAtDistance(pts, segLengths, targetDist);
-                        segAngle = this._getAngleAtDistance(pts, segLengths, targetDist);
+                if (g < 2) {
+                    A._measure(Infinity, Infinity, 0, 0);
+                    var P = A.measuredBounds;
+                    d.unionRect(P);
+                    qf.push(P.copy());
+                    continue;
+                }
+                var M = A.segmentIndex;
+                var C = A.segmentFraction;
+                var T = A.alignmentFocus;
+                if (T === null || T === undefined || T.isNoSpot())
+                    T = Spot.Center;
+                var code = typeof host.constructor.orientationCode === 'function'
+                    ? host.constructor.orientationCode(A.segmentOrientation)
+                    : typeof A.segmentOrientation === 'number' ? A.segmentOrientation : 0;
+                var D = A.segmentOffset;
+                var F = 0;
+                var R = 0;
+                var O = 0;
+                if (isNaN(M)) {
+                    // 官方：几何上的分数点（几何原点即 route-local，故不再减 u）
+                    var q = host.geometry.getPointAndAngleAlongPath(C);
+                    O = q[2];
+                    F = q[0];
+                    R = q[1];
+                }
+                else if (M < -g || M >= g) {
+                    // 默认 segmentIndex = -Infinity 落这里：路线中点（doc → 减 u 转 route-local）
+                    host.computeMidPoint(mid);
+                    O = host.midAngle;
+                    F = mid.x - u.x;
+                    R = mid.y - u.y;
+                }
+                else {
+                    var q = void 0;
+                    var Q = void 0;
+                    var J = 0;
+                    if (M >= 0) {
+                        q = pts.elt(M);
+                        Q = M < g - 1 ? pts.elt(M + 1) : q;
                     }
                     else {
-                        basePos = pts[0].copy();
-                        segAngle = 0;
+                        J = g + M;
+                        q = pts.elt(J);
+                        Q = J > 0 ? pts.elt(J - 1) : q;
+                    }
+                    if (q.equalsApprox(Q)) {
+                        var tt = void 0;
+                        var V = void 0;
+                        if (M >= 0) {
+                            tt = M > 0 ? pts.elt(M - 1) : q;
+                            V = M < g - 2 ? pts.elt(M + 2) : Q;
+                        }
+                        else {
+                            tt = J < g - 1 ? pts.elt(J + 1) : q;
+                            V = J > 1 ? pts.elt(J - 2) : Q;
+                        }
+                        var E = tt.distanceSquaredPoint(q);
+                        var W = Q.distanceSquaredPoint(V);
+                        if (E > W + 10)
+                            O = M >= 0 ? tt.directionPoint(q) : q.directionPoint(tt);
+                        else if (W > E + 10)
+                            O = M >= 0 ? Q.directionPoint(V) : V.directionPoint(Q);
+                        else
+                            O = M >= 0 ? tt.directionPoint(V) : V.directionPoint(tt);
+                    }
+                    else {
+                        O = M >= 0 ? q.directionPoint(Q) : Q.directionPoint(q);
+                    }
+                    F = q.x + (Q.x - q.x) * C - u.x;
+                    R = q.y + (Q.y - q.y) * C - u.y;
+                }
+                if (code !== 0) {
+                    // 官方 A.jt = I（直写 angle 字段；须在 yt 之前，po 要用新 angle）
+                    A._angle = host.computeAngle(0, A.segmentOrientation, O);
+                }
+                A._measure(Infinity, Infinity, 0, 0);
+                var N = A.measuredBounds;
+                var X = A.naturalBounds;
+                var Y = 0;
+                if (A instanceof Shape)
+                    Y = A.strokeWidth;
+                var B = X.width + Y;
+                var K = X.height + Y;
+                // 官方 b：绕 (B/2,K/2) 旋转 (L===0 ? A.angle : O) + 各 Orientation 修正角
+                var mainAng = code === 0 ? A.angle : O;
+                var extra = 0;
+                if (code === 22 || code === 26)
+                    extra = 90;
+                else if (code === 23 || code === 27)
+                    extra = -90;
+                else if (code === 28 && ((O > 45 && O < 135) || (O > 225 && O < 315)))
+                    extra = -O;
+                var S0 = new Point();
+                S0.setRectSpot(new Rect(0, 0, B, K), T);
+                var S = Panel._linkXf(S0.x, S0.y, B / 2, K / 2, mainAng + extra, A.scale, -N.x, -N.y);
+                var H = -S.x + (Y / 2) * A.scale;
+                var v = -S.y + (Y / 2) * A.scale;
+                // segmentOffset（官方默认 (0,0) → rotate 无效；NaN 分支按官方转录）
+                var k = new Point(D.x, D.y);
+                var jx = isNaN(D.x);
+                var jy = isNaN(D.y);
+                if (jx || jy) {
+                    var yS = host.constructor._yS !== undefined ? host.constructor._yS : 3;
+                    var q2 = B / 2 + yS;
+                    var Q2 = K / 2 + yS;
+                    var Jd = O >= 45 && O <= 135;
+                    var td = O >= 225 && O <= 315;
+                    var fracCond = M >= 0 || (isNaN(M) && C < 0.5);
+                    if (code === 0 && (Jd || td)) {
+                        k.x = jy ? q2 : D.y;
+                        k.y = jx ? Q2 : D.x;
+                        if (Jd) {
+                            if (!fracCond && jx)
+                                k.y = -Q2;
+                        }
+                        else {
+                            if (fracCond && jx)
+                                k.y = -Q2;
+                            if (jy)
+                                k.x = -q2;
+                        }
+                    }
+                    else {
+                        if (jx)
+                            k.x = fracCond ? q2 : -q2;
+                        if (jy)
+                            k.y = -Q2;
+                        k.rotate(O);
                     }
                 }
                 else {
-                    var idx = segIndex < 0 ? pts.length - 1 + segIndex : segIndex;
-                    var clampedIdx = Math.max(0, Math.min(idx, pts.length - 2));
-                    var startPt = pts[clampedIdx];
-                    var endPt = pts[clampedIdx + 1];
-                    basePos = Point.lerp(startPt, endPt, segFraction);
-                    segAngle = startPt.directionPoint(endPt);
+                    k.rotate(O);
                 }
-                basePos = new Point(basePos.x - minX, basePos.y - minY);
-                var offsetX = isNaN(segOffset.x) ? 0 : segOffset.x;
-                var offsetY = isNaN(segOffset.y) ? 0 : segOffset.y;
-                basePos = new Point(basePos.x + offsetX, basePos.y + offsetY);
-                var rotationAngle = 0;
-                if (segOrientation === SegmentOrientationAlong || segOrientation === SegmentOrientationParallel) {
-                    rotationAngle = segAngle;
-                }
-                else if (segOrientation === SegmentOrientationOpposite) {
-                    rotationAngle = segAngle + 180;
-                }
-                else if (segOrientation === SegmentOrientationPerpendicular) {
-                    rotationAngle = segAngle + 90;
-                }
-                else if (segOrientation === SegmentOrientationOrthogonal) {
-                    rotationAngle = Math.round(segAngle / 90) * 90;
-                }
-                elem._arrange(new Rect(basePos.x - mb.width / 2, basePos.y - mb.height / 2, mb.width, mb.height));
-                if (rotationAngle !== 0) {
-                    elem.angle = rotationAngle;
+                F += k.x;
+                R += k.y;
+                var z = new Rect(F + H, R + v, N.width, N.height);
+                qf.push(z);
+                d.unionRect(z);
+            }
+        }
+        catch (e_46_1) { e_46 = { error: e_46_1 }; }
+        finally {
+            try {
+                if (els_6_1 && !els_6_1.done && (_b = els_6.return)) _b.call(els_6);
+            }
+            finally { if (e_46) throw e_46.error; }
+        }
+        // 官方 labelNodes：只测量，不并入 union
+        try {
+            var it = host.labelNodes;
+            if (it) {
+                while (it.next()) {
+                    var nd = it.value;
+                    if (nd && typeof nd._measure === 'function')
+                        nd._measure(Infinity, Infinity);
                 }
             }
         }
-        catch (e_51_1) { e_51 = { error: e_51_1 }; }
+        catch ( /* ignore */_g) { /* ignore */ }
+        // 官方收尾：t.or=d；t.position = u.origin + d.origin；union 只取尺寸（x,y 保持 0）
+        var pos = panel.position;
+        if (pos) {
+            pos.x = u.x + d.x;
+            pos.y = u.y + d.y;
+        }
+        this._unionRect.setTo(0, 0, d.width || 0, d.height || 0);
+    };
+    /** 官方 `PanelLayoutLink.measureLinkPath(t, w, h, s)`：po(measuredBounds) + p3(naturalBounds) */
+    Panel.prototype._measureLinkPath = function (shape, host, routeW, routeH) {
+        var sc = shape.scale !== undefined && shape.scale !== null ? shape.scale : 1;
+        var n = (shape.strokeWidth || 0) * sc;
+        var geo = host && host.geometry ? host.geometry : null;
+        if (geo) {
+            var o = geo.bounds;
+            this._linkPo(shape, o.x - n / 2, o.y - n / 2, o.width + n, o.height + n);
+        }
+        else {
+            this._linkPo(shape, -n / 2, -n / 2, routeW + n, routeH + n);
+        }
+        // 官方尾部 s.p3()：naturalBounds = (desiredSize 实值 ? desiredSize : geometry.bounds)
+        var ds = shape._desiredSize;
+        var sgeo = shape._geometry;
+        if (ds && !ds.isReal() && sgeo) {
+            shape._naturalBounds = sgeo.bounds.copy();
+        }
+        else {
+            shape._naturalBounds = new Rect(0, 0, ds ? ds.width : 0, ds ? ds.height : 0);
+        }
+    };
+    /** 官方 `GraphObject.po(x,y,w,h)`：设 measuredBounds；scale/angle 非恒等时取变换后的轴对齐包围盒 */
+    Panel.prototype._linkPo = function (shape, x, y, w, h) {
+        var e_47, _a;
+        var sc = shape.scale;
+        var ang = shape.angle;
+        if (sc === 1 && (isNaN(ang) || ang === 0)) {
+            shape._measuredBounds = new Rect(x, y, w, h);
+            return;
+        }
+        var cx = x + w / 2;
+        var cy = y + h / 2;
+        var minX = Infinity;
+        var minY = Infinity;
+        var maxX = -Infinity;
+        var maxY = -Infinity;
+        var corners = [[x, y], [x + w, y], [x, y + h], [x + w, y + h]];
+        try {
+            for (var corners_1 = __values(corners), corners_1_1 = corners_1.next(); !corners_1_1.done; corners_1_1 = corners_1.next()) {
+                var c = corners_1_1.value;
+                var p = Panel._linkXf(c[0], c[1], cx, cy, ang, sc, 0, 0);
+                if (p.x < minX)
+                    minX = p.x;
+                if (p.x > maxX)
+                    maxX = p.x;
+                if (p.y < minY)
+                    minY = p.y;
+                if (p.y > maxY)
+                    maxY = p.y;
+            }
+        }
+        catch (e_47_1) { e_47 = { error: e_47_1 }; }
         finally {
             try {
-                if (_o && !_o.done && (_e = _m.return)) _e.call(_m);
+                if (corners_1_1 && !corners_1_1.done && (_a = corners_1.return)) _a.call(corners_1);
             }
-            finally { if (e_51) throw e_51.error; }
+            finally { if (e_47) throw e_47.error; }
+        }
+        shape._measuredBounds = new Rect(minX, minY, maxX - minX, maxY - minY);
+    };
+    /**
+     * 官方 Transform 链（所有 op 都是后乘，点按调用逆序受作用）：
+     * `Zs(-N.x,-N.y)` → `lt(sc)` → `Ns(a1,cx,cy)` → `Ns(a2,cx,cy)`
+     * 即点先绕 (cx,cy) 旋转（两个同中心旋转可合成 a1+a2），再按 sc 缩放（绕原点），最后平移。
+     */
+    Panel._linkXf = function (x, y, cx, cy, ang, sc, dx, dy) {
+        var a = ang;
+        if (a >= 360)
+            a -= 360;
+        else if (a < 0)
+            a += 360;
+        var cos = 1;
+        var sin = 0;
+        if (a === 90) {
+            cos = 0;
+            sin = 1;
+        }
+        else if (a === 180) {
+            cos = -1;
+            sin = 0;
+        }
+        else if (a === 270) {
+            cos = 0;
+            sin = -1;
+        }
+        else if (a !== 0) {
+            var r = (a * Math.PI) / 180;
+            cos = Math.cos(r);
+            sin = Math.sin(r);
+        }
+        var px = x - cx;
+        var py = y - cy;
+        var rx = px * cos - py * sin + cx;
+        var ry = px * sin + py * cos + cy;
+        return new Point(rx * sc + dx, ry * sc + dy);
+    };
+    /**
+     * 官方 `PanelLayoutLink.arrange(t, i, e)`：按 measure 存下的 `qf` 顺序，
+     * child.actualBounds = z − or.origin（不再重算锚点/角度）；
+     * 收尾把 `t.location` 同步为 position + WD 偏移。
+     */
+    Panel.prototype._arrangeLink = function (_bounds) {
+        var e_48, _a, e_49, _b;
+        var panel = this;
+        var qf = this._linkQfRects;
+        var or = this._linkOrRect;
+        var host = typeof panel.updateRoute === 'function'
+            ? panel
+            : panel.adornedPart !== undefined ? panel.adornedPart : null;
+        var pathEl = host !== null && host !== undefined && host === panel ? panel.path : null;
+        if (qf !== null && or !== null && qf.length !== 0) {
+            var idx = 0;
+            if (pathEl !== null && idx < qf.length) {
+                var r = qf[idx++];
+                pathEl._arrange(new Rect(r.x - or.x, r.y - or.y, r.width, r.height));
+            }
+            try {
+                for (var _c = __values(this._elements), _d = _c.next(); !_d.done; _d = _c.next()) {
+                    var m = _d.value;
+                    if (m === pathEl)
+                        continue;
+                    if (idx >= qf.length)
+                        break;
+                    var r = qf[idx++];
+                    m._arrange(new Rect(r.x - or.x, r.y - or.y, r.width, r.height));
+                }
+            }
+            catch (e_48_1) { e_48 = { error: e_48_1 }; }
+            finally {
+                try {
+                    if (_d && !_d.done && (_a = _c.return)) _a.call(_c);
+                }
+                finally { if (e_48) throw e_48.error; }
+            }
+        }
+        else {
+            try {
+                for (var _e = __values(this._elements), _f = _e.next(); !_f.done; _f = _e.next()) {
+                    var m = _f.value;
+                    var mb = m.measuredBounds;
+                    m._arrange(new Rect(0, 0, mb.width, mb.height));
+                }
+            }
+            catch (e_49_1) { e_49 = { error: e_49_1 }; }
+            finally {
+                try {
+                    if (_f && !_f.done && (_b = _e.return)) _b.call(_e);
+                }
+                finally { if (e_49) throw e_49.error; }
+            }
+        }
+        // 官方：t.location.e(t.position.x + WD.x, t.position.y + WD.y)
+        var pos = panel.position;
+        if (pos && !isNaN(pos.x) && !isNaN(pos.y) && typeof panel._locationOffset === 'function') {
+            var off = panel._locationOffset();
+            var loc = panel._location;
+            if (loc) {
+                loc.x = pos.x + off.x;
+                loc.y = pos.y + off.y;
+            }
         }
     };
     Panel.prototype._getPointAtDistance = function (pts, segLengths, distance) {
@@ -20209,6 +25242,14 @@ var Part = /** @class */ (function (_super) {
             if (this._containingGroup && this._containingGroup.layout && this._containingGroup.layout.isOngoing) {
                 this._containingGroup.layout.invalidateLayout();
             }
+            // 官方 Part.location：Node 位置变化 → invalidateConnectedLinks
+            // （清端口 side-spot knot 并重算相连连线；undo/redo 期间跳过）
+            if (typeof this.invalidateConnectedLinks === 'function') {
+                var dm = this._diagram;
+                var um = dm && dm.undoManager;
+                if (!um || !um.isUndoingRedoing)
+                    this.invalidateConnectedLinks();
+            }
         },
         enumerable: false,
         configurable: true
@@ -20526,6 +25567,8 @@ var Part = /** @class */ (function (_super) {
             if (this._containingGroup === val)
                 return;
             var old = this._containingGroup;
+            // 官方 Part.set containingGroup：先按「移除」条件失效（此时 Hh 仍是 old，失效打到旧组布局）
+            this.invalidateLayout(2 /* LayoutConditions.Removed */);
             if (old && typeof old._memberParts !== 'undefined') {
                 old._memberParts.remove(this);
                 if (old.layout && old.layout.isOngoing) {
@@ -20545,10 +25588,58 @@ var Part = /** @class */ (function (_super) {
                 if (typeof val._notifyMemberAdded === 'function')
                     val._notifyMemberAdded(this);
             }
+            // 官方：挂到新组后再按「添加」条件失效（打到新组布局）
+            this.invalidateLayout(1 /* LayoutConditions.Added */);
+            // 官方 Part.set containingGroup 尾部：成员图内相关连线的 `Link.dg()` 重算
+            this._propagateContainingGroupToLinks();
+            var ev = this.containingGroupChanged;
+            if (ev !== null)
+                ev(this, old, val);
+            this.raiseChanged('containingGroup', old, val);
         },
         enumerable: false,
         configurable: true
     });
+    /**
+     * 官方 Part.set containingGroup 尾部的连线传播：
+     * - 本 Part 是 Group（有 memberParts）：官方 `Part.Lh(n,this,!0,0,!0)` 收集本组
+     *   及其全部成员（递归下钻嵌套组），对其中每个 Node 的所有连线调用 `Link.dg`；
+     * - 本 Part 是 Node（含 Group 自身）：自身 linksConnected 与 labeledLink 也重算。
+     * 用鸭子类型代替 instanceof，避免 Part ↔ Node 的循环 import。
+     */
+    Part.prototype._propagateContainingGroupToLinks = function () {
+        var dgLink = function (l) {
+            if (l !== null && l !== undefined && typeof l.updateContainingGroup === 'function') {
+                l.updateContainingGroup();
+            }
+        };
+        var dgNodeLinks = function (n) {
+            if (n === null || n === undefined || typeof n.linksConnected === 'undefined')
+                return;
+            var it = n.linksConnected;
+            while (it.next())
+                dgLink(it.value);
+            if (n.labeledLink !== null && n.labeledLink !== undefined)
+                dgLink(n.labeledLink);
+        };
+        if (typeof this.memberParts !== 'undefined') {
+            var seen_1 = [];
+            var collect_1 = function (p) {
+                if (p === null || p === undefined || seen_1.indexOf(p) >= 0)
+                    return;
+                seen_1.push(p);
+                if (typeof p.memberParts !== 'undefined') {
+                    var it = p.memberParts.iterator;
+                    while (it.next())
+                        collect_1(it.value);
+                }
+            };
+            collect_1(this);
+            for (var i = 0; i < seen_1.length; i++)
+                dgNodeLinks(seen_1[i]);
+        }
+        dgNodeLinks(this);
+    };
     Object.defineProperty(Part.prototype, "adornmentStream", {
         get: function () { return this._adornments.iteratorValues; },
         enumerable: false,
@@ -21423,6 +26514,435 @@ var Part = /** @class */ (function (_super) {
 GraphObject.defineBuilder('Part', Part);
 
 /**
+ * 官方 `LinkInfo`：端口 Knot 中一条 side-spot 连线的路由信息。
+ * 字段名与 go-debug.js 官方源码一致（as/jt/ye/HS/Cg/ru/yc/KS）。
+ */
+var LinkInfo = /** @class */ (function () {
+    function LinkInfo(link, jt, ye) {
+        this.as = link;
+        this.jt = jt;
+        this.ye = ye;
+        this.HS = new Point();
+        this.Cg = 0;
+        this.ru = 0;
+        this.yc = new Point();
+        this.KS = 0;
+    }
+    return LinkInfo;
+}());
+/**
+ * 官方 `Knot`：挂在端口（GraphObject）上的缓存，管理所有以该端口为 side-spot
+ * 端点的连线的端点位置（yc）、方向（ye）、同侧排序（Cg/ru）与 endSegmentLength（KS）。
+ * 官方存储于 `port.Vd`；本项目存于 `GraphObject._knot`。
+ */
+var Knot = /** @class */ (function () {
+    function Knot(part, port) {
+        /** 构建重入保护，官方 `Mg` */
+        this._building = false;
+        this._part = part;
+        this._port = port;
+        this._infos = [];
+    }
+    /** 官方 `Knot.gg()`：清空缓存（失效） */
+    Knot.prototype.gg = function () {
+        this._infos.length = 0;
+    };
+    /** 官方 `Knot.$F(link)`：取该连线在此端口的 LinkInfo（必要时先构建） */
+    Knot.prototype.$F = function (link) {
+        var list = this._infos;
+        if (list.length === 0) {
+            this.M4();
+            list = this._infos;
+        }
+        for (var i = 0; i < list.length; i++) {
+            var li = list[i];
+            if (li !== undefined && li !== null && li.as === link)
+                return li;
+        }
+        return null;
+    };
+    /** 官方 `Knot.P4(rect, spot, angle, orthogonal)`：side-spot 落到哪条边 */
+    Knot.prototype.P4 = function (rect, spot, angle, orthogonal) {
+        var n = spot.offsetY;
+        switch (n) {
+            case 8: return 90;
+            case 2: return 180;
+            case 1: return 270;
+            case 4: return 0;
+        }
+        var o = angle;
+        switch (n) {
+            case 9: return o > 180 ? 270 : 90;
+            case 6: return (o > 90 && o <= 270) ? 180 : 0;
+        }
+        var r = (Math.atan2(rect.height, rect.width) * 180) / Math.PI;
+        switch (n) {
+            case 3: return (o > r && o <= 180 + r) ? 180 : 270;
+            case 5: return (o > 180 - r && o <= 360 - r) ? 270 : 0;
+            case 12: return (o > r && o <= 180 + r) ? 90 : 0;
+            case 10: return (o > 180 - r && o <= 360 - r) ? 180 : 90;
+            case 7: return (o > 90 && o <= 180 + r) ? 180 : (o > 180 + r && o <= 360 - r) ? 270 : 0;
+            case 13: return (o > 180 && o <= 360 - r) ? 270 : (o > r && o <= 180) ? 90 : 0;
+            case 14: return (o > r && o <= 180 - r) ? 90 : (o > 180 - r && o <= 270) ? 180 : 0;
+            case 11: return (o > 180 - r && o <= 180 + r) ? 180 : (o > 180 + r) ? 270 : 90;
+        }
+        // 官方 default 分支（n===15 AllSides；s&&n!==15 的 -15° 修正为死代码，按官方原样保留）
+        if (orthogonal && n !== 15) {
+            o -= 15;
+            if (o < 0)
+                o += 360;
+        }
+        if (o > r && o < 180 - r)
+            return 90;
+        if (o >= 180 - r && o <= 180 + r)
+            return 180;
+        if (o > 180 + r && o < 360 - r)
+            return 270;
+        return 0;
+    };
+    /** 端口 → 文档坐标下的 spot 点（官方 `GraphObject.getDocumentPoint(spot, result)` 等价） */
+    Knot.prototype._docPoint = function (spot) {
+        var b = this._port.getDocumentBounds();
+        if (spot === null || spot.isNone()) {
+            return new Point(b.x + b.width / 2, b.y + b.height / 2);
+        }
+        var p = spot.positionInRect(b);
+        return new Point(p.x, p.y);
+    };
+    /** 官方 `Knot.M4()`：构建 LinkInfo 列表 */
+    Knot.prototype.M4 = function () {
+        if (this._building)
+            return;
+        this._building = true;
+        try {
+            var s = this._part;
+            if (!s)
+                return;
+            // 官方 Group 分支（isSubGraphExpanded=false 时用 findExternalLinksConnected +
+            // 子图过滤）未移植：本项目暂不支持 Group 内 link bundle 语义。
+            var links = void 0;
+            if (s.isTreeExpanded)
+                links = s.findLinksConnected();
+            else
+                links = s.findExternalTreeLinksConnected();
+            this._infos.length = 0;
+            var o = 0;
+            var tl = this._docPoint(Spot.TopLeft);
+            var br = this._docPoint(Spot.BottomRight);
+            var h = new Rect(tl.x, tl.y, 0, 0);
+            h.unionPoint(br);
+            var a = new Point(h.x + h.width / 2, h.y + h.height / 2);
+            var c = this._port.getDocumentAngle();
+            var it = links && links.iterator ? links.iterator : links;
+            while (it && it.next()) {
+                var g = it.value;
+                if (!g.isVisible())
+                    continue;
+                var p = g.fromPort;
+                var y = g.toPort;
+                if (p === y)
+                    continue;
+                if (p !== this._port && y !== this._port)
+                    continue;
+                var x = p === this._port;
+                var b = g.computeSpot(x, this._port);
+                if (!b.isSide())
+                    continue;
+                var S = x ? y : p;
+                if (S === null || S === undefined)
+                    continue;
+                var k = S.part;
+                if (k === null || k === undefined)
+                    continue;
+                var P = k.findVisibleNode();
+                if (P !== null && P !== k) {
+                    k = P;
+                    S = k.port;
+                }
+                var A = g.computeOtherPoint(k, S);
+                var N = a.directionPoint(A);
+                if (c !== 0) {
+                    N -= c;
+                    if (N >= 360)
+                        N -= 360;
+                    else if (N < 0)
+                        N += 360;
+                }
+                var M = this.P4(h, b, N, g.isOrthogonal);
+                var C = void 0;
+                if (M === 0) {
+                    C = 4;
+                    if (N > 180)
+                        N -= 360;
+                }
+                else if (M === 90) {
+                    C = 8;
+                    if (N > 270)
+                        N -= 360;
+                }
+                else if (M === 180) {
+                    C = 2;
+                }
+                else {
+                    C = 1;
+                    if (N < 90)
+                        N += 360;
+                }
+                var T = this._infos[o];
+                if (T === undefined || T === null) {
+                    T = new LinkInfo(g, N, C);
+                    this._infos[o] = T;
+                }
+                else {
+                    T.as = g;
+                    T.jt = N;
+                    T.ye = C;
+                }
+                T.HS.set(A);
+                o++;
+            }
+            this.C4();
+            var u = this._infos.length;
+            var d = -1;
+            var m = 0;
+            for (var i = 0; i < u; i++) {
+                var g = this._infos[i];
+                if (g !== undefined && g !== null) {
+                    if (g.ye !== d) {
+                        d = g.ye;
+                        m = 0;
+                    }
+                    g.Cg = m;
+                    m++;
+                }
+            }
+            d = -1;
+            m = 0;
+            for (var i = u - 1; i >= 0; i--) {
+                var g = this._infos[i];
+                if (g !== undefined && g !== null) {
+                    if (g.ye !== d) {
+                        d = g.ye;
+                        m = g.Cg + 1;
+                    }
+                    g.ru = m;
+                }
+            }
+            this.N4(this._infos);
+            this.A4(this._infos);
+        }
+        finally {
+            this._building = false;
+        }
+    };
+    /** 官方 `Knot.T4(t, i)` 比较器（侧码 ye → 排序角 jt） */
+    Knot.prototype.T4 = function (t, i) {
+        if (t === i)
+            return 0;
+        if (t === undefined || t === null)
+            return -1;
+        if (i === undefined || i === null)
+            return 1;
+        if (t.ye !== i.ye)
+            return t.ye < i.ye ? -1 : 1;
+        if (t.jt !== i.jt)
+            return t.jt < i.jt ? -1 : 1;
+        return 0;
+    };
+    /** 官方 `Knot.C4()`：按 (ye, jt) 排序 */
+    Knot.prototype.C4 = function () {
+        var _this = this;
+        this._infos.sort(function (a, b) { return _this.T4(a, b); });
+    };
+    /** 官方 `Knot.N4(list)`：按端口 spreading 计算每条 LinkInfo 的端点位置 yc */
+    Knot.prototype.N4 = function (t) {
+        this._port;
+        var e = this._part.portSpreading;
+        var s = this._docPoint(Spot.TopLeft);
+        var n = this._docPoint(Spot.TopRight);
+        var o = this._docPoint(Spot.BottomRight);
+        var r = this._docPoint(Spot.BottomLeft);
+        var l = 0;
+        var h = 0;
+        var a = 0;
+        var c = 0;
+        if (e === 2) {
+            for (var x = 0; x < t.length; x++) {
+                var b = t[x];
+                if (b === null || b === undefined)
+                    continue;
+                var S = b.as.computeThickness();
+                switch (b.ye) {
+                    case 8:
+                        a += S;
+                        break;
+                    case 2:
+                        c += S;
+                        break;
+                    case 1:
+                        l += S;
+                        break;
+                    default:
+                    case 4:
+                        h += S;
+                        break;
+                }
+            }
+        }
+        var f = 0;
+        var u = 0;
+        var d = 1;
+        var m = n;
+        var g = o;
+        var p = 0;
+        var y = 0;
+        for (var x = 0; x < t.length; x++) {
+            var b = t[x];
+            if (b === null || b === undefined)
+                continue;
+            if (f !== b.ye) {
+                switch (f = b.ye) {
+                    case 8:
+                        m = o;
+                        g = r;
+                        break;
+                    case 2:
+                        m = r;
+                        g = s;
+                        break;
+                    case 1:
+                        m = s;
+                        g = n;
+                        break;
+                    default:
+                    case 4:
+                        m = n;
+                        g = o;
+                        break;
+                }
+                p = g.x - m.x;
+                y = g.y - m.y;
+                switch (f) {
+                    case 8:
+                        if (a > Math.abs(p)) {
+                            d = Math.abs(p) / a;
+                            a = Math.abs(p);
+                        }
+                        else
+                            d = 1;
+                        break;
+                    case 2:
+                        if (c > Math.abs(y)) {
+                            d = Math.abs(y) / c;
+                            c = Math.abs(y);
+                        }
+                        else
+                            d = 1;
+                        break;
+                    case 1:
+                        if (l > Math.abs(p)) {
+                            d = Math.abs(p) / l;
+                            l = Math.abs(p);
+                        }
+                        else
+                            d = 1;
+                        break;
+                    default:
+                    case 4:
+                        if (h > Math.abs(y)) {
+                            d = Math.abs(y) / h;
+                            h = Math.abs(y);
+                        }
+                        else
+                            d = 1;
+                        break;
+                }
+                u = 0;
+            }
+            var S = b.yc;
+            if (e === 2) {
+                var k = b.as.computeThickness();
+                k *= d;
+                S.set(m);
+                switch (f) {
+                    case 8:
+                        S.x = m.x + p / 2 + a / 2 - u - k / 2;
+                        break;
+                    case 2:
+                        S.y = m.y + y / 2 + c / 2 - u - k / 2;
+                        break;
+                    case 1:
+                        S.x = m.x + p / 2 - l / 2 + u + k / 2;
+                        break;
+                    default:
+                    case 4:
+                        S.y = m.y + y / 2 - h / 2 + u + k / 2;
+                        break;
+                }
+                u += k;
+            }
+            else {
+                var k = 0.5;
+                if (e === 1)
+                    k = (b.Cg + 1) / (b.ru + 1);
+                S.x = m.x + p * k;
+                S.y = m.y + y * k;
+            }
+        }
+    };
+    /** 官方 `Knot.A4(list)`：计算每条 LinkInfo 的 endSegmentLength */
+    Knot.prototype.A4 = function (t) {
+        for (var i = 0; i < t.length; i++) {
+            var e = t[i];
+            if (e !== undefined && e !== null)
+                e.KS = this.L4(e, i);
+        }
+    };
+    /** 官方 `Knot.L4(t, i)` */
+    Knot.prototype.L4 = function (t, i) {
+        var e = t.as;
+        var s = e.fromPort === this._port;
+        var n = 0;
+        switch (t.ye) {
+            case 1:
+                n = 270;
+                break;
+            case 2:
+                n = 180;
+                break;
+            case 4:
+                n = 0;
+                break;
+            case 8:
+                n = 90;
+                break;
+        }
+        var o = e.computeEndSegmentLength(this._part, this._port, Spot.None, s, n);
+        var r = t.Cg;
+        if (r < 0)
+            return o;
+        var l = t.ru;
+        if (l <= 1 || !e.isOrthogonal)
+            return o;
+        var a = t.HS;
+        var c = t.yc;
+        var f = t.ye === 2 || t.ye === 8;
+        if (f)
+            r = l - 1 - r;
+        var u = e.constructor._zF;
+        var d = t.ye === 2 || t.ye === 4;
+        var m = r <= 0 ? c : this._infos[f ? i + 1 : i - 1].yc;
+        var g = r >= l - 1 ? c : this._infos[f ? i - 1 : i + 1].yc;
+        if (d ? (a.y >= m.y && a.y <= g.y) : (a.x >= m.x && a.x <= g.x))
+            return o;
+        if (d ? a.y < c.y : a.x < c.x)
+            return o + r * u;
+        return o + (l - 1 - r) * u;
+    };
+    return Knot;
+}());
+
+/**
  * Link - a Part that represents a connection between two Nodes.
  */
 var Link = /** @class */ (function (_super) {
@@ -21465,6 +26985,10 @@ var Link = /** @class */ (function (_super) {
         _this._routeOffset = new Point(0, 0);
         _this._geometry = new Geometry();
         _this._isGeometryValid = false;
+        /** 官方 Link 路由状态字段：fA=toDir 被吸附, sA=fromDir 吸附值, nA=toDir 吸附值 */
+        _this._fA = false;
+        _this._sA = 0;
+        _this._nA = 0;
         _this._className = 'Link';
         if (i) {
             _this.set(i);
@@ -21623,6 +27147,10 @@ var Link = /** @class */ (function (_super) {
             return 28;
         return 0;
     };
+    /** 供 Panel._measureLink 使用的 orientation 分支码（官方 measure 里 `L` 的值） */
+    Link.orientationCode = function (o) {
+        return Link._orientationCode(o);
+    };
     /** 官方 `G.u`（近似相等，用于正交路由的共线判定） */
     Link._approx = function (a, b) {
         return Math.abs(a - b) < 1e-7;
@@ -21663,28 +27191,114 @@ var Link = /** @class */ (function (_super) {
     Object.defineProperty(Link.prototype, "fromNode", {
         // ============ Properties ============
         get: function () { return this._fromNode; },
-        set: function (val) { this._fromNode = val; },
+        set: function (val) {
+            if (this._fromNode === val)
+                return;
+            var oldPort = this.fromPort;
+            this._fromNode = val;
+            this._ggPort(oldPort);
+            this._ggPort(this.fromPort);
+            this.updateContainingGroup();
+        },
         enumerable: false,
         configurable: true
     });
     Object.defineProperty(Link.prototype, "toNode", {
         get: function () { return this._toNode; },
-        set: function (val) { this._toNode = val; },
+        set: function (val) {
+            if (this._toNode === val)
+                return;
+            var oldPort = this.toPort;
+            this._toNode = val;
+            this._ggPort(oldPort);
+            this._ggPort(this.toPort);
+            this.updateContainingGroup();
+        },
         enumerable: false,
         configurable: true
     });
     Object.defineProperty(Link.prototype, "fromPortId", {
         get: function () { return this._fromPortId; },
-        set: function (val) { this._fromPortId = val; },
+        set: function (val) {
+            if (this._fromPortId === val)
+                return;
+            var oldPort = this.fromPort;
+            this._fromPortId = val;
+            this._ggPort(oldPort);
+            this._ggPort(this.fromPort);
+        },
         enumerable: false,
         configurable: true
     });
     Object.defineProperty(Link.prototype, "toPortId", {
         get: function () { return this._toPortId; },
-        set: function (val) { this._toPortId = val; },
+        set: function (val) {
+            if (this._toPortId === val)
+                return;
+            var oldPort = this.toPort;
+            this._toPortId = val;
+            this._ggPort(oldPort);
+            this._ggPort(this.toPort);
+        },
         enumerable: false,
         configurable: true
     });
+    /** 官方 `Node.OS/ES → ne(port)`：连线端点变更时清空端口 knot 缓存 */
+    Link.prototype._ggPort = function (port) {
+        if (port !== null && port !== undefined && typeof port.invalidateConnectedLinksCache === 'function') {
+            port.invalidateConnectedLinksCache();
+        }
+    };
+    /**
+     * 官方 `Link.dg()`：按两端点的公共 containingGroup 更新本 Link 的从属关系。
+     * 官方 Link 的 containment 不是模型 group 数据直接给的，而是
+     * `fromNode.findCommonContainingGroup(toNode)` 的结果（嵌套组时取最深公共祖先）；
+     * 两端都在同一 Group 内的连线 `isTopLevel === false`，
+     * 布局收集（Layout.collectParts 的 toplevelonly 过滤）才不会把组内连线
+     * 及其端点塞进顶层网络 —— 否则 ParallelLayout.findSplitMerge 会看到
+     * 组内的多个 Split 节点而抛 "Split node already exists"（flowgrammer）。
+     * 由 fromNode/toNode setter 与 Part.containingGroup 变更传播调用。
+     */
+    Link.prototype.updateContainingGroup = function () {
+        var f = this._fromNode;
+        var t = this._toNode;
+        var g = null;
+        if (f !== null && f !== undefined) {
+            g = (t !== null && t !== undefined) ? f.findCommonContainingGroup(t) : f.containingGroup;
+        }
+        else if (t !== null && t !== undefined) {
+            g = t.containingGroup;
+        }
+        var old = this._containingGroup;
+        if (old === g)
+            return;
+        // 官方 `Link.s4(t)`：老组 vN、新组 WN（成员集合 + 布局失效 + memberRemoved/Added 回调），再发 containingGroupChanged
+        if (old !== null && typeof old._notifyMemberRemoved === 'function') {
+            old._memberParts.remove(this);
+            if (old.layout && old.layout.isOngoing)
+                old.layout.invalidateLayout();
+            old._notifyMemberRemoved(this);
+        }
+        this._containingGroup = g;
+        if (g !== null && typeof g._notifyMemberAdded === 'function') {
+            g._memberParts.add(this);
+            if (g.layout && g.layout.isOngoing)
+                g.layout.invalidateLayout();
+            g._notifyMemberAdded(this);
+        }
+        var ev = this.containingGroupChanged;
+        if (ev !== null)
+            ev(this, old, g);
+        // 官方 Link.dg 尾部：isLabeledLink 时把 label 节点的 containingGroup 同步为同一值
+        if (this.isLabeledLink) {
+            var s = this.labelNodes;
+            while (s.next()) {
+                var n = s.value;
+                if (n !== null && n !== undefined && n.containingGroup !== g)
+                    n.containingGroup = g;
+            }
+        }
+    };
     Object.defineProperty(Link.prototype, "isTreeLink", {
         /** 官方 `Link.isTreeLink`（默认 true） */
         get: function () { return this._isTreeLink; },
@@ -21852,141 +27466,194 @@ var Link = /** @class */ (function (_super) {
         var to = this._toNode;
         if (!from || !to)
             return false;
-        var fromPort = from.findPortWithName ? from.findPortWithName(this._fromPortId) || from : from;
-        var toPort = to.findPortWithName ? to.findPortWithName(this._toPortId) || to : to;
-        var fromBounds = fromPort.getDocumentBounds();
-        var toBounds = toPort.getDocumentBounds();
+        var fromPort = from.findPort ? from.findPort(this._fromPortId) : from;
+        var toPort = to.findPort ? to.findPort(this._toPortId) : to;
         if (from === to) {
-            return this._computeSelfLinkPoints(fromBounds);
+            // 官方同端口（c）走 else 分支自链接逻辑；本项目保留同节点自链接快路径（偏差同前）。
+            return this._computeSelfLinkPoints(fromPort.getDocumentBounds());
         }
-        var fromCenter = fromBounds.center;
-        var toCenter = toBounds.center;
-        var fromSpot = this._resolveFromSpot(fromPort);
-        var toSpot = this._resolveToSpot(toPort);
-        var fromPoint;
-        var toPoint;
-        // 官方 Link.getLinkPoint → Port.Rf → 逐元素 Shape.Rf：端点按【图形几何】求交，
-        // 所以圆形节点的连线端点落在圆上；若按 actualBounds 矩形求交，
-        // fromArrow 会贴在外接正方形上（官方 arrowheads 样例即为此症状）。
-        if (fromSpot.isNone()) {
-            fromPoint = this._connectionPoint(fromPort, fromBounds, fromCenter, toCenter);
-        }
-        else {
-            var fp = fromSpot.positionInRect(fromBounds);
-            fromPoint = new Point(fp.x, fp.y);
-        }
-        if (toSpot.isNone()) {
-            toPoint = this._connectionPoint(toPort, toBounds, toCenter, fromCenter);
-        }
-        else {
-            var tp = toSpot.positionInRect(toBounds);
-            toPoint = new Point(tp.x, tp.y);
-        }
-        this._points.clear();
-        this._points.add(fromPoint);
-        if (this._routing === RoutingOrthogonal) {
-            var fromSegLen = fromPort.fromEndSegmentLength || 10;
-            var toSegLen = toPort.toEndSegmentLength || 10;
-            var fromDir = this._getPortDirection(fromPort, fromSpot, fromPoint, fromCenter);
-            var toDir = this._getPortDirection(toPort, toSpot, toPoint, toCenter);
-            var fromEnd = this._offsetPoint(fromPoint, fromDir, fromSegLen);
-            var toEnd = this._offsetPoint(toPoint, toDir, toSegLen);
-            if (fromDir === toDir) {
-                var perpDir = this._perpendicularDir(fromDir);
-                var midDist = this._distAlongDir(fromEnd, toEnd, perpDir);
-                var mid1 = this._offsetPoint(fromEnd, perpDir, midDist / 2);
-                var mid2 = this._offsetPoint(toEnd, perpDir, midDist / 2);
-                this._points.add(fromEnd);
-                this._points.add(mid1);
-                this._points.add(mid2);
-                this._points.add(toEnd);
-            }
-            else if (this._isOppositeDir(fromDir, toDir)) {
-                var perpDir = this._perpendicularDir(fromDir);
-                var midDist = this._distAlongDir(fromEnd, toEnd, perpDir);
-                var midAlong = this._distAlongDir(fromEnd, toEnd, fromDir);
-                if ((midAlong > 0 && fromDir === 'right') || (midAlong > 0 && fromDir === 'down') ||
-                    (midAlong < 0 && fromDir === 'left') || (midAlong < 0 && fromDir === 'up')) {
-                    var mid1 = this._offsetPoint(fromEnd, fromDir, midAlong / 2);
-                    var mid2 = this._offsetPoint(toEnd, toDir, -midAlong / 2);
-                    this._points.add(fromEnd);
-                    this._points.add(mid1);
-                    this._points.add(mid2);
-                    this._points.add(toEnd);
-                }
-                else {
-                    var perpMid = this._distAlongDir(fromEnd, toEnd, perpDir) / 2;
-                    var mid1 = this._offsetPoint(fromEnd, perpDir, perpMid);
-                    var mid2 = this._offsetPoint(toEnd, perpDir, perpMid);
-                    this._points.add(fromEnd);
-                    this._points.add(mid1);
-                    this._points.add(mid2);
-                    this._points.add(toEnd);
+        // ---- 官方 computePoints 主流程（go-debug.js 761432..764750）----
+        var o = this.pointsCount;
+        var r = this.computeSpot(true, fromPort);
+        var l = this.computeSpot(false, toPort);
+        var h = this._isCenterSpot(r);
+        var a = this._isCenterSpot(l);
+        var c = fromPort === toPort && fromPort !== null;
+        var f = this.isOrthogonal;
+        var d = this.computeAdjusting() === LinkAdjustingNone || c;
+        if (!f && !c && h && a) {
+            // 官方 r4/o4 快速路径：非正交 + 两端无方向 spot
+            var ok = false;
+            if (!d && o >= 3) {
+                var g_1 = this.getLinkPoint(from, fromPort, r, true, false, to, toPort);
+                var p_1 = this.getLinkPoint(to, toPort, l, false, false, from, fromPort);
+                ok = this.adjustPoints(0, g_1, o - 1, p_1);
+                if (ok) {
+                    g_1 = this.getLinkPoint(from, fromPort, r, true, false, to, toPort);
+                    p_1 = this.getLinkPoint(to, toPort, l, false, false, from, fromPort);
+                    ok = this.adjustPoints(0, g_1, o - 1, p_1);
                 }
             }
+            if (!ok) {
+                var g_2 = this.getLinkPoint(from, fromPort, r, true, false, to, toPort);
+                var p_2 = this.getLinkPoint(to, toPort, l, false, false, from, fromPort);
+                this._points.clear();
+                this.addPoint(g_2);
+                this.addPoint(p_2);
+                if (this._curve === CurveBezier) {
+                    this._o4(from, fromPort, r, to, toPort, l);
+                }
+                else if (this.hasCurviness()) {
+                    this._r4Mid(g_2, p_2);
+                }
+                // 官方 r4 内的 ZF（节点重叠端点修正）未移植（flowchart 不触发）。
+            }
+            return true;
+        }
+        if (d && ((f && this.isAvoiding) || c))
+            this._points.clear();
+        var g = this.getLinkPoint(from, fromPort, r, true, f, to, toPort);
+        var p = this.getLinkPoint(to, toPort, l, false, f, from, fromPort);
+        var y = 0;
+        var x = 0;
+        var b = 0;
+        if (f || !h || c) {
+            b = this.getLinkDirection(from, fromPort, g, r, true, f, to, toPort);
+            var M = this.computeEndSegmentLength(from, fromPort, r, true, b);
+            b = Link._normalizeAngle(b);
+            if (b === 0)
+                y = M;
+            else if (b === 90)
+                x = M;
+            else if (b === 180)
+                y = -M;
+            else if (b === 270)
+                x = -M;
             else {
-                var canTurn = this._canReachWithCorner(fromEnd, fromDir, toEnd, toDir);
-                if (canTurn) {
-                    var corner = this._cornerPoint(fromEnd, fromDir, toEnd, toDir);
-                    this._points.add(fromEnd);
-                    this._points.add(corner);
-                    this._points.add(toEnd);
-                }
-                else {
-                    var perpDir = this._perpendicularDir(fromDir);
-                    var mid1 = this._offsetPoint(fromEnd, perpDir, this._distAlongDir(fromEnd, toEnd, perpDir));
-                    this._points.add(fromEnd);
-                    this._points.add(mid1);
-                    this._points.add(toEnd);
-                }
+                y = M * Math.cos((b * Math.PI) / 180);
+                x = M * Math.sin((b * Math.PI) / 180);
             }
         }
-        this._points.add(toPoint);
-        this._applyShortLengths();
+        var S = 0;
+        var k = 0;
+        var P = 0;
+        if (f || !a || c) {
+            P = this.getLinkDirection(to, toPort, p, l, false, f, from, fromPort);
+            var M = this.computeEndSegmentLength(to, toPort, l, false, P);
+            P = Link._normalizeAngle(P);
+            if (P === 0)
+                S = M;
+            else if (P === 90)
+                k = M;
+            else if (P === 180)
+                S = -M;
+            else if (P === 270)
+                k = -M;
+            else {
+                S = M * Math.cos((P * Math.PI) / 180);
+                k = M * Math.sin((P * Math.PI) / 180);
+            }
+        }
+        var A = g;
+        if (f || !h || c)
+            A = new Point(g.x + y, g.y + x);
+        var N = p;
+        if (f || !a || c)
+            N = new Point(p.x + S, p.y + k);
+        if (!d && !f && h && o > 3 && this.adjustPoints(0, g, o - 2, N)) {
+            this.setPoint(o - 1, p);
+        }
+        else if (!d && !f && a && o > 3 && this.adjustPoints(1, A, o - 1, p)) {
+            this.setPoint(0, g);
+        }
+        else if (!d && (f ? o >= 6 : o > 4) && this.adjustPoints(1, A, o - 2, N)) {
+            this.setPoint(0, g);
+            this.setPoint(o - 1, p);
+        }
+        else {
+            this._points.clear();
+            this.addPoint(g);
+            if (f || !h || c)
+                this.addPoint(A);
+            if (f)
+                this.addOrthoPoints(A, b, N, P, from, to);
+            if (f || !a || c)
+                this.addPoint(N);
+            this.addPoint(p);
+        }
         return true;
     };
-    Link.prototype._applyShortLengths = function () {
-        var e_1, _a;
-        var fromShort = this._fromShortLength || 0;
-        var toShort = this._toShortLength || 0;
-        if (fromShort <= 0 && toShort <= 0)
-            return;
-        if (this._points.count < 2)
-            return;
-        var pts = this._points.toArray();
-        if (fromShort > 0 && pts.length >= 2) {
-            var dx = pts[1].x - pts[0].x;
-            var dy = pts[1].y - pts[0].y;
-            var len = Math.sqrt(dx * dx + dy * dy);
-            if (len > 0) {
-                var ratio = Math.min(fromShort / len, 1);
-                pts[0] = new Point(pts[0].x + dx * ratio, pts[0].y + dy * ratio);
-            }
+    /** 官方 `Link.r4` 的 curviness 中点插入（非 Bezier 快路径，显式设置 curviness 时） */
+    Link.prototype._r4Mid = function (g, p) {
+        var h3 = p.x - g.x;
+        var a3 = p.y - g.y;
+        var c3 = this.computeCurviness();
+        var f3 = c3;
+        var mx = g.x + h3 / 2;
+        var my = g.y + a3 / 2;
+        var mmx = mx;
+        var mmy = my;
+        if (Link._approxZero(a3)) {
+            if (h3 > 0)
+                mmy -= f3;
+            else
+                mmy += f3;
         }
-        if (toShort > 0 && pts.length >= 2) {
-            var last = pts.length - 1;
-            var dx = pts[last - 1].x - pts[last].x;
-            var dy = pts[last - 1].y - pts[last].y;
-            var len = Math.sqrt(dx * dx + dy * dy);
-            if (len > 0) {
-                var ratio = Math.min(toShort / len, 1);
-                pts[last] = new Point(pts[last].x + dx * ratio, pts[last].y + dy * ratio);
-            }
+        else {
+            var pp = -h3 / a3;
+            var yy = Math.sqrt((f3 * f3) / (pp * pp + 1));
+            if (c3 < 0)
+                yy = -yy;
+            mmx = (a3 < 0 ? -1 : 1) * yy + mx;
+            mmy = pp * (mmx - mx) + my;
         }
-        this._points.clear();
-        try {
-            for (var pts_1 = __values(pts), pts_1_1 = pts_1.next(); !pts_1_1.done; pts_1_1 = pts_1.next()) {
-                var pt = pts_1_1.value;
-                this._points.add(pt);
-            }
+        this.insertPointAt(1, mmx, mmy);
+    };
+    /** 官方 `Link.o4`：Bezier 快路径插入两个控制点并重算端点 */
+    Link.prototype._o4 = function (from, fromPort, r, to, toPort, l) {
+        var g = this.getPoint(0);
+        var p = this.getPoint(1);
+        var h3 = p.x - g.x;
+        var a3 = p.y - g.y;
+        var c3 = this.computeCurviness();
+        var f3 = 0;
+        var u3 = 0;
+        var d1 = g.x + h3 / 3;
+        var m1 = g.y + a3 / 3;
+        var g1 = d1;
+        var p1 = m1;
+        if (Link._approxZero(a3)) {
+            if (h3 > 0)
+                p1 -= c3;
+            else
+                p1 += c3;
         }
-        catch (e_1_1) { e_1 = { error: e_1_1 }; }
-        finally {
-            try {
-                if (pts_1_1 && !pts_1_1.done && (_a = pts_1.return)) _a.call(pts_1);
-            }
-            finally { if (e_1) throw e_1.error; }
+        else {
+            f3 = -h3 / a3;
+            u3 = Math.sqrt((c3 * c3) / (f3 * f3 + 1));
+            if (c3 < 0)
+                u3 = -u3;
+            g1 = (a3 < 0 ? -1 : 1) * u3 + d1;
+            p1 = f3 * (g1 - d1) + m1;
         }
+        d1 = g.x + (2 * h3) / 3;
+        m1 = g.y + (2 * a3) / 3;
+        var g2 = d1;
+        var p2 = m1;
+        if (Link._approxZero(a3)) {
+            if (h3 > 0)
+                p2 -= c3;
+            else
+                p2 += c3;
+        }
+        else {
+            g2 = (a3 < 0 ? -1 : 1) * u3 + d1;
+            p2 = f3 * (g2 - d1) + m1;
+        }
+        this.insertPointAt(1, g1, p1);
+        this.insertPointAt(2, g2, p2);
+        this.setPoint(0, this.getLinkPoint(from, fromPort, r, true, false, to, toPort));
+        this.setPoint(3, this.getLinkPoint(to, toPort, l, false, false, from, fromPort));
     };
     /** Resolve the effective fromSpot for this link */
     Link.prototype._resolveFromSpot = function (port) {
@@ -22475,16 +28142,23 @@ var Link = /** @class */ (function (_super) {
         }
         return isNaN(v) ? 0 : v;
     };
-    /** 官方 `Link.computeEndSegmentLength(node, port, spot, isFrom, dir?)`（本项目无 Knot，跳过 side-spot 分支） */
+    /** 官方 `Link.computeEndSegmentLength(node, port, spot, isFrom, dir?)` */
     Link.prototype.computeEndSegmentLength = function (node, port, spot, isFrom, dir) {
+        // 官方：side spot → 端口 Knot 的 KS（优先于 link/port 自身设置）
+        if (port !== null && spot !== null && spot.isSide()) {
+            var li = this._ys(port);
+            if (li !== null)
+                return li.KS;
+        }
         var o = isFrom ? this.fromEndSegmentLength : this.toEndSegmentLength;
         if (port !== null && isNaN(o)) {
-            if (Link._lA > 0 && this.computeCurve() === CurveBezier && dir !== undefined && !isNaN(dir) && spot.isSpot()) {
+            var d = dir !== undefined && !isNaN(dir) ? dir : NaN;
+            if (Link._lA > 0 && this.computeCurve() === CurveBezier && !isNaN(d) && spot.isSpot()) {
                 var other = this.getOtherPort(port);
                 if (other !== null) {
                     var a = port.getDocumentBounds().center;
                     var b = other.getDocumentBounds().center;
-                    var horizontal = dir >= 315 || dir <= 45 || (dir >= 135 && dir <= 225);
+                    var horizontal = d >= 315 || d <= 45 || (d >= 135 && d <= 225);
                     var u = Math.abs(horizontal ? a.x - b.x : a.y - b.y) / Link._lA;
                     return Math.max(u, Link._hA);
                 }
@@ -22493,6 +28167,26 @@ var Link = /** @class */ (function (_super) {
         }
         return isNaN(o) ? Link._hA : o;
     };
+    /** 官方 `Link.l4(port, link)`：只查已有 knot，不创建 */
+    Link.prototype._l4 = function (port) {
+        if (port === null || port === undefined)
+            return null;
+        var k = port._knot;
+        if (k === null || k === undefined)
+            return null;
+        return k.$F(this);
+    };
+    /** 官方 `Link.YS(port)`：取（必要时创建）端口 Knot 中本连线的 LinkInfo */
+    Link.prototype._ys = function (port) {
+        if (port === null || port === undefined)
+            return null;
+        var k = port._knot;
+        if (k === null || k === undefined) {
+            k = new Knot(port.part, port);
+            port._knot = k;
+        }
+        return k.$F(this);
+    };
     /** 官方 `Link.computeOtherPoint(othernode, otherport, otherspot?, from?, result?)` */
     Link.prototype.computeOtherPoint = function (othernode, otherport, otherspot, from, result) {
         var out = result !== undefined && result !== null ? result : new Point();
@@ -22500,6 +28194,12 @@ var Link = /** @class */ (function (_super) {
             var p = this.getPoint(Math.floor(this.pointsCount / 2));
             out.x = p.x;
             out.y = p.y;
+            return out;
+        }
+        // 官方 l4：对端口已有 side-spot knot → 直接用它的端点位置
+        var li = this._l4(otherport);
+        if (li !== null) {
+            out.set(li.yc);
             return out;
         }
         if (otherport === null || otherport === undefined) {
@@ -22551,57 +28251,38 @@ var Link = /** @class */ (function (_super) {
         var out = result !== undefined && result !== null ? result : new Point();
         if (spot !== null && spot.isSpot() && !this._isCenterSpot(spot))
             return Link._docPoint(port, spot, out);
-        var focus = Link._docPoint(port, this.computeSpot(from, port), new Point());
+        if (spot !== null && spot.isSide()) {
+            var li = this._ys(port);
+            if (li !== null) {
+                out.set(li.yc);
+                return out;
+            }
+            // 官方 routing===7（AvoidsNodesStraight）跨侧协调分支未移植；knot 缺失时落入中心逻辑
+        }
+        var focus = Link._docPoint(port, this._resolveLinkSpot(spot), new Point());
         var a = new Point();
         if (this.pointsCount > (ortho ? 6 : 2)) {
-            var i = from ? 1 : this.pointsCount - 2;
-            var rp = this.getPoint(i);
-            a.x = rp.x;
-            a.y = rp.y;
+            a.set(this.getPoint(from ? 1 : this.pointsCount - 2));
             if (ortho)
                 Link._orthogonalize(focus, a);
         }
         else if (otherport !== null && otherport !== undefined) {
-            var c = otherport.getDocumentBounds().center;
-            a.x = c.x;
-            a.y = c.y;
+            // 官方 gA：aim = 对端口按其对应 spot 的文档点（Sg 后非点位 spot 即中心）
+            var os = this.computeSpot(!from, otherport);
+            Link._docPoint(otherport, this._resolveLinkSpot(os), a);
             if (ortho)
                 Link._orthogonalize(focus, a);
         }
         else {
-            a.x = focus.x;
-            a.y = focus.y;
+            a.set(focus);
         }
         return this.getLinkPointFromPoint(node, port, focus, a, from, out);
     };
     /** 官方 `Link.getLinkDirection(node, port, linkpoint, spot, from, ortho, othernode, otherport)` */
     Link.prototype.getLinkDirection = function (node, port, linkpoint, spot, from, ortho, othernode, otherport) {
-        var h;
-        if (spot !== null && spot.isSpot())
-            h = Link._spotDirection(spot);
-        else if (port === null || otherport === null)
-            h = 0;
-        else {
-            var center = port.getDocumentBounds().center;
-            var a = new Point();
-            if (this.pointsCount > (ortho ? 6 : 2)) {
-                var i = from ? 1 : this.pointsCount - 2;
-                var rp = this.getPoint(i);
-                a.x = rp.x;
-                a.y = rp.y;
-                if (ortho)
-                    Link._orthogonalize(center, a);
-            }
-            else {
-                var c = otherport.getDocumentBounds().center;
-                a.x = c.x;
-                a.y = c.y;
-            }
-            if (Math.abs(a.x - center.x) > Math.abs(a.y - center.y))
-                h = a.x >= center.x ? 0 : 180;
-            else
-                h = a.y >= center.y ? 90 : 270;
-        }
+        var h = this._h4(node, port, linkpoint, spot, from, ortho, othernode, otherport);
+        // 官方 getLinkDirection 中的 Group 包含关系（isMemberOf）分支未移植：
+        // 本项目连线不经过 Group 归属翻转。
         if (this._isCenterSpot(spot) || port === null)
             return h;
         var angle = port.getDocumentAngle();
@@ -22615,15 +28296,73 @@ var Link = /** @class */ (function (_super) {
             h += 270;
         return Link._normalizeAngle(h);
     };
-    /** 官方 `G.Sx(null, spot.x, spot.y)`：spot → 方向角 */
-    Link._spotDirection = function (s) {
-        var dx = s.x - 0.5;
-        var dy = s.y - 0.5;
-        if (dx === 0 && dy === 0)
+    /** 官方 `Link.h4(...)`（getLinkDirection 内核） */
+    Link.prototype._h4 = function (node, port, linkpoint, spot, from, ortho, othernode, otherport) {
+        if (spot !== null && spot.isSpot())
+            return Link._spotDirection(spot);
+        if (spot !== null && spot.isSide()) {
+            var li = port !== null ? this._ys(port) : null;
+            if (li !== null) {
+                switch (li.ye) {
+                    case 1: return 270;
+                    case 8: return 90;
+                    case 2: return 180;
+                    default: return 0;
+                }
+            }
+            if (spot.includesSide(Spot.TopSide))
+                return 270;
+            if (spot.includesSide(Spot.BottomSide))
+                return 90;
+            if (spot.includesSide(Spot.LeftSide))
+                return 180;
             return 0;
-        if (Math.abs(dy) >= Math.abs(dx))
-            return dy > 0 ? 90 : 270;
-        return dx > 0 ? 0 : 180;
+        }
+        if (port === null || otherport === null)
+            return 0;
+        var center = port.getDocumentBounds().center;
+        var a = new Point();
+        if (this.pointsCount > (ortho ? 6 : 2)) {
+            if (ortho) {
+                a.set(this.getPoint(from ? 1 : this.pointsCount - 2));
+                Link._orthogonalize(center, a);
+            }
+            else {
+                a.set(linkpoint);
+            }
+        }
+        else {
+            a.set(otherport.getDocumentBounds().center);
+        }
+        var c;
+        if (Math.abs(a.x - center.x) > Math.abs(a.y - center.y))
+            c = a.x >= center.x ? 0 : 180;
+        else
+            c = a.y >= center.y ? 90 : 270;
+        return c;
+    };
+    /** 官方 `G.Sx(null, spot.x, spot.y)`：点位 spot → 方向角（含 45/135/225/315 对角方向） */
+    Link._spotDirection = function (s) {
+        var n = s.x;
+        var o = s.y;
+        var ret = 0;
+        if (n > o) {
+            if (!(n > 1 - o))
+                ret = n < 1 - o ? 270 : 315;
+        }
+        else if (n < o) {
+            if (n > 1 - o)
+                ret = 90;
+            else
+                ret = n < 1 - o ? 180 : 135;
+        }
+        else {
+            if (n < 0.5)
+                ret = 225;
+            else if (n > 0.5)
+                ret = 45;
+        }
+        return ret;
     };
     /** 官方 `Link.computeSpacing()` */
     Link.prototype.computeSpacing = function () {
@@ -22879,7 +28618,6 @@ var Link = /** @class */ (function (_super) {
     });
     /** 官方 `Link.cA()`：按点列计算 routeBounds（本项目无 Bezier 控制点外扩，等价于包围盒） */
     Link.prototype._computeRouteBounds = function () {
-        var e_2, _a;
         var t = this._routeBounds;
         var n = this.pointsCount;
         if (n === 0) {
@@ -22891,60 +28629,28 @@ var Link = /** @class */ (function (_super) {
         var minY = Infinity;
         var maxX = -Infinity;
         var maxY = -Infinity;
+        // 官方 cA 用 Math.min/Math.max 累积：**NaN 会传播**（布局前路线点为 NaN 时
+        // routeBounds 变成 NaN 而非 ±Infinity）。若用 `if (p.x < minX)` 比较，
+        // NaN 全部落空 → minX/maxX 保持 ±Infinity → 宽高为 -Infinity →
+        // Panel._measureLink 里 `new Rect(0,0,-Infinity,-Infinity)` 抛错，
+        // 整个 _performLayout 中断、TreeLayout 根本没机会执行（faultTree 全部节点
+        // position=NaN、104 个 Rect 报错）。
         for (var i = 0; i < n; i++) {
             var p = this.getPoint(i);
-            if (p.x < minX)
-                minX = p.x;
-            if (p.y < minY)
-                minY = p.y;
-            if (p.x > maxX)
-                maxX = p.x;
-            if (p.y > maxY)
-                maxY = p.y;
+            minX = Math.min(minX, p.x);
+            minY = Math.min(minY, p.y);
+            maxX = Math.max(maxX, p.x);
+            maxY = Math.max(maxY, p.y);
         }
         t.setTo(minX, minY, maxX - minX, maxY - minY);
         this._routeOffset.setTo(0, 0);
-        // 官方 `Link.position` 即路线中点。Part._position 默认是 Point(NaN, NaN)，
-        // 而 Link 从来不写它 —— 于是 Diagram 用 pos 去 arrange 时得到 NaN 矩形，
-        // link.actualBounds 整体作废。这里按路线包围盒中心回写。
-        this._position = new Point(t.x + t.width / 2, t.y + t.height / 2);
-        // 官方 Link 的包围盒 = 路线范围与各子图元（尤其是箭头，measured = natural×scale）
-        // 的并集，并按路线中点居中。早先这里只算了 _routeBounds 却没回写 Link 自身的
-        // natural/measured/actualBounds，导致 link 的 bounds 退化成 1x1，
-        // documentBounds 随之错位（箭头样例整图被推偏 9px）。
-        var childW = 0;
-        var childH = 0;
-        var els = this._elements;
-        if (els) {
-            try {
-                for (var els_1 = __values(els), els_1_1 = els_1.next(); !els_1_1.done; els_1_1 = els_1.next()) {
-                    var el = els_1_1.value;
-                    if (!el || el._isMainLinkShape)
-                        continue;
-                    var mb = el.measuredBounds;
-                    if (mb && mb.width > 0 && mb.height > 0) {
-                        if (mb.width > childW)
-                            childW = mb.width;
-                        if (mb.height > childH)
-                            childH = mb.height;
-                    }
-                }
-            }
-            catch (e_2_1) { e_2 = { error: e_2_1 }; }
-            finally {
-                try {
-                    if (els_1_1 && !els_1_1.done && (_a = els_1.return)) _a.call(els_1);
-                }
-                finally { if (e_2) throw e_2.error; }
-            }
-        }
-        var w = Math.max(t.width, childW);
-        var h = Math.max(t.height, childH);
-        if (w > 0 && h > 0) {
-            this._naturalBounds = new Rect(0, 0, w, h);
-            this._measuredBounds = new Rect(0, 0, w, h);
-            this._actualBounds = new Rect(t.x + (t.width - w) / 2, t.y + (t.height - h) / 2, w, h);
-        }
+        // 官方 `Link.cA()` 只写 routeBounds + routeOffset（BS），
+        // 不碰 position / naturalBounds / measuredBounds / actualBounds ——
+        // 这些由 Panel._measureLink（官方 PanelLayoutLink.measure）在测量阶段写入：
+        //   position = routeBounds 原点 + or.origin，
+        //   natural = measured = (0,0,or.width,or.height)，
+        //   actualBounds = (position, measured)（由 Part.ensureBounds 派生）。
+        // 早先这里按路线中点居中回写 position/bounds 是错误简化，已移除。
     };
     /** 官方 `Link.startRoute()` */
     Link.prototype.startRoute = function () {
@@ -23083,7 +28789,16 @@ var Link = /** @class */ (function (_super) {
     };
     /** 官方：把 link 的几何同步给 `path` 以及所有 isPanelMain 的 Shape 元素 */
     Link.prototype._syncGeometryToMainShapes = function () {
-        var e_3, _a;
+        var e_1, _a;
+        // 官方 `Link.CN()`：几何无效时先重建（`pointsCount>=2 → bt=makeGeometry()`，
+        // 否则也把 jh 置 true），再同步给 path 与各主 Shape。
+        // 早先这里直接读可能过期的 `_geometry`，route 重算后主 Shape 拿到旧几何，
+        // measureLinkPath 量出的 path bounds 与官方不符。
+        if (!this._isGeometryValid) {
+            if (this.pointsCount >= 2)
+                this._geometry = this.makeGeometry();
+            this._isGeometryValid = true;
+        }
         var geo = this._geometry;
         if (!geo)
             return;
@@ -23095,19 +28810,19 @@ var Link = /** @class */ (function (_super) {
         if (!els || !els.length)
             return;
         try {
-            for (var els_2 = __values(els), els_2_1 = els_2.next(); !els_2_1.done; els_2_1 = els_2.next()) {
-                var o = els_2_1.value;
+            for (var els_1 = __values(els), els_1_1 = els_1.next(); !els_1_1.done; els_1_1 = els_1.next()) {
+                var o = els_1_1.value;
                 if (o !== path && o.isPanelMain === true && o instanceof Shape) {
                     o._geometry = geo;
                 }
             }
         }
-        catch (e_3_1) { e_3 = { error: e_3_1 }; }
+        catch (e_1_1) { e_1 = { error: e_1_1 }; }
         finally {
             try {
-                if (els_2_1 && !els_2_1.done && (_a = els_2.return)) _a.call(els_2);
+                if (els_1_1 && !els_1_1.done && (_a = els_1.return)) _a.call(els_1);
             }
-            finally { if (e_3) throw e_3.error; }
+            finally { if (e_1) throw e_1.error; }
         }
     };
     /** 官方 `Link.invalidateRoute()`（= `oi()`，本项目无 invalid-route 集合，只做失效标记） */
@@ -23155,6 +28870,31 @@ var Link = /** @class */ (function (_super) {
         enumerable: false,
         configurable: true
     });
+    /**
+     * 官方 `Link.wc(t, isFrom, ref)`：把几何端点沿首/末线段向内缩短
+     * `computeShortLength`（2 点时上限为半段长，多点时上限为整段长）。
+     * 官方在 makeGeometry 内对几何做短化（link.points 本身不含短化）。
+     * 经官方坐标系（平移到 min、ref=min/0,0）化简后等价于对原始坐标直接缩短。
+     */
+    Link.prototype._wcPoint = function (t, isFrom) {
+        var s = this.pointsCount;
+        if (s < 2)
+            return;
+        var nb = isFrom ? this.getPoint(1) : this.getPoint(s - 2);
+        var dx = nb.x - t.x;
+        var dy = nb.y - t.y;
+        var len = Math.sqrt(dx * dx + dy * dy);
+        if (len === 0)
+            return;
+        var h = s === 2 ? len * 0.5 : len;
+        var a = this.computeShortLength(isFrom);
+        if (isNaN(a) || a <= 0)
+            return;
+        if (a > h)
+            a = h;
+        t.x += (a * dx) / len;
+        t.y += (a * dy) / len;
+    };
     /** 官方 `Link.makeGeometry()`（本项目无 Transform 矩阵，按点列构造折线/贝塞尔几何） */
     Link.prototype.makeGeometry = function () {
         var n = this.pointsCount;
@@ -23162,33 +28902,65 @@ var Link = /** @class */ (function (_super) {
         if (n < 2)
             return geo;
         var pts = this._points;
-        var first = pts.elt(0);
+        // 官方：n = min(points.x) - BS.x，o = min(points.y) - BS.y，所有点减 (n,o) ——
+        // 几何原点是点列 bbox 左上角（route-local 帧），不是文档坐标。
+        // BS = routeOffset（本项目恒 (0,0)，仍按官方参与平移）。
+        var nx = Infinity;
+        var ny = Infinity;
+        for (var i = 0; i < n; i++) {
+            var p = pts.elt(i);
+            if (p.x < nx)
+                nx = p.x;
+            if (p.y < ny)
+                ny = p.y;
+        }
+        if (!isFinite(nx) || !isFinite(ny)) {
+            nx = 0;
+            ny = 0;
+        }
+        var bs = this._routeOffset;
+        nx -= bs.x;
+        ny -= bs.y;
+        // 官方先平移再用「原始」首点 ref 做短化：与「先短化再平移」等价（平移是均匀的）。
+        var first = pts.elt(0).copy();
+        if (this.computeShortLength(true) !== 0)
+            this._wcPoint(first, true);
+        var last = pts.elt(n - 1).copy();
+        if (this.computeShortLength(false) !== 0)
+            this._wcPoint(last, false);
+        first.x -= nx;
+        first.y -= ny;
+        last.x -= nx;
+        last.y -= ny;
+        var at = function (i) {
+            return i === n - 1 ? last : i === 0 ? first : new Point(pts.elt(i).x - nx, pts.elt(i).y - ny);
+        };
         var fig = new PathFigure(first.x, first.y, false);
         var bezier = this.computeCurve() === CurveBezier;
         if (bezier && !this.isOrthogonal && n >= 4 && (n - 1) % 3 === 0) {
             for (var i = 1; i + 2 < n; i += 3) {
-                var p1 = pts.elt(i);
-                var p2 = pts.elt(i + 1);
-                var p3 = pts.elt(i + 2);
+                var p1 = new Point(pts.elt(i).x - nx, pts.elt(i).y - ny);
+                var p2 = new Point(pts.elt(i + 1).x - nx, pts.elt(i + 1).y - ny);
+                var p3 = at(i + 2);
                 fig.add(PathSegment.CubicBezier(p3.x, p3.y, p1.x, p1.y, p2.x, p2.y));
             }
         }
         else if (bezier && n === 3) {
-            var p1 = pts.elt(1);
-            var p2 = pts.elt(2);
+            var p1 = new Point(pts.elt(1).x - nx, pts.elt(1).y - ny);
+            var p2 = at(2);
             fig.add(PathSegment.QuadraticBezier(p2.x, p2.y, p1.x, p1.y));
         }
         else {
             for (var i = 1; i < n; i++) {
-                var p = pts.elt(i);
+                var p = at(i);
                 fig.add(PathSegment.Line(p.x, p.y));
             }
         }
         geo.add(fig);
         return geo;
     };
-    /** 官方 `Link.adjustPoints(start, end, p1, p2)` */
-    Link.prototype.adjustPoints = function (start, end, p1, p2) {
+    /** 官方 `Link.adjustPoints(start, p1, end, p2)` */
+    Link.prototype.adjustPoints = function (start, p1, end, p2) {
         var n = this.computeAdjusting();
         if (this.isOrthogonal) {
             if (n === LinkAdjustingScale)
@@ -23363,33 +29135,298 @@ var Link = /** @class */ (function (_super) {
     };
     /**
      * 官方 `Link.addOrthoPoints(startFrom, fromDir, endTo, toDir, fromnode, tonode)`。
-     * 官方是约 90 行的分情况折线表；本项目用等价的最少拐点正交连接（只补中间点，不含 startFrom/endTo）。
+     * 逐分支转译自 go-debug.js 778104..784083（含 fA/sA/nA 路由状态与尾部两点追加）。
      */
     Link.prototype.addOrthoPoints = function (startFrom, fromDir, endTo, toDir, fromnode, tonode) {
-        var f = Link._normalizeAngle(fromDir);
-        var t = Link._normalizeAngle(toDir);
-        var fromVertical = f === 90 || f === 270;
-        var toVertical = t === 90 || t === 270;
-        if (fromVertical && toVertical) {
-            var y = this.computeMidOrthoPosition(startFrom.x, startFrom.y, endTo.x, endTo.y, true);
-            if (!Link._approx(y, startFrom.y))
-                this.addPointAt(startFrom.x, y);
-            if (!Link._approx(y, endTo.y))
-                this.addPointAt(endTo.x, y);
+        var _this = this;
+        var i = Link._normalizeAngle(fromDir);
+        var s = Link._normalizeAngle(toDir);
+        var c = s;
+        if (i >= 315 || i < 45)
+            i = 0;
+        else if (i >= 45 && i < 135)
+            i = 90;
+        else if (i >= 135 && i < 225)
+            i = 180;
+        else
+            i = 270;
+        if (s >= 315 || s < 45)
+            s = 0;
+        else if (s >= 45 && s < 135)
+            s = 90;
+        else if (s >= 135 && s < 225)
+            s = 180;
+        else
+            s = 270;
+        var f = startFrom;
+        var u = endTo;
+        var d = fromnode.getDocumentBounds().copy();
+        var m = tonode.getDocumentBounds().copy();
+        d.inflate(Link._Wh, Link._Wh);
+        m.inflate(Link._Wh, Link._Wh);
+        d.unionPoint(startFrom);
+        m.unionPoint(endTo);
+        var g = new Point();
+        var p = new Point();
+        var mid = function (x1, y1, x2, y2, vertical) {
+            return _this.computeMidOrthoPosition(x1, y1, x2, y2, vertical);
+        };
+        if (i === 0) {
+            if (u.x > f.x || (s === 270 && u.y < f.y && m.right > f.x) || (s === 90 && u.y > f.y && m.right > f.x)) {
+                g.setTo(u.x, f.y);
+                p.setTo(u.x, (f.y + u.y) / 2);
+                if (s === 180) {
+                    g.x = mid(f.x, f.y, u.x, u.y, false);
+                    p.x = g.x;
+                    p.y = u.y;
+                }
+                else if ((s === 270 && u.y < f.y) || (s === 90 && u.y > f.y)) {
+                    if (f.x < m.left)
+                        g.x = mid(f.x, f.y, m.left, u.y, false);
+                    else if (f.x < m.right && ((s === 270 && f.y < m.top) || (s === 90 && f.y > m.bottom)))
+                        g.x = mid(f.x, f.y, u.x, u.y, false);
+                    else
+                        g.x = m.right;
+                    p.x = g.x;
+                    p.y = u.y;
+                }
+                else if (s === 0 && f.x < m.left && f.y > m.top && f.y < m.bottom) {
+                    g.x = f.x;
+                    g.y = f.y < u.y ? Math.min(u.y, m.top) : Math.max(u.y, m.bottom);
+                    p.y = g.y;
+                }
+            }
+            else {
+                g.setTo(f.x, u.y);
+                p.setTo((f.x + u.x) / 2, u.y);
+                if (s === 180 || (s === 90 && u.y < d.top) || (s === 270 && u.y > d.bottom)) {
+                    var y = m.containsPoint(f) || d.containsPoint(u);
+                    if (s === 180 && y)
+                        g.y = mid(f.x, f.y, u.x, u.y, true);
+                    else if (u.y < f.y && (s === 180 || s === 90)) {
+                        var x = y ? Math.min(u.y, m.bottom) : Math.max(u.y, m.bottom);
+                        g.y = mid(f.x, d.top, u.x, x, true);
+                    }
+                    else if (u.y > f.y && (s === 180 || s === 270)) {
+                        var x = y ? Math.max(u.y, m.top) : Math.min(u.y, m.top);
+                        g.y = mid(f.x, d.bottom, u.x, x, true);
+                    }
+                    p.x = u.x;
+                    p.y = g.y;
+                }
+                if (g.y > d.top && g.y < d.bottom) {
+                    if ((u.x >= d.left && u.x <= f.x) || (f.x <= m.right && f.x >= u.x)) {
+                        if (s === 90 || s === 270) {
+                            g.setTo(Math.max((f.x + u.x) / 2, f.x), f.y);
+                            p.setTo(g.x, u.y);
+                        }
+                    }
+                    else {
+                        if (s === 270 || ((s === 0 || s === 180) && u.y < f.y))
+                            g.y = Math.min(u.y, s === 0 ? d.top : Math.min(d.top, m.top));
+                        else
+                            g.y = Math.max(u.y, s === 0 ? d.bottom : Math.max(d.bottom, m.bottom));
+                        p.x = u.x;
+                        p.y = g.y;
+                    }
+                }
+            }
         }
-        else if (!fromVertical && !toVertical) {
-            var x = this.computeMidOrthoPosition(startFrom.x, startFrom.y, endTo.x, endTo.y, false);
-            if (!Link._approx(x, startFrom.x))
-                this.addPointAt(x, startFrom.y);
-            if (!Link._approx(x, endTo.x))
-                this.addPointAt(x, endTo.y);
+        else if (i === 180) {
+            if (u.x < f.x || (s === 270 && u.y < f.y && m.left < f.x) || (s === 90 && u.y > f.y && m.left < f.x)) {
+                g.setTo(u.x, f.y);
+                p.setTo(u.x, (f.y + u.y) / 2);
+                if (s === 0) {
+                    g.x = mid(f.x, f.y, u.x, u.y, false);
+                    p.x = g.x;
+                    p.y = u.y;
+                }
+                else if ((s === 270 && u.y < f.y) || (s === 90 && u.y > f.y)) {
+                    if (f.x > m.right)
+                        g.x = mid(f.x, f.y, m.right, u.y, false);
+                    else if (f.x > m.left && ((s === 270 && f.y < m.top) || (s === 90 && f.y > m.bottom)))
+                        g.x = mid(f.x, f.y, u.x, u.y, false);
+                    else
+                        g.x = m.left;
+                    p.x = g.x;
+                    p.y = u.y;
+                }
+                else if (s === 180 && f.x > m.right && f.y > m.top && f.y < m.bottom) {
+                    g.x = f.x;
+                    g.y = f.y < u.y ? Math.min(u.y, m.top) : Math.max(u.y, m.bottom);
+                    p.y = g.y;
+                }
+            }
+            else {
+                g.setTo(f.x, u.y);
+                p.setTo((f.x + u.x) / 2, u.y);
+                if (s === 0 || (s === 90 && u.y < d.top) || (s === 270 && u.y > d.bottom)) {
+                    var y = m.containsPoint(f) || d.containsPoint(u);
+                    if (s === 0 && y)
+                        g.y = mid(f.x, f.y, u.x, u.y, true);
+                    else if (u.y < f.y && (s === 0 || s === 90)) {
+                        var x = y ? Math.min(u.y, m.bottom) : Math.max(u.y, m.bottom);
+                        g.y = mid(f.x, d.top, u.x, x, true);
+                    }
+                    else if (u.y > f.y && (s === 0 || s === 270)) {
+                        var x = y ? Math.max(u.y, m.top) : Math.min(u.y, m.top);
+                        g.y = mid(f.x, d.bottom, u.x, x, true);
+                    }
+                    p.x = u.x;
+                    p.y = g.y;
+                }
+                if (g.y > d.top && g.y < d.bottom) {
+                    if ((u.x <= d.right && u.x >= f.x) || (f.x >= m.left && f.x <= u.x)) {
+                        if (s === 90 || s === 270) {
+                            g.setTo(Math.min((f.x + u.x) / 2, f.x), f.y);
+                            p.setTo(g.x, u.y);
+                        }
+                    }
+                    else {
+                        if (s === 270 || ((s === 0 || s === 180) && u.y < f.y))
+                            g.y = Math.min(u.y, s === 180 ? d.top : Math.min(d.top, m.top));
+                        else
+                            g.y = Math.max(u.y, s === 180 ? d.bottom : Math.max(d.bottom, m.bottom));
+                        p.x = u.x;
+                        p.y = g.y;
+                    }
+                }
+            }
         }
-        else if (fromVertical) {
-            this.addPointAt(startFrom.x, endTo.y);
+        else if (i === 90) {
+            if (u.y > f.y || (s === 180 && u.x < f.x && m.bottom > f.y) || (s === 0 && u.x > f.x && m.bottom > f.y)) {
+                g.setTo(f.x, u.y);
+                p.setTo((f.x + u.x) / 2, u.y);
+                if (s === 270) {
+                    g.y = mid(f.x, f.y, u.x, u.y, true);
+                    p.x = u.x;
+                    p.y = g.y;
+                }
+                else if ((s === 180 && u.x < f.x) || (s === 0 && u.x > f.x)) {
+                    if (f.y < m.top)
+                        g.y = mid(f.x, f.y, u.x, m.top, true);
+                    else if (f.y < m.bottom && ((s === 180 && f.x < m.left) || (s === 0 && f.x > m.right)))
+                        g.y = mid(f.x, f.y, u.x, u.y, true);
+                    else
+                        g.y = m.bottom;
+                    p.x = u.x;
+                    p.y = g.y;
+                }
+                else if (s === 90 && f.y < m.top && f.x > m.left && f.x < m.right) {
+                    if (f.x < u.x)
+                        g.x = Math.min(u.x, m.left);
+                    else
+                        g.x = Math.max(u.x, m.right);
+                    g.y = f.y;
+                    p.x = g.x;
+                }
+            }
+            else {
+                g.setTo(u.x, f.y);
+                p.setTo(u.x, (f.y + u.y) / 2);
+                if (s === 270 || (s === 0 && u.x < d.left) || (s === 180 && u.x > d.right)) {
+                    var y = m.containsPoint(f) || d.containsPoint(u);
+                    if (s === 270 && y)
+                        g.x = mid(f.x, f.y, u.x, u.y, false);
+                    else if (u.x < f.x && (s === 270 || s === 0)) {
+                        var x = y ? Math.min(u.x, m.right) : Math.max(u.x, m.right);
+                        g.x = mid(d.left, f.y, x, u.y, false);
+                    }
+                    else if (u.x > f.x && (s === 270 || s === 180)) {
+                        var x = y ? Math.max(u.x, m.left) : Math.min(u.x, m.left);
+                        g.x = mid(d.right, f.y, x, u.y, false);
+                    }
+                    p.x = g.x;
+                    p.y = u.y;
+                }
+                if (g.x > d.left && g.x < d.right) {
+                    if ((u.y >= d.top && u.y <= f.y) || (f.y <= m.bottom && f.y >= u.y)) {
+                        if (s === 0 || s === 180) {
+                            g.setTo(f.x, Math.max((f.y + u.y) / 2, f.y));
+                            p.setTo(u.x, g.y);
+                        }
+                    }
+                    else {
+                        if (s === 180 || ((s === 90 || s === 270) && u.x < f.x))
+                            g.x = Math.min(u.x, s === 90 ? d.left : Math.min(d.left, m.left));
+                        else
+                            g.x = Math.max(u.x, s === 90 ? d.right : Math.max(d.right, m.right));
+                        p.x = g.x;
+                        p.y = u.y;
+                    }
+                }
+            }
         }
         else {
-            this.addPointAt(endTo.x, startFrom.y);
+            // i === 270
+            if (u.y < f.y || (s === 180 && u.x < f.x && m.top < f.y) || (s === 0 && u.x > f.x && m.top < f.y)) {
+                g.setTo(f.x, u.y);
+                p.setTo((f.x + u.x) / 2, u.y);
+                if (s === 90) {
+                    g.y = mid(f.x, f.y, u.x, u.y, true);
+                    p.x = u.x;
+                    p.y = g.y;
+                }
+                else if ((s === 180 && u.x < f.x) || (s === 0 && u.x >= f.x)) {
+                    if (f.y > m.bottom)
+                        g.y = mid(f.x, f.y, u.x, m.bottom, true);
+                    else if (f.y > m.top && ((s === 180 && f.x < m.left) || (s === 0 && f.x > m.right)))
+                        g.y = mid(f.x, f.y, u.x, u.y, true);
+                    else
+                        g.y = m.top;
+                    p.x = u.x;
+                    p.y = g.y;
+                }
+                else if (s === 270 && f.y > m.bottom && f.x > m.left && f.x < m.right) {
+                    if (f.x < u.x)
+                        g.x = Math.min(u.x, m.left);
+                    else
+                        g.x = Math.max(u.x, m.right);
+                    g.y = f.y;
+                    p.x = g.x;
+                }
+            }
+            else {
+                g.setTo(u.x, f.y);
+                p.setTo(u.x, (f.y + u.y) / 2);
+                if (s === 90 || (s === 0 && u.x < d.left) || (s === 180 && u.x > d.right)) {
+                    var y = m.containsPoint(f) || d.containsPoint(u);
+                    if (s === 90 && y)
+                        g.x = mid(f.x, f.y, u.x, u.y, false);
+                    else if (u.x < f.x && (s === 90 || s === 0)) {
+                        var x = y ? Math.min(u.x, m.right) : Math.max(u.x, m.right);
+                        g.x = mid(d.left, f.y, x, u.y, false);
+                    }
+                    else if (u.x > f.x && (s === 90 || s === 180)) {
+                        var x = y ? Math.max(u.x, m.left) : Math.min(u.x, m.left);
+                        g.x = mid(d.right, f.y, x, u.y, false);
+                    }
+                    p.x = g.x;
+                    p.y = u.y;
+                }
+                if (g.x > d.left && g.x < d.right) {
+                    if ((u.y <= d.bottom && u.y >= f.y) || (f.y >= m.top && f.y <= u.y)) {
+                        if (s === 0 || s === 180) {
+                            g.setTo(f.x, Math.min((f.y + u.y) / 2, f.y));
+                            p.setTo(u.x, g.y);
+                        }
+                    }
+                    else {
+                        if (s === 180 || ((s === 90 || s === 270) && u.x < f.x))
+                            g.x = Math.min(u.x, s === 270 ? d.left : Math.min(d.left, m.left));
+                        else
+                            g.x = Math.max(u.x, s === 270 ? d.right : Math.max(d.right, m.right));
+                        p.x = g.x;
+                        p.y = u.y;
+                    }
+                }
+            }
         }
+        this._fA = s !== c;
+        this._sA = i;
+        this._nA = s;
+        this.addPoint(g.copy());
+        this.addPoint(p.copy());
     };
     /** 官方 `Link.invalidateOtherJumpOvers(bounds)`（本项目不做 jump 几何缓存，仅让同批 JumpOver/Gap 失效） */
     Link.prototype.invalidateOtherJumpOvers = function (bounds) {
@@ -24110,8 +30147,9 @@ var Node = /** @class */ (function (_super) {
         var map = new Map$1();
         this.walkVisualTreeFrom(this, function (_root, obj) {
             var id = obj.portId;
-            // 官方 portId 默认为 null 时跳过；本项目默认为 ''，等价跳过
-            if (id !== null && id !== undefined && id !== '')
+            // 官方 portId 默认 null 跳过；显式 portId === '' 的对象是“整个节点的默认端口”，
+            // 必须收录（canvases 的 Picture 就靠它成为 link 的端点）。
+            if (id !== null && id !== undefined)
                 map.set(id, obj);
         });
         if (map.count === 0)
@@ -24239,8 +30277,14 @@ var Node = /** @class */ (function (_super) {
             if (toPort && typeof toPort.invalidateConnectedLinksCache === 'function') {
                 toPort.invalidateConnectedLinksCache();
             }
-            if (typeof link.computePoints === 'function')
+            if (typeof link.invalidateRoute === 'function') {
+                link.invalidateRoute();
+                if (typeof link.updateRoute === 'function')
+                    link.updateRoute();
+            }
+            else if (typeof link.computePoints === 'function') {
                 link.computePoints();
+            }
         }
     };
     /**
@@ -24917,6 +30961,47 @@ var LayoutNetwork = /** @class */ (function () {
         this.vertexes.add(vertex);
         return vertex;
     };
+    /**
+     * 把一批顶点/边重新挂回本网络（不重复登记边到 vertex 上）。
+     *
+     * `splitIntoSubNetworks()` 是**破坏性**的：它把顶点/边从本网络搬到子网络，
+     * 拆完主网络就空了。但官方 CircularLayout 在 commitNodes()/commitLinks() 阶段
+     * `this.network` 仍然持有全部 vertexes/edges —— 样例（friendWheel 的 WheelLayout 等）
+     * 覆写里遍历 `this.network.vertexes` / `this.network.edges`，
+     * 一旦是空列表，径向旋转和 link.curviness 就都失效。拆分只是分组手段，
+     * 所以布局算完再挂回来。
+     */
+    LayoutNetwork.prototype.reattach = function (vertexes, edges) {
+        var e_1, _a, e_2, _b;
+        try {
+            for (var vertexes_1 = __values(vertexes), vertexes_1_1 = vertexes_1.next(); !vertexes_1_1.done; vertexes_1_1 = vertexes_1.next()) {
+                var v = vertexes_1_1.value;
+                v.network = this;
+                this.vertexes.add(v);
+            }
+        }
+        catch (e_1_1) { e_1 = { error: e_1_1 }; }
+        finally {
+            try {
+                if (vertexes_1_1 && !vertexes_1_1.done && (_a = vertexes_1.return)) _a.call(vertexes_1);
+            }
+            finally { if (e_1) throw e_1.error; }
+        }
+        try {
+            for (var edges_1 = __values(edges), edges_1_1 = edges_1.next(); !edges_1_1.done; edges_1_1 = edges_1.next()) {
+                var e = edges_1_1.value;
+                e.network = this;
+                this.edges.add(e);
+            }
+        }
+        catch (e_2_1) { e_2 = { error: e_2_1 }; }
+        finally {
+            try {
+                if (edges_1_1 && !edges_1_1.done && (_b = edges_1.return)) _b.call(edges_1);
+            }
+            finally { if (e_2) throw e_2.error; }
+        }
+    };
     /** Add an edge to this network (官方：toVertex.addSourceEdge, fromVertex.addDestinationEdge) */
     LayoutNetwork.prototype.addEdge = function (edge) {
         edge.network = this;
@@ -24943,9 +31028,9 @@ var LayoutNetwork = /** @class */ (function () {
         if (!toVertex) {
             toVertex = this.addNode(toNode);
         }
-        var edge = this.linkVertexes(fromVertex, toVertex);
-        edge.link = link;
-        this.linkToLayoutEdge.set(link, edge);
+        var edge = this.linkVertexes(fromVertex, toVertex, link);
+        if (edge === null)
+            return null;
         return edge;
     };
     /** Add a node to the network, creating a vertex */
@@ -24966,57 +31051,132 @@ var LayoutNetwork = /** @class */ (function () {
         this.nodeToLayoutVertex.set(node, vertex);
         return vertex;
     };
-    /** 官方 LayoutNetwork.addParts(parts, toplevelonly?, pred?): void */
-    LayoutNetwork.prototype.addParts = function (parts, toplevelonly, pred) {
+    /**
+     * 官方 LayoutNetwork.addParts(coll, toplevelonly?, pred?): void
+     * 官方是两阶段：先把**节点**入网（`Group.layout === null` 的组递归收成员，
+     * 且递归时用默认谓词），再处理**连线** —— 连线端点用 `findGroupVertex`
+     * 解析到「自身或网络中已有的最深祖先 vertex」，**不自动创建端点 vertex**；
+     * 任一侧解析为 null 则跳过该连线。这正是 flowgrammer 组内布局
+     * 不会把 L3→4 的端点 node4（属于嵌套组 -2）塞进组 -1 网络的原因。
+     */
+    LayoutNetwork.prototype.addParts = function (coll, toplevelonly, pred) {
         var _this = this;
-        var visit = function (coll) {
-            var e_1, _a;
-            if (!coll)
-                return;
+        if (coll === null || coll === undefined)
+            return;
+        var toplevel = toplevelonly === true;
+        var e = (pred !== null && pred !== undefined) ? pred : function (n) {
+            if (n instanceof Node)
+                return !n.isLinkLabel;
+            if (n instanceof Link) {
+                var o = n.fromNode;
+                if (o === null || o.isLinkLabel)
+                    return false;
+                var r = n.toNode;
+                return !(r === null || r.isLinkLabel);
+            }
+            return false;
+        };
+        var iterate = function (fn) {
+            var e_3, _a;
+            var prop = coll.iterator;
             if (typeof coll.iterator === 'function') {
-                var it = coll.iterator;
+                var it = coll.iterator();
                 while (it.next())
-                    visit(it.value);
+                    fn(it.value);
+                return;
+            }
+            if (prop && typeof prop.next === 'function') {
+                while (prop.next())
+                    fn(prop.value);
                 return;
             }
             if (typeof coll.next === 'function') {
                 while (coll.next())
-                    visit(coll.value);
+                    fn(coll.value);
                 return;
             }
             if (Array.isArray(coll)) {
                 try {
                     for (var coll_1 = __values(coll), coll_1_1 = coll_1.next(); !coll_1_1.done; coll_1_1 = coll_1.next()) {
-                        var p = coll_1_1.value;
-                        visit(p);
+                        var n = coll_1_1.value;
+                        fn(n);
                     }
                 }
-                catch (e_1_1) { e_1 = { error: e_1_1 }; }
+                catch (e_3_1) { e_3 = { error: e_3_1 }; }
                 finally {
                     try {
                         if (coll_1_1 && !coll_1_1.done && (_a = coll_1.return)) _a.call(coll_1);
                     }
-                    finally { if (e_1) throw e_1.error; }
+                    finally { if (e_3) throw e_3.error; }
                 }
                 return;
             }
-            var part = coll;
-            if (part === null || part === undefined)
-                return;
-            if (pred !== null && pred !== undefined && typeof pred === 'function' && !pred(part))
-                return;
-            if (toplevelonly === true && typeof part.isTopLevel === 'boolean' && !part.isTopLevel)
-                return;
-            if (part instanceof Node)
-                _this.addNode(part);
-            else if (part instanceof Link)
-                _this.addLink(part);
+            fn(coll);
         };
-        visit(parts);
+        // 阶段 1：节点
+        iterate(function (n) {
+            if (!(n instanceof Node) || (toplevel && !n.isTopLevel))
+                return;
+            if (typeof n.canLayout === 'function' && !n.canLayout())
+                return;
+            if (!e(n))
+                return;
+            // _className 判断等价 instanceof Group（避免 LayoutNetwork↔Group 循环依赖）
+            if (n._className === 'Group' && n.layout === null) {
+                // 官方递归不透传 pred（组内成员按默认谓词收）
+                _this.addParts(n.memberParts, false);
+                return;
+            }
+            if (_this.findVertex(n) !== null)
+                return;
+            var o = _this.createVertex();
+            o.node = n;
+            o.part = n;
+            _this.addVertex(o);
+        });
+        // 阶段 2：连线
+        iterate(function (n) {
+            if (!(n instanceof Link) || (toplevel && !n.isTopLevel))
+                return;
+            if (typeof n.canLayout === 'function' && !n.canLayout())
+                return;
+            if (!e(n))
+                return;
+            if (_this.findEdge(n) !== null)
+                return;
+            var o = n.fromNode;
+            var r = n.toNode;
+            if (o === null || r === null || o === r)
+                return;
+            _this.linkVertexes(_this.findGroupVertex(o), _this.findGroupVertex(r), n);
+        });
+    };
+    /**
+     * 官方 LayoutNetwork.findGroupVertex(node)：
+     * 端点解析为「自身（findVisibleNode）的 vertex，否则沿 containingGroup 向上
+     * 找第一个已入网的祖先 vertex」，全都没有则 null。
+     */
+    LayoutNetwork.prototype.findGroupVertex = function (node) {
+        if (node === null || node === undefined)
+            return null;
+        var i = (typeof node.findVisibleNode === 'function') ? node.findVisibleNode() : node;
+        if (i === null)
+            return null;
+        var v = this.findVertex(i);
+        if (v !== null)
+            return v;
+        var s = i.containingGroup;
+        while (s !== null && s !== undefined) {
+            v = this.findVertex(s);
+            if (v !== null)
+                return v;
+            s = s.containingGroup;
+        }
+        return null;
     };
     /** 官方 LayoutNetwork.deleteVertex(vertex) */
     LayoutNetwork.prototype.deleteVertex = function (vertex) {
-        var e_2, _a;
+        var e_4, _a;
         if (!vertex)
             return;
         // 先摘掉相连的边
@@ -25028,17 +31188,17 @@ var LayoutNetwork = /** @class */ (function () {
         while (it.next())
             edges.push(it.value);
         try {
-            for (var edges_1 = __values(edges), edges_1_1 = edges_1.next(); !edges_1_1.done; edges_1_1 = edges_1.next()) {
-                var e = edges_1_1.value;
+            for (var edges_2 = __values(edges), edges_2_1 = edges_2.next(); !edges_2_1.done; edges_2_1 = edges_2.next()) {
+                var e = edges_2_1.value;
                 this.deleteEdge(e);
             }
         }
-        catch (e_2_1) { e_2 = { error: e_2_1 }; }
+        catch (e_4_1) { e_4 = { error: e_4_1 }; }
         finally {
             try {
-                if (edges_1_1 && !edges_1_1.done && (_a = edges_1.return)) _a.call(edges_1);
+                if (edges_2_1 && !edges_2_1.done && (_a = edges_2.return)) _a.call(edges_2);
             }
-            finally { if (e_2) throw e_2.error; }
+            finally { if (e_4) throw e_4.error; }
         }
         this.vertexes.remove(vertex);
         if (vertex.node)
@@ -25077,7 +31237,7 @@ var LayoutNetwork = /** @class */ (function () {
     };
     /** Delete all artificial vertexes from the network */
     LayoutNetwork.prototype.deleteArtificialVertexes = function () {
-        var e_3, _a, e_4, _b;
+        var e_5, _a, e_6, _b;
         var toRemove = [];
         var it = this.vertexes.iterator;
         while (it.next()) {
@@ -25100,32 +31260,32 @@ var LayoutNetwork = /** @class */ (function () {
                     edgesToRemove.push(dstIt.value);
                 }
                 try {
-                    for (var edgesToRemove_1 = (e_4 = void 0, __values(edgesToRemove)), edgesToRemove_1_1 = edgesToRemove_1.next(); !edgesToRemove_1_1.done; edgesToRemove_1_1 = edgesToRemove_1.next()) {
+                    for (var edgesToRemove_1 = (e_6 = void 0, __values(edgesToRemove)), edgesToRemove_1_1 = edgesToRemove_1.next(); !edgesToRemove_1_1.done; edgesToRemove_1_1 = edgesToRemove_1.next()) {
                         var e = edgesToRemove_1_1.value;
                         this.deleteEdge(e);
                     }
                 }
-                catch (e_4_1) { e_4 = { error: e_4_1 }; }
+                catch (e_6_1) { e_6 = { error: e_6_1 }; }
                 finally {
                     try {
                         if (edgesToRemove_1_1 && !edgesToRemove_1_1.done && (_b = edgesToRemove_1.return)) _b.call(edgesToRemove_1);
                     }
-                    finally { if (e_4) throw e_4.error; }
+                    finally { if (e_6) throw e_6.error; }
                 }
                 this.vertexes.remove(v);
             }
         }
-        catch (e_3_1) { e_3 = { error: e_3_1 }; }
+        catch (e_5_1) { e_5 = { error: e_5_1 }; }
         finally {
             try {
                 if (toRemove_1_1 && !toRemove_1_1.done && (_a = toRemove_1.return)) _a.call(toRemove_1);
             }
-            finally { if (e_3) throw e_3.error; }
+            finally { if (e_5) throw e_5.error; }
         }
     };
     /** Delete self-loop edges (where fromVertex === toVertex) */
     LayoutNetwork.prototype.deleteSelfEdges = function () {
-        var e_5, _a;
+        var e_7, _a;
         var toRemove = [];
         var it = this.edges.iterator;
         while (it.next()) {
@@ -25140,12 +31300,12 @@ var LayoutNetwork = /** @class */ (function () {
                 this.deleteEdge(e);
             }
         }
-        catch (e_5_1) { e_5 = { error: e_5_1 }; }
+        catch (e_7_1) { e_7 = { error: e_7_1 }; }
         finally {
             try {
                 if (toRemove_2_1 && !toRemove_2_1.done && (_a = toRemove_2.return)) _a.call(toRemove_2);
             }
-            finally { if (e_5) throw e_5.error; }
+            finally { if (e_7) throw e_7.error; }
         }
     };
     /** Find the vertex associated with a node */
@@ -25156,12 +31316,21 @@ var LayoutNetwork = /** @class */ (function () {
     LayoutNetwork.prototype.findEdge = function (link) {
         return this.linkToLayoutEdge.get(link) || null;
     };
-    /** Create an edge connecting two vertexes */
-    LayoutNetwork.prototype.linkVertexes = function (fromVertex, toVertex) {
+    /**
+     * 官方 LayoutNetwork.linkVertexes(fromVertex, toVertex, link?)：
+     * 任一侧为 null 直接返回 null（不建点）；带 link 时登记 link→edge 映射。
+     */
+    LayoutNetwork.prototype.linkVertexes = function (fromVertex, toVertex, link) {
+        if (fromVertex === null || toVertex === null)
+            return null;
         var edge = this.createEdge();
         edge.network = this;
         edge.fromVertex = fromVertex;
         edge.toVertex = toVertex;
+        if (link !== null && link !== undefined) {
+            edge.link = link;
+            this.linkToLayoutEdge.set(link, edge);
+        }
         toVertex.addSourceEdge(edge);
         fromVertex.addDestinationEdge(edge);
         this.edges.add(edge);
@@ -25188,7 +31357,7 @@ var LayoutNetwork = /** @class */ (function () {
      * 导致 List 无限增长直至 `RangeError: Invalid array length`。
      */
     LayoutNetwork.prototype.splitIntoSubNetworks = function () {
-        var e_6, _a;
+        var e_8, _a;
         var result = new List();
         if (this.vertexes.count === 0)
             return result;
@@ -25231,12 +31400,12 @@ var LayoutNetwork = /** @class */ (function () {
                 result.add(component);
             }
         }
-        catch (e_6_1) { e_6 = { error: e_6_1 }; }
+        catch (e_8_1) { e_8 = { error: e_8_1 }; }
         finally {
             try {
                 if (starts_1_1 && !starts_1_1.done && (_a = starts_1.return)) _a.call(starts_1);
             }
-            finally { if (e_6) throw e_6.error; }
+            finally { if (e_8) throw e_8.error; }
         }
         return result;
     };
@@ -25505,6 +31674,11 @@ var Layout = /** @class */ (function () {
      * @param coll - A Diagram, Iterable<Part>, or array of Parts
      */
     Layout.prototype.collectParts = function (coll) {
+        // 官方用的是 GSet：Diagram 入参时 nodes / links / parts 三份一起收，
+        // `parts` 里已经包含全部 node 与 link，靠 Set 去重才不会重复收集。
+        // 我们以前用 List，同一个 part 会被收两遍 —— friendWheel 的 60 节点 120 连线
+        // 变成 collectParts=360、网络里 240 条边，半径算错、link.curviness 被覆写两次。
+        var seen = new Set$1();
         var parts = new List();
         if (!coll)
             return parts;
@@ -25523,20 +31697,20 @@ var Layout = /** @class */ (function () {
         if (coll._layers) {
             var diagram = coll;
             this._diagram = diagram;
-            this._collectInto(parts, diagram.nodes, true);
-            this._collectInto(parts, diagram.links, true);
-            this._collectInto(parts, diagram.parts, true);
+            this._collectInto(seen, parts, diagram.nodes, true);
+            this._collectInto(seen, parts, diagram.links, true);
+            this._collectInto(seen, parts, diagram.parts, true);
             return parts;
         }
         if (coll instanceof Group) {
-            this._collectInto(parts, coll.memberParts, false);
+            this._collectInto(seen, parts, coll.memberParts, false);
             return parts;
         }
-        this._collectInto(parts, coll, false);
+        this._collectInto(seen, parts, coll, false);
         return parts;
     };
     /** 官方 collectParts 内部的收集过程（对应官方私有 Ka 方法） */
-    Layout.prototype._collectInto = function (set, coll, toplevelonly) {
+    Layout.prototype._collectInto = function (seen, out, coll, toplevelonly) {
         if (!coll)
             return;
         var it = (typeof coll.iterator === 'function')
@@ -25548,6 +31722,8 @@ var Layout = /** @class */ (function () {
             var part = it.value;
             if (!part)
                 continue;
+            if (seen.contains(part))
+                continue; // diagram.parts 里已有的 node/link 不再收第二遍
             if (toplevelonly && part.isTopLevel === false)
                 continue;
             // 官方的 collectParts 不看 visible，但本项目里临时层（Adornment 等）的 part
@@ -25561,20 +31737,23 @@ var Layout = /** @class */ (function () {
                 if (part.isLinkLabel)
                     continue;
                 if (part instanceof Group && part.layout === null) {
-                    this._collectInto(set, part.memberParts, false);
+                    this._collectInto(seen, out, part.memberParts, false);
                     continue;
                 }
                 if (typeof part.ensureBounds === 'function')
                     part.ensureBounds();
-                set.add(part);
+                seen.add(part);
+                out.add(part);
             }
             else if (part instanceof Link) {
-                set.add(part);
+                seen.add(part);
+                out.add(part);
             }
             else {
                 if (typeof part.ensureBounds === 'function')
                     part.ensureBounds();
-                set.add(part);
+                seen.add(part);
+                out.add(part);
             }
         }
     };
@@ -25621,7 +31800,7 @@ var Layout = /** @class */ (function () {
      * 官方：`const t = new this.constructor; return this.cloneProtected(t), t`
      */
     Layout.prototype.copy = function () {
-        var copy = new Layout();
+        var copy = new this.constructor();
         this.cloneProtected(copy);
         return copy;
     };
@@ -25801,12 +31980,18 @@ var Layout = /** @class */ (function () {
                 vertex.y = bounds.y;
             }
         }
-        // Add all links as edges
+        // Add all links as edges（官方 addParts 阶段 2：findGroupVertex 解析端点，
+        // 不自动建端点 vertex；任一侧为 null 则跳过）
         var linkIt = parts.iterator;
         while (linkIt.next()) {
             var part = linkIt.value;
             if (part instanceof Link) {
-                net.addLink(part);
+                var link = part;
+                var fn = link.fromNode;
+                var tn = link.toNode;
+                if (!fn || !tn || fn === tn)
+                    continue;
+                net.linkVertexes(net.findGroupVertex(fn), net.findGroupVertex(tn), link);
             }
         }
         this._network = net;
@@ -26427,6 +32612,7 @@ var Placeholder = /** @class */ (function (_super) {
     __extends(Placeholder, _super);
     function Placeholder(init) {
         var _this = _super.call(this) || this;
+        /** 官方 Placeholder.padding：number 或 Margin（官方 setter 把 number 归一成 Margin） */
         _this._padding = 0;
         _this._className = 'Placeholder';
         _this._isPlaceholder = true;
@@ -26440,14 +32626,27 @@ var Placeholder = /** @class */ (function (_super) {
             return this._padding;
         },
         set: function (val) {
-            if (this._padding !== val) {
-                this._padding = val;
-                this._invalidateMeasure();
-            }
+            var old = this._padding;
+            var differs = (typeof val === 'number' || typeof old === 'number')
+                ? val !== old
+                : !old.equals || !old.equals(val);
+            if (!differs)
+                return;
+            this._padding = val;
+            this._invalidateMeasure();
         },
         enumerable: false,
         configurable: true
     });
+    /** padding 的四边值（number 四边均匀；Margin 按 top/right/bottom/left） */
+    Placeholder.prototype._padSides = function () {
+        var p = this._padding;
+        if (typeof p === 'number')
+            return { t: p, r: p, b: p, l: p };
+        var m = p;
+        var nz = function (v) { return (typeof v === 'number' && isFinite(v) ? v : 0); };
+        return { t: nz(m.top), r: nz(m.right), b: nz(m.bottom), l: nz(m.left) };
+    };
     Object.defineProperty(Placeholder.prototype, "_placeholderBounds", {
         get: function () {
             return this._actualBounds;
@@ -26506,7 +32705,7 @@ var Placeholder = /** @class */ (function (_super) {
         return result;
     };
     /**
-     * 官方 `Placeholder.computeBorder(result)`：成员并集再按 `margin` 外扩，写入 `result`（原地修改并返回）。
+     * 官方 `Placeholder.computeBorder(result)`：成员并集再按 `padding`（Margin）外扩，写入 `result`。
      * - 子图折叠（`!isSubGraphExpanded`）时宽高为 0；
      * - `Group.computesBoundsIncludingLocation` 且 group.location 有效时，把 location 并入边界。
      */
@@ -26519,12 +32718,12 @@ var Placeholder = /** @class */ (function (_super) {
             return result;
         var union = new Rect();
         this.computeMemberBounds(union);
-        var m = this.margin;
+        var p = this._padSides();
         if (!group.isSubGraphExpanded) {
-            result.setTo(union.x - m.left, union.y - m.top, 0, 0);
+            result.setTo(union.x - p.l, union.y - p.t, 0, 0);
         }
         else {
-            result.setTo(union.x - m.left, union.y - m.top, Math.max(union.width + m.left + m.right, 0), Math.max(union.height + m.top + m.bottom, 0));
+            result.setTo(union.x - p.l, union.y - p.t, Math.max(union.width + p.l + p.r, 0), Math.max(union.height + p.t + p.b, 0));
         }
         if (group.computesBoundsIncludingLocation && group.location.isReal()) {
             result.unionPoint(group.location);
@@ -26562,8 +32761,8 @@ var Placeholder = /** @class */ (function (_super) {
             }
             var border = void 0;
             if (union) {
-                var pad = this._padding;
-                border = new Rect(union.x - pad, union.y - pad, union.width + pad * 2, union.height + pad * 2);
+                var pad = this._padSides();
+                border = new Rect(union.x - pad.l, union.y - pad.t, union.width + pad.l + pad.r, union.height + pad.t + pad.b);
             }
             else {
                 var gloc = group.location;
@@ -27411,7 +33610,10 @@ var CanvasRenderer = /** @class */ (function () {
         var points = link.points;
         if (!points || points.count < 2)
             return;
-        // Draw each child element of the link panel
+        // 子元素 actualBounds 是 route-local（z − or.origin），绘制时加 link 文档原点
+        var lgb = link.getDocumentBounds();
+        var ox = lgb.x;
+        var oy = lgb.y;
         var elements = link._elements;
         // In Link panels, the first Shape is automatically the main shape
         // (unless another Shape has isPanelMain=true)
@@ -27452,15 +33654,13 @@ var CanvasRenderer = /** @class */ (function () {
                     }
                     else {
                         // Other shapes on the link
-                        this.renderGraphObject(elem, 0, 0);
+                        this.renderGraphObject(elem, ox, oy);
                     }
                 }
-                else if (elem instanceof TextBlock) {
-                    // Render label at midpoint
-                    this._renderLinkLabel(elem, link);
-                }
                 else {
-                    this.renderGraphObject(elem, 0, 0);
+                    // TextBlock/Panel 等标签：走通用渲染（measure 已把 actualBounds 排到位），
+                    // 早先的 _renderLinkLabel 特例会自行在文档坐标 re-arrange，帧与语义双重错位。
+                    this.renderGraphObject(elem, ox, oy);
                 }
             }
         }
@@ -27880,76 +34080,6 @@ var CanvasRenderer = /** @class */ (function () {
         }
         ctx.restore();
     };
-    CanvasRenderer.prototype._renderLinkLabel = function (tb, link) {
-        var ctx = this.ctx;
-        if (!ctx)
-            return;
-        var ab = tb.actualBounds;
-        if (ab.width === 0 && ab.height === 0)
-            return;
-        var segIdx = tb.segmentIndex;
-        var segFrac = tb.segmentFraction;
-        var segOff = tb.segmentOffset;
-        var segOrient = tb.segmentOrientation;
-        var points = link.points;
-        if (!points || points.count < 2)
-            return;
-        var arr = points.toArray();
-        var labelX = 0, labelY = 0, angle = 0;
-        var si = (segIdx !== undefined && segIdx !== null && !isNaN(segIdx)) ? segIdx : -1;
-        var sf = (segFrac !== undefined && segFrac !== null && !isNaN(segFrac)) ? segFrac : 0.5;
-        if (si >= 0 && si < arr.length - 1) {
-            var a = arr[si];
-            var b = arr[si + 1];
-            labelX = a.x + (b.x - a.x) * sf;
-            labelY = a.y + (b.y - a.y) * sf;
-            angle = Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI;
-        }
-        else {
-            var totalLen = 0;
-            var segLens = [];
-            for (var i = 0; i < arr.length - 1; i++) {
-                var dx = arr[i + 1].x - arr[i].x;
-                var dy = arr[i + 1].y - arr[i].y;
-                var len = Math.sqrt(dx * dx + dy * dy);
-                segLens.push(len);
-                totalLen += len;
-            }
-            var targetDist = totalLen * sf;
-            var cumDist = 0;
-            for (var i = 0; i < segLens.length; i++) {
-                if (cumDist + segLens[i] >= targetDist) {
-                    var t = segLens[i] > 0 ? (targetDist - cumDist) / segLens[i] : 0;
-                    labelX = arr[i].x + (arr[i + 1].x - arr[i].x) * t;
-                    labelY = arr[i].y + (arr[i + 1].y - arr[i].y) * t;
-                    angle = Math.atan2(arr[i + 1].y - arr[i].y, arr[i + 1].x - arr[i].x) * 180 / Math.PI;
-                    break;
-                }
-                cumDist += segLens[i];
-            }
-            if (totalLen === 0) {
-                labelX = arr[0].x;
-                labelY = arr[0].y;
-            }
-        }
-        var offX = (segOff && typeof segOff.x === 'number' && isFinite(segOff.x)) ? segOff.x : 0;
-        var offY = (segOff && typeof segOff.y === 'number' && isFinite(segOff.y)) ? segOff.y : 0;
-        labelX += offX;
-        labelY += offY;
-        var mb = tb.measuredBounds;
-        var af = tb.alignmentFocus;
-        var alignOffX = af ? af.offsetX - af.x * mb.width : 0;
-        var alignOffY = af ? af.offsetY - af.y * mb.height : 0;
-        tb._arrange(new Rect(labelX - mb.width / 2 + alignOffX, labelY - mb.height / 2 + alignOffY, mb.width, mb.height));
-        ctx.save();
-        if (segOrient !== undefined && segOrient !== null && segOrient !== 0) {
-            ctx.translate(labelX, labelY);
-            ctx.rotate(angle * Math.PI / 180);
-            ctx.translate(-labelX, -labelY);
-        }
-        this.renderTextBlock(tb, 0, 0);
-        ctx.restore();
-    };
     /** Render any GraphObject by dispatching to the appropriate handler */
     CanvasRenderer.prototype.renderGraphObject = function (obj, offsetX, offsetY) {
         if (!obj.visible)
@@ -28312,23 +34442,29 @@ var CanvasRenderer = /** @class */ (function () {
         if (!shape.isGeometryPositioned && (geoBounds.x !== 0 || geoBounds.y !== 0)) {
             ctx.translate(-geoBounds.x, -geoBounds.y);
         }
-        // Fill
-        if (shape.fill) {
-            ctx.fillStyle = this._applyBrush(ctx, shape.fill, new Rect(0, 0, geoBounds.width, geoBounds.height));
-            this._drawGeometry(ctx, geo);
-            ctx.fill();
+        // 官方逐 figure 提交路径（endPath(p) 的 p 即 figure 序号），
+        // 且只在该 figure 自身 isFilled 为真时填充。
+        var geoRect = new Rect(0, 0, geoBounds.width, geoBounds.height);
+        var doFill = !!shape.fill;
+        var doStroke = !!shape.stroke && shape.strokeWidth > 0;
+        if (doStroke && shape.strokeDashArray) {
+            ctx.setLineDash(shape.strokeDashArray);
         }
-        // Stroke
-        if (shape.stroke && shape.strokeWidth > 0) {
-            ctx.strokeStyle = this._applyBrush(ctx, shape.stroke, new Rect(0, 0, geoBounds.width, geoBounds.height));
-            ctx.lineWidth = shape.strokeWidth / Math.max(scaleX, scaleY);
-            ctx.lineCap = shape.strokeCap;
-            ctx.lineJoin = shape.strokeJoin;
-            if (shape.strokeDashArray) {
-                ctx.setLineDash(shape.strokeDashArray);
+        var figIt = geo.figures.iterator;
+        while (figIt.next()) {
+            var fig = figIt.value;
+            this._drawFigure(ctx, fig);
+            if (doFill && fig.isFilled) {
+                ctx.fillStyle = this._applyBrush(ctx, shape.fill, geoRect);
+                ctx.fill();
             }
-            this._drawGeometry(ctx, geo);
-            ctx.stroke();
+            if (doStroke) {
+                ctx.strokeStyle = this._applyBrush(ctx, shape.stroke, geoRect);
+                ctx.lineWidth = shape.strokeWidth / Math.max(scaleX, scaleY);
+                ctx.lineCap = shape.strokeCap;
+                ctx.lineJoin = shape.strokeJoin;
+                ctx.stroke();
+            }
         }
         ctx.restore();
     };
@@ -28390,6 +34526,7 @@ var CanvasRenderer = /** @class */ (function () {
     };
     /** Render a Picture (stub - image loading not yet implemented) */
     CanvasRenderer.prototype.renderPicture = function (pic, offsetX, offsetY) {
+        var _a, _b;
         if (!pic.visible)
             return;
         var ctx = this.ctx;
@@ -28400,17 +34537,27 @@ var CanvasRenderer = /** @class */ (function () {
         var picY = offsetY + ab.y;
         var picW = ab.width;
         var picH = ab.height;
+        // source 可以是 url（走 _loadedImage），也可以直接是 <canvas>/<img>/<video>（官方 4.x）。
+        var canvasSrc = (pic._canvasSource ||
+            (pic.element && pic.element.tagName !== 'IMG' ? pic.element : null));
         var loadedImage = pic._loadedImage;
-        if (loadedImage && loadedImage.complete && loadedImage.naturalWidth > 0) {
-            var imgW = loadedImage.naturalWidth;
-            var imgH = loadedImage.naturalHeight;
+        var src = canvasSrc || (loadedImage && loadedImage.complete && loadedImage.naturalWidth > 0 ? loadedImage : null);
+        if (src) {
+            var srcW = canvasSrc
+                ? ((_a = canvasSrc.width) !== null && _a !== void 0 ? _a : 0)
+                : loadedImage.naturalWidth;
+            var srcH = canvasSrc
+                ? ((_b = canvasSrc.height) !== null && _b !== void 0 ? _b : 0)
+                : loadedImage.naturalHeight;
+            var imgW = srcW > 0 ? srcW : picW;
+            var imgH = srcH > 0 ? srcH : picH;
             var stretch = pic.imageStretch;
             ctx.save();
             if (stretch === ImageStretchNone) {
-                ctx.drawImage(loadedImage, picX, picY, imgW, imgH);
+                ctx.drawImage(src, picX, picY, imgW, imgH);
             }
             else if (stretch === ImageStretchFill) {
-                ctx.drawImage(loadedImage, picX, picY, picW, picH);
+                ctx.drawImage(src, picX, picY, picW, picH);
             }
             else if (stretch === ImageStretchUniform) {
                 var scaleX = picW / imgW;
@@ -28420,7 +34567,7 @@ var CanvasRenderer = /** @class */ (function () {
                 var drawH = imgH * scale;
                 var drawX = picX + (picW - drawW) / 2;
                 var drawY = picY + (picH - drawH) / 2;
-                ctx.drawImage(loadedImage, drawX, drawY, drawW, drawH);
+                ctx.drawImage(src, drawX, drawY, drawW, drawH);
             }
             else if (stretch === ImageStretchUniformToFill) {
                 var scaleX = picW / imgW;
@@ -28433,7 +34580,7 @@ var CanvasRenderer = /** @class */ (function () {
                 ctx.beginPath();
                 ctx.rect(picX, picY, picW, picH);
                 ctx.clip();
-                ctx.drawImage(loadedImage, drawX, drawY, drawW, drawH);
+                ctx.drawImage(src, drawX, drawY, drawW, drawH);
             }
             ctx.restore();
         }
@@ -28915,7 +35062,24 @@ var CanvasRenderer = /** @class */ (function () {
         ctx.beginPath();
         var it = geo.figures.iterator;
         while (it.next()) {
-            var fig = it.value;
+            this._drawFigureSegments(ctx, it.value);
+        }
+    };
+    /**
+     * 开一条新路径并画单个 figure。
+     *
+     * 官方 Geometry（type 4）是**逐 figure** 提交的：`... endPath(p)` 里的 `p` 就是
+     * figure 序号，所以「填不填」是按 figure 自己判定的。本项目以前把整个 geometry
+     * 当成一条路径统一 fill，导致 `PathFigure(..., false)` 的图形（CircleLine、
+     * Curve1/2、AsteriskLine、Terminator…）被涂色，与官方差一大片。
+     */
+    CanvasRenderer.prototype._drawFigure = function (ctx, fig) {
+        ctx.beginPath();
+        this._drawFigureSegments(ctx, fig);
+    };
+    /** 把单个 figure 的线段追加到当前路径（不 beginPath） */
+    CanvasRenderer.prototype._drawFigureSegments = function (ctx, fig) {
+        {
             var curX = fig.startX;
             var curY = fig.startY;
             ctx.moveTo(fig.startX, fig.startY);
@@ -28940,8 +35104,16 @@ var CanvasRenderer = /** @class */ (function () {
                         break;
                     case 'Arc':
                         this._drawArcSegment(ctx, curX, curY, seg);
-                        curX = seg.endX;
-                        curY = seg.endY;
+                        // 「按角度」圆弧的 endX/endY 在官方里存的是角度值，用我们另存的真实终点推进当前点；
+                        // SVG 弧（PathSegment.Arc）则 endX/endY 就是终点。
+                        if (!isNaN(seg.arcEndX)) {
+                            curX = seg.arcEndX;
+                            curY = seg.arcEndY;
+                        }
+                        else {
+                            curX = seg.endX;
+                            curY = seg.endY;
+                        }
                         break;
                     case 'MoveTo':
                         ctx.moveTo(seg.endX, seg.endY);
@@ -28971,7 +35143,7 @@ var CanvasRenderer = /** @class */ (function () {
         // 官方「按角度」圆弧：new PathSegment(SegmentType.Arc, startAngle, sweepAngle, cx, cy, rx, ry)
         if (!isNaN(seg.startAngle) && !isNaN(seg.centerX)) {
             var rX = Math.abs(rx);
-            var rY = Math.abs(ry === 0 ? rx : ry);
+            var rY = Math.abs(ry); // 官方「按角度」形式的 radiusY 可以合法为 0
             if (rX <= 0 || rY <= 0) {
                 ctx.lineTo(endX, endY);
                 return;
@@ -37019,6 +43191,7 @@ var Diagram = /** @class */ (function () {
         this._selection.clear();
     };
     Diagram.prototype._addNodeForData = function (data) {
+        var _a, _b;
         if (!data)
             return null;
         var category = this._model.getCategoryForNodeData(data);
@@ -37039,12 +43212,15 @@ var Diagram = /** @class */ (function () {
             }
         }
         else {
-            if (category && this._nodeTemplateMap.has(category)) {
-                template = this._nodeTemplateMap.get(category);
-            }
-            else {
+            // 官方 PartManager：nodeTemplateMap.get(category) → get('') → 内置默认。
+            // 以前 category 为空串/undefined 时直接掉到 this._nodeTemplate（无）→ 内置
+            // “红方块 40x40”，flowchart 这种 add('', template) 注册默认分类的样例全错。
+            var cat = category || '';
+            template = (_a = this._nodeTemplateMap.get(cat)) !== null && _a !== void 0 ? _a : null;
+            if (!template && cat !== '')
+                template = (_b = this._nodeTemplateMap.get('')) !== null && _b !== void 0 ? _b : null;
+            if (!template)
                 template = this._nodeTemplate;
-            }
         }
         var node = template.copy();
         node.data = data;
@@ -37246,40 +43422,8 @@ var Diagram = /** @class */ (function () {
         }
     };
     Diagram.prototype._resolveBindingValueCore = function (binding, obj, data, part) {
-        if (binding.isToTheme) {
-            // 官方 ThemeBinding：不走 data/ofObject，直接主题取值
-            return binding.getValueFromSource(data, obj, this._model);
-        }
-        else if (binding.isFromModel) {
-            var val = this._model ? this._model.modelData[binding.sourceProperty] : undefined;
-            // 官方：源值 undefined → 跳过（不 convert、不赋值）
-            if (val !== undefined && binding.conversion)
-                val = binding.conversion(val, obj, this._model);
-            return val;
-        }
-        else if (binding.sourceObject !== null) {
-            var sourceName = binding.sourceObject;
-            var sourceObj = null;
-            if (sourceName === '') {
-                sourceObj = part;
-            }
-            else {
-                sourceObj = part.findObject(sourceName);
-            }
-            var val = void 0;
-            if (sourceObj) {
-                val = binding.sourceProperty === '' ? sourceObj : sourceObj[binding.sourceProperty];
-            }
-            else {
-                val = undefined;
-            }
-            if (val !== undefined && binding.conversion)
-                val = binding.conversion(val, obj, this._model);
-            return val;
-        }
-        else {
-            return binding.getValueFromSource(data, obj, this._model);
-        }
+        // 统一走 Binding.getValueFromSource —— 主题/对象/数据/模型四种源的官方语义都在里面
+        return binding.getValueFromSource(data, obj, this._model);
     };
     Diagram.prototype._applyBindings = function (part, data) {
         this._applyBindingsToObject(part, data, part);
@@ -37870,12 +44014,11 @@ var Diagram = /** @class */ (function () {
                             part.ensureBounds();
                         var pos = part.position;
                         var mb = part.measuredBounds;
-                        // 节点的 actualBounds 以 position 为左上角；链接的以路线中点 position
-                        // 为中心（官方 link actualBounds 关于链路中线对称）。统一按左上角排
-                        // 会让 link 的包围盒整体偏移半个自身尺寸。
-                        var arr = isLink
-                            ? new Rect(pos.x - mb.width / 2, pos.y - mb.height / 2, mb.width, mb.height)
-                            : new Rect(pos.x, pos.y, mb.width, mb.height);
+                        // 官方 Part.ensureBounds/Ht：actualBounds 一律以 position 为左上角。
+                        // 早先对 Link 特判「按路线中点居中」是错误简化 —— 官方 measure 里
+                        // position = routeBounds 原点 + or.origin，配合 union(or) 起点正好覆盖子元素，
+                        // 居中会让 link 包围盒偏移半个自身尺寸。
+                        var arr = new Rect(pos.x, pos.y, mb.width, mb.height);
                         part._arrange(arr);
                         if (!isLink && typeof part.syncPositionFromLocation === 'function') {
                             part.syncPositionFromLocation();
@@ -40643,7 +46786,7 @@ var GridLayout = /** @class */ (function (_super) {
         configurable: true
     });
     GridLayout.prototype.copy = function () {
-        var copy = new GridLayout();
+        var copy = new this.constructor();
         this.cloneProtected(copy);
         copy._wrappingWidth = this._wrappingWidth;
         copy._wrappingColumn = this._wrappingColumn;
@@ -41438,7 +47581,7 @@ var TreeLayout = /** @class */ (function (_super) {
         configurable: true
     });
     TreeLayout.prototype.copy = function () {
-        var copy = new TreeLayout();
+        var copy = new this.constructor();
         this.cloneProtected(copy);
         copy._path = this._path;
         copy._treeStyle = this._treeStyle;
@@ -41513,7 +47656,10 @@ var TreeLayout = /** @class */ (function (_super) {
                     continue;
                 if (!nodeOK(fn) || !nodeOK(tn))
                     continue;
-                net.addLink(link);
+                // 官方 addParts 阶段 2：端点经 findGroupVertex 解析（自身 → 网络中已有的
+                // 最深祖先 vertex），不自动建端点 vertex；任一侧为 null 则跳过该连线。
+                // flowgrammer 组 -1 的 L3→4 因此连到嵌套组 -2 的 vertex，而不是把 node4 塞进网络。
+                net.linkVertexes(net.findGroupVertex(fn), net.findGroupVertex(tn), link);
             }
         }
         this._network = net;
@@ -43739,10 +49885,10 @@ var TreeLayout = /** @class */ (function (_super) {
     // ============ 官方 commitLayout / commitNodes / setPortSpots ============
     TreeLayout.prototype.commitLayout = function () {
         this._setPortSpotsAll();
-        this._commitNodes();
+        this.commitNodes();
         this._commitLayerRects();
         if (this._isRouting)
-            this._commitLinks();
+            this.commitLinks();
     };
     TreeLayout.prototype._commitNodes = function () {
         if (this._network === null)
@@ -44176,26 +50322,8 @@ var TreeLayout = /** @class */ (function (_super) {
     TreeLayout.prototype.addComments = function (v) { this._addComments(v); };
     TreeLayout.prototype.computeBusNodeSpacing = function (c) { return this._computeBusNodeSpacing(c); };
     TreeLayout.prototype.computeBusLastRowSpacing = function (c, dir) { return this._computeBusLastRowSpacing(c, dir); };
-    TreeLayout.prototype.commitNodes = function () {
-        if (this.network !== null) {
-            var it = this.network.vertexes.iterator;
-            while (it.next()) {
-                var v = it.value;
-                if (v.node)
-                    v.node.move(new Point(v.x, v.y));
-            }
-        }
-    };
-    TreeLayout.prototype.commitLinks = function () {
-        if (this.network !== null) {
-            var it = this.network.edges.iterator;
-            while (it.next()) {
-                var e = it.value;
-                if (e.link)
-                    e.link.updateRoute();
-            }
-        }
-    };
+    TreeLayout.prototype.commitNodes = function () { this._commitNodes(); };
+    TreeLayout.prototype.commitLinks = function () { this._commitLinks(); };
     TreeLayout.className = "TreeLayout";
     // ============ 枚举静态常量（官方 TreeLayout 静态成员） ============
     TreeLayout.PathDefault = TreePathDefault;
@@ -44576,7 +50704,8 @@ var ForceDirectedLayout = /** @class */ (function (_super) {
                 }
                 if (o === null)
                     o = this.network.linkVertexes(v, n);
-                o.length = this.defaultCommentSpringLength;
+                if (o !== null)
+                    o.length = this.defaultCommentSpringLength;
             }
         }
     };
@@ -44639,7 +50768,7 @@ var ForceDirectedLayout = /** @class */ (function (_super) {
         return !!v.isFixed;
     };
     ForceDirectedLayout.prototype.copy = function () {
-        var copy = new ForceDirectedLayout();
+        var copy = new this.constructor();
         this.cloneProtected(copy);
         copy._maxIterations = this._maxIterations;
         copy._defaultSpringLength = this._defaultSpringLength;
@@ -45290,7 +51419,7 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
         }
     };
     LayeredDigraphLayout.prototype.copy = function () {
-        var copy = new LayeredDigraphLayout();
+        var copy = new this.constructor();
         this.cloneProtected(copy);
         copy._direction = this._direction;
         copy._layerSpacing = this._layerSpacing;
@@ -45773,6 +51902,9 @@ var CircularLayout = /** @class */ (function (_super) {
         _this._comparer = null;
         _this._nodeDiameterFormula = CircularNodeDiameterFormulaPythagorean;
         _this._actualSpacing = 0;
+        /** 最近一次布局产生的子网络（splitIntoSubNetworks 会把顶点搬进去，
+         *  主网络 vertexes 因此变空，commitNodes/commitLinks 需要遍历它们）。 */
+        _this._lastSubNetworks = null;
         _this._actualCenter = new Point(0, 0);
         if (init)
             Object.assign(_this, init);
@@ -45890,7 +52022,7 @@ var CircularLayout = /** @class */ (function (_super) {
         return first;
     };
     CircularLayout.prototype.copy = function () {
-        var copy = new CircularLayout();
+        var copy = new this.constructor();
         this.cloneProtected(copy);
         copy._radius = this._radius;
         copy._startAngle = this._startAngle;
@@ -45913,7 +52045,13 @@ var CircularLayout = /** @class */ (function (_super) {
         var net = this.makeNetwork(coll);
         if (net.vertexes.count === 0)
             return;
-        // Find connected components
+        // 官方在 commitNodes()/commitLinks() 之前把 network 挂上、结束后才置空。
+        // 样例（friendWheel 的 WheelLayout 等）在覆写里遍历 this.network.vertexes/edges，
+        // 这里不设的话它们拿到 null，径向旋转与 link.curviness 全部失效。
+        this.network = net;
+        // Find connected components（破坏性拆分：顶点/边会被搬进子网络）
+        var allVertexes = net.vertexes.toArray();
+        var allEdges = net.edges.toArray();
         var subNetworks = net.splitIntoSubNetworks();
         var origin = this.arrangementOrigin;
         var offsetX = 0;
@@ -45947,35 +52085,16 @@ var CircularLayout = /** @class */ (function (_super) {
             }
         }
         // splitIntoSubNetworks 会把顶点搬进子网络（主网络 vertexes 变空），
-        // 因此提交时遍历所有子网络的顶点：加上圆心偏移并写回 actualCenter。
-        var e = this._actualCenter;
-        var ax = origin.x + (isNaN(this._actualXRadius) ? 0 : this._actualXRadius);
-        var ay = origin.y + (isNaN(this._actualYRadius) ? 0 : this._actualYRadius);
-        e.x = ax;
-        e.y = ay;
-        var commit = function (network) {
-            var vit = network.vertexes.iterator;
-            while (vit.next()) {
-                var v = vit.value;
-                if (v.node && !v._isArtificial) {
-                    v.node.move(new Point(v.x + ax, v.y + ay));
-                }
-            }
-        };
-        if (subNetworks.count > 0) {
-            var sit = subNetworks.iterator;
-            while (sit.next())
-                commit(sit.value);
-        }
-        else {
-            commit(net);
-        }
-        // 注：这里**不**调用 `commitLinks()`。实测调用后 friendWheel 21.578→21.702、
-        // conceptMap 3.785→3.926、doubleCircle 26.654→27.622，全是负收益，
-        // 且样例的 `link.curviness` 仍是 NaN（说明它的覆写并未真正生效）。
-        // 官方在 `commitNodes()` 里完成节点定位、随后由 `commitLinks()` 重算路线；
-        // 本项目把定位内联进 `_layoutComponent`，直接调用会导致重复偏移。
-        // 待办见 doc/sample-parity-2026-09-30.md §6。
+        // commitNodes/commitLinks 因此要遍历所有子网络。
+        this._lastSubNetworks = subNetworks.count > 0 ? subNetworks : null;
+        // 但官方语义是「this.network 始终持有全部顶点/边」，样例覆写依赖这一点。
+        net.reattach(allVertexes, allEdges);
+        // 官方 CircularLayout.doLayout 的收尾就是这两步：`updateParts()` → commitNodes →
+        // commitLinks。样例覆写 commitNodes/commitLinks（friendWheel 用前者做径向旋转、
+        // 后者给 link.curviness 赋值）必须能跑在官方流程上，否则径向文字和贝塞尔连线都做不出来。
+        this.commitNodes();
+        this.commitLinks();
+        this.network = null;
         this.isValidLayout = true;
     };
     /**
@@ -46151,6 +52270,12 @@ var CircularLayout = /** @class */ (function (_super) {
             var y = centerY + radius * Math.sin(angle) * this._aspectRatio;
             v.x = x - v.width / 2;
             v.y = y - v.height / 2;
+            // 官方在排列阶段就写好 actualAngle（度）与 centerX/centerY，
+            // 样例（如 friendWheel 的 WheelLayout.commitNodes）据此把节点旋转成径向、
+            // 并把文字翻正。少了这一步 v.actualAngle 恒为 0，文字就不会沿法线排布。
+            v.actualAngle = (angle * 180) / Math.PI;
+            v.centerX = x;
+            v.centerY = y;
         }
     };
     /**
@@ -46194,30 +52319,65 @@ var CircularLayout = /** @class */ (function (_super) {
     };
     // ============ 官方 CircularLayout.commitNodes/commitLinks（阶段 7） ============
     CircularLayout.prototype.commitNodes = function () {
+        var e_8, _a;
         // 官方：e = this.actualCenter（非拷贝），非 isOffset 时 e.x/y = arrangementOrigin + actual 半径，
         // 随后 vertex 坐标加上 e。官方在 isOffset 时改用 new Point(0,0)。
         var e = this._actualCenter;
         e.x = this.arrangementOrigin.x + (isNaN(this._actualXRadius) ? 0 : this._actualXRadius);
         e.y = this.arrangementOrigin.y + (isNaN(this._actualYRadius) ? 0 : this._actualYRadius);
-        if (this.network !== null) {
-            var it = this.network.vertexes.iterator;
-            while (it.next()) {
-                var v = it.value;
-                var nx = v.x + e.x;
-                var ny = v.y + e.y;
-                if (v.node)
-                    v.node.move(new Point(nx, ny));
+        try {
+            for (var _b = __values(this._commitNetworks()), _c = _b.next(); !_c.done; _c = _b.next()) {
+                var net = _c.value;
+                var it = net.vertexes.iterator;
+                while (it.next()) {
+                    var v = it.value;
+                    var nx = v.x + e.x;
+                    var ny = v.y + e.y;
+                    if (v.node && !v._isArtificial)
+                        v.node.move(new Point(nx, ny));
+                }
             }
         }
+        catch (e_8_1) { e_8 = { error: e_8_1 }; }
+        finally {
+            try {
+                if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
+            }
+            finally { if (e_8) throw e_8.error; }
+        }
+    };
+    /** 提交时要遍历的网络：有子网络就遍历子网络，否则遍历主网络 */
+    CircularLayout.prototype._commitNetworks = function () {
+        var out = [];
+        if (this._lastSubNetworks) {
+            var sit = this._lastSubNetworks.iterator;
+            while (sit.next())
+                out.push(sit.value);
+        }
+        else if (this.network !== null) {
+            out.push(this.network);
+        }
+        return out;
     };
     CircularLayout.prototype.commitLinks = function () {
-        if (this.network !== null) {
-            var it = this.network.edges.iterator;
-            while (it.next()) {
-                var e = it.value;
-                if (e.link)
-                    e.link.updateRoute();
+        var e_9, _a;
+        try {
+            for (var _b = __values(this._commitNetworks()), _c = _b.next(); !_c.done; _c = _b.next()) {
+                var net = _c.value;
+                var it = net.edges.iterator;
+                while (it.next()) {
+                    var e = it.value;
+                    if (e.link)
+                        e.link.updateRoute();
+                }
             }
+        }
+        catch (e_9_1) { e_9 = { error: e_9_1 }; }
+        finally {
+            try {
+                if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
+            }
+            finally { if (e_9) throw e_9.error; }
         }
     };
     CircularLayout.className = "CircularLayout";
@@ -47219,18 +53379,6 @@ var ChangeType = {
     Insert: ChangedEventInsert,
     Remove: ChangedEventRemove,
 };
-// 官方 SegmentType = {Move, Line, Bezier, QuadraticBezier, Arc, SvgArc}。
-// 本项目 PathSegment 内部的 MoveTo / Close 常量仍导出，但不进该命名空间。
-// Bezier/Move 直接映射到内部的 CubicBezier/MoveTo，使 ext/Figures.js 等官方代码
-// 创建的三次贝塞尔与移动段能被所有内部绘制/序列化逻辑按 'CubicBezier'/'MoveTo' 处理。
-var SegmentType = {
-    Move: PathSegmentMoveTo,
-    Line: PathSegmentLine,
-    Bezier: PathSegmentCubicBezier,
-    QuadraticBezier: PathSegmentQuadraticBezier,
-    Arc: PathSegmentArc,
-    SvgArc: SegmentTypeSvgArc,
-};
 var AnimationStyle = {
     Default: AnimationStyleDefault,
     AnimateLocations: AnimationStyleAnimateLocations,
@@ -47286,18 +53434,6 @@ var LayoutConditions = {
     NodeReplaced: LayoutConditionsNodeReplaced,
     Standard: LayoutConditionsStandard,
     All: LayoutConditionsAll,
-};
-var GeometryStretch = {
-    None: GeometryStretchNone,
-    Default: GeometryStretchDefault,
-    Fill: GeometryStretchFill,
-    Uniform: GeometryStretchUniform,
-};
-var GeometryType = {
-    Line: GeometryTypeLine,
-    Rectangle: GeometryTypeRectangle,
-    Ellipse: GeometryTypeEllipse,
-    Path: GeometryTypePath,
 };
 var LinkingDirection = {
     Either: LinkingDirectionEither,

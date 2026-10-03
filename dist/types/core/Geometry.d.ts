@@ -18,12 +18,21 @@ export declare class Geometry {
     fillRule: string;
     /** 图形名称（用于 figure 属性） */
     name: string;
-    /** Auto 面板内容定位用的左上锚点（官方 geometry.spot1） */
+    /** Auto 面板内容定位用的左上锚点（官方 geometry.spot1）。
+     *  官方 Geometry 构造即默认 Spot.TopLeft.copy()，这里保持一致。 */
     spot1: any;
-    /** Auto 面板内容定位用的右下锚点（官方 geometry.spot2） */
+    /** Auto 面板内容定位用的右下锚点（官方 geometry.spot2），官方默认 Spot.BottomRight.copy()。 */
     spot2: any;
     /** 官方 geometry.defaultStretch（0=None 2=Fill 4=Vertical 5=Horizontal 6=Uniform），默认 Fill */
     defaultStretch: number;
+    /** 官方 geometry 记录的图形生成尺寸（Shape 生成图形几何时写入 width/height）。
+     *  包围盒至少要覆盖 (0,0,width,height) 这个原始盒子 —— 官方 computeBounds 就是这么做的：
+     *  先用 (0,0,width,height) 起步再并入实际路径。
+     *  少了这一步，DataStorage 这类「原始路径比盒子窄」的图形会被按窄包围盒横向拉伸，
+     *  拐角处出现尖刺。 */
+    width: number;
+    /** 同 width：图形生成时的高度 */
+    height: number;
     /**
      * 官方 go.d.ts：`constructor(type?: GeometryType, init?: Partial<Geometry>)`
      * —— 第一个参数是**几何类型**（`go.GeometryType.Line` 等），不是 figures。
@@ -46,6 +55,8 @@ export declare class Geometry {
     remove(fig: PathFigure): boolean;
     /** 清空图形 */
     clear(): this;
+    /** 记录图形生成尺寸（官方 `Shape` 图形几何入口的做法），并作废已缓存的包围盒。 */
+    setSize(w: number, h: number): void;
     /** 获取边界矩形 */
     get bounds(): Rect;
     /** 计算边界矩形 */

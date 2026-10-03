@@ -154,6 +154,14 @@ export declare class Part extends Panel {
     get isVirtual(): boolean;
     get containingGroup(): any;
     set containingGroup(val: any);
+    /**
+     * 官方 Part.set containingGroup 尾部的连线传播：
+     * - 本 Part 是 Group（有 memberParts）：官方 `Part.Lh(n,this,!0,0,!0)` 收集本组
+     *   及其全部成员（递归下钻嵌套组），对其中每个 Node 的所有连线调用 `Link.dg`；
+     * - 本 Part 是 Node（含 Group 自身）：自身 linksConnected 与 labeledLink 也重算。
+     * 用鸭子类型代替 instanceof，避免 Part ↔ Node 的循环 import。
+     */
+    private _propagateContainingGroupToLinks;
     get adornmentStream(): Iterator<any>;
     /** Find a named GraphObject within this Part */
     findObject(name: string): GraphObject | null;

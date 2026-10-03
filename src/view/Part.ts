@@ -195,6 +195,13 @@ export class Part extends Panel {
     if (this._containingGroup && this._containingGroup.layout && this._containingGroup.layout.isOngoing) {
       this._containingGroup.layout.invalidateLayout();
     }
+    // 官方 Part.location：Node 位置变化 → invalidateConnectedLinks
+    // （清端口 side-spot knot 并重算相连连线；undo/redo 期间跳过）
+    if (typeof (this as any).invalidateConnectedLinks === 'function') {
+      const dm: any = this._diagram;
+      const um = dm && dm.undoManager;
+      if (!um || !um.isUndoingRedoing) (this as any).invalidateConnectedLinks();
+    }
   }
 
   /** 官方 Part.position（GraphObject.position 的 Part 覆盖：与 location 按 locationSpot 同步） */
@@ -406,6 +413,8 @@ export class Part extends Panel {
   set containingGroup(val: any) {
     if (this._containingGroup === val) return;
     const old = this._containingGroup;
+    // 官方 Part.set containingGroup：先按「移除」条件失效（此时 Hh 仍是 old，失效打到旧组布局）
+    this.invalidateLayout(2 /* LayoutConditions.Removed */);
     if (old && typeof old._memberParts !== 'undefined') {
       old._memberParts.remove(this);
       if ((old as any).layout && (old as any).layout.isOngoing) {
@@ -423,6 +432,48 @@ export class Part extends Panel {
       // 官方 `Group.WN`：成员加入回调（默认 null，未设置时零开销）
       if (typeof val._notifyMemberAdded === 'function') val._notifyMemberAdded(this);
     }
+    // 官方：挂到新组后再按「添加」条件失效（打到新组布局）
+    this.invalidateLayout(1 /* LayoutConditions.Added */);
+    // 官方 Part.set containingGroup 尾部：成员图内相关连线的 `Link.dg()` 重算
+    this._propagateContainingGroupToLinks();
+    const ev = this.containingGroupChanged;
+    if (ev !== null) ev(this, old, val);
+    this.raiseChanged('containingGroup', old, val);
+  }
+
+  /**
+   * 官方 Part.set containingGroup 尾部的连线传播：
+   * - 本 Part 是 Group（有 memberParts）：官方 `Part.Lh(n,this,!0,0,!0)` 收集本组
+   *   及其全部成员（递归下钻嵌套组），对其中每个 Node 的所有连线调用 `Link.dg`；
+   * - 本 Part 是 Node（含 Group 自身）：自身 linksConnected 与 labeledLink 也重算。
+   * 用鸭子类型代替 instanceof，避免 Part ↔ Node 的循环 import。
+   */
+  private _propagateContainingGroupToLinks(): void {
+    const dgLink = (l: any): void => {
+      if (l !== null && l !== undefined && typeof l.updateContainingGroup === 'function') {
+        l.updateContainingGroup();
+      }
+    };
+    const dgNodeLinks = (n: any): void => {
+      if (n === null || n === undefined || typeof n.linksConnected === 'undefined') return;
+      const it = n.linksConnected;
+      while (it.next()) dgLink(it.value);
+      if (n.labeledLink !== null && n.labeledLink !== undefined) dgLink(n.labeledLink);
+    };
+    if (typeof (this as any).memberParts !== 'undefined') {
+      const seen: Part[] = [];
+      const collect = (p: any): void => {
+        if (p === null || p === undefined || seen.indexOf(p) >= 0) return;
+        seen.push(p);
+        if (typeof p.memberParts !== 'undefined') {
+          const it = p.memberParts.iterator;
+          while (it.next()) collect(it.value);
+        }
+      };
+      collect(this);
+      for (let i = 0; i < seen.length; i++) dgNodeLinks(seen[i]);
+    }
+    dgNodeLinks(this);
   }
 
   get adornmentStream(): Iterator<any> { return this._adornments.iteratorValues; }

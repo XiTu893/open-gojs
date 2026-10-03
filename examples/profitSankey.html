@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Visualizing Income, Expenses, and Profit with a Sankey Diagram</title>
+  <script src="../dist/open-gojs.umd.js"></script>
+  
+  <script src="https://cdn.jsdelivr.net/npm/gojs-extensions@latest/extensions/DoubleTreeLayout.js"></script>
+  
+  
+</head>
+<body>
+<div id="myDiagramDiv" style="width: 100%; height: 800px;"></div>
+  <div id="description">
+<p>
+    A Sankey diagram is a type of flow diagram where the Link thickness is proportional to the flow
+    quantity. Sankey diagrams can be used to easily visualize a company's financials through the flow of income and the allotting of expenses.
+  </p>
+  <p>
+    This sample uses a custom FinancialSankeyLayout extending DoubleTreeLayout, placing Revenue at
+    the center with revenue sources to the left and profit/cost breakdowns to the right.
+  </p>
+  <p>
+    Edit the diagram by clicking on a node. Click delete to remove a node and its children, or add/expenses to create a new leaf node.
+    On leaf nodes, click the amount to edit it. On all nodes the title can be edited by clicking on it.
+    Internal nodes cannot have their amount edited due to it being variable based on the leaf nodes instead of a constant value.
+  </p>
+  </div>
+  <script >
+class FinancialSankeyLayout extends DoubleTreeLayout {
+    constructor(init) {
+      super();
+      // income to the left ----- profit + loss to the right
+      this.directionFunction = node => node.data.type === 'profit' || node.data.type === 'cost';
+      // larger links ordered before smaller, but profit always ordered before cost links
+      const typeOrder = { profit: 0, cost: 1, income: 2, revenue: 3 };
+      const orderComparer = (va, vb) => {
+        const aData = va.node && va.node.data ? va.node.data : {};
+        const bData = vb.node && vb.node.data ? vb.node.data : {};
+        const aType = typeOrder[aData.type] ?? 99;
+        const bType = typeOrder[bData.type] ?? 99;
+        if (aType !== bType) return aType - bType;
+        return (vb.node.findObject('SHAPE').height ?? 50) - (va.node.findObject('SHAPE').height ?? 50);
+      };
+      const subtreeOptions = {
+        setsPortSpot: false,
+        setsChildPortSpot: false,
+        nodeSpacing: 75,
+        layerSpacing: 150,
+        alignment: go.TreeAlignment.CenterSubtrees,
+        sorting: go.TreeSorting.Ascending,
+        comparer: orderComparer,
+        layerStyle: go.TreeLayerStyle.Uniform
+      };
+      this.topLeftOptions = subtreeOptions;
+      this.bottomRightOptions = subtreeOptions;
+      if (init) Object.assign(this, init);
+    }
+
+    getAutoHeightForNode(node) {
+      if (node.data.key === 'Revenue') {
+        // Revenue node at center has profit/loss and income both linking into it
+        let leftFlow = 0;
+        let rightFlow = 0;
+        const it = node.findLinksOutOf();
+        while (it.next()) {
+          const link = it.value;
+          const toNode = link.toNode;
+          if (toNode && toNode.data.type === 'income') leftFlow += link.computeThickness();
+          else rightFlow += link.computeThickness();
+        }
+        const h = Math.max(leftFlow, rightFlow);
+        return h < 10 ? 10 : h;
+      }
+      let heightIn = 0;
+      let it = node.findLinksInto();
+      while (it.next()) heightIn += it.value.computeThickness();
+      let heightOut = 0;
+      it = node.findLinksOutOf();
+      while (it.next()) heightOut += it.value.computeThickness();
+      let h = Math.max(heightIn, heightOut);
+      return h < 10 ? 10 : h;
+    }
+
+    doLayout(coll) {
+      const diagram = this.diagram;
+      if (diagram !== null) diagram.startTransaction('Financial Sankey Layout');
+      if (diagram !== null) {
+        diagram.nodes.each(node => {
+          const h = this.getAutoHeightForNode(node);
+          const shape = node.findObject('SHAPE');
+          if (shape) shape.height = h;
+          node.ensureBounds();
+          if (!node.location.isReal()) node.moveTo(0, 0);
+        });
+      }
+      super.doLayout(coll);
+      if (diagram !== null) {
+        diagram.links.each(link => {
+          if (link.curve === go.Curve.Bezier) link.invalidateRoute();
+        });
+        diagram.commitTransaction('Financial Sankey Layout');
+      }
+    }
+  }
+  // end of FinancialSankeyLayout
+
+  class AmountTextEditingTool extends go.TextEditingTool {
+    doActivate() {
+      super.doActivate();
+      const tb = this.textBlock;
+      if (!tb || tb.name !== 'AMTTB') return;
+      const cur = this.currentTextEditor;
+      const el = cur && (cur.mainElement || cur);
+      if (el && 'value' in el) {
+        el.value = String(parseFloat(String(tb.text).replace(/[^0-9.\-]/g, '')) || 0);
+        if (el.select) el.select();
+      }
+    }
+  }
+
+  const fmt = v => '$' + (Math.round(v * 10) / 10).toFixed(1) + 'B';
+  const pct = v => (Math.round(v * 10) / 10).toFixed(1) + '%';
+  const keyFor = (sec, path) => sec + '/' + path.join('/');
+  const amountOf = i => (i.children && i.children.length) ? i.children.reduce((t, c) => t + amountOf(c), 0) : (Number(i.amount) || 0);
+  const sum = list => list.reduce((t, x) => t + amountOf(x), 0);
+  const dedAmount = (i, s) => (i.percent != null) ? (Number(i.percent) || 0) / 100 * s : amountOf(i);
+  const defaultName = sec => sec === 'income' ? 'New Source' : 'New Expense';
+  const COLORS = {
+    profit: '#00AC03',
+    cost: '#E83131',
+    neutral: '#516C7A',
+    labelBackground: '#f5f5f588',
+    selection: 'rgba(0, 0, 255, 0.3)',
+    link: 'rgba(173, 173, 173, 0.25)'
+  };
+  const nodeColor = t => (t === 'profit') ? COLORS.profit : (t === 'cost') ? COLORS.cost : COLORS.neutral;
+  const FONT = 'system-ui, "Segoe UI", sans-serif';
+  const canAdd = d => (d.type === 'profit') ? d.addExpenseToLevel != null : (d.kind === 'add' || d.kind === 'leaf' || d.kind === 'branch');
+  const deferRebuild = () => setTimeout(buildModel, 0);
+
+  function init() {
+    myDiagram = new go.Diagram('myDiagramDiv', {
+      initialAutoScale: go.AutoScale.Uniform,
+      'animationManager.isEnabled': false,
+      allowMove: false,
+      allowCopy: false,
+      allowDelete: false,
+      layout: new FinancialSankeyLayout()
+    });
+
+    myDiagram.toolManager.textEditingTool = new AmountTextEditingTool();
+
+    const isRight = type => type === 'profit' || type === 'cost';
+
+    function nodeButtons() {
+      return new go.Panel('Horizontal', {
+        name: 'BUTTONS',
+        alignment: go.Spot.Top,
+        alignmentFocus: go.Spot.Bottom,
+        margin: new go.Margin(0, 0, 2, 0)
+      })
+        .bindObject('visible', 'isSelected')
+        .add(
+          go.GraphObject.build('Button', {
+            click: (e, btn) => {
+              const node = btn.part;
+              if (!node) return;
+              if (node.data.type === 'profit') {
+                const li = node.data.addExpenseToLevel;
+                const level = li == null ? null : financials.levels[li];
+                if (!level) return;
+                // a new expense drawn directly from this profit node
+                level.deductions.push({ name: 'New Expense', amount: 10 });
+                buildModel();
+                const newKey = keyFor('L' + li, [level.deductions.length - 1]);
+                setTimeout(() => selectAndEdit(newKey), 0);
+              }
+              else addChildClick(e, btn);
+            }, 
+            margin: new go.Margin(2, 2, 6, 2)
+          })
+            .bind('visible', '', canAdd)
+            .add(
+              new go.TextBlock({ font: `bold 20px ${FONT}` })
+                .bind('text', '', (d) => (d.type === 'income' || d.type === 'revenue') ? '+ Add' : '+ Expense')
+                .bind('stroke', '', (d) => (d.type === 'income' || d.type === 'revenue') ? COLORS.neutral : COLORS.cost)
+            ),
+          go.GraphObject.build('Button', {
+            click: (e, btn) => {
+              const node = btn.part;
+              if (!node) return;
+              const d = node.data;
+              if (d.fixed) return;
+              if (d.kind !== 'leaf' && d.kind !== 'branch' && d.kind !== 'percent') return;
+              const r = resolve(d.sec, d.path);
+              if (r && r.list) r.list.splice(r.index, 1);
+              buildModel();
+            }, 
+            margin: new go.Margin(2, 2, 6, 2)
+          })
+            .bind('visible', '', d => !d.fixed && (d.kind === 'leaf' || d.kind === 'branch' || d.kind === 'percent'))
+            .add(
+              new go.TextBlock('Delete', { font: `bold 20px ${FONT}`, stroke: COLORS.cost })
+            )
+        );
+    }
+
+    myDiagram.nodeTemplate =
+      new go.Node(go.Panel.Spot, {
+        locationObjectName: 'SHAPE',
+        portSpreading: go.PortSpreading.Packed,
+        movable: false,
+        selectionAdorned: false
+      })
+        .bind('locationSpot', 'type', type => isRight(type) ? go.Spot.Left : go.Spot.Right)
+        .add(
+          new go.Shape({
+            name: 'SHAPE',
+            strokeWidth: 0,
+            portId: '',
+            height: 10,
+            width: 50
+          })
+            .bind('fill', 'type', nodeColor)
+            .bind('fromSpot', 'type', type =>
+              type === 'revenue' ? go.Spot.LeftRightSides :
+              isRight(type) ? go.Spot.RightSide : go.Spot.LeftSide)
+            .bind('toSpot', 'type', type =>
+              type === 'revenue' ? go.Spot.LeftRightSides :
+              isRight(type) ? go.Spot.LeftSide : go.Spot.RightSide),
+          new go.Panel('Spot', { alignmentFocusName: 'LABEL' })
+            .bind('alignment', 'type', type => isRight(type) ? go.Spot.Right : go.Spot.Left)
+            .bind('alignmentFocus', 'type', type => isRight(type) ? go.Spot.Left : go.Spot.Right)
+            .add(
+              new go.Panel('Auto', { name: 'LABEL' })
+                .add(
+                  new go.Shape('RoundedRectangle', { fill: COLORS.labelBackground, strokeWidth: 0 }),
+                  new go.Panel('Vertical')
+                    .add(
+                      new go.TextBlock({ name: 'NAMETB', 
+                        textEdited:  (tb, oldText, newText) => {
+                          const d = tb.part.data;
+                          if (d.kind !== 'leaf' && d.kind !== 'branch' && d.kind !== 'percent') return;
+                          const r = resolve(d.sec, d.path);
+                          const name = String(newText).trim();
+                          if (r && name) r.item.name = name;
+                          deferRebuild();
+                        },
+                        font: `bold 20pt ${FONT}`,
+                        margin: new go.Margin(5, 6, 0, 6)
+                      })
+                        .bind('text', 'name')
+                        .bind('editable', 'kind', k => k === 'leaf' || k === 'branch' || k === 'percent')
+                        .bind('textAlign', 'type', type => isRight(type) ? 'left' : 'right'),
+                      new go.TextBlock({ name: 'AMTTB',
+                          textEdited: (tb, oldText, newText) => {
+                            const d = tb.part.data;
+                            if (d.kind !== 'leaf' && d.kind !== 'percent') return;
+                            const r = resolve(d.sec, d.path);
+                            if (!r) return;
+                            const v = parseFloat(String(newText).replace(/[^0-9.\-]/g, '')) || 0;
+                            if (d.kind === 'percent') r.item.percent = v;
+                            else r.item.amount = v;
+                            deferRebuild();
+                          },
+                          font: `15pt ${FONT}`,
+                          margin: new go.Margin(0, 6, 5, 6)
+                        })
+                        .bind('text', '', d => d.percent != null ? pct(d.percent) : fmt(d.amount))
+                        .bind('editable', 'kind', k => k === 'leaf' || k === 'percent')
+                        .bind('textAlign', 'type', type => isRight(type) ? 'left' : 'right')
+                    )
+                ),
+              // edit buttons hover directly above the text label, only when selected
+              nodeButtons()
+            ),
+          new go.Panel('Auto', { opacity: 0, alignment: go.Spot.Right, alignmentFocus: go.Spot.Left })
+            .bind('visible', 'type', t => t === 'revenue')
+            .add(
+              new go.Shape('RoundedRectangle', { fill: COLORS.labelBackground, strokeWidth: 0 }),
+              new go.Panel('Vertical')
+                .add(
+                  new go.TextBlock({ font: `bold 20pt ${FONT}`, margin: new go.Margin(5, 6, 0, 6) })
+                    .bind('text', 'name'),
+                  new go.TextBlock({ font: `15pt ${FONT}`, margin: new go.Margin(0, 6, 5, 6) })
+                    .bind('text', '', d => d.percent != null ? pct(d.percent) : fmt(d.amount))
+                )
+            )
+        );
+
+    myDiagram.linkTemplate =
+      new go.Link({
+        curve: go.Curve.Bezier,
+        layerName: 'Background',
+        fromEndSegmentLength: 150,
+        toEndSegmentLength: 150,
+        selectionAdornmentTemplate: new go.Adornment('Link').add(
+          new go.Shape({
+            isPanelMain: true,
+            fill: null,
+            stroke: COLORS.selection,
+            strokeWidth: 0
+          })
+        )
+      })
+        .add(
+          new go.Shape({ strokeWidth: 4, stroke: COLORS.link, opacity: 0.65 })
+            .bind('stroke', '', (d) => {
+              const nodedata = myDiagram.model.findNodeDataForKey(d.to);
+              return go.Brush.lightenBy(nodeColor(nodedata.type), 0.2);
+            })
+            .bind('strokeWidth', 'width')
+        );
+        
+    buildModel();
+  }
+
+  const financials = {
+    income: [
+      { name: 'Hardware Products', children: [
+        { name: 'Smartphones', amount: 162.8 },
+        { name: 'Laptops', amount: 57.4 },
+        { name: 'Tablets', amount: 23.6 },
+        { name: 'Accessories', amount: 35.9 }
+      ] },
+      { name: 'Subscriptions', amount: 94.7 }
+    ],
+    levels: [
+      { profit: 'Gross Profit', deductions: [
+        { name: 'Cost of Revenue', children: [
+          { name: 'Product Costs', amount: 173.5 },
+          { name: 'Service Costs', amount: 28.6 }
+        ] }
+      ] },
+      { profit: 'Operating Profit', deductions: [
+        { name: 'Operating Expenses', children: [
+          { name: 'R&D', amount: 31.7 },
+          { name: 'Marketing', amount: 22.4 }
+        ] }
+      ] },
+      { profit: 'Net Profit', deductions: [
+        { name: 'Tax', percent: 14.8, fixed: true }
+      ] }
+    ]
+  };
+
+  function sectionArray(sec) {
+    if (sec === 'income') return financials.income;
+    const m = /^L(\d+)$/.exec(sec);
+    if (m) { const lvl = financials.levels[+m[1]]; return lvl ? lvl.deductions : null; }
+    return null;
+  }
+
+  function resolve(sec, path) {
+    let list = sectionArray(sec);
+    let item = null;
+    for (let p = 0; p < path.length; p++) {
+      const i = path[p];
+      if (!list || !list[i]) return null;
+      item = list[i];
+      if (p === path.length - 1) return { item, list, index: i };
+      list = item.children || (item.children = []);
+    }
+    return null;
+  }
+
+
+  // Derive every node and link of the Sankey from the source data.
+  function buildModel() {
+    const f = financials;
+    const revenue = sum(f.income);
+
+    const nodes = [];
+    const links = [];
+    const add = data => { nodes.push(data); return data.key; };
+    const link = (from, to, width) => links.push({ from, to, width });
+
+    const buildTree = (sec, list, parentKey, type, path, source) => {
+      list.forEach((item, i) => {
+        const p = path.concat(i);
+        const key = keyFor(sec, p);
+        const hasKids = !!(item.children && item.children.length);
+        const isPct = item.percent != null && !hasKids;
+        const amt = isPct ? dedAmount(item, source) : amountOf(item);
+        add({ key, name: item.name, amount: amt, percent: isPct ? item.percent : undefined,
+              fixed: item.fixed || undefined,
+              type, sec, path: p, kind: isPct ? 'percent' : (hasKids ? 'branch' : 'leaf') });
+        link(parentKey, key, amt);
+        if (hasKids) buildTree(sec, item.children, key, type, p, amt);
+      });
+    };
+
+    add({ key: 'Revenue', name: 'Revenue', amount: revenue, type: 'revenue', kind: 'add', section: 'income' });
+    buildTree('income', f.income, 'Revenue', 'income', [], revenue);
+
+    let prevKey = 'Revenue';
+    let prevAmount = revenue;
+    f.levels.forEach((level, i) => {
+      const sec = 'L' + i;
+      const deductTotal = level.deductions.reduce((t, ded) => t + dedAmount(ded, prevAmount), 0);
+      const profitAmount = prevAmount - deductTotal;
+      // expenses for this level are drawn from the previous profit node
+      buildTree(sec, level.deductions, prevKey, 'cost', [], prevAmount);
+      // the remaining profit; non-final profits can have more expenses added to them
+      const canAddExpense = i + 1 < f.levels.length;
+      add({ key: level.profit, name: level.profit, amount: profitAmount, type: 'profit',
+            kind: 'profit', addExpenseToLevel: canAddExpense ? i + 1 : null });
+      link(prevKey, level.profit, profitAmount);
+      prevKey = level.profit;
+      prevAmount = profitAmount;
+    });
+
+    myDiagram.model = new go.GraphLinksModel(nodes, links);
+  }
+
+
+  function addChildClick(e, btn) {
+    const node = btn.part;
+    if (!node) return;
+    const d = node.data;
+    let newKey = null;
+    if (d.kind === 'add') {
+      // a skeleton section node
+      const arr = sectionArray(d.section);
+      arr.push({ name: defaultName(d.section), amount: 10 });
+      newKey = keyFor(d.section, [arr.length - 1]);
+    } else if (d.kind === 'leaf' || d.kind === 'branch') {
+      const r = resolve(d.sec, d.path);
+      if (!r) return;
+      const item = r.item;
+      if (!item.children || !item.children.length) {
+        // inherits the value this node used to carry 
+        item.children = [{ name: item.name, amount: amountOf(item) }];
+        newKey = keyFor(d.sec, d.path.concat(0));
+      } else {
+        item.children.push({ name: defaultName(d.sec), amount: 10 });
+        newKey = keyFor(d.sec, d.path.concat(item.children.length - 1));
+      }
+    }
+    buildModel();
+    if (newKey) setTimeout(() => selectAndEdit(newKey), 0);
+  }
+
+  function selectAndEdit(key) {
+    const node = myDiagram.findNodeForKey(key);
+    if (!node) return;
+    myDiagram.select(node);
+    const tb = node.findObject('NAMETB');
+    if (!tb || !tb.editable) return;
+    try {
+      const tool = myDiagram.toolManager.textEditingTool;
+      tool.textBlock = tb;
+      myDiagram.currentTool = tool;
+      tool.doActivate();
+    } catch (ex) { /* renaming is a convenience; ignore if unavailable */ }
+  }
+
+  window.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>

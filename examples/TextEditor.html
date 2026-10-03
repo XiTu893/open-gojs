@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Standard HTMLInfo Text Editor</title>
+  <script src="../dist/open-gojs.umd.js"></script>
+  
+  <script src="https://cdn.jsdelivr.net/npm/gojs-extensions@latest/extensions/TextEditor.js"></script>
+  
+  
+</head>
+<body>
+<!-- The DIV for the Diagram needs an explicit size or else we won't see anything.
+       Also add a border to help see the edges. -->
+  <div id="myDiagramDiv" style="border: solid 1px black; width: 100%; height: 400px"></div>
+  <div id="description">
+<p>This sample constructs an <a href="https://gojs.net/latest/api/symbols/HTMLInfo.html" target="api">HTMLInfo</a> that acts as a re-implementation of the default text editor.</p>
+  <p>
+    The implementation is contained in the file <a href="https://gojs.net/latest/extensions/TextEditor.js" target="_blank">TextEditor.js</a> and exposes <code>window.TextEditor</code>, which is
+    used in this file as the value of <code>myDiagram.toolManager.textEditingTool.defaultTextEditor</code>.
+  </p>
+  <p>
+    This also adds a text validation predicate, <code>okName</code>, as the <a href="https://gojs.net/latest/api/symbols/TextBlock.html#textvalidation" target="api">TextBlock.textValidation</a> property. That predicate makes sure that the new
+    string has at least three characters and contains a vowel.
+  </p>
+  <p>You can see additional custom text editors in the <a href="customTextEditingTool.html">Custom TextEditingTool sample</a>.</p>
+  </div>
+  <script >
+function init() {
+
+    myDiagram = new go.Diagram('myDiagramDiv', {
+      'undoManager.isEnabled': true // enable undo & redo
+    });
+
+    myDiagram.toolManager.textEditingTool.defaultTextEditor = window.TextEditor;
+
+    // this predicate is true if the new string has at least three characters
+    // and has a vowel in it
+    function okName(textblock, oldstr, newstr) {
+      return newstr.length >= 3 && /[aeiouy]/i.test(newstr);
+    }
+
+    // define a simple Node template
+    myDiagram.nodeTemplate =
+      new go.Node('Auto') // the Shape will go around the TextBlock
+        .add(
+          new go.Shape('RoundedRectangle', { strokeWidth: 0 })
+            .bind('fill', 'color'),
+          new go.TextBlock({
+              margin: 8, // some room around the text
+              editable: true,
+              textValidation: okName
+            })
+            .bind('text')
+        );
+
+    myDiagram.model = new go.GraphLinksModel(
+      [
+        { key: 1, text: 'Alpha', color: 'lightblue' },
+        { key: 2, text: 'Beta', color: 'orange' },
+        { key: 3, text: 'Gamma', color: 'lightgreen' },
+        { key: 4, text: 'Delta', color: 'pink' }
+      ],
+      [
+        { from: 1, to: 2 },
+        { from: 1, to: 3 },
+        { from: 2, to: 2 },
+        { from: 3, to: 4 },
+        { from: 4, to: 1 }
+      ]
+    );
+  }
+
+  window.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>

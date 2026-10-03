@@ -1,0 +1,862 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Container Shipping Line Map</title>
+  <script src="../dist/open-gojs.umd.js"></script>
+  
+  <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
+  <style>
+* {
+  box-sizing: border-box;
+}
+html, body {
+  margin: 0;
+  height: 100%;
+}
+
+/* leaflet map */
+#map {
+  position: absolute; inset: 0;
+  z-index: 1;
+  /* OpenStreetMap's ocean color, shown beside the world when the map is wider than it */
+  background: #aad3df;
+}
+/* goJS overlay */
+#overlay {
+  position: absolute; inset: 0;
+  z-index: 2;
+}
+/* zoom to fit button, stacked above Leaflet's zoom buttons */
+.zoom-fit svg {
+  vertical-align: middle;
+}
+  </style>
+</head>
+<body>
+<div id="mapwrap">
+    <div id="map"></div>
+    <div id="overlay"></div>
+  </div>
+  <div id="description">
+<p>
+    This sample shows a container-shipping visualization built with GoJS in front of the
+    <a href="https://leafletjs.com/">Leaflet mapping library</a>.
+    The GoJS <a href="https://gojs.net/latest/api/symbols/Diagram.html" target="api">Diagram</a> sits in a transparent div above the map, and a
+    <code>sync()</code> function re-projects every latitude/longitude on each Leaflet <code>move</code>,
+    <code>zoom</code>, and <code>resize</code> event.
+  </p>
+  <p>
+    Ports are fixed <a href="https://gojs.net/latest/api/symbols/Node.html" target="api">Node</a>s, and shipping lanes are Parts whose polyline <a href="https://gojs.net/latest/api/symbols/Geometry.html" target="api">Geometry</a> is rebuilt from ocean
+    waypoints. Each vessel belongs to a service and is advanced along its current leg every animation frame.
+    On arrival a ship lays over for a while and then departs for the next port. The badge on a port counts the vessels
+    currently docked there.
+  </p>
+  <p>
+    Use the <b>Start Storms</b> button in the top corner to spawn storm cells over the oceans. Storms drift slowly,
+    and any vessel whose route takes it through one is slowed to about a third of its normal speed and marked with
+    a warning badge. Storm circles are sized in kilometers, so they scale correctly as you zoom.
+  </p>
+  <p>
+    The ports, routes, and vessels are illustrative only. Map tiles are from
+    <a href="https://www.openstreetmap.org/">OpenStreetMap</a>.
+  </p>
+  </div>
+  <script >
+function makeLeafletMap() {
+  const map = L.map('map', {
+    zoomAnimation: false,
+    // show a single copy of the world, and keep panning within it
+    maxBounds: [[-85, -180], [85, 180]],
+    maxBoundsViscosity: 1,
+    // allow fractional zoom levels, so "zoom to fit" can fit the routes snugly
+    zoomSnap: 0.25
+  }).setView([25, 10], 3);
+
+  // noWrap stops the world from repeating side to side on wide maps,
+  // leaving the map's ocean-colored background (see CSS) at the edges instead,
+  // and bounds stops Leaflet from requesting tiles beyond the world's edges
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    noWrap: true,
+    bounds: [[-90, -180], [90, 180]],
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+  }).addTo(map);
+
+  map.zoomControl.setPosition('bottomright');
+
+  // let the map zoom out until the whole world fits, but no further:
+  // the world is 256px square at zoom 0 and doubles with each zoom level
+  function updateMinZoom() {
+    const snap = map.options.zoomSnap;
+    const size = map.getSize();
+    map.setMinZoom(Math.floor(Math.log2(Math.min(size.x, size.y) / 256) / snap) * snap);
+  }
+  updateMinZoom();
+  map.on('resize', updateMinZoom);
+
+  return map;
+}
+
+function makeDiagram() {
+  const diagram = new go.Diagram('overlay', {
+    // InfiniteScroll so the diagram can follow the map anywhere
+    scrollMode: go.Diagram.InfiniteScroll,
+    allowDelete: false,
+    allowCopy: false
+  });
+
+  // prevent user from scrolling on the diagram
+  diagram.toolManager.mouseWheelBehavior = go.WheelMode.None;
+
+  // a drag that starts on a Part must not pan the diagram or draw a
+  // selection box: the diagram has to stay pixel-locked to the map
+  diagram.toolManager.panningTool.isEnabled = false;
+  diagram.toolManager.dragSelectingTool.isEnabled = false;
+
+  return diagram;
+}
+
+window.addEventListener('load', () => {
+  const map = makeLeafletMap();
+  const myDiagram = makeDiagram();
+
+  const NAVY = '#0b2545', DEEP = '#13315c', SEA = '#62b6f7', STORM_FILL = '#6d5fc7', LIGHT = '#f2f7fb';
+  const MUTED = 'rgba(242,247,251,0.6)';
+  const SIM_KM_PER_SEC = 400;   // simulated km per real second at 18 knots
+  const STORM_FACTOR = 0.3;     // speed multiplier inside a storm
+  const DOCK_MS = 5000;         // minimum layover time while docked
+  const SHIP_GEO = 'F1 M4 0 L19 0 L27 5 L19 10 L4 10 Q0 10 0 6 L0 4 Q0 0 4 0 Z';
+
+
+
+  // each port has a signature color, shown in its inspector
+  const PORTS = {
+    shanghai:   { name: 'Shanghai',    lat: 31.23,  lng: 121.49,  color: '#b64926' },
+    singapore:  { name: 'Singapore',   lat: 1.26,   lng: 103.84,  color: '#2e8b57' },
+    jebelali:   { name: 'Jebel Ali',   lat: 25.01,  lng: 55.06,   color: '#e8a33d' },
+    rotterdam:  { name: 'Rotterdam',   lat: 51.95,  lng: 4.14,    color: '#1f6fb2' },
+    newyork:    { name: 'New York',    lat: 40.65,  lng: -74.02,  color: '#7d5ba6' },
+    colon:      { name: 'Colón',       lat: 9.37,   lng: -79.90,  color: '#8d99ae' },
+    losangeles: { name: 'Los Angeles', lat: 33.73,  lng: -118.26, color: '#d1495b' },
+    capetown:   { name: 'Cape Town',   lat: -33.90, lng: 18.43,   color: '#2ea3a5' },
+    santos:     { name: 'Santos',      lat: -23.98, lng: -46.30,  color: '#6a994e' }
+  };
+
+  //  pathing points for the shipping routes
+  const LEGS = {
+    'shanghai|singapore': [ [31.23, 121.49], [31.0, 122.9], [27.5, 121.8], [24.6, 119.7], [22.2, 116.4], [17.5, 113.0], [12.0, 110.6], [6.5, 105.7], [2.0, 104.9], [1.26, 103.84] ],
+    'singapore|jebelali': [ [1.26, 103.84], [1.7, 102.6], [3.2, 100.8], [5.0, 98.7], [6.3, 95.6], [6.1, 90.0], [5.6, 80.2], [7.6, 75.6], [12.5, 70.8], [18.5, 64.8], [23.2, 60.3], [25.6, 57.2], [26.5, 56.4], [25.9, 55.5], [25.01, 55.06] ],
+    'jebelali|rotterdam': [ [25.01, 55.06], [25.9, 55.9], [26.6, 56.6], [25.4, 58.0], [22.5, 60.2], [15.5, 53.8], [12.9, 50.8], [12.4, 45.8], [12.6, 43.4], [15.5, 41.6], [19.8, 38.7], [23.8, 36.6], [27.2, 34.2], [29.2, 32.8], [29.93, 32.56], [31.3, 32.35], [32.5, 31.0], [34.0, 26.5], [35.0, 20.5], [36.3, 13.8], [37.6, 10.6], [38.1, 6.5], [37.0, 1.5], [36.1, -2.5], [35.95, -5.6], [35.9, -7.8], [37.1, -9.8], [39.8, -10.1], [43.6, -9.9], [46.2, -6.7], [48.7, -5.8], [49.8, -2.8], [50.6, 0.2], [51.05, 1.45], [51.6, 2.7], [51.95, 4.14] ],
+    'rotterdam|newyork': [ [51.95, 4.14], [51.6, 2.7], [51.05, 1.45], [50.3, -0.8], [49.7, -3.2], [49.2, -6.5], [48.6, -9.5], [46.8, -20.0], [44.0, -34.0], [42.0, -49.0], [40.8, -64.0], [40.4, -71.5], [40.5, -73.6], [40.65, -74.02] ],
+    'newyork|colon': [ [40.65, -74.02], [40.3, -73.7], [38.4, -74.2], [35.0, -74.9], [31.6, -79.4], [26.8, -79.6], [24.5, -80.9], [23.8, -82.6], [22.6, -85.2], [21.4, -85.7], [18.5, -82.8], [14.8, -81.3], [12.0, -80.2], [10.2, -79.85], [9.37, -79.90] ],
+    'colon|losangeles': [ [9.37, -79.90], [9.12, -79.72], [8.93, -79.53], [8.4, -79.2], [7.2, -79.8], [6.6, -81.2], [7.6, -85.5], [10.5, -92.5], [14.2, -98.5], [17.5, -103.5], [20.4, -107.3], [22.4, -110.4], [26.3, -114.6], [28.8, -116.2], [31.6, -117.8], [33.2, -118.4], [33.73, -118.26] ],
+    'singapore|capetown': [ [1.26, 103.84], [1.7, 102.6], [3.2, 100.8], [5.0, 98.7], [6.3, 95.6], [2.5, 91.5], [-5.0, 85.0], [-15.0, 70.5], [-24.5, 56.0], [-31.5, 42.0], [-35.6, 26.5], [-35.2, 20.0], [-34.6, 18.0], [-34.0, 18.1], [-33.90, 18.43] ],
+    'capetown|santos': [ [-33.90, 18.43], [-34.2, 17.5], [-32.5, 10.0], [-30.0, 0.0], [-27.5, -14.0], [-25.5, -28.0], [-24.6, -40.0], [-24.9, -45.3], [-24.3, -46.1], [-23.98, -46.30] ]
+  };
+
+  // a service is an itinerary of ports; ships sail it end-to-end and back
+  const SERVICES = [
+    { name: 'Asia–Europe Express', color: '#2563eb', ports: ['shanghai', 'singapore', 'jebelali', 'rotterdam'] },
+    { name: 'Atlantic Shuttle',    color: '#e11d48', ports: ['rotterdam', 'newyork'] },
+    { name: 'Americas Connector',  color: '#0d9488', ports: ['newyork', 'colon', 'losangeles'] },
+    { name: 'Cape Route Service',  color: '#7c3aed', ports: ['singapore', 'capetown', 'santos'] }
+  ];
+
+  // svc = service index, at = index of the port the ship last departed,
+  // dir = travel direction along the itinerary, frac = starting position along the leg,
+  // len = hull length factor (1 = the base 27px hull)
+  const SHIP_DEFS = [
+    { name: 'MV Meridian',    svc: 0, at: 0, dir: 1,  frac: 0.25, kn: 18.2, len: 1.15 },
+    { name: 'MV Blue Harbor', svc: 0, at: 1, dir: 1,  frac: 0.60, kn: 17.4, len: 0.90 },
+    { name: 'MV Kestrel',     svc: 0, at: 3, dir: -1, frac: 0.35, kn: 19.0, len: 1.25 },
+    { name: 'MV Northwind',   svc: 1, at: 0, dir: 1,  frac: 0.45, kn: 20.1, len: 1.00 },
+    { name: 'MV Gullwing',    svc: 1, at: 1, dir: -1, frac: 0.15, kn: 18.8, len: 0.85 },
+    { name: 'MV Pelican',     svc: 2, at: 0, dir: 1,  frac: 0.55, kn: 17.9, len: 1.10 },
+    { name: 'MV Baja Star',   svc: 2, at: 2, dir: -1, frac: 0.30, kn: 18.5, len: 0.95 },
+    { name: 'MV Albatross',   svc: 3, at: 0, dir: 1,  frac: 0.50, kn: 18.9, len: 1.20 },
+    { name: 'MV Santa Cruz',  svc: 3, at: 2, dir: -1, frac: 0.40, kn: 17.6, len: 0.90 },
+    { name: 'MV Coral Dawn',  svc: 0, at: 1, dir: -1, frac: 0.40, kn: 17.1, len: 1.00 },
+    { name: 'MV Tradewind',   svc: 0, at: 2, dir: 1,  frac: 0.20, kn: 19.4, len: 1.30 },
+    { name: 'MV Ironclad',    svc: 1, at: 1, dir: -1, frac: 0.70, kn: 19.6, len: 1.15 },
+    { name: 'MV Osprey',      svc: 2, at: 1, dir: 1,  frac: 0.35, kn: 18.1, len: 0.85 },
+    { name: 'MV Marlin',      svc: 2, at: 1, dir: -1, frac: 0.75, kn: 20.3, len: 1.05 },
+    { name: 'MV Cape Verde',  svc: 3, at: 1, dir: 1,  frac: 0.25, kn: 18.4, len: 1.10 },
+    { name: 'MV Horizon',     svc: 3, at: 1, dir: -1, frac: 0.65, kn: 17.2, len: 0.95 }
+  ];
+
+  // storm cells that may be spawned by the weather toggle, radius in km
+  const STORM_ZONES = [
+    { lat: 44,  lng: -38, r: 900 },  // North Atlantic
+    { lat: 14,  lng: 112, r: 650 },  // South China Sea
+    { lat: -12, lng: 78,  r: 850 },  // Indian Ocean
+    { lat: 16,  lng: -80, r: 520 },  // Caribbean
+    { lat: -30, lng: -18, r: 750 }   // South Atlantic
+  ];
+
+  function distKm(aLat, aLng, bLat, bLng) {
+    const toR = Math.PI / 180;
+    const dLat = (bLat - aLat) * toR, dLng = (bLng - aLng) * toR;
+    const s = Math.sin(dLat / 2) ** 2 + Math.cos(aLat * toR) * Math.cos(bLat * toR) * Math.sin(dLng / 2) ** 2;
+    return 2 * 6371 * Math.asin(Math.sqrt(s));
+  }
+
+  // Leaflet's latLngToContainerPoint rounds to whole pixels, which makes
+  // slow-moving ships jitter.  Project manually to keep fractional precision.
+  function llToPt(lat, lng) {
+    const p = map.project(L.latLng(lat, lng), map.getZoom());
+    const origin = map.getPixelOrigin();
+    const pane = L.DomUtil.getPosition(map.getPane('mapPane'));
+    return new go.Point(p.x - origin.x + pane.x, p.y - origin.y + pane.y);
+  }
+
+  function buildLeg(wpts) {
+    const cum = [0];
+    for (let i = 1; i < wpts.length; i++) {
+      cum.push(cum[i - 1] + distKm(wpts[i - 1][0], wpts[i - 1][1], wpts[i][0], wpts[i][1]));
+    }
+    return { wpts, cum, total: cum[cum.length - 1] };
+  }
+
+  // legs are defined once but sailed in both directions
+  const LEGDATA = {};
+  for (const key in LEGS) {
+    const [a, b] = key.split('|');
+    LEGDATA[key] = buildLeg(LEGS[key]);
+    LEGDATA[b + '|' + a] = buildLeg(LEGS[key].slice().reverse());
+  }
+
+  // [lat, lng] at distance d km along a leg
+  function posAt(leg, d) {
+    d = Math.max(0, Math.min(d, leg.total));
+    let i = 0;
+    while (i < leg.cum.length - 2 && leg.cum[i + 1] < d) i++;
+    const span = leg.cum[i + 1] - leg.cum[i];
+    const t = span > 0 ? (d - leg.cum[i]) / span : 0;
+    const a = leg.wpts[i], b = leg.wpts[i + 1];
+    return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+  }
+
+  const setHover = (node, val) => node.diagram.model.commit(m => m.set(node.data, 'hover', val), 'hover');
+
+  function shipInfoRow(label, prop, conv) {
+    return new go.Panel('Horizontal', { margin: new go.Margin(2, 0, 0, 0) })
+      .add(
+        new go.TextBlock(label, { font: '9px sans-serif', stroke: MUTED, width: 38 }),
+        new go.TextBlock({ font: '600 9px sans-serif', stroke: LIGHT })
+          .bind('text', prop, conv)
+      );
+  }
+
+  myDiagram.nodeTemplateMap.add('port',
+    new go.Node('Spot', {
+      locationSpot: go.Spot.Center,
+      selectionAdorned: false, movable: false,
+      cursor: 'pointer'
+    })
+      .bindTwoWay('isSelected', 'sel')
+      .add(
+        new go.Panel('Spot')
+          .add(
+            new go.Shape('Circle', { width: 14, height: 14, fill: LIGHT, stroke: NAVY, strokeWidth: 2.5 })
+              .bind('stroke', 'sel', s => s ? '#ffd166' : NAVY),
+            new go.Shape('Circle', { width: 5, height: 5, fill: NAVY, strokeWidth: 0 })
+          ),
+        // count of vessels currently docked here
+        new go.Panel('Auto', { alignment: new go.Spot(1, 0, 3, -3), pickable: false, visible: false })
+          .bind('visible', 'docked', n => (n || 0) > 0)
+          .add(
+            new go.Shape('Circle', { fill: '#ffd166', stroke: NAVY, strokeWidth: 1.5, minSize: new go.Size(16, 16) }),
+            new go.TextBlock({ stroke: NAVY, font: 'bold 10px sans-serif' })
+              .bind('text', 'docked', n => '' + (n || 0))
+          ),
+        new go.Panel('Auto', { alignment: new go.Spot(0.5, 1, 0, 6), alignmentFocus: go.Spot.Top, pickable: false })
+          .add(
+            new go.Shape('RoundedRectangle', { fill: 'rgba(11,37,69,0.85)', strokeWidth: 0, parameter1: 4 }),
+            new go.TextBlock({ stroke: LIGHT, font: '600 10px sans-serif', margin: new go.Margin(2, 6, 2, 6) })
+              .bind('text', 'name')
+          )
+      )
+  );
+
+  myDiagram.nodeTemplateMap.add('ship',
+    new go.Node('Spot', {
+      // locate by the HULL only, so the warning badge never shifts the boat off its lane
+      locationObjectName: 'HULL', locationSpot: go.Spot.Center,
+      layerName: 'Foreground',
+      selectionAdorned: false, movable: false,
+      cursor: 'pointer',
+      mouseEnter: (e, n) => setHover(n, true),
+      mouseLeave: (e, n) => setHover(n, false)
+    })
+      .bindTwoWay('isSelected', 'sel')
+      .add(
+        // hull, rotated to the ship's heading
+        new go.Panel('Spot', { name: 'HULL' })
+          .bind('angle', 'heading')
+          .bind('scale', 'hover', h => h ? 1.3 : 1).trigger('scale', { duration: 120 })
+          .add(
+            // hull length varies per vessel; the beam grows a little with it too
+            new go.Shape({ geometryString: SHIP_GEO, strokeWidth: 1.2 })
+              .bind('desiredSize', 'len', f => new go.Size(27 * f, 10 * (0.85 + 0.15 * f)))
+              .bind('fill', 'color')
+              .bind('stroke', 'sel', s => s ? '#ffd166' : '#fff'),
+            // deck containers
+            new go.Shape('Rectangle', { width: 5, height: 4, fill: '#fff', strokeWidth: 0, alignment: new go.Spot(0.3, 0.5), pickable: false }),
+            new go.Shape('Rectangle', { width: 5, height: 4, fill: 'rgba(255,255,255,0.65)', strokeWidth: 0, alignment: new go.Spot(0.55, 0.5), pickable: false })
+          ),
+
+        // heavy-weather badge
+        new go.TextBlock('⚠', {
+          font: 'bold 13px sans-serif', stroke: '#b45309',
+          alignment: new go.Spot(0.5, 0, 0, -12),
+          pickable: false, visible: false
+        })
+          .bind('visible', 'slowed'),
+
+        // info card attached to the vessel when it is selected; every field is
+        // data-bound, so the card travels with the ship and updates live
+        new go.Panel('Auto', {
+          alignment: new go.Spot(0.5, 1, 0, 12), alignmentFocus: go.Spot.Top,
+          visible: false
+        })
+          .bind('visible', 'sel')
+          .add(
+            new go.Shape('RoundedRectangle', { fill: 'rgba(11,37,69,0.92)', stroke: '#2a4a7f', strokeWidth: 1, parameter1: 6 }),
+            new go.Panel('Vertical', { margin: new go.Margin(6, 9), defaultAlignment: go.Spot.Left })
+              .add(
+                new go.TextBlock({ font: '700 11px sans-serif', stroke: LIGHT })
+                  .bind('text', 'name'),
+                new go.TextBlock({ font: '600 9px sans-serif', margin: new go.Margin(1, 0, 2, 0) })
+                  .bind('text', 'serviceName')
+                  .bind('stroke', 'color'),
+                shipInfoRow('From', 'from'),
+                shipInfoRow('To', 'to'),
+                shipInfoRow('Speed', 'kn', k => k === 0 ? 'Docked' : k.toFixed(1) + ' knots'),
+                shipInfoRow('Length', 'len', f => Math.round(f * 300) + ' m'),
+                new go.TextBlock('⚠ Slowed by heavy weather', {
+                  font: '600 9px sans-serif', stroke: '#f4b942',
+                  margin: new go.Margin(3, 0, 0, 0), visible: false
+                })
+                  .bind('visible', 'slowed')
+              )
+          )
+      )
+  );
+
+  myDiagram.nodeTemplateMap.add('storm',
+    new go.Node('Spot', {
+      locationSpot: go.Spot.Center,
+      layerName: 'Background',
+      selectable: false, pickable: false, movable: false
+    })
+      .add(
+        new go.Shape('Circle', {
+          name: 'AREA', width: 100, height: 100,
+          fill: 'rgba(109,95,199,0.16)',
+          stroke: 'rgba(90,76,180,0.6)', strokeWidth: 2, strokeDashArray: [8, 7]
+        }),
+        new go.TextBlock('⛈', { font: '16px sans-serif', pickable: false })
+      )
+  );
+  // lanes are plain Parts (not Links) so we can give each one an arbitrary
+  // polyline geometry that follows the leg's ocean waypoints
+  const lanes = [];
+
+  function makeLanes() {
+    SERVICES.forEach(svc => {
+      for (let i = 0; i < svc.ports.length - 1; i++) {
+        const a = svc.ports[i], b = svc.ports[i + 1];
+        const wpts = LEGS[a + '|' + b] || LEGS[b + '|' + a];
+        const part = new go.Part({
+          layerName: 'Background',
+          selectable: false, pickable: false,
+          locationSpot: go.Spot.TopLeft
+        });
+        part.add(new go.Shape({
+          fill: null, stroke: svc.color, strokeWidth: 2.5,
+          strokeDashArray: [1, 7], strokeCap: 'round', opacity: 0.75
+        }));
+        myDiagram.add(part);
+        lanes.push({ part, wpts });
+      }
+    });
+  }
+
+  // a lane's pixel geometry only changes when the map zoom changes;
+  // panning just translates it, so reproject all the waypoints and
+  // rebuild the Geometry only on zoom
+  function rebuildLane(lane) {
+    const pts = lane.wpts.map(w => llToPt(w[0], w[1]));
+    let minX = Infinity, minY = Infinity;
+    for (const p of pts) {
+      if (p.x < minX) minX = p.x;
+      if (p.y < minY) minY = p.y;
+    }
+    const fig = new go.PathFigure(pts[0].x - minX, pts[0].y - minY, false);
+    for (let i = 1; i < pts.length; i++) {
+      fig.add(new go.PathSegment(go.SegmentType.Line, pts[i].x - minX, pts[i].y - minY));
+    }
+    lane.part.elt(0).geometry = new go.Geometry().add(fig);
+    lane.part.position = new go.Point(minX, minY);
+    // where the geometry origin sits relative to the first waypoint, so a
+    // pan can place the Part from a single projected point
+    lane.dx = minX - pts[0].x;
+    lane.dy = minY - pts[0].y;
+  }
+
+  function moveLane(lane) {
+    if (lane.dx === undefined) return rebuildLane(lane);   // not yet built at this zoom
+    const p = llToPt(lane.wpts[0][0], lane.wpts[0][1]);
+    lane.part.position = new go.Point(p.x + lane.dx, p.y + lane.dy);
+  }
+
+  const stormTogglePart = new go.Part('Auto', {
+    selectable: false, layerName: 'ViewportForeground',
+    alignment: new go.Spot(1, 0, -14, 14),
+    cursor: 'pointer',
+    // clicks are not raised on objects in temporary layers (like the
+    // viewport-aligned HUD layer) unless the object isActionable
+    isActionable: true,
+    click: () => setWeather(!weatherOn)
+  })
+    .add(
+      new go.Shape('RoundedRectangle', {
+        name: 'WXBG', fill: NAVY, stroke: SEA, strokeWidth: 2, parameter1: 10,
+        spot1: go.Spot.TopLeft, spot2: go.Spot.BottomRight
+      }),
+      new go.TextBlock('⛈ Start Storms', {
+        name: 'WXTEXT', font: '700 14px sans-serif', stroke: LIGHT,
+        margin: new go.Margin(10, 16)
+      })
+    );
+
+  const portListItem = new go.Panel('Horizontal', { margin: new go.Margin(3, 0, 0, 0) })
+    .add(
+      new go.Shape('Circle', { width: 7, height: 7, strokeWidth: 0, margin: new go.Margin(0, 6, 0, 0) })
+        .bind('fill', 'color'),
+      new go.TextBlock({ font: '11px sans-serif', stroke: LIGHT })
+        .bind('text', 'text')
+    );
+
+  function sectionHeader(text, topMargin) {
+    return new go.TextBlock(text, {
+      font: '700 9px sans-serif', stroke: MUTED,
+      margin: new go.Margin(topMargin, 0, 2, 0)
+    });
+  }
+
+  const portDetailPart = new go.Part('Spot', {
+    selectable: false, layerName: 'ViewportForeground',
+    alignment: new go.Spot(1, 0.5, -14, 0),
+    visible: false
+  })
+    .add(
+      new go.Panel('Auto')
+        .add(
+          new go.Shape('RoundedRectangle', { fill: NAVY, stroke: '#2a4a7f', strokeWidth: 1.5, parameter1: 12 }),
+          new go.Panel('Vertical', { margin: new go.Margin(14, 16), defaultAlignment: go.Spot.Left, minSize: new go.Size(195, NaN) })
+            .add(
+              new go.Panel('Horizontal')
+                .add(
+                  new go.Shape('Circle', { name: 'P_DOT', width: 10, height: 10, strokeWidth: 0, fill: 'gray', margin: new go.Margin(0, 7, 0, 0) }),
+                  new go.TextBlock('—', { name: 'P_NAME', font: '700 15px sans-serif', stroke: LIGHT })
+                ),
+              new go.TextBlock('Port of call', { font: '10px sans-serif', stroke: MUTED, margin: new go.Margin(3, 0, 0, 0) }),
+              new go.Shape('LineH', { height: 1, stroke: 'rgba(242,247,251,0.2)', strokeWidth: 1, stretch: go.Stretch.Horizontal, margin: new go.Margin(8, 0, 3, 0) }),
+              sectionHeader('IN PORT', 5),
+              new go.Panel('Vertical', { name: 'P_DOCKED', defaultAlignment: go.Spot.Left, itemTemplate: portListItem }),
+              sectionHeader('INBOUND', 10),
+              new go.Panel('Vertical', { name: 'P_INBOUND', defaultAlignment: go.Spot.Left, itemTemplate: portListItem })
+            )
+        ),
+      new go.TextBlock('✕', {
+        font: '600 12px sans-serif', stroke: MUTED, cursor: 'pointer',
+        alignment: new go.Spot(1, 0, -16, 16),
+        isActionable: true,
+        click: () => myDiagram.clearSelection()
+      })
+    );
+
+  [stormTogglePart, portDetailPart].forEach(p => myDiagram.add(p));
+
+  const weatherTB = stormTogglePart.findObject('WXTEXT');
+  const weatherBG = stormTogglePart.findObject('WXBG');
+
+
+  function stormDiameterPx(lat, lng, rKm) {
+    // measure the map's current pixels-per-degree at this latitude
+    const p1 = llToPt(lat, lng);
+    const p2 = llToPt(lat, lng + 2);
+    const pxPerDeg = Math.abs(p2.x - p1.x) / 2;
+    const kmPerDeg = 111.32 * Math.cos(lat * Math.PI / 180);
+    return (rKm * 2 / kmPerDeg) * pxPerDeg;
+  }
+
+  function sizeStorm(node) {
+    const d = node.data;
+    const px = stormDiameterPx(d.lat, d.lng, d.rKm);
+    const area = node.findObject('AREA');
+    area.width = px;
+    area.height = px;
+  }
+
+  // a docked ship parks in a small pixel-offset ring around its port marker
+  function shipPoint(s) {
+    const p = llToPt(s.lat, s.lng);
+    if (s.dockOffset) {
+      p.x += s.dockOffset.x;
+      p.y += s.dockOffset.y;
+    }
+    return p;
+  }
+
+  let lastZoom = null;
+  function sync() {
+    const zoomed = map.getZoom() !== lastZoom;
+    lastZoom = map.getZoom();
+    myDiagram.commit(d => {
+      d.nodes.each(n => {
+        if (!n.data || n.data.lat == null) return;
+        if (n.data.category === 'ship') return;  // placed below, with dock offsets
+        n.location = llToPt(n.data.lat, n.data.lng);
+        if (n.data.category === 'port') n.zOrder = n.location.y;
+        if (n.data.category === 'storm' && zoomed) sizeStorm(n);
+      });
+      shipStates.forEach(s => s.node.location = shipPoint(s));
+      lanes.forEach(zoomed ? rebuildLane : moveLane);
+    }, null);
+    // keep GoJS document coordinates equal to Leaflet container pixels
+    myDiagram.position = new go.Point(0, 0);
+  }
+  map.on('move zoom resize', sync);
+
+  // fit the map to every shipping lane waypoint, leaving room for the storm button
+  function zoomToFit() {
+    const latLngs = Object.values(LEGS).flat();
+    map.fitBounds(latLngs, { paddingTopLeft: [30, 60], paddingBottomRight: [60, 30] });
+  }
+
+  // a Leaflet control whose button sits above the zoom in & out buttons
+  const ZoomFitControl = L.Control.extend({
+    options: { position: 'bottomright' },
+    onAdd() {
+      const bar = L.DomUtil.create('div', 'leaflet-bar');
+      const btn = L.DomUtil.create('a', 'zoom-fit', bar);
+      btn.href = '#';
+      btn.title = 'Zoom to fit';
+      btn.setAttribute('role', 'button');
+      btn.setAttribute('aria-label', 'Zoom to fit');
+      btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2">' +
+        '<path d="M1 5V1h4M9 1h4v4M13 9v4H9M5 13H1V9"/></svg>';
+      L.DomEvent.disableClickPropagation(bar);
+      L.DomEvent.on(btn, 'click', e => {
+        L.DomEvent.preventDefault(e);
+        zoomToFit();
+      });
+      return bar;
+    }
+  });
+  new ZoomFitControl().addTo(map);
+
+  const overlay = document.getElementById('overlay');
+  const wrap = document.getElementById('mapwrap');
+
+  // hit-testing the whole diagram on every pointer event is wasteful —
+  // pointermove can fire faster than the display refreshes — so coalesce
+  // to at most one findObjectAt per animation frame
+  let ptrX = 0, ptrY = 0, ptrQueued = false;
+  wrap.addEventListener('pointermove', (ev) => {
+    ptrX = ev.clientX; ptrY = ev.clientY;
+    if (ptrQueued) return;
+    ptrQueued = true;
+    requestAnimationFrame(() => {
+      ptrQueued = false;
+      const r = overlay.getBoundingClientRect();
+      const pt = new go.Point(ptrX - r.left, ptrY - r.top);
+      // findObjectAt rather than findPartAt: it also searches temporary layers,
+      // which is where the viewport-aligned HUD parts live
+      const obj = myDiagram.findObjectAt(pt);
+      overlay.style.pointerEvents = obj ? 'auto' : 'none';
+    });
+  });
+
+  map.on('click', () => { if (myDiagram.selection.count > 0) myDiagram.clearSelection(); });
+
+  let shipStates = [];
+  let stormStates = [];
+  let weatherOn = false;
+  let portData = {};   // port key -> model node data, for the docked-count badge
+
+  const legFor = (fromKey, toKey) => LEGDATA[fromKey + '|' + toKey];
+
+  function inStorm(lat, lng) {
+    for (const w of stormStates) {
+      if (distKm(lat, lng, w.lat, w.lng) < w.rKm) return true;
+    }
+    return false;
+  }
+
+  function initFleet() {
+    const nodes = [];
+    for (const key in PORTS) {
+      nodes.push({ category: 'port', key, name: PORTS[key].name, lat: PORTS[key].lat, lng: PORTS[key].lng, docked: 0, sel: false });
+    }
+
+    shipStates = SHIP_DEFS.map((def, i) => {
+      const svc = SERVICES[def.svc];
+      const fromKey = svc.ports[def.at];
+      const toKey = svc.ports[def.at + def.dir];
+      const leg = legFor(fromKey, toKey);
+      const dist = leg.total * def.frac;
+      const [lat, lng] = posAt(leg, dist);
+      const data = {
+        category: 'ship', key: 'S' + i,
+        name: def.name, serviceName: svc.name, color: svc.color,
+        lat, lng, heading: 0, kn: def.kn, len: def.len, slowed: false, sel: false, hover: false,
+        from: PORTS[fromKey].name, to: PORTS[toKey].name
+      };
+      nodes.push(data);
+      return {
+        data, svc, at: def.at, dir: def.dir,
+        leg, dist, lat, lng, heading: 0,
+        knBase: def.kn, state: 'sailing', until: 0, node: null,
+        portKey: null, dockOffset: null
+      };
+    });
+
+    myDiagram.model = new go.GraphLinksModel({
+      nodeCategoryProperty: 'category',
+      nodeDataArray: nodes
+    });
+
+    portData = {};
+    myDiagram.model.nodeDataArray.forEach(nd => {
+      if (nd.category === 'port') portData[nd.key] = nd;
+    });
+
+    shipStates.forEach(s => {
+      s.node = myDiagram.findNodeForData(s.data);
+      // start pointed along the lane
+      const p = llToPt(s.lat, s.lng);
+      const [aLat, aLng] = posAt(s.leg, Math.min(s.dist + 60, s.leg.total));
+      const pa = llToPt(aLat, aLng);
+      s.heading = Math.atan2(pa.y - p.y, pa.x - p.x) * 180 / Math.PI;
+      myDiagram.model.commit(m => m.set(s.data, 'heading', s.heading), null);
+    });
+    makeLanes();
+    // start with every route in view
+    zoomToFit();
+    sync();
+  }
+
+  function arrive(s, m, nowMs) {
+    s.at = s.at + s.dir;
+    const portKey = s.svc.ports[s.at];
+    const port = PORTS[portKey];
+    // ping-pong: turn around at either end of the itinerary
+    if (s.at === 0 || s.at === s.svc.ports.length - 1) s.dir = -s.dir;
+    s.portKey = portKey;
+    s.lat = port.lat;
+    s.lng = port.lng;
+    s.data.lat = s.lat;
+    s.data.lng = s.lng;
+
+    // park in a ring around the port marker
+    const pd = portData[portKey];
+    const slot = pd.docked || 0;
+    const ang = (slot * 72 - 90) * Math.PI / 180;
+    s.dockOffset = { x: Math.cos(ang) * 16, y: Math.sin(ang) * 16 };
+    m.set(pd, 'docked', slot + 1);
+
+    // lay over in port for a while before departing
+    s.state = 'idle';
+    s.until = nowMs + DOCK_MS + Math.random() * 3000;
+    m.set(s.data, 'kn', 0);
+    m.set(s.data, 'slowed', false);
+    m.set(s.data, 'from', port.name);
+    m.set(s.data, 'to', PORTS[s.svc.ports[s.at + s.dir]].name);
+    s.node.location = shipPoint(s);
+  }
+
+  function depart(s, m) {
+    const pd = portData[s.portKey];
+    m.set(pd, 'docked', Math.max(0, (pd.docked || 0) - 1));
+    s.dockOffset = null;
+    const fromKey = s.svc.ports[s.at];
+    const toKey = s.svc.ports[s.at + s.dir];
+    s.leg = legFor(fromKey, toKey);
+    s.dist = 0;
+    s.state = 'sailing';
+    m.set(s.data, 'kn', s.knBase);
+  }
+
+  function placeShip(s, m, dt) {
+    const p = llToPt(s.lat, s.lng);
+    s.node.location = p;
+    // steer smoothly toward a point farther down
+    const [aLat, aLng] = posAt(s.leg, Math.min(s.dist + 60, s.leg.total));
+    const pa = llToPt(aLat, aLng);
+    const dx = pa.x - p.x, dy = pa.y - p.y;
+    if (Math.abs(dx) > 0.001 || Math.abs(dy) > 0.001) {
+      const target = Math.atan2(dy, dx) * 180 / Math.PI;
+      let diff = ((target - s.heading + 540) % 360) - 180;
+      const maxTurn = 180 * dt;
+      if (diff > maxTurn) diff = maxTurn;
+      else if (diff < -maxTurn) diff = -maxTurn;
+      s.heading += diff;
+      if (s.heading !== s.data.heading) m.set(s.data, 'heading', s.heading);
+    }
+  }
+
+  let portRefreshAcc = 0;
+
+  function advance(dt, nowMs) {
+    myDiagram.commit(d => {
+      const m = d.model;
+      for (const s of shipStates) {
+        // docked: wait out the layover, then depart
+        if (s.state === 'idle') {
+          if (nowMs < s.until) continue;
+          depart(s, m);
+        }
+        const slowed = weatherOn && inStorm(s.lat, s.lng);
+        const factor = slowed ? STORM_FACTOR : 1;
+        s.dist += SIM_KM_PER_SEC * (s.knBase / 18) * factor * dt;
+        if (s.dist >= s.leg.total) {
+          arrive(s, m, nowMs);
+          continue;
+        }
+        const [lat, lng] = posAt(s.leg, s.dist);
+        s.lat = lat; s.lng = lng;
+        s.data.lat = lat; s.data.lng = lng;
+        if (slowed !== s.data.slowed) {
+          m.set(s.data, 'slowed', slowed);
+          m.set(s.data, 'kn', slowed ? s.knBase * STORM_FACTOR : s.knBase);
+        }
+        placeShip(s, m, dt);
+      }
+
+      // storms slowly drift across the ocean
+      for (const w of stormStates) {
+        w.lat += w.vLat * dt;
+        w.lng += w.vLng * dt;
+        w.data.lat = w.lat;
+        w.data.lng = w.lng;
+        w.node.location = llToPt(w.lat, w.lng);
+        const area = w.node.findObject('AREA');
+        area.angle = (area.angle + 18 * dt) % 360;
+      }
+    }, null);
+    // the port inspector's lists change slowly; refresh a few times a second
+    portRefreshAcc += dt;
+    if (portRefreshAcc > 0.4) {
+      portRefreshAcc = 0;
+      if (detailPort) updatePortDetail();
+    }
+  }
+
+  // the simulation runs on clock
+  let lastT = performance.now();
+  let simNow = 0;   // simulated milliseconds
+  const MIN_FRAME_MS = 32;
+  function tick(now) {
+    requestAnimationFrame(tick);
+    if (now - lastT < MIN_FRAME_MS) return;
+    const dt = Math.min((now - lastT) / 1000, 0.1);
+    lastT = now;
+    simNow += dt * 1000;
+    advance(dt, simNow);
+  }
+
+  function setWeather(on) {
+    weatherOn = on;
+    myDiagram.commit(d => {
+      weatherTB.text = on ? '🌤 Clear Storms' : '⛈ Start Storms';
+      weatherBG.fill = on ? STORM_FILL : NAVY;
+      const m = d.model;
+      if (on) {
+        stormStates = STORM_ZONES.map((z, i) => {
+          const data = {
+            category: 'storm', key: 'W' + i,
+            lat: z.lat + (Math.random() - 0.5) * 5,
+            lng: z.lng + (Math.random() - 0.5) * 5,
+            rKm: z.r * (0.9 + Math.random() * 0.3)
+          };
+          m.addNodeData(data);
+          const node = d.findNodeForData(data);
+          sizeStorm(node);   // sync() only re-sizes storms on zoom changes
+          return {
+            data, node,
+            lat: data.lat, lng: data.lng, rKm: data.rKm,
+            vLat: (Math.random() - 0.5) * 0.12,
+            vLng: (Math.random() - 0.5) * 0.12
+          };
+        });
+      } else {
+        stormStates.forEach(w => m.removeNodeData(w.data));
+        stormStates = [];
+      }
+    }, null);
+    sync();
+  }
+
+  let detailPort = null;   // port key shown in the port inspector
+
+  function updatePortDetail() {
+    if (!detailPort) return;
+    const key = detailPort, port = PORTS[key];
+    const docked = [], inbound = [];
+    for (const s of shipStates) {
+      if (s.state !== 'sailing') {
+        if (s.portKey === key) {
+          docked.push({ color: s.data.color, text: s.data.name });
+        }
+      } else if (s.svc.ports[s.at + s.dir] === key) {
+        inbound.push({ km: s.leg.total - s.dist, color: s.data.color, name: s.data.name });
+      }
+    }
+    inbound.sort((a, b) => a.km - b.km);
+    const inboundItems = inbound.slice(0, 5).map(i =>
+      ({ color: i.color, text: i.name + ' · ' + Math.round(i.km).toLocaleString('en-US') + ' km out' }));
+    myDiagram.commit(() => {
+      portDetailPart.findObject('P_DOT').fill = port.color;
+      portDetailPart.findObject('P_NAME').text = port.name;
+      portDetailPart.findObject('P_DOCKED').itemArray = docked.length ? docked : [{ color: 'transparent', text: 'none' }];
+      portDetailPart.findObject('P_INBOUND').itemArray = inboundItems.length ? inboundItems : [{ color: 'transparent', text: 'none' }];
+    }, null);
+  }
+
+  function showPortDetail(key) {
+    detailPort = key;
+    updatePortDetail();
+    myDiagram.commit(() => portDetailPart.visible = true, null);
+  }
+
+  function hidePortDetail() {
+    if (!detailPort && !portDetailPart.visible) return;
+    detailPort = null;
+    myDiagram.commit(() => portDetailPart.visible = false, null);
+  }
+
+  // the ship info card shows itself via its 'sel' binding; only the port
+  // inspector needs selection tracking
+  myDiagram.addDiagramListener('ChangedSelection', () => {
+    const sel = myDiagram.selection.first();
+    if (sel instanceof go.Node && sel.data && sel.data.category === 'port') {
+      showPortDetail(sel.data.key);
+    } else {
+      hidePortDetail();
+    }
+  });
+
+  map.whenReady(() => {
+    initFleet();
+    requestAnimationFrame(tick);
+  });
+});
+  </script>
+</body>
+</html>

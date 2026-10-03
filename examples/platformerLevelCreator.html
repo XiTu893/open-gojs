@@ -1,0 +1,790 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Platformer Level Creator</title>
+  <script src="../dist/open-gojs.umd.js"></script>
+  
+  <script src="https://cdn.jsdelivr.net/npm/gojs-extensions@latest/extensions/Figures.js"></script>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:400,700&subset=latin,latin-ext">
+  <style>
+#hidden {
+    font: 700 0px Inter;
+    opacity: 0;
+  }
+  </style>
+</head>
+<body>
+<div style="margin-bottom: 8px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+    <button id="playBtn" onclick="togglePlay()">▶ Play</button>
+    <button onclick="resetLevel()">↺ Reset Example Level</button>
+    <span id="coinCounter" style="font-weight: bold; color: #b8860b;">Coins: 0 / 0</span>
+    <span>Move: <b>A</b>/<b>D</b> or <b>◀</b>/<b>▶</b> &nbsp; Jump: <b>W</b>, <b>▲</b>, or <b>Space</b></span>
+  </div>
+  <div style="width: 100%; white-space: nowrap; display: flex;">
+    <span style="display: inline-block; vertical-align: top; padding: 2px; flex: 0 0 130px;">
+      <div id="myPaletteDiv" style="background-color: whitesmoke; border: solid 1px black; height: 560px;"></div>
+    </span>
+    <span style="display: inline-block; vertical-align: top; padding: 2px; flex: 1 1 auto; position: relative;">
+      <div
+        id="myDiagramDiv"
+        style="border: solid 1px black; height: 560px; overflow: hidden; background: linear-gradient(to bottom, #8ecae6, #d7f0fa);"></div>
+      <div
+        id="gameMessage"
+        style="display: none; position: absolute; top: 16px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.75); color: white; padding: 6px 16px; border-radius: 16px; font: bold 14px sans-serif; pointer-events: none;"></div>
+    </span>
+  </div>
+  <div>
+    <div style="margin-block: .5em;">
+      <button id="SaveButton" onclick="save()">Save</button>
+      <button onclick="load()">Load</button>
+      Level saved in JSON format:
+    </div>
+    <textarea id="mySavedModel" style="width: 100%; height: 260px"></textarea>
+  </div>
+  <p id="hidden" style="padding: 0; height: 0px">this forces the font to load in Chromium browsers</p>
+  <div id="description">
+<p>
+    This sample allows a user to create a playable 2D platformer game level by dragging obstacle and item <a href="https://gojs.net/latest/api/symbols/Node.html" target="api">Node</a>s 
+    in from a <a href="https://gojs.net/latest/api/symbols/Palette.html" target="api">Palette</a>. It has a default edit mode, in which the user can pan around the <a href="https://gojs.net/latest/api/symbols/Diagram.html" target="api">Diagram</a> as much 
+    as desired with <a href="https://gojs.net/latest/api/symbols/Diagram.html#scrollmode" target="api">Diagram.scrollMode</a> set to <a href="https://gojs.net/latest/api/symbols/ScrollMode.html#infinite" target="api">ScrollMode.Infinite</a>, and a play mode, in which a character 
+    Part is rendered at the center of the viewport and can be controlled with <kbd>W</kbd>/<kbd>A</kbd>/<kbd>D</kbd>
+    or the arrow keys. Created levels can then be saved and loaded from JSON. The game logic uses 
+    <a href="https://gojs.net/latest/api/symbols/GraphObject.html#actualbounds" target="api">GraphObject.actualBounds</a> and <a href="https://gojs.net/latest/api/symbols/Rect.html#intersectrect" target="api">Rect.intersectRect</a> to handle collisions.
+  </p>
+  <p>
+    Ground and platform nodes can be traversed by the character, and the moving platform oscillates back and forth.
+    The spike and enemy nodes are hazards, and player collisions with them will cause a restart. Spikes are static 
+    and enemy nodes oscillate back and forth across their walkable area. Springs cause the character to bounce up and down,
+    coins are collectibles, and touching the goal flag ends the level and returns to edit mode.
+    Press the <b>Play</b> button below to see the level demonstrated in action.
+  </p>
+  </div>
+  <script >
+// custom figures
+  go.Shape.defineFigureGenerator('Spike', (shape, w, h) => {
+    const geo = go.Geometry.parse('M 0 100 L 16.667 0 L 35 95 L 50 0 L 65 95 L 83.333 0 L 100 100 Z', true);
+    geo.spot1 = go.Spot.TopLeft;
+    geo.spot2 = go.Spot.BottomRight;
+    return geo.scale(w / geo.bounds.width, h / geo.bounds.height);
+  });
+
+  go.Shape.defineFigureGenerator('Goal', (shape, w, h) => {
+    const geo = go.Geometry.parse('M 0 0 L 16 0 L 100 27 L 16 55 L 16 100 L 0 100 Z', true);
+    geo.spot1 = go.Spot.TopLeft;
+    geo.spot2 = go.Spot.BottomRight;
+    return geo.scale(w / geo.bounds.width, h / geo.bounds.height);
+  });
+
+  go.Shape.defineFigureGenerator('Grass', (shape, w, h) => {
+    const geo = go.Geometry.parse('M 0 0 H 80 L 80 12 L 74 5 L 71 11 L 66 7 L 64 13 L 61 11 L 58 6 L 55 10 L 54 13 L 51 9 L 49 6 L 47 9 L 45 13 L 43 12 L 42 5 L 40 5 L 38 9 L 36 11 L 33 9 L 31 5 L 29 10 L 27 5 L 23 12 L 19 5 L 17 9 L 16 12 L 14 7 L 10 9 L 6 7 L 3 10 L 0 12 V 0 Z', true);
+    geo.spot1 = go.Spot.TopLeft;
+    geo.spot2 = go.Spot.BottomRight;
+    return geo.scale(w / geo.bounds.width, h / geo.bounds.height);
+  });
+
+  // data for types of obstacles and objects
+  const OBSTACLE_TYPES = {
+    ground: { label: 'Ground', figure: 'Rectangle', w: 80, h: 40, fill: '#8b5a2b', stroke: '#5c3a1a', solid: true },
+    platform: { label: 'Platform', figure: 'RoundedRectangle', w: 120, h: 20, fill: '#c68642', stroke: '#8b5a2b', solid: true },
+    movingPlatform: { label: 'Moving\nPlatform', figure: 'RoundedRectangle', w: 120, h: 20, fill: '#457b9d', stroke: '#1d3557', solid: true, moving: true },
+    spike: { label: 'Spike', figure: 'Spike', w: 36, h: 36, fill: '#cdd3d4', stroke: '#7f8282', hazard: true, locationSpot: go.Spot.Bottom },
+    enemy: { label: 'Enemy', figure: 'SevenPointedStar', w: 35, h: 35, fill: '#e63946', stroke: '#4a2f12', hazard: true, moving: true , locationSpot: go.Spot.Bottom },
+    spring: { label: 'Spring', figure: 'Inductor', w: 40, h: 30, fill: '#2a9d8f', stroke: '#1b6f66', solid: true, spring: true, locationSpot: new go.Spot(0.5, 1, 0, -2), angle: 90 },
+    goal: { label: 'Goal', figure: 'Goal', w: 44, h: 44, fill: '#ffd60a', stroke: '#b8860b', isGoal: true, locationSpot: go.Spot.Bottom },
+    coin: { label: 'Coin', figure: 'Delete', w: 24, h: 24, fill: '#ffd60a', stroke: '#b8860b', collectible: true, locationSpot: go.Spot.Center }
+  };
+
+  // game loop tuning
+  const TICK_RATE = 60; // game logic updates per second
+  const TICK_INTERVAL = 1000 / TICK_RATE;
+  const DT = TICK_INTERVAL / 1000; // seconds per update, for scaling velocity/acceleration
+  const MAX_UPDATES_PER_FRAME = 5; // caps catch-up after a stall (tab switch, breakpoint) so it can't spiral
+
+  // physics tuning: velocities in px/second, accelerations in px/second squared
+  const MOVE_SPEED = 300;
+  const MOVE_ACCEL = 2160; // how quickly horizontal speed ramps toward MOVE_SPEED
+  const GRAVITY = 3000;
+  const MAX_FALL_SPEED = 1080;
+  const JUMP_VELOCITY = -900;
+  const SPRING_VELOCITY = -1320;
+  const DEATH_JUMP_VELOCITY = -700;
+  const WIN_HOP_VELOCITY = -600;
+  const WIN_BOUNCE_DECAY = 0.5;
+  const WIN_BOUNCE_MIN_SPEED = 120;
+  const PLATFORM_SPEED = 1.2; // radians/second, moving-platform sine oscillation
+  const MOVE_RANGE = 90; // how far a moving platform travels from its placed position
+  const COIN_SPIN_SPEED = 3.5;
+  const COIN_SPIN_MIN_WIDTH = 3;
+  const PLAYER_W = 34;
+  const PLAYER_H = 34;
+  const FALL_LIMIT = 1600; // fall this far below the start point and get respawned
+  const COLLISION_INSET = 2; // shrink the non-moving axis per pass, so flush contact isn't misread as a collision there
+
+  let myDiagram;
+  let myPalette;
+  let startMarker; // the Part showing where the character starts
+
+  let isPlaying = false;
+  let player = null; // the go.Part representing the character, only present while playing
+  let startPoint = new go.Point(0, 280);
+  let vx = 0;
+  let vy = 0;
+  let simX = 0, simY = 0; // authoritative player position, updated once per fixed physics tick
+  let prevSimX = 0, prevSimY = 0; // simX/simY as of the previous tick, for render interpolation
+  let onGround = false;
+  let groundedPlatform = null;
+  let jumpRequested = false;
+  let isDying = false; // for death animation
+  let deathFloorY = 0;
+  let isWinning = false; // for goal-reached victory hop
+  let winFloorY = 0;
+  let gameTime = 0; // total elapsed simulation seconds, while playing
+  let accumulator = 0;
+  let lastFrameTime = 0;
+  const keys = new Set();
+
+  // collected once per play session, since the level cannot change while playing
+  let solids = [];
+  let hazards = [];
+  let goalNode = null;
+  let movers = []; // anything with `moving: true`, moving platforms and enemies
+  let coins = []; // { node, collected } for each collectible in the level
+  let coinsCollected = 0;
+
+  function init() {
+    myDiagram = new go.Diagram('myDiagramDiv', {
+      scrollMode: go.ScrollMode.Infinite,
+      grid: new go.Panel('Grid', { gridCellSize: new go.Size(20, 20) })
+        .add(
+          new go.Shape('LineH', { stroke: 'rgba(255,255,255,0.35)', interval: 2 }),
+          new go.Shape('LineV', { stroke: 'rgba(255,255,255,0.35)', interval: 2 })
+        ),
+      'grid.visible': true,
+      'draggingTool.isGridSnapEnabled': true,
+      allowLink: false,
+      'undoManager.isEnabled': true
+    });
+
+    // when the document is modified, add a "*" to the title and enable the "Save" button
+    myDiagram.addDiagramListener('Modified', e => {
+      const button = document.getElementById('SaveButton');
+      if (button) button.disabled = !myDiagram.isModified;
+      const idx = document.title.indexOf('*');
+      if (myDiagram.isModified) {
+        if (idx < 0) document.title += '*';
+      } else {
+        if (idx >= 0) document.title = document.title.slice(0, idx);
+      }
+    });
+
+    // a fixed marker showing where the character starts and which way to build
+    startMarker = new go.Part('Vertical', {
+      location: new go.Point(0, 280),
+      locationSpot: go.Spot.TopLeft,
+      deletable: false,
+      dragComputation: (thisPart, newLoc, snappedLoc) => startPoint.set(snappedLoc),
+    })
+      .add(
+        new go.TextBlock('START ▶', { font: 'bold 12px Inter, sans-serif', stroke: '#2a6f4f' })
+      );
+    myDiagram.add(startMarker);
+
+    // builds node templates for objects in the game
+    for (const cat in OBSTACLE_TYPES) {
+      if (cat === 'ground') continue; // ground has its own template below
+      const t = OBSTACLE_TYPES[cat];
+      myDiagram.nodeTemplateMap.add(cat,
+        new go.Node({ locationSpot: t.locationSpot ?? go.Spot.TopLeft })
+          .bindTwoWay('location', 'loc', go.Point.parse, go.Point.stringify)
+          .add(
+            new go.Shape(t.figure, {
+              width: t.w,
+              height: t.h,
+              fill: t.fill,
+              stroke: t.stroke,
+              strokeWidth: 2,
+              angle: t.angle ?? 0,
+              strokeJoin: 'round'
+            })
+          )
+      );
+    }
+
+    // brush for dirt effect in ground blocks
+    function makeDirtBrush(baseColor, size = 16) {
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = baseColor;
+      ctx.fillRect(0, 0, size, size);
+
+      // a few specks at fixed positions
+      const darkSpeck = go.Brush.darkenBy(baseColor, 0.15);
+      const lightSpeck = go.Brush.lightenBy(baseColor, 0.15);
+      const specks = [
+        { x: 3, y: 2, color: darkSpeck },
+        { x: 11, y: 4, color: lightSpeck },
+        { x: 6, y: 9, color: lightSpeck },
+        { x: 13, y: 12, color: darkSpeck },
+        { x: 2, y: 13, color: darkSpeck },
+        { x: 9, y: 6, color: lightSpeck }
+      ];
+      for (const s of specks) {
+        ctx.fillStyle = s.color;
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, 1, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      return new go.Brush(go.Brush.Pattern, { pattern: canvas });
+    }
+
+    // the ground tile template
+    const groundType = OBSTACLE_TYPES.ground;
+    myDiagram.nodeTemplateMap.add('ground',
+      new go.Node("Spot", { locationSpot: groundType.locationSpot ?? go.Spot.TopLeft })
+        .bindTwoWay('location', 'loc', go.Point.parse, go.Point.stringify)
+        .add(
+          new go.Shape(groundType.figure, {
+            width: groundType.w,
+            height: groundType.h,
+            fill: makeDirtBrush(groundType.fill),
+            stroke: groundType.stroke,
+            strokeWidth: 2,
+            angle: groundType.angle ?? 0
+          }),
+          new go.Shape('Grass', {
+            fill: 'green',
+            stroke: 'darkgreen',
+            strokeWidth: 2,
+            alignment: new go.Spot(0.5, 0, 0, 6),
+            width: groundType.w,
+            height: groundType.h * .3,
+            strokeJoin: 'round'
+          }),
+        )
+    );
+
+    myPalette = new go.Palette('myPaletteDiv', {
+      layout: new go.GridLayout({ wrappingColumn: 1, spacing: new go.Size(4, 8) }),
+      padding: new go.Margin(0, 0, 0, 20),
+      contentAlignment: go.Spot.Left,
+      'grid.visible': true
+    });
+
+    // the ground tile template for the Palette
+    myPalette.nodeTemplateMap.add('ground',
+      new go.Node('Vertical', { margin: 6 })
+        .add(
+          new go.Panel('Spot')
+            .add(
+              new go.Shape(groundType.figure, {
+                width: groundType.w * 0.6,
+                height: groundType.h * 0.6,
+                fill: makeDirtBrush(groundType.fill),
+                stroke: groundType.stroke,
+                strokeWidth: 1.5,
+                angle: groundType.angle ?? 0
+              }),
+              new go.Shape('Grass', {
+                fill: 'green',
+                stroke: 'darkgreen',
+                strokeWidth: 1.5,
+                alignment: new go.Spot(0.5, 0, 0, 3.6),
+                width: groundType.w * 0.6,
+                height: groundType.h * .3 * 0.6,
+                strokeJoin: 'round'
+              })
+            ),
+          new go.TextBlock(groundType.label, { font: '11px Inter, sans-serif', stroke: '#333', textAlign: 'center', margin: new go.Margin(4, 0, 0, 0) })
+        )
+    );
+
+    // Palette items are shown smaller and with a label
+    for (const cat in OBSTACLE_TYPES) {
+      if (cat === 'ground') continue; // ground has its own template above
+      const t = OBSTACLE_TYPES[cat];
+      myPalette.nodeTemplateMap.add(cat,
+        new go.Node('Vertical', { margin: 6 })
+          .add(
+            new go.Shape(t.figure, {
+              width: t.w * 0.6,
+              height: t.h * 0.6,
+              fill: t.fill,
+              stroke: t.stroke,
+              strokeWidth: 1.5,
+              angle: t.angle ?? 0,
+              strokeJoin: 'round'
+            }),
+            new go.TextBlock(t.label, { font: '11px Inter, sans-serif', stroke: '#333', textAlign: 'center', margin: new go.Margin(4, 0, 0, 0) })
+          )
+      );
+    }
+    myPalette.model = new go.Model(Object.keys(OBSTACLE_TYPES).map(cat => ({ category: cat })));
+
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
+
+    resetLevel();
+    save();
+  }
+
+  // Example level data
+  function buildDefaultLevelData() {
+    return [
+      { category: 'ground', loc: '0 360' },
+      { category: 'ground', loc: '80 360' },
+      { category: 'ground', loc: '160 360' },
+      { category: 'coin', loc: '260 260' },
+      { category: 'coin', loc: '340 260' },
+      { category: 'ground', loc: '360 360' },
+      { category: 'ground', loc: '440 360' },
+      { category: 'ground', loc: '520 360' },
+      { category: 'enemy', loc: '520 360' },
+      { category: 'ground', loc: '680 360' },
+      { category: 'ground', loc: '760 360' },
+      { category: 'spring', loc: '800 360' },
+      { category: 'platform', loc: '880 240' },
+      { category: 'coin', loc: '940 180' },
+      { category: 'platform', loc: '1040 200' },
+      { category: 'coin', loc: '1100 140' },
+      { category: 'platform', loc: '1200 160' },
+      { category: 'spike', loc: '1300 160' },
+      { category: 'movingPlatform', loc: '1480 280' },
+      { category: 'coin', loc: '1500 220' },
+      { category: 'ground', loc: '1660 360' },
+      { category: 'ground', loc: '1740 360' },
+      { category: 'spike', loc: '1680 360' },
+      { category: 'coin', loc: '1740 320'},
+      { category: 'spike', loc: '1800 360' },
+      { category: 'ground', loc: '1820 360' },
+      { category: 'spring', loc: '1860 360' },
+      { category: 'platform', loc: '1920 200' },
+      { category: 'coin', loc: '1980 140' },
+      { category: 'ground', loc: '2120 360' },
+      { category: 'ground', loc: '2200 360' },
+      { category: 'spike', loc: '2140 360' },
+      { category: 'goal', loc: '2260 360' }
+    ];
+  }
+
+  function resetLevel() {
+    if (isPlaying) stopGame();
+    myDiagram.model = new go.Model(buildDefaultLevelData());
+    myDiagram.position = new go.Point(-60, 180);
+  }
+
+  // save and load level model from JSON
+  function save() {
+    saveDiagramProperties();
+    document.getElementById('mySavedModel').value = myDiagram.model.toJson();
+    myDiagram.isModified = false;
+  }
+  function load() {
+    if (isPlaying) stopGame();
+    myDiagram.model = go.Model.fromJson(document.getElementById('mySavedModel').value);
+    loadDiagramProperties(); // after modelData is loaded
+  }
+
+  function saveDiagramProperties() {
+    myDiagram.model.modelData.startPoint = go.Point.stringify(startPoint);
+  }
+  function loadDiagramProperties() {
+    const sp = myDiagram.model.modelData.startPoint;
+    if (sp) {
+      startPoint = go.Point.parse(sp);
+      startMarker.location = startPoint.copy();
+    }
+  }
+
+  function togglePlay() {
+    if (isPlaying) stopGame();
+    else startGame();
+  }
+
+  function makePlayer() {
+    return new go.Part('Spot', {
+      locationSpot: go.Spot.TopLeft,
+      layerName: 'Foreground',
+      pickable: false,
+      isLayoutPositioned: false
+    })
+      .add(
+        new go.Shape('RoundedRectangle', { width: PLAYER_W, height: PLAYER_H, fill: '#1f4963', stroke: '#0f354d', strokeWidth: 2 }),
+        new go.TextBlock('Go', { font: "bold 20px Inter, sans-serif", stroke: "white" })
+      );
+  }
+
+  function collectObstacles() {
+    solids = [];
+    hazards = [];
+    goalNode = null;
+    movers = [];
+    coins = [];
+    const walkable = []; // static tiles, for measuring enemy roaming spans below
+    let idx = 0;
+    myDiagram.nodes.each(n => {
+      const t = OBSTACLE_TYPES[n.data && n.data.category];
+      if (!t) return;
+      if (t.solid) solids.push(n);
+      if (t.hazard) hazards.push(n);
+      if (t.isGoal) goalNode = n;
+      if (t.collectible) coins.push({ node: n, shape: n.elt(0), baseWidth: t.w, collected: false });
+      if (n.data.category === 'ground' || n.data.category === 'platform') walkable.push(n);
+      if (t.moving) {
+        movers.push({ node: n, baseX: n.location.x, phase: idx * 1.7, rideable: !!t.solid, range: MOVE_RANGE });
+        idx++;
+      }
+    });
+
+    // enemies roam the full run of ground/platform tiles they're standing on,
+    // not the fixed MOVE_RANGE used by moving platforms
+    for (const info of movers) {
+      if (info.node.data.category !== 'enemy') continue;
+      const span = roamingSpan(info.node, walkable);
+      if (span === null) continue;
+      const halfWidth = info.node.actualBounds.width / 2;
+      info.baseX = (span.left + span.right) / 2;
+      info.range = Math.max(0, (span.right - span.left) / 2 - halfWidth);
+    }
+  }
+
+  // finds the horizontal extent of the contiguous run of tiles `node` rests on,
+  // by flood-filling touching tiles at the same surface height
+  function roamingSpan(node, walkable) {
+    const EPS = 4; // tolerance for float drift when comparing edges
+    const nb = node.actualBounds;
+    const start = walkable.find(w => {
+      const wb = w.actualBounds;
+      return Math.abs(wb.top - nb.bottom) <= EPS && nb.centerX >= wb.left - EPS && nb.centerX <= wb.right + EPS;
+    });
+    if (!start) return null;
+
+    const seen = new Set([start]);
+    let left = start.actualBounds.left;
+    let right = start.actualBounds.right;
+    let frontier = [start];
+    while (frontier.length > 0) {
+      const next = [];
+      for (const tile of frontier) {
+        const tb = tile.actualBounds;
+        for (const w of walkable) {
+          if (seen.has(w)) continue;
+          const wb = w.actualBounds;
+          if (Math.abs(wb.top - tb.top) > EPS) continue; // same surface level only
+          if (wb.left > tb.right + EPS || wb.right < tb.left - EPS) continue; // not touching
+          seen.add(w);
+          next.push(w);
+          left = Math.min(left, wb.left);
+          right = Math.max(right, wb.right);
+        }
+      }
+      frontier = next;
+    }
+    return { left, right };
+  }
+
+  function startGame() {
+    // game loop sets player/mover/coin properties directly each tick, bypassing UndoManager
+    myDiagram.skipsUndoManager = true;
+    myDiagram.scale = 1;
+    myDiagram.allowZoom = false;
+    collectObstacles();
+    coins.forEach(c => (c.node.visible = true));
+    coinsCollected = 0;
+    updateCoinCounter();
+
+    player = makePlayer();
+    player.location = startPoint.copy();
+    myDiagram.add(player);
+
+    vx = 0;
+    vy = 0;
+    simX = startPoint.x;
+    simY = startPoint.y;
+    prevSimX = simX;
+    prevSimY = simY;
+    onGround = false;
+    groundedPlatform = null;
+    jumpRequested = false;
+    isDying = false;
+    isWinning = false;
+    gameTime = 0;
+    accumulator = 0;
+    lastFrameTime = 0;
+    keys.clear();
+
+    isPlaying = true;
+    myDiagram.isReadOnly = true;
+    myDiagram.grid.visible = false;
+    document.getElementById('playBtn').textContent = '■ Stop';
+    showMessage('Go!', 800);
+
+    requestAnimationFrame(gameLoop);
+  }
+
+  function stopGame() {
+    isPlaying = false;
+    myDiagram.allowZoom = true;
+    if (player !== null) {
+      myDiagram.remove(player);
+      player = null;
+    }
+    coins.forEach(c => {
+      c.node.visible = true; // show collected coins again for next session
+      c.shape.width = c.baseWidth; // stop spinning, reset to resting width
+    });
+    coinsCollected = 0;
+    coins = [];
+    updateCoinCounter();
+    myDiagram.isReadOnly = false;
+    myDiagram.skipsUndoManager = false;
+    myDiagram.grid.visible = true;
+    document.getElementById('playBtn').textContent = '▶ Play';
+    showMessage('');
+  }
+
+  // executed on contact with a hazard
+  function die() {
+    isDying = true;
+    vx = 0;
+    vy = DEATH_JUMP_VELOCITY;
+    onGround = false;
+    groundedPlatform = null;
+    jumpRequested = false;
+    deathFloorY = myDiagram.viewportBounds.bottom + PLAYER_H;
+    showMessage('Ouch!');
+  }
+
+  function respawn() {
+    vx = 0;
+    vy = 0;
+    simX = startPoint.x;
+    simY = startPoint.y;
+    prevSimX = simX;
+    prevSimY = simY;
+    onGround = false;
+    groundedPlatform = null;
+    coins.forEach(c => {
+      c.collected = false;
+      c.node.visible = true;
+    });
+    coinsCollected = 0;
+    updateCoinCounter();
+    showMessage('Ouch! Back to start.', 1200);
+  }
+
+  // Goal reached: freeze horizontal movement, play a decaying victory bounce in place,
+  // then stopGame() returns to edit mode.
+  function winLevel() {
+    isWinning = true;
+    vx = 0;
+    vy = WIN_HOP_VELOCITY;
+    jumpRequested = false;
+    winFloorY = simY;
+    showMessage('Level complete! Returning to edit mode…');
+    setTimeout(stopGame, 1400);
+  }
+
+  function onKeyDown(e) {
+    const k = e.key.toLowerCase();
+    if (isPlaying && (k === 'a' || k === 'd' || k === 'w' || k === ' ' || k === 'arrowleft' || k === 'arrowright' || k === 'arrowup')) {
+      e.preventDefault();
+    }
+    if (!isPlaying || isDying || isWinning) return;
+    if (k === 'w' || k === 'arrowup' || k === ' ') jumpRequested = true;
+    keys.add(k);
+  }
+
+  // Fixed timestep accumulator drives updateGame() at TICK_RATE regardless of display fps;
+  // render() interpolates between simulated positions so motion stays smooth at any fps.
+  function gameLoop(now) {
+    if (!isPlaying) return;
+    if (lastFrameTime === 0) lastFrameTime = now; // first frame: nothing has elapsed yet
+    accumulator += now - lastFrameTime;
+    lastFrameTime = now;
+
+    let updates = 0;
+    while (accumulator >= TICK_INTERVAL) {
+      updateGame();
+      accumulator -= TICK_INTERVAL;
+      if (++updates >= MAX_UPDATES_PER_FRAME) {
+        accumulator = 0; // drop the backlog instead of death-spiraling
+        break;
+      }
+    }
+
+    render();
+    requestAnimationFrame(gameLoop);
+  }
+
+  // Draws the player and moves the camera, interpolating between the last two simulated
+  // positions (prevSimX/Y -> simX/Y) for smooth motion at any display refresh rate.
+  function render() {
+    const alpha = accumulator / TICK_INTERVAL;
+    const renderX = prevSimX + (simX - prevSimX) * alpha;
+    const renderY = prevSimY + (simY - prevSimY) * alpha;
+
+    player.location = new go.Point(renderX, renderY);
+
+    // camera stays put while dying/winning, so the fall/bounce is visible against a
+    // static backdrop instead of being canceled out by re-centering every frame
+    if (!isDying && !isWinning) {
+      const vb = myDiagram.viewportBounds;
+      myDiagram.position = new go.Point(renderX + PLAYER_W / 2 - vb.width / 2, renderY + PLAYER_H / 2 - vb.height / 2);
+    }
+  }
+
+  // One fixed-size physics step: axis-separated AABB collision, velocity/acceleration
+  // scaled by DT. Operates on simX/simY, the authoritative position.
+  function updateGame() {
+    gameTime += DT;
+    prevSimX = simX;
+    prevSimY = simY;
+
+    if (isDying) {
+      vy = Math.min(vy + GRAVITY * DT, MAX_FALL_SPEED);
+      simY += vy * DT;
+      if (simY > deathFloorY) {
+        isDying = false;
+        respawn();
+      }
+      return;
+    }
+
+    if (isWinning) {
+      vy = Math.min(vy + GRAVITY * DT, MAX_FALL_SPEED);
+      simY += vy * DT;
+      if (simY >= winFloorY) {
+        simY = winFloorY;
+        vy = vy > WIN_BOUNCE_MIN_SPEED ? -vy * WIN_BOUNCE_DECAY : 0;
+      }
+      return;
+    }
+
+    const left = keys.has('a') || keys.has('arrowleft');
+    const right = keys.has('d') || keys.has('arrowright');
+    const targetVx = right ? MOVE_SPEED : left ? -MOVE_SPEED : 0;
+    vx = targetVx > vx ? Math.min(vx + MOVE_ACCEL * DT, targetVx) : Math.max(vx - MOVE_ACCEL * DT, targetVx);
+
+    vy = Math.min(vy + GRAVITY * DT, MAX_FALL_SPEED);
+    if (jumpRequested && onGround) {
+      vy = JUMP_VELOCITY;
+      onGround = false;
+      groundedPlatform = null;
+    }
+    jumpRequested = false;
+
+    // advance movers and carry the player if riding a rideable one
+    let rideDX = 0;
+    for (const info of movers) {
+      const dx = Math.sin(gameTime * PLATFORM_SPEED + info.phase) * info.range;
+      const newX = info.baseX + dx;
+      const oldX = info.node.location.x;
+      info.node.location = new go.Point(newX, info.node.location.y);
+      if (info.rideable && groundedPlatform === info.node) rideDX = newX - oldX;
+    }
+
+    let px = simX + vx * DT + rideDX;
+    let py = simY;
+
+    // horizontal move + collision (inset vertically so standing flush on a solid's
+    // top doesn't register as a sideways collision)
+    let bounds = new go.Rect(px, py + COLLISION_INSET, PLAYER_W, PLAYER_H - 2 * COLLISION_INSET);
+    for (const s of solids) {
+      const b = s.actualBounds;
+      if (bounds.intersectsRect(b)) {
+        px = vx > 0 ? b.left - PLAYER_W : vx < 0 ? b.right : px;
+        vx = 0;
+        bounds = new go.Rect(px, py + COLLISION_INSET, PLAYER_W, PLAYER_H - 2 * COLLISION_INSET);
+      }
+    }
+
+    // vertical move + collision (inset horizontally, for the same reason)
+    py += vy * DT;
+    bounds = new go.Rect(px + COLLISION_INSET, py, PLAYER_W - 2 * COLLISION_INSET, PLAYER_H);
+    let landed = false;
+    let newGroundedPlatform = null;
+    for (const s of solids) {
+      const b = s.actualBounds;
+      if (!bounds.intersectsRect(b)) continue;
+      if (vy > 0) {
+        // falling onto the top of something solid
+        if (OBSTACLE_TYPES[s.data.category].spring) {
+          py = b.top - PLAYER_H;
+          vy = SPRING_VELOCITY;
+        } else {
+          py = b.top - PLAYER_H;
+          vy = 0;
+          landed = true;
+          newGroundedPlatform = s;
+        }
+      } else if (vy < 0) {
+        // rising into the bottom of something solid
+        py = b.bottom;
+        vy = 0;
+      }
+      bounds = new go.Rect(px + COLLISION_INSET, py, PLAYER_W - 2 * COLLISION_INSET, PLAYER_H);
+    }
+    onGround = landed;
+    groundedPlatform = newGroundedPlatform;
+
+    simX = px;
+    simY = py;
+
+    if (py > startPoint.y + FALL_LIMIT) {
+      respawn();
+      return;
+    }
+
+    const playerBounds = new go.Rect(px, py, PLAYER_W, PLAYER_H);
+    for (const h of hazards) {
+      if (playerBounds.intersectsRect(h.actualBounds)) {
+        die();
+        return;
+      }
+    }
+
+    for (const c of coins) {
+      if (c.collected) continue;
+      // shrink width toward 0 and back, simulating edge-on rotation
+      c.shape.width = Math.max(COIN_SPIN_MIN_WIDTH, c.baseWidth * Math.abs(Math.cos(gameTime * COIN_SPIN_SPEED)));
+      if (playerBounds.intersectsRect(c.node.actualBounds)) {
+        c.collected = true;
+        c.node.visible = false;
+        coinsCollected++;
+        updateCoinCounter();
+      }
+    }
+
+    if (goalNode !== null && playerBounds.intersectsRect(goalNode.actualBounds)) {
+      winLevel();
+    }
+  }
+
+  function updateCoinCounter() {
+    document.getElementById('coinCounter').textContent = `Coins: ${coinsCollected} / ${coins.length}`;
+  }
+
+  let messageTimeout = null;
+  function showMessage(text, autoHideMs) {
+    const el = document.getElementById('gameMessage');
+    if (messageTimeout !== null) {
+      clearTimeout(messageTimeout);
+      messageTimeout = null;
+    }
+    el.textContent = text;
+    el.style.display = text ? 'block' : 'none';
+    if (text && autoHideMs) {
+      messageTimeout = setTimeout(() => {
+        el.style.display = 'none';
+      }, autoHideMs);
+    }
+  }
+
+  window.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>

@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Flow PanelLayout Wrapping Elements Into Rows or Columns</title>
+  <script src="../dist/open-gojs.umd.js"></script>
+  
+  <script src="https://cdn.jsdelivr.net/npm/gojs-extensions@latest/extensions/Figures.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/gojs-extensions@latest/extensions/PanelLayoutFlow.js"></script>
+  
+  
+</head>
+<body>
+<div id="myDiagramDiv" style="border: solid 1px black; width: 100%; height: 600px"></div>
+  <div id="description">
+<p>Each node has a "Flow" PanelLayout below the shape listing a bunch of text values in rows.</p>
+  <p>
+    The context menu shown for each node has three "tabs", each showing some number of shape figures, one of which the user can click to replace the node's
+    shape's figure. These tab panels use a "Flow" PanelLayout to arrange the shapes in rows, by setting <a href="https://gojs.net/latest/api/symbols/PanelLayoutFlow.html#direction" target="api">PanelLayoutFlow.direction</a> to 0. Note how for
+    a custom <a href="https://gojs.net/latest/api/symbols/PanelLayout.html" target="api">PanelLayout</a> one cannot use its name directly, but must construct and initialize an instance of the PanelLayout.
+  </p>
+  <p>This extension is defined in its own file, as <a href="https://gojs.net/latest/extensions/PanelLayoutFlow.js">PanelLayoutFlow.js</a>.</p>
+  </div>
+  <script >
+function init() {
+
+    myDiagram = new go.Diagram('myDiagramDiv', { 'undoManager.isEnabled': true });
+
+    myDiagram.nodeTemplate =
+      new go.Node('Vertical')
+        .add(
+          new go.TextBlock({ font: 'bold 10pt sans-serif' })
+            .bind('text'),
+          new go.Shape({
+              width: 40,
+              height: 40,
+              fill: 'white',
+              portId: '',
+              fromSpot: go.Spot.LeftRightSides,
+              toSpot: go.Spot.LeftRightSides
+            })
+            .bind('fill', 'color')
+            .bindTwoWay('figure'),
+          new go.Panel('Flow', {
+              maxSize: new go.Size(40, NaN),
+              background: 'transparent',
+              itemTemplate:
+                new go.Panel()
+                  .add(
+                    new go.TextBlock({
+                        font: '9pt sans-serif',
+                        margin: new go.Margin(1, 1, 0, 1)
+                      })
+                      .bind('text', '')
+                  )
+            })
+            .bind('itemArray', 'values')
+        );
+
+    myDiagram.nodeTemplate.contextMenu =
+      new go.Adornment('Table', {
+          background: 'transparent',
+          defaultAlignment: go.Spot.Top,
+          padding: 10
+        })
+        .addRowDefinition(1, { height: 0 })
+        .add(
+          new go.Panel('Auto')
+          .add(
+            new go.Shape({ fill: 'transparent' }),
+            new go.Panel('Horizontal', {
+                row: 0,
+                stretch: go.Stretch.Vertical,
+                defaultStretch: go.Stretch.Horizontal
+              })
+              .add(
+                makeTabLabel('Rectangles', true),
+                makeTabLabel('Triangles'),
+                makeTabLabel('Other')
+              )
+          ),
+          new go.Panel('Auto', { row: 2, stretch: go.Stretch.Fill })
+            .add(
+              new go.Shape({ fill: 'white' }),
+              new go.Panel('Auto')
+                .add(
+                  new go.Shape({ fill: '#eee', margin: 4 }),
+                  makeFlowPanel('Rectangles', ['Square', 'RoundedRectangle', 'Diamond', 'RoundedTopRectangle', 'RoundedBottomRectangle'], true),
+                  makeFlowPanel('Triangles', ['TriangleUp', 'TriangleRight', 'TriangleDown', 'TriangleLeft', 'TriangleDownLeft', 'TriangleDownRight', 'TriangleUpLeft', 'TriangleUpRight']),
+                  makeFlowPanel('Other', ['LineH', 'LineV', 'Curve1', 'Curve2', 'PlusLine', 'XLine', 'Heart', 'Lightning', 'Trapezoid', 'Octagon'])
+                )
+            )
+        );
+
+    //set the last thing for the context menu
+    myDiagram.nodeTemplate.contextMenu.lastPanelName = 'Rectangles';
+
+    function makeTabLabel(name, selected) {
+      let tabName = `${name}Tab`;
+      let textName = `${name}Text`;
+      return new go.Panel('Auto')
+        .attach({
+          _panelName: name //if we want the text content to be different than the name of the flow panel ever
+        })
+        .add(
+          new go.Shape('Rectangle', {
+            fill: selected ? '#ddd' : 'white',
+            stroke: selected ? 'red' : 'white',
+            strokeWidth: 1,
+            name: tabName,
+            mouseEnter: (e, obj) => {
+              let lastPanel = obj.part.findObject(obj.part.lastPanelName);
+              if (obj.part.lastPanelName != name) {
+                //highlight this and unhighlight the old one
+                obj.set({fill: '#ddd', stroke: 'red'});
+                obj.part.findObject(textName)?.set({stroke: 'red'});
+                if (lastPanel) {
+                  let tab = obj.part.findObject(`${obj.part.lastPanelName}Tab`);
+                  let text = obj.part.findObject(`${obj.part.lastPanelName}Text`);
+                  tab?.set({fill: 'white', stroke: "white"});
+                  text?.set({stroke: 'black'});
+                  //make it invisible (the actual flow panel)
+                  lastPanel.set({visible: false});
+                }
+              }
+              //make the new panel visible
+              obj.part.findObject(name)?.set({visible: true});
+              obj.part.lastPanelName = name;
+            }
+          }),
+          new go.TextBlock(name, {
+            margin: 6,
+            stroke: selected ? 'red' : 'black',
+            name: textName
+          })
+        );
+    }
+
+    function makeFlowPanel(name, figures, selected) {
+      return new go.Panel('Auto', { padding: 10 })
+        .add(
+          new go.Shape({ fill: 'transparent', strokeWidth: 0 }),
+          new go.Panel(new PanelLayoutFlow({
+              spacing: new go.Size(5, 5),
+              direction: 0
+            }), {
+            name: name,
+            maxSize: new go.Size(150, 150),
+            visible: !!selected
+          })
+          .add(
+            ...figures.map(makeShape)
+          )
+        );
+    }
+
+    function makeShape(fig) {
+      return new go.Shape(fig, {
+          width: 20,
+          height: 20,
+          fill: 'white',
+          margin: 5,
+          background: 'transparent', // to catch a click anywhere in bounds
+          strokeWidth: 2,
+          stroke: 'black',
+          click: (e, shape) => {
+            var ad = shape.part;
+            e.diagram.commit(diag => {
+              diag.model.set(ad.data, 'figure', fig);
+              ad.adornedPart.invalidateConnectedLinks();
+            }, 'modified figure');
+          },
+          mouseEnter: (e, obj) => {
+            obj.fill = 'gray';
+          },
+          mouseLeave: (e, obj) => {
+            obj.fill = 'white';
+          }
+        })
+        .trigger('fill', { duration: 125 });
+    }
+
+    myDiagram.model = new go.GraphLinksModel(
+      [
+        { key: 1, text: 'Alpha', color: 'lightblue', values: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'] },
+        { key: 2, text: 'Beta', color: 'orange', figure: 'Diamond', values: ['I', 'J'] },
+        { key: 3, text: 'Gamma', color: 'lightgreen', figure: 'Circle', values: ['123', '456', '7890'] },
+        { key: 4, text: 'Delta', color: 'pink', figure: 'Triangle' }
+      ],
+      [
+        { from: 1, to: 2 },
+        { from: 1, to: 3 },
+        { from: 3, to: 4 },
+        { from: 4, to: 1 }
+      ]
+    );
+  }
+
+  window.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>

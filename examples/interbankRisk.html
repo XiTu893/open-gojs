@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Interbank Lending Network for Default Risk Analysis</title>
+  <script src="../dist/open-gojs.umd.js"></script>
+  
+  
+  
+  
+</head>
+<body>
+<div style="margin-bottom: 8px; font: 13px sans-serif; display: flex; gap: 18px; align-items: center; flex-wrap: wrap;">
+    <label style="display: flex; align-items: center; gap: 6px;">
+      Recovery rate:
+      <input id="recovery" type="range" min="0" max="100" value="40" style="vertical-align: middle;" />
+      <span id="recoveryVal">40%</span>
+    </label>
+    <label style="display: flex; align-items: center; gap: 6px;">
+      Color by:
+      <select id="colorMode">
+        <option value="risk">Default risk</option>
+        <option value="impact">Systemic impact</option>
+      </select>
+    </label>
+    <button id="resetBtn" type="button">Reset</button>
+    <span id="status" style="flex: 1 1 auto;"></span>
+  </div>
+  <div id="myDiagramDiv" style="border: solid 1px black; width: 100%; height: 700px; background: white;"></div>
+  <div id="description">
+<p>
+    This sample demonstrates a directed graph of lending between financial instutions. Each node represents a financial instution lending out money, represented by links.
+  </p>
+  <p>
+    The colors of each node can either represent the default risk or the systemic impact of an instution. 
+    When coloring by default risk, nodes with high ratio of lent money to capital buffer are considered riskier. 
+    When displaying systemic risk, nodes are colored based on the scale of cascading default in the senerio that the instution fails to pay back lending.
+  </p>
+  <p>
+    When a node is selected, the diagram simulates the effects of the selected instution defaulting.
+    This demonstrates the impact of one default as it ripples through a market. 
+    By changing the recovery rate you can model senerios based on how much of the lent money is lost when the borrower defaults.
+    At low recovery rates there is increased risk in a single instution causing a chain reaction of defaults.
+  </p>
+  <p>
+    Hover over a node to get more information about the instition it represents, and click on nodes to see the impact caused by them defaulting.
+  </p>
+  </div>
+  <script >
+function mulberry32(a) {
+    return function () {
+      a |= 0; a = (a + 0x6d2b79f5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  const BANKS = [
+    ['Aldermere Capital', 'ALD'], ['Cindervale Trust', 'CDV'], ['Foxbridge Bank', 'FXB'],
+    ['Ironvale Federal', 'IRV'], ['Northwind Trust', 'NWT'], ['Thornbury Bank', 'THB'],
+    ['Blackmoor Bank', 'BLM'], ['Castellan Trust', 'CST'], ['Dunmore Capital', 'DNM'],
+    ['Everfield Holdings', 'EVF'], ['Grenwick Partners', 'GRW'], ['Hollowcrest Bank', 'HLC'],
+    ['Kingsford Capital', 'KGS'], ['Marrowford Bank', 'MRF'], ['Pendlebury Bank', 'PND'],
+    ['Ravenscar Trust', 'RVN'], ['Vexmoor Capital', 'VXM'], ['Yarrowdale Bank', 'YRD'],
+    ['Ashcombe Partners', 'ASH'], ['Brightwater Bank', 'BWT'], ['Drakemoor Financial', 'DKM'],
+    ['Elsmere Holdings', 'ELS'], ['Fallowmere Bank', 'FLW'], ['Glenharrow Trust', 'GLN'],
+    ['Harrowgate Trust', 'HRG'], ['Jessamine Bank', 'JSM'], ['Larkspur Holdings', 'LKS'],
+    ['Oakhaven Financial', 'OAK'], ['Quillon Capital', 'QLN'], ['Stormont Holdings', 'STM'],
+    ['Ulverston Federal', 'ULV'], ['Westcliff Trust', 'WCF']
+  ];
+
+  const institutions = (function buildInstitutions() {
+    const rng = mulberry32(98765);
+    return BANKS.map(([name, key], i) => {
+      let assets, capRatio;
+      if (i < 6) {
+        assets = Math.round(2600 - i * 120 + (rng() - 0.5) * 220);
+        capRatio = 0.036 + rng() * 0.030;
+      } else if (i < 18) {
+        assets = Math.round(1350 - (i - 6) * 65 + (rng() - 0.5) * 160);
+        capRatio = 0.046 + rng() * 0.034;
+      } else {
+        assets = Math.round(540 - (i - 18) * 16 + (rng() - 0.5) * 100);
+        capRatio = 0.080 + rng() * 0.045;
+      }
+      return { key, name, assets, capRatio, i };
+    });
+  })();
+
+  const loans = (function buildLoans() {
+    const rng = mulberry32(20240622);
+    const out = [];
+    const linkProb = (a, b) => {
+      if (a < 6 && b < 6) return 0.45;
+      if (a < 6 || b < 6) return 0.24;
+      if (a < 18 && b < 18) return 0.12;
+      if (a < 18 || b < 18) return 0.08;
+      return 0.05;
+    };
+    const lenderFrac = t => (t < 6 ? 0.066 : t < 18 ? 0.034 : 0.016);
+    for (let i = 0; i < institutions.length; i++) {
+      for (let j = 0; j < institutions.length; j++) {
+        if (i === j) continue;
+        const A = institutions[i], B = institutions[j];
+        if (rng() < linkProb(A.i, B.i)) {
+          const amt = Math.round(A.assets * lenderFrac(A.i) * (0.6 + rng() * 0.9));
+          if (amt > 0) out.push({ from: A.key, to: B.key, amount: amt });
+        }
+      }
+    }
+    return out;
+  })();
+
+  function riskScore(capital, totalLent, numBorrowers) {
+    const leverage = totalLent / capital;
+    const concentration = 1 + 3 / Math.max(numBorrowers, 1);
+    return leverage * concentration;
+  }
+
+  function riskColor(t) {
+    const hue = 120 * Math.min(t, 0.5) + 160 * Math.min(Math.max(t - 0.5, 0), 0.125) + 200 * Math.min(Math.max(t - 0.625, 0), 0.25) + 240 * Math.max(t - 0.875, 0);
+    return `hsl(${160 - hue.toFixed(0)}, 80%, 45%)`;
+  }
+
+  function init() {
+    myDiagram = new go.Diagram('myDiagramDiv', {
+      'undoManager.isEnabled': true,
+      'toolManager.hoverDelay': 100,
+      'animationManager.isEnabled': false,
+      contentAlignment: go.Spot.Center,
+      padding: 20,
+      layout: new go.Layout() // nodes carry explicit locations; no auto-layout
+    });
+
+    const rings = new go.Panel('Spot');
+    const RING_RADII = [110, 180, 250, 320];
+    RING_RADII.forEach((r, i) =>
+      rings.add(
+        new go.Shape('Circle', {
+          width: 2 * r, height: 2 * r, fill: null,
+          stroke: '#d7d7d7', strokeWidth: 1, strokeDashArray: [2, 4],
+          alignment: go.Spot.Center, isPanelMain: i === 3
+        })
+      )
+    );
+    myDiagram.add(
+      new go.Part({
+        layerName: 'Background', locationSpot: go.Spot.Center,
+        isLayoutPositioned: false, pickable: false, selectable: false
+      }).add(rings)
+    );
+
+    // ---- Institution node: a risk-colored dot, sized by total assets --------
+    myDiagram.nodeTemplate =
+      new go.Node('Spot', {
+        locationSpot: go.Spot.Center,
+        selectionAdorned: false,
+        cursor: 'pointer',
+        // click a bank to default it and see the losses cascade
+        click: (e, node) => simulateDefault(node.data.key),
+        toolTip:
+          go.GraphObject.build('ToolTip').add(
+            new go.TextBlock({ margin: 6, font: '10pt sans-serif' }).bind('text', '', d => {
+              const status = d.state === 'seed' ? 'DEFAULTED (the trigger)'
+                : d.state === 'default' ? 'DEFAULTED (contagion)'
+                : d.loss > 0 ? 'stressed (survived)' : 'solvent';
+              return `${d.name}\nAssets: $${d.assets}B  ·  Capital buffer: $${d.capital}B\n` +
+                `Lent out: $${d.totalLent}B to ${d.numBorrowers} ` +
+                `${d.numBorrowers === 1 ? 'entity' : 'entities'}\n` +
+                `Borrowed: $${d.totalBorrowed}B\n` +
+                `Risk score: ${d.score.toFixed(2)}\n` +
+                `If it defaults now: ${runCascade(d.key, currentRecovery()).defaulted.size} banks fail\n` +
+                `Status: ${status}` +
+                (d.loss > 0 ? `\nLosses absorbed: $${d.loss}B of $${d.capital}B capital` : '');
+            })
+          )
+      })
+        .bind('location', 'loc', go.Point.parse)
+        .add(
+          // a red "ground zero" halo, only on the bank that was clicked to fail
+          new go.Shape('Circle', { fill: null, stroke: '#ff0000', strokeWidth: 0, visible: false })
+            .bind('desiredSize', 'diam', d => new go.Size(d + 10, d + 10))
+            .bind('visible', 'state', s => s === 'seed'),
+          new go.Shape('Circle', { strokeWidth: 1, stroke: '#2b2b2b', isPanelMain: true })
+            .bind('desiredSize', 'diam', d => new go.Size(d, d))
+            // green->red normally; black for the trigger, gray for contagion defaults
+            .bind('fill', 'state', (s, shp) =>
+              s === 'seed' ? '#444' : s === 'default' ? '#666666' : shp.part.data.color)
+            .bind('fill', 'color', (c, shp) => {
+              const s = shp.part.data.state;
+              return s === 'seed' ? '#000000' : s === 'default' ? '#666666' : c;
+            })
+            // bold red ring on the trigger, lighter red on contagion; survivors recolor by risk
+            .bind('stroke', 'state', s =>
+              s === 'seed' ? '#ff0000' : s === 'default' ? '#ff6666' : null )
+            .bind('strokeWidth', 'state', s => s === 'seed' ? 2 : 0),
+          // an "x" that appears on every failed institution
+          new go.TextBlock('✕', { stroke: 'white', font: 'bold 9pt sans-serif', visible: false })
+            .bind('visible', 'state', s => s === 'seed' || s === 'default')
+        );
+
+    // ---- Label node: text on the outer ring, anchored toward its bank -------
+    myDiagram.nodeTemplateMap.add('label',
+      new go.Node({ locationSpot: go.Spot.Center, pickable: false, selectable: false })
+        .bind('location', 'loc', go.Point.parse)
+        .bind('locationSpot', 'rightSide', r => (r ? go.Spot.Left : go.Spot.Right))
+        .add(
+          new go.TextBlock({ font: 'bold 8pt tahoma', stroke: '#666' })
+            .bind('text', 'text')
+            .bind('textAlign', 'rightSide', r => (r ? 'left' : 'right'))
+        ));
+
+    
+    myDiagram.addLayerBefore(new go.Layer({ name: 'LinksBelow' }), myDiagram.findLayer(''));
+    // ---- Loan link: thin line colored by the creditor's risk, arrow -> debtor
+    myDiagram.linkTemplate =
+      new go.Link({
+        layerName: 'LinksBelow',
+        routing: go.Routing.Normal,
+        selectionAdorned: false,
+        relinkableFrom: false, relinkableTo: false
+      })
+        .add(
+          new go.Shape({ strokeWidth: 1, opacity: 0.5 })
+            .bind('stroke', 'stressed', (s, shp) => (s ? '#333' : shp.part.data.color))
+            .bind('stroke', 'color', (c, shp) => (shp.part.data.stressed ? '#e00000' : c)),
+          new go.Shape({ toArrow: 'Standard', scale: 0.4, strokeWidth: 0, opacity: 0.5 })
+            .bind('fill', 'stressed', (s, shp) => (s ? '#666' : shp.part.data.color))
+            .bind('fill', 'color', (c, shp) => (shp.part.data.stressed ? '#666' : c))
+        );
+
+    // ---- Leader line: faint connector from a label to its bank --------------
+    myDiagram.linkTemplateMap.add('leader',
+      new go.Link({ layerName: 'LinksBelow', routing: go.Routing.Normal, selectable: false, pickable: false })
+        .add(
+          new go.Shape({ stroke: '#9bb4e8', strokeWidth: 0.6, strokeDashArray: [2, 3] })
+        ));
+
+    const metrics = (function computeMetrics() {
+      const m = {};
+      institutions.forEach(inst => {
+        m[inst.key] = { totalLent: 0, totalBorrowed: 0, borrowers: new Set() };
+      });
+      loans.forEach(loan => {
+        m[loan.from].totalLent += loan.amount;
+        m[loan.from].borrowers.add(loan.to);
+        m[loan.to].totalBorrowed += loan.amount;
+      });
+      return m;
+    })();
+
+    const maxAssets = Math.max(...institutions.map(i => i.assets));
+
+    const scored = institutions.map(inst => {
+      const mt = metrics[inst.key];
+      const capital = Math.round(inst.assets * inst.capRatio);
+      const numBorrowers = mt.borrowers.size;
+      const score = riskScore(capital, mt.totalLent, numBorrowers);
+      return { inst, mt, capital, numBorrowers, score };
+    });
+
+    const nodeDataArray = [];
+    const linkDataArray = [];
+    const colorByKey = {};
+    const N = scored.length;
+
+    const order = scored.map((s, idx) => idx).sort((a, b) => scored[a].inst.name.localeCompare(scored[b].inst.name));
+
+    order.forEach((bankIndex, slot) => {
+      const s = scored[bankIndex];
+      const t = Math.min(s.score / 18, 1);
+      const color = riskColor(t);
+      colorByKey[s.inst.key] = color;
+
+      const angle = (-90 + (slot * 360) / N) * (Math.PI / 180);
+      const radius = 300 - t * (300 - 85);
+      const pos = new go.Point(
+        radius * Math.cos(angle),
+        radius * Math.sin(angle)
+      );
+      const labelPos = new go.Point(
+        350 * Math.cos(angle),
+        350 * Math.sin(angle)
+      );
+      const diam = 12 + 30 * (s.inst.assets / maxAssets);
+
+      nodeDataArray.push({
+        key: s.inst.key, name: s.inst.name, category: undefined,
+        assets: s.inst.assets, capital: s.capital,
+        totalLent: s.mt.totalLent, totalBorrowed: s.mt.totalBorrowed,
+        numBorrowers: s.numBorrowers, score: s.score, color, riskColor: color, diam,
+        state: 'ok', loss: 0, impact: 1, // mutated by the simulation / color mode
+        loc: go.Point.stringify(pos)
+      });
+      nodeDataArray.push({
+        key: 'lbl_' + s.inst.key, category: 'label', text: s.inst.key, // show the ticker
+        rightSide: Math.cos(angle) >= 0, loc: go.Point.stringify(labelPos)
+      });
+      linkDataArray.push({ from: 'lbl_' + s.inst.key, to: s.inst.key, category: 'leader' });
+    });
+
+    // loan links, colored by the creditor's risk
+    const maxAmt = Math.max(...loans.map(l => l.amount));
+    loans.forEach(loan => {
+      linkDataArray.push({
+        from: loan.from, to: loan.to, amount: loan.amount,
+        color: colorByKey[loan.to],
+        stressed: false
+      });
+    });
+
+    myDiagram.model = new go.GraphLinksModel({ nodeDataArray, linkDataArray });
+
+    myDiagram.addDiagramListener('InitialLayoutCompleted', e => e.diagram.zoomToFit());
+
+    // ---- Wire up the simulation controls ------------------------------------
+    const recovery = document.getElementById('recovery');
+    const recoveryVal = document.getElementById('recoveryVal');
+    recovery.addEventListener('input', () => {
+      recoveryVal.textContent = recovery.value + '%';
+      if (colorMode === 'impact') applyColorMode(); // impact depends on recovery
+      if (currentSeed !== null) simulateDefault(currentSeed); // re-run live
+    });
+    document.getElementById('resetBtn').addEventListener('click', resetSim);
+    document.getElementById('colorMode').addEventListener('change', e => {
+      colorMode = e.target.value;
+      applyColorMode();
+      if (currentSeed !== null) simulateDefault(currentSeed); // keep cascade colors live
+    });
+  }
+
+  let currentSeed = null;
+
+  function currentRecovery() {
+    const el = document.getElementById('recovery');
+    return el ? Number(el.value) / 100 : 0.4;
+  }
+
+  // Pure cascade: seed a default and propagate losses, WITHOUT touching the model.
+  // Returns who failed, each bank's losses, and which links carried a loss.
+  function runCascade(seedKey, recovery) {
+    const banks = {};
+    const byDebtor = {};
+    myDiagram.model.nodeDataArray.forEach(d => { if (d.category === undefined) banks[d.key] = d; });
+    myDiagram.model.linkDataArray.forEach(l => {
+      if (l.category === 'leader') return;
+      (byDebtor[l.to] = byDebtor[l.to] || []).push(l);
+    });
+
+    const defaulted = new Set([seedKey]);
+    const loss = {};
+    Object.keys(banks).forEach(k => (loss[k] = 0));
+    const stressedLinks = new Set();
+
+    const queue = [seedKey];
+    while (queue.length > 0) {
+      const failed = queue.shift();
+      (byDebtor[failed] || []).forEach(l => {
+        stressedLinks.add(l);
+        const creditor = l.from;
+        if (defaulted.has(creditor)) return; // already gone
+        loss[creditor] += l.amount * (1 - recovery); // loss-given-default
+        if (loss[creditor] > banks[creditor].capital) {
+          defaulted.add(creditor);
+          queue.push(creditor);
+        }
+      });
+    }
+    return { banks, defaulted, loss, stressedLinks };
+  }
+
+  function simulateDefault(seedKey) {
+    currentSeed = seedKey;
+    const recovery = currentRecovery();
+    const model = myDiagram.model;
+    const { banks, defaulted, loss, stressedLinks } = runCascade(seedKey, recovery);
+    const loanLinks = model.linkDataArray.filter(l => l.category !== 'leader');
+
+    // push results into the model so the templates re-render
+    model.commit(m => {
+      Object.keys(banks).forEach(k => {
+        const d = banks[k];
+        const state = k === seedKey ? 'seed'
+          : defaulted.has(k) ? 'default' : 'ok';
+        m.set(d, 'state', state);
+        m.set(d, 'loss', +loss[k].toFixed(1));
+        if (state === 'ok') {
+          const remaining = Math.max(d.capital - loss[k], 1);
+          const stressedScore = riskScore(remaining, d.totalLent, d.numBorrowers);
+          m.set(d, 'score', +stressedScore.toFixed(2));
+          if (colorMode === 'risk') m.set(d, 'color',  riskColor(Math.min(stressedScore / 18, 1)));
+        }
+      });
+      loanLinks.forEach(l => m.set(l, 'stressed', stressedLinks.has(l)));
+    }, 'simulate default');
+
+    const totalLoss = Object.keys(loss).reduce((a, k) => a + loss[k], 0);
+    const status = document.getElementById('status');
+    if (status) {
+      status.innerHTML =
+        `<b>${banks[seedKey].name}</b> defaulted &rarr; ` +
+        `<b>${defaulted.size}</b> of ${Object.keys(banks).length} banks failed, ` +
+        `$${totalLoss.toFixed(0)}B written off `;
+    }
+  }
+
+  function clearSimVisual() {
+    const model = myDiagram.model;
+    model.commit(m => {
+      model.nodeDataArray.forEach(d => {
+        if (d.category !== undefined) return;
+        m.set(d, 'state', 'ok');
+        m.set(d, 'loss', 0);
+        // restore the bank's pre-cascade (full-capital) risk score
+        m.set(d, 'score', +riskScore(d.capital, d.totalLent, d.numBorrowers).toFixed(2));
+      });
+      model.linkDataArray.forEach(l => {
+        if (l.category !== 'leader') m.set(l, 'stressed', false);
+      });
+    }, 'clear');
+  }
+
+  function resetSim() {
+    currentSeed = null;
+    clearSimVisual();
+    applyColorMode(); // restore fills to the current color mode's static palette
+    const status = document.getElementById('status');
+    if (status) status.textContent = '';
+  }
+
+  
+  let colorMode = 'risk';
+
+  function applyColorMode() {
+    const model = myDiagram.model;
+    const banks = model.nodeDataArray.filter(d => d.category === undefined);
+    const colorByKey = {};
+
+    if (colorMode === 'impact') {
+      const recovery = currentRecovery();
+      const impacts = {};
+      banks.forEach(d => (impacts[d.key] = runCascade(d.key, recovery).defaulted.size));
+      const maxImpact = Math.max(...Object.values(impacts), 8);
+      banks.forEach(d => {
+        // 0 = harmless (only itself fails), 1 = most systemic
+        const t = impacts[d.key] > 1 ? ((impacts[d.key] - 1) / (maxImpact - 1) * 0.4) + 0.6 : 0.1;
+
+        colorByKey[d.key] = riskColor(t);
+        d._impact = impacts[d.key];
+      });
+    } else {
+      banks.forEach(d => (colorByKey[d.key] = d.riskColor));
+    }
+
+    model.commit(m => {
+      banks.forEach(d => {
+        m.set(d, 'color', colorByKey[d.key]);
+        if (colorMode === 'impact') m.set(d, 'impact', d._impact);
+      });
+      model.linkDataArray.forEach(l => {
+        if (l.category === 'leader') return;
+        m.set(l, 'color', colorByKey[l.from]); // links follow their creditor's color
+      });
+    }, 'recolor');
+
+  }
+
+  window.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>

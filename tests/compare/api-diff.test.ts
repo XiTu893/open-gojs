@@ -39,21 +39,43 @@ describe('Open-GoJS vs Official GoJS API surface (public only)', () => {
   });
 
   it('reports missing public namespace enum objects', () => {
-    const enumObjects = [
-      'PanelTypes', 'Panel', 'GraphObject', 'Alignment', 'GridAlignment', 'GridSorting',
-      'GridArrangement', 'GridWrapping', 'Curve', 'Routing', 'Wrap', 'Overflow', 'TextOverflow',
-      'ImageStretch', 'Sizing', 'TreeStyle', 'TreePath', 'TreeArrangement', 'TreeLayerStyle',
-      'TreeSorting', 'TreeCompaction', 'TreeAlignment', 'CircularArrangement', 'CircularDirection',
-      'CircularSorting', 'LayeredDigraphDirection', 'LayeredDigraphAlign', 'LayeredDigraphAggressive',
-      'LayeredDigraphPack', 'LayeredDigraphCycleRemove', 'LayeredDigraphInit', 'LayeredDigraphLayering',
-      'BindingMode', 'AutoScale', 'ScrollMode', 'CycleMode', 'ChangeType', 'SegmentType',
-      'AnimationStyle', 'LinkAdjusting', 'Orientation', 'GestureMode', 'WheelMode',
-      'TextEditingAccept', 'TextEditingStarting', 'LayoutConditions', 'GeometryStretch',
-      'GeometryType', 'LinkingDirection', 'TriggerStart',
-    ];
+    // 阶段 3 起改为从官方运行时**自动**推导枚举对象清单（只取非函数的顶层导出），
+    // 避免手写清单里混入官方根本没有的名字（旧清单里的 Alignment / GridWrapping / Overflow
+    // 在 gojs@4.0.4 运行时都不存在）。
+    const enumObjects = Object.keys(officialGojs)
+      .filter(
+        (k) =>
+          k !== 'version' && k !== 'default' && k.length > 2 && !k.includes('$') &&
+          typeof (officialGojs as any)[k] === 'object'
+      )
+      .sort();
     const missing = enumObjects.filter((c) => !(openGojs as any)[c]);
+    console.log('OFFICIAL ENUM OBJECTS: ' + enumObjects.length);
     console.log('MISSING ENUM OBJECTS:', missing.join(', ') || '(none)');
-    expect(missing).toBeDefined();
+    expect(missing).toEqual([]);
+  });
+
+  it('every official enum object exposes the same member names', () => {
+    const enumObjects = Object.keys(officialGojs).filter(
+      (k) =>
+        k !== 'version' && k !== 'default' && k.length > 2 && !k.includes('$') &&
+        typeof (officialGojs as any)[k] === 'object'
+    );
+    const bad: string[] = [];
+    for (const k of enumObjects) {
+      const off = (officialGojs as any)[k];
+      const op = (openGojs as any)[k];
+      if (!op) { bad.push(k + ' (missing object)'); continue; }
+      // 官方 TS enum 带数字反向映射（"0" -> "None"），比较时跳过纯数字键
+      const officialKeys = Object.keys(off).filter((m) => !/^\d+$/.test(m));
+      const ourKeys = new Set(Object.keys(op));
+      const miss = officialKeys.filter((m) => !ourKeys.has(m));
+      const extra = Object.keys(op).filter((m) => !officialKeys.includes(m));
+      if (miss.length) bad.push(k + ' missing[' + miss.join(',') + ']');
+      if (extra.length) bad.push(k + ' extra[' + extra.join(',') + ']');
+    }
+    console.log('ENUM MEMBER DIFFS:', bad.join(' | ') || '(none)');
+    expect(bad).toEqual([]);
   });
 
   it('reports missing prototype members per class (public)', () => {
@@ -62,6 +84,7 @@ describe('Open-GoJS vs Official GoJS API surface (public only)', () => {
       'GraphLinksModel', 'TreeModel', 'Model', 'Binding', 'Layout', 'GridLayout', 'TreeLayout',
       'ForceDirectedLayout', 'CircularLayout', 'LayeredDigraphLayout', 'Point', 'Rect', 'Size',
       'Spot', 'Margin', 'Geometry', 'Brush', 'Tool', 'ToolManager', 'CommandHandler',
+      'List', 'Set', 'Map',
     ];
     for (const cls of focus) {
       const off = officialGojs[cls];

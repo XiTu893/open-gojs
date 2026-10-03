@@ -71,6 +71,8 @@ export declare class GraphObject {
     private _toEndSegmentLength;
     private _fromShortLength;
     private _toShortLength;
+    /** 官方 `port.Vd`：side-spot 连线端口 Knot 缓存（见 LinkKnot.ts） */
+    private _knot;
     private _segmentIndex;
     private _segmentFraction;
     private _segmentOffset;
@@ -162,8 +164,13 @@ export declare class GraphObject {
     set isActionable(val: boolean);
     get isPanelMain(): boolean;
     set isPanelMain(val: boolean);
-    get portId(): string;
-    set portId(val: string);
+    get portId(): string | null;
+    set portId(val: string | null);
+    /**
+     * 官方 `Node.ne(port)`：清空端口上的 side-spot knot 缓存。
+     * 由 Node.invalidateConnectedLinks / portId 变更 / link 端点变更触发。
+     */
+    invalidateConnectedLinksCache(): void;
     get contextMenu(): any;
     set contextMenu(val: any);
     get toolTip(): any;
@@ -248,11 +255,18 @@ export declare class GraphObject {
     bindObject(targetProperty: string, sourceProperty: string, conversion?: (value: any, targetObject: any, model: any) => any, backConversion?: (value: any, sourceData: any, model: any) => any, sourceObject?: string): this;
     /** 官方 `GraphObject.bindTwoWay(targetprop, sourceprop?, conv?, backconv?)`：第 3 参为 source→target 转换 */
     bindTwoWay(targetProperty: string, sourceProperty?: string, conversion?: (value: any, targetObject: any, model: any) => any, backConversion?: (value: any, sourceData: any, model: any) => any): this;
-    /** 官方 GraphObject.theme(targetprop, sourceprop?, conv?, backconv?, themeconv?)：主题绑定（ThemeBinding） */
-    theme(targetProperty: string, sourceProperty?: string, conversion?: (value: any, targetObject: any, model: any) => any, backConversion?: (value: any, sourceData: any, model: any) => any, themeConverter?: (value: any, targetObject: any, model?: any) => any): this;
-    themeData(targetProperty: string, sourceProperty?: string, conversion?: (value: any, targetObject: any, model: any) => any): this;
-    themeModel(targetProperty: string, sourceProperty?: string, conversion?: (value: any, targetObject: any, model: any) => any): this;
-    themeObject(targetProperty: string, sourceProperty?: string, conversion?: (value: any, targetObject: any, model: any) => any, objectname?: string): this;
+    /**
+     * 官方 GraphObject.theme(targetprop, sourceprop?, themesource?, conv?, themeconv?)。
+     * 官方第 3 参是 themeSource、第 4 参才是 converter —— 旧签名把 converter 放在第 3 位，
+     * flowchart 的 .themeObject('stroke','isSelected',null,fn) 因此把 fn 当成了 sourceName，
+     * 描边永远停在默认黑色。
+     */
+    theme(targetProperty: string, sourceProperty?: string, themeSource?: string | null, converter?: (value: any, targetObject: any, model: any) => any, themeConverter?: (value: any, targetObject: any, model?: any) => any): this;
+    /** 官方 themeData：ofData —— 源是 part.data（旧版误设成 modelData） */
+    themeData(targetProperty: string, sourceProperty?: string, themeSource?: string | null, converter?: (value: any, targetObject: any, model: any) => any, themeConverter?: (value: any, targetObject: any, model?: any) => any): this;
+    themeModel(targetProperty: string, sourceProperty?: string, themeSource?: string | null, converter?: (value: any, targetObject: any, model: any) => any, themeConverter?: (value: any, targetObject: any, model?: any) => any): this;
+    /** 官方 themeObject：源是“绑定面板”（sourceName 默认 ''）上的属性 */
+    themeObject(targetProperty: string, sourceProperty?: string, themeSource?: string | null, converter?: (value: any, targetObject: any, model: any) => any, themeConverter?: (value: any, targetObject: any, model?: any) => any, sourceName?: string): this;
     bindModel(targetProperty: string, sourceProperty?: string, conversion?: (value: any, targetObject: any, model: any) => any): this;
     setProperties(props: Record<string, any>): this;
     /** Batch set properties */

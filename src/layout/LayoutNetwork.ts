@@ -44,6 +44,27 @@ export class LayoutNetwork {
     return vertex;
   }
 
+  /**
+   * 把一批顶点/边重新挂回本网络（不重复登记边到 vertex 上）。
+   *
+   * `splitIntoSubNetworks()` 是**破坏性**的：它把顶点/边从本网络搬到子网络，
+   * 拆完主网络就空了。但官方 CircularLayout 在 commitNodes()/commitLinks() 阶段
+   * `this.network` 仍然持有全部 vertexes/edges —— 样例（friendWheel 的 WheelLayout 等）
+   * 覆写里遍历 `this.network.vertexes` / `this.network.edges`，
+   * 一旦是空列表，径向旋转和 link.curviness 就都失效。拆分只是分组手段，
+   * 所以布局算完再挂回来。
+   */
+  reattach(vertexes: LayoutVertex[], edges: LayoutEdge[]): void {
+    for (const v of vertexes) {
+      v.network = this;
+      this.vertexes.add(v);
+    }
+    for (const e of edges) {
+      e.network = this;
+      this.edges.add(e);
+    }
+  }
+
   /** Add an edge to this network (官方：toVertex.addSourceEdge, fromVertex.addDestinationEdge) */
   addEdge(edge: LayoutEdge): LayoutEdge {
     edge.network = this;
@@ -72,9 +93,8 @@ export class LayoutNetwork {
       toVertex = this.addNode(toNode);
     }
 
-    const edge = this.linkVertexes(fromVertex, toVertex);
-    edge.link = link;
-    this.linkToLayoutEdge.set(link, edge);
+    const edge = this.linkVertexes(fromVertex, toVertex, link);
+    if (edge === null) return null;
     return edge;
   }
 
@@ -99,31 +119,96 @@ export class LayoutNetwork {
     return vertex;
   }
 
-  /** 官方 LayoutNetwork.addParts(parts, toplevelonly?, pred?): void */
-  addParts(parts: any, toplevelonly?: boolean, pred?: ((a: any) => boolean) | null): void {
-    const visit = (coll: any): void => {
-      if (!coll) return;
-      if (typeof coll.iterator === 'function') {
-        const it = coll.iterator;
-        while (it.next()) visit(it.value);
+  /**
+   * 官方 LayoutNetwork.addParts(coll, toplevelonly?, pred?): void
+   * 官方是两阶段：先把**节点**入网（`Group.layout === null` 的组递归收成员，
+   * 且递归时用默认谓词），再处理**连线** —— 连线端点用 `findGroupVertex`
+   * 解析到「自身或网络中已有的最深祖先 vertex」，**不自动创建端点 vertex**；
+   * 任一侧解析为 null 则跳过该连线。这正是 flowgrammer 组内布局
+   * 不会把 L3→4 的端点 node4（属于嵌套组 -2）塞进组 -1 网络的原因。
+   */
+  addParts(coll: any, toplevelonly?: boolean, pred?: ((a: any) => boolean) | null): void {
+    if (coll === null || coll === undefined) return;
+    const toplevel = toplevelonly === true;
+    const e = (pred !== null && pred !== undefined) ? pred : (n: any): boolean => {
+      if (n instanceof Node) return !n.isLinkLabel;
+      if (n instanceof Link) {
+        const o = n.fromNode;
+        if (o === null || o.isLinkLabel) return false;
+        const r = n.toNode;
+        return !(r === null || r.isLinkLabel);
+      }
+      return false;
+    };
+    const iterate = (fn: (n: any) => void): void => {
+      const prop = (coll as any).iterator;
+      if (typeof (coll as any).iterator === 'function') {
+        const it = (coll as any).iterator();
+        while (it.next()) fn(it.value);
         return;
       }
-      if (typeof coll.next === 'function') {
-        while (coll.next()) visit(coll.value);
+      if (prop && typeof prop.next === 'function') {
+        while (prop.next()) fn(prop.value);
+        return;
+      }
+      if (typeof (coll as any).next === 'function') {
+        while ((coll as any).next()) fn((coll as any).value);
         return;
       }
       if (Array.isArray(coll)) {
-        for (const p of coll) visit(p);
+        for (const n of coll) fn(n);
         return;
       }
-      const part: any = coll;
-      if (part === null || part === undefined) return;
-      if (pred !== null && pred !== undefined && typeof pred === 'function' && !pred(part)) return;
-      if (toplevelonly === true && typeof part.isTopLevel === 'boolean' && !part.isTopLevel) return;
-      if (part instanceof Node) this.addNode(part);
-      else if (part instanceof Link) this.addLink(part);
+      fn(coll);
     };
-    visit(parts);
+    // 阶段 1：节点
+    iterate((n: any) => {
+      if (!(n instanceof Node) || (toplevel && !n.isTopLevel)) return;
+      if (typeof n.canLayout === 'function' && !n.canLayout()) return;
+      if (!e(n)) return;
+      // _className 判断等价 instanceof Group（避免 LayoutNetwork↔Group 循环依赖）
+      if ((n as any)._className === 'Group' && (n as any).layout === null) {
+        // 官方递归不透传 pred（组内成员按默认谓词收）
+        this.addParts((n as any).memberParts, false);
+        return;
+      }
+      if (this.findVertex(n) !== null) return;
+      const o = this.createVertex();
+      o.node = n;
+      (o as any).part = n;
+      this.addVertex(o);
+    });
+    // 阶段 2：连线
+    iterate((n: any) => {
+      if (!(n instanceof Link) || (toplevel && !n.isTopLevel)) return;
+      if (typeof n.canLayout === 'function' && !n.canLayout()) return;
+      if (!e(n)) return;
+      if (this.findEdge(n) !== null) return;
+      const o = n.fromNode;
+      const r = n.toNode;
+      if (o === null || r === null || o === r) return;
+      this.linkVertexes(this.findGroupVertex(o), this.findGroupVertex(r), n);
+    });
+  }
+
+  /**
+   * 官方 LayoutNetwork.findGroupVertex(node)：
+   * 端点解析为「自身（findVisibleNode）的 vertex，否则沿 containingGroup 向上
+   * 找第一个已入网的祖先 vertex」，全都没有则 null。
+   */
+  findGroupVertex(node: any): LayoutVertex | null {
+    if (node === null || node === undefined) return null;
+    const i = (typeof node.findVisibleNode === 'function') ? node.findVisibleNode() : node;
+    if (i === null) return null;
+    let v = this.findVertex(i);
+    if (v !== null) return v;
+    let s = i.containingGroup;
+    while (s !== null && s !== undefined) {
+      v = this.findVertex(s);
+      if (v !== null) return v;
+      s = s.containingGroup;
+    }
+    return null;
   }
 
   /** 官方 LayoutNetwork.deleteVertex(vertex) */
@@ -222,13 +307,21 @@ export class LayoutNetwork {
     return this.linkToLayoutEdge.get(link) || null;
   }
 
-  /** Create an edge connecting two vertexes */
-  linkVertexes(fromVertex: LayoutVertex, toVertex: LayoutEdge | LayoutVertex): LayoutEdge {
+  /**
+   * 官方 LayoutNetwork.linkVertexes(fromVertex, toVertex, link?)：
+   * 任一侧为 null 直接返回 null（不建点）；带 link 时登记 link→edge 映射。
+   */
+  linkVertexes(fromVertex: LayoutVertex | null, toVertex: LayoutVertex | null, link?: Link | null): LayoutEdge | null {
+    if (fromVertex === null || toVertex === null) return null;
     const edge = this.createEdge();
     edge.network = this;
     edge.fromVertex = fromVertex;
-    edge.toVertex = toVertex as LayoutVertex;
-    (toVertex as LayoutVertex).addSourceEdge(edge);
+    edge.toVertex = toVertex;
+    if (link !== null && link !== undefined) {
+      edge.link = link;
+      this.linkToLayoutEdge.set(link, edge);
+    }
+    toVertex.addSourceEdge(edge);
     fromVertex.addDestinationEdge(edge);
     this.edges.add(edge);
     return edge;

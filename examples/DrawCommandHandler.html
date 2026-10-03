@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Drawing Commands for Aligning, Spacing, Rotating, Z-Ordering, and Arrow Keys</title>
+  <script src="../dist/open-gojs.umd.js"></script>
+  
+  <script src="https://cdn.jsdelivr.net/npm/gojs-extensions@latest/extensions/DrawCommandHandler.js"></script>
+  
+  
+</head>
+<body>
+<!-- The DIV for the Diagram needs an explicit size or else we won't see anything.
+       Also add a border to help see the edges. -->
+  <div id="myDiagramDiv" style="border: solid 1px black; width: 100%; height:400px"></div>
+  <p>
+    Align:
+    <button onclick="myDiagram.commandHandler.alignLeft()">Left Sides</button>
+    <button onclick="myDiagram.commandHandler.alignRight()">Right Sides</button>
+    <button onclick="myDiagram.commandHandler.alignTop()">Tops</button>
+    <button onclick="myDiagram.commandHandler.alignBottom()">Bottoms</button>
+    <button onclick="myDiagram.commandHandler.alignCenterX()">Center X</button>
+    <button onclick="myDiagram.commandHandler.alignCenterY()">Center Y</button>
+    </br>
+    Space Evenly:
+    <button onclick="myDiagram.commandHandler.alignRow(30)">Into Row (space 30)</button>
+    <button onclick="myDiagram.commandHandler.alignColumn(30)">Into Column (space 30)</button>
+    <button onclick="myDiagram.commandHandler.spaceEvenlyHorizontally()">Horizontally</button>
+    <button onclick="myDiagram.commandHandler.spaceEvenlyVertically()">Vertically</button>
+    </br>
+    Rotate:
+    <button onclick="myDiagram.commandHandler.rotate(45)">45°</button>
+    <button onclick="myDiagram.commandHandler.rotate(-45)">-45°</button>
+    <button onclick="myDiagram.commandHandler.rotate(90)">90°</button>
+    <button onclick="myDiagram.commandHandler.rotate(-90)">-90°</button>
+    <button onclick="myDiagram.commandHandler.rotate(180)">180°</button>
+    </br>
+    Z-Order:
+    <button onclick="myDiagram.commandHandler.pullToFront()">Pull to Front</button>
+    <button onclick="myDiagram.commandHandler.pushToBack()">Push to Back</button>
+    </br>
+    Arrow Mode:
+    <input type="radio" name="arrow" id="move" onclick="arrowMode()" checked="checked">Move</input>
+    <input type="radio" name="arrow" id="select" onclick="arrowMode()">Select</input>
+    <input type="radio" name="arrow" id="scroll" onclick="arrowMode()">Scroll</input>
+    <input type="radio" name="arrow" id="tree" onclick="arrowMode()">Tree</input>
+    <input type="radio" name="arrow" id="none" onclick="arrowMode()">None</input>
+  </p>
+  <div id="description">
+<p>
+    This example demonstrates a custom <a href="https://gojs.net/latest/api/symbols/CommandHandler.html" target="api">CommandHandler</a>.
+    It allows the user to position selected Parts in a diagram relative to each other,
+    overrides <a href="https://gojs.net/latest/api/symbols/CommandHandler.html#dokeydown" target="api">CommandHandler.doKeyDown</a> to allow handling the arrow keys in additional manners,
+    and uses a "paste offset" so that pasting objects will cascade them rather than place them on top of one another.
+    It is defined in its own file, as <a href="https://gojs.net/latest/extensions/DrawCommandHandler.js">DrawCommandHandler.js</a>.
+  </p>
+  <p>
+    The above buttons can be used to align Parts, rotate Parts, or change the behavior of the arrow keys.
+  </p>
+  <p>
+    <!-- Usage can also be seen in the <a href="https://gojs.net/latest/samples/bpmn/BPMN.html">BPMN Editor</a> sample. -->
+  </p>
+  </div>
+  <script >
+function init() {
+    myDiagram = new go.Diagram('myDiagramDiv', {
+      layout: new go.TreeLayout(),
+      commandHandler: new DrawCommandHandler(),  // defined in DrawCommandHandler.js
+      'commandHandler.archetypeGroupData': { isGroup: true },
+      'undoManager.isEnabled': true  // enable undo & redo
+    });
+
+    // define a simple Node template
+    myDiagram.nodeTemplate =
+      new go.Node('Auto', { // the Shape will go around the TextBlock
+          locationSpot: go.Spot.Center
+        })
+        .add(
+          new go.Shape('RoundedRectangle', { strokeWidth: 0 })
+            .bind('fill', 'color'), // Shape.fill is bound to Node.data.color
+          new go.TextBlock({margin: 8 })  // some room around the text
+            .bind('text')
+        );
+
+    // but use the default Link template, by not setting Diagram.linkTemplate
+
+    // create the model data that will be represented by Nodes and Links
+    myDiagram.model = new go.GraphLinksModel(
+      [
+        { key: 1, text: 'Alpha', color: 'lightblue' },
+        { key: 2, text: 'Beta', color: 'orange' },
+        { key: 3, text: 'Gamma', color: 'lightgreen' },
+        { key: 4, text: 'Delta', color: 'pink' },
+        { key: 5, text: 'Epsilon', color: 'yellow' }
+      ],
+      [
+        { from: 1, to: 2 },
+        { from: 1, to: 3 },
+        { from: 3, to: 4 },
+        { from: 3, to: 5 }
+      ]);
+  }
+
+  // update arrowkey function
+  function arrowMode() {
+    // no transaction needed, because we are modifying the CommandHandler for future use
+    if (document.getElementById('move').checked === true) {
+      myDiagram.commandHandler.arrowKeyBehavior = 'move';
+    } else if (document.getElementById('select').checked === true) {
+      myDiagram.commandHandler.arrowKeyBehavior = 'select';
+    } else if (document.getElementById('scroll').checked === true) {
+      myDiagram.commandHandler.arrowKeyBehavior = 'scroll';
+    } else if (document.getElementById('tree').checked === true) {
+      myDiagram.commandHandler.arrowKeyBehavior = 'tree';
+    } else if (document.getElementById('none').checked === true) {
+      myDiagram.commandHandler.arrowKeyBehavior = 'none';
+    }
+  }
+
+  window.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>

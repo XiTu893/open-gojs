@@ -460,8 +460,9 @@ export class Node extends Part {
     const map = new Map<string, GraphObject>();
     this.walkVisualTreeFrom(this, (_root, obj) => {
       const id = obj.portId;
-      // 官方 portId 默认为 null 时跳过；本项目默认为 ''，等价跳过
-      if (id !== null && id !== undefined && id !== '') map.set(id, obj);
+      // 官方 portId 默认 null 跳过；显式 portId === '' 的对象是“整个节点的默认端口”，
+      // 必须收录（canvases 的 Picture 就靠它成为 link 的端点）。
+      if (id !== null && id !== undefined) map.set(id, obj);
     });
     if (map.count === 0) map.set('', this);
     return map;
@@ -558,7 +559,12 @@ export class Node extends Part {
       if (toPort && typeof toPort.invalidateConnectedLinksCache === 'function') {
         toPort.invalidateConnectedLinksCache();
       }
-      if (typeof link.computePoints === 'function') link.computePoints();
+      if (typeof link.invalidateRoute === 'function') {
+        link.invalidateRoute();
+        if (typeof link.updateRoute === 'function') link.updateRoute();
+      } else if (typeof link.computePoints === 'function') {
+        link.computePoints();
+      }
     }
   }
 

@@ -1,136 +1,15 @@
-﻿
 <!DOCTYPE html>
-<html lang="en">
-  <head>
-    
-    <meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover"/>
-
-<meta name="description" content="Demonstrates a customized CommandHandler to update a live HTML element for accessibility." />
-<meta itemprop="description" content="Demonstrates a customized CommandHandler to update a live HTML element for accessibility." />
-<meta property="og:description" content="Demonstrates a customized CommandHandler to update a live HTML element for accessibility." />
-<meta name="twitter:description" content="Demonstrates a customized CommandHandler to update a live HTML element for accessibility." />
-
-
-<link rel="preconnect" href="https://rsms.me/">
-
-<!-- Copyright 1998-2026 by Northwoods Software Corporation. -->
-
-
-<meta itemprop="name" content="Accessible Diagram Example" />
-<meta property="og:title" content="Accessible Diagram Example" />
-<meta name="twitter:title" content="Accessible Diagram Example" />
-
-
-<meta property="og:image" content="https://gojs.net/latest/assets/images/screenshots/orgcharteditor.png" />
-<meta itemprop="image" content="https://gojs.net/latest/assets/images/screenshots/orgcharteditor.png" />
-<meta name="twitter:image" content="https://gojs.net/latest/assets/images/screenshots/orgcharteditor.png" />
-
-<meta property="og:url" content="https://gojs.net/latest/samples/Accessibility.html" />
-<meta property="twitter:url" content="https://gojs.net/latest/samples/Accessibility.html" />
-
-<meta name="twitter:card" content="summary_large_image" />
-<meta property="og:type" content="website" />
-<meta property="twitter:domain" content="gojs.net" />
-
-    <title>
-      Accessible Diagram Example | GoJS Diagramming Library
-    </title>
-  </head>
-
-  <body>
-    <!-- This top nav is not part of the sample code -->
-    <nav id="navTop" class=" w-full h-[var(--topnav-h)] z-30 bg-white border-b border-b-gray-200">
-  <div class="max-w-screen-xl mx-auto flex flex-wrap items-start justify-between px-4">
-    <a class="text-white bg-nwoods-primary font-bold !leading-[calc(var(--topnav-h)_-_1px)] my-0 px-2 text-4xl lg:text-5xl logo"
-       href="../">
-      GoJS
-    </a>
-    <div class="relative">
-      <button id="topnavButton" class="h-[calc(var(--topnav-h)_-_1px)] px-2 m-0 text-gray-900 bg-inherit shadow-none md:hidden hover:!bg-inherit hover:!text-nwoods-accent hover:!shadow-none" aria-label="Navigation">
-        <svg class="h-7 w-7 block" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </button>
-      <div id="topnavList" class="hidden md:block">
-        <div class="absolute right-0 z-30 flex flex-col items-end rounded border border-gray-200 p-4 pl-12 shadow bg-white text-gray-900 font-semibold
-                    md:flex-row md:space-x-4 md:items-start md:border-0 md:p-0 md:shadow-none md:bg-inherit">
-          <a href="../learn/">Learn</a>
-          <a href="../samples/">Samples</a>
-          <a href="../intro/">Intro</a>
-          <a href="../api/">API</a>
-          <a href="../download.html">Download</a>
-          <a href="https://forum.nwoods.com/c/gojs/11" target="_blank" rel="noopener">Forum</a>
-          <a id="tc" href="https://nwoods.com/contact.html"
-            target="_blank" rel="noopener" onclick="getOutboundLink('https://nwoods.com/contact.html', 'contact');">Contact</a>
-          <a id="tb" href="https://nwoods.com/sales/index.html"
-            target="_blank" rel="noopener" onclick="getOutboundLink('https://nwoods.com/sales/index.html', 'buy');">Buy</a>
-        </div>
-      </div>
-    </div>
-  </div>
-</nav>
-<script>
-  window.addEventListener("DOMContentLoaded", function () {
-    // topnav
-    var topButton = document.getElementById("topnavButton");
-    var topnavList = document.getElementById("topnavList");
-    if (topButton && topnavList) {
-      topButton.addEventListener("click", function (e) {
-        topnavList
-          .classList
-          .toggle("hidden");
-        e.stopPropagation();
-      });
-      document.addEventListener("click", function (e) {
-        // if the clicked element isn't the list, close the list
-        if (!topnavList.classList.contains("hidden") && !e.target.closest("#topnavList")) {
-          topButton.click();
-        }
-      });
-
-      // set active <a> element
-      var url = window
-        .location
-        .href
-        .toLowerCase();
-      var aTags = topnavList.getElementsByTagName('a');
-      for (var i = 0; i < aTags.length; i++) {
-        var lowerhref = aTags[i]
-          .href
-          .toLowerCase();
-        if (lowerhref.endsWith('.html')) 
-          lowerhref = lowerhref.slice(0, -5);
-        if (url.startsWith(lowerhref)) {
-          aTags[i]
-            .classList
-            .add('active');
-          break;
-        }
-      }
-    }
-  });
-</script>
-    <div class="flex flex-col prose">
-      <div class="w-full max-w-screen-xl mx-auto">
-        <!-- * * * * * * * * * * * * * -->
-        <!-- Start of GoJS sample code -->
-        <script src="../dist/open-gojs.umd.js"></script>
-
-        
-
-        <div id="allSampleContent" class="p-4 w-full">
-          
-            
-            
-
-
-<link
-  href="https://fonts.googleapis.com/css?family=Inter:400,500,600&subset=latin,latin-ext"
-  rel="stylesheet"
-  type="text/css" />
-<style>
-  :modal {
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Accessible Diagram Example</title>
+  <script src="../dist/open-gojs.umd.js"></script>
+  
+  <script src="https://cdn.jsdelivr.net/npm/gojs-extensions@latest/extensions/DataInspector.js"></script>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:400,500,600&subset=latin,latin-ext">
+  <style>
+:modal {
     padding: 2rem;
     border-radius: 0.25rem;
     border-width: 0;
@@ -141,14 +20,91 @@
   }
 
   #hidden {
-    font: 500 18px Inter;
+    font: 500 0px Inter;
     opacity: 0;
   }
-</style>
-
-
-<script id="code">
-  function init() {
+  </style>
+</head>
+<body>
+<div id="myDiagramDiv" style="border: solid 1px black; height: 625px"></div>
+  Theme:
+  <select id="theme" onchange="changeTheme()">
+    <option value="system">System</option>
+    <option value="light">Light</option>
+    <option value="dark" selected>Dark</option>
+  </select>
+  <output id="myLiveRegion"></output>
+  <div>
+    Edit details:<br />
+    <div id="myInspector"></div>
+  </div>
+  <p><button id="zoomToFit">Zoom to Fit</button> <button id="centerRoot">Center on root</button></p>
+  <div>
+    <div style="margin-block: .5em;">
+      <button id="SaveButton" onclick="save()">Save</button>
+      <button onclick="load()">Load</button>
+      Diagram Model saved in JSON format:
+    </div>
+    <textarea id="mySavedModel" style="width: 100%; height: 270px">
+{ "class": "go.TreeModel",
+  "nodeDataArray": [
+{"key":1, "name":"Stella Payne Diaz", "title":"CEO", "dept": "Management", "pic":"1.jpg", "email": "sdiaz@example.com", "phone": "(234) 555-6789" },
+{"key":2, "name":"Luke Warm", "title":"VP Marketing/Sales", "dept": "Management", "pic":"2.jpg", "email": "lwarm@example.com", "phone": "(234) 555-6789", "parent":1},
+{"key":3, "name":"Meg Meehan Hoffa", "title":"Sales", "dept": "Sales", "pic":"3.jpg", "email": "mhoffa@example.com", "phone": "(234) 555-6789", "parent":2},
+{"key":4, "name":"Peggy Flaming", "title":"VP Engineering", "dept": "Management", "pic":"4.jpg", "email": "pflaming@example.com", "phone": "(234) 555-6789", "parent":1},
+{"key":5, "name":"Saul Wellingood", "title":"Manufacturing", "dept": "Production", "pic":"5.jpg", "email": "swellingood@example.com", "phone": "(234) 555-6789", "parent":4},
+{"key":6, "name":"Al Ligori", "title":"Marketing", "dept": "Marketing", "pic":"6.jpg", "email": "aligori@example.com", "phone": "(234) 555-6789", "parent":2},
+{"key":7, "name":"Dot Stubadd", "title":"Sales Rep", "dept": "Sales", "pic":"7.jpg", "email": "dstubadd@example.com", "phone": "(234) 555-6789", "parent":3},
+{"key":8, "name":"Les Ismore", "title":"Project Mgr", "dept": "Production", "pic":"8.jpg", "email": "lismore@example.com", "phone": "(234) 555-6789", "parent":5},
+{"key":9, "name":"April Lynn Parris", "title":"Events Mgr", "dept": "Marketing", "pic":"9.jpg", "email": "aparris@example.com", "phone": "(234) 555-6789", "parent":6},
+{"key":10, "name":"Xavier Breath", "title":"Engineering", "dept": "Engineering", "pic":"10.jpg", "email": "xbreath@example.com", "phone": "(234) 555-6789", "parent":4},
+{"key":11, "name":"Anita Hammer", "title":"Process", "dept": "Production", "pic":"11.jpg", "email": "ahammer@example.com", "phone": "(234) 555-6789", "parent":5},
+{"key":12, "name":"Billy Aiken", "title":"Software", "dept": "Engineering", "pic":"12.jpg", "email": "baiken@example.com", "phone": "(234) 555-6789", "parent":10},
+{"key":13, "name":"Stan Wellback", "title":"Testing", "dept": "Engineering", "pic":"13.jpg", "email": "swellback@example.com", "phone": "(234) 555-6789", "parent":10},
+{"key":14, "name":"Marge Innovera", "title":"Hardware", "dept": "Engineering", "pic":"14.jpg", "email": "minnovera@example.com", "phone": "(234) 555-6789", "parent":10},
+{"key":15, "name":"Evan Elpus", "title":"Quality", "dept": "Production", "pic":"15.jpg", "email": "eelpus@example.com", "phone": "(234) 555-6789", "parent":5},
+{"key":16, "name":"Lotta B. Essen", "title":"Sales Rep", "dept": "Sales", "pic":"16.jpg", "email": "lessen@example.com", "phone": "(234) 555-6789", "parent":3}
+ ]
+}
+    </textarea>
+  </div>
+  <dialog>
+    <div style="display: flex; flex-direction: column">
+      <p></p>
+      <p>Click anywhere to close</p>
+    </div>
+  </dialog>
+  <p id="hidden">this forces the font to load in Chromium browsers</p>
+  <div id="description">
+<p>
+    This sample is a copy of the <a href="orgChartEditor.html">Org Chart Editor</a> sample,
+    but has better support for accessibility.  Diff the two files to see the enhancements.
+  </p>
+  <p>
+    First, this sample sets <a href="https://gojs.net/latest/api/symbols/CommandHandler.html#isfocusenabled" target="api">CommandHandler.isFocusEnabled</a> and <a href="https://gojs.net/latest/api/symbols/CommandHandler.html#isvirtualpointerenabled" target="api">CommandHandler.isVirtualPointerEnabled</a> to true
+    when the user tabs into the diagram,
+    so that the user does not have to type <code>Ctrl-Alt-Enter</code>, which they will probably not know about.
+  </p>
+  <p>
+    Second, this sample provides a custom <a href="https://gojs.net/latest/api/symbols/CommandHandler.html#focuschanged" target="api">CommandHandler.focusChanged</a> event handler that updates a div named "myLiveRegion".
+    As navigation focus changes within the diagram, the text of the live region is set to a description of the current
+    <a href="https://gojs.net/latest/api/symbols/CommandHandler.html#focus" target="api">CommandHandler.focus</a> GraphObject.
+    Furthermore, when a new employee node is added, it becomes the new focus.
+  </p>
+  <p>
+    Each diagram should be customized thoroughly for your particular application, where you know what your users want or need to know.
+    Note how in this sample it talks about employees instead of the more generic "Node"s and "Link"s in the
+    <a href="orgChartEditor.html">Org Chart Editor</a> sample.
+    Also, this sample makes sure there is a textual description of the "TreeExpanderButton" and the button to call AddEmployee.
+    In this case it just uses the same text that is used in a "ToolTip" for each button.
+  </p>
+  <p>
+    For another sample demonstrating screen-reader assistance, see <a href="IVRtree.html">IVR Tree</a> sample.
+    A more sophisticated accessibility customization could provide information for where the user could change focus to, and how to do so.
+  </p>
+  </div>
+  <script >
+function init() {
     myDiagram = new go.Diagram('myDiagramDiv', {
       allowCopy: false,
       allowDelete: false,
@@ -336,7 +292,8 @@
           new go.Placeholder(),
           new go.Panel(go.Panel.Auto)
             .add(
-              new go.Shape('RoundedRectangle', { strokeWidth: 0, shadowVisible: true }).theme('fill', 'background'),
+              new go.Shape('RoundedRectangle', { strokeWidth: 0, shadowVisible: true })
+                .theme('fill', 'background'),
               new go.TextBlock({ margin: 2 })
                 .bindObject('text', 'adornedObject', toolTipTextConverter)
                 .theme('stroke', 'text')
@@ -668,7 +625,7 @@
       myDiagram.commandHandler.scrollToPart(myDiagram.findNodeForKey(1));
     });
   } // end init
-  
+
   // Show the diagram's model in JSON format
   function save() {
     document.getElementById('mySavedModel').value = myDiagram.model.toJson();
@@ -713,151 +670,6 @@
   }
 
   window.addEventListener('keydown', enableKeyboard);
-</script>
-
-<div id="sample">
-  <div id="myDiagramDiv" style="border: solid 1px black; height: 625px"></div>
-  Theme:
-  <select id="theme" onchange="changeTheme()">
-    <option value="system">System</option>
-    <option value="light">Light</option>
-    <option value="dark" selected>Dark</option>
-  </select>
-  <output id="myLiveRegion"></output>
-  <div>
-    Edit details:<br />
-    <div id="myInspector"></div>
-  </div>
-  <p><button id="zoomToFit">Zoom to Fit</button> <button id="centerRoot">Center on root</button></p>
-  <p>
-    This sample is a copy of the <a href="./orgChartEditor.html">Org Chart Editor</a> sample,
-    but has better support for accessibility.  Diff the two files to see the enhancements.
-  </p>
-  <p>
-    First, this sample sets <a>CommandHandler.isFocusEnabled</a> and <a>CommandHandler.isVirtualPointerEnabled</a> to true
-    when the user tabs into the diagram,
-    so that the user does not have to type <code>Ctrl-Alt-Enter</code>, which they will probably not know about.
-  </p>
-  <p>
-    Second, this sample provides a custom <a>CommandHandler.focusChanged</a> event handler that updates a Div named "myLiveRegion".
-    As navigation focus changes within the diagram, the text of the live region is set to a description of the current
-    <a>CommandHandler.focus</a> GraphObject.
-    Furthermore, when a new employee node is added, it becomes the new focus.
-  </p>
-  <p>
-    Each diagram should be customized thoroughly for your particular application, where you know what your users want or need to know.
-    Note how in this sample it talks about employees instead of the more generic "Node"s and "Link"s in the
-    <a href="./orgChartEditor.html">Org Chart Editor</a> sample.
-    Also, this sample makes sure there is a textual description of the "TreeExpanderButton" and the button to call AddEmployee.
-    In this case it just uses the same text that is used in a "ToolTip" for each button.
-  </p>
-  <p>
-    For another sample demonstrating screen-reader assistance, see <a href="./IVRtree.html">IVR Tree</a> sample.
-    A more sophisticated accessibility customization could provide information for where the user could change focus to, and how to do so.
-  </p>
-  <div>
-    <div>
-      <button id="SaveButton" onclick="save()">Save</button>
-      <button onclick="load()">Load</button>
-      Diagram Model saved in JSON format:
-    </div>
-    <textarea id="mySavedModel" style="width: 100%; height: 270px">
-{ "class": "go.TreeModel",
-  "nodeDataArray": [
-{"key":1, "name":"Stella Payne Diaz", "title":"CEO", "dept": "Management", "pic":"1.jpg", "email": "sdiaz@example.com", "phone": "(234) 555-6789" },
-{"key":2, "name":"Luke Warm", "title":"VP Marketing/Sales", "dept": "Management", "pic":"2.jpg", "email": "lwarm@example.com", "phone": "(234) 555-6789", "parent":1},
-{"key":3, "name":"Meg Meehan Hoffa", "title":"Sales", "dept": "Sales", "pic":"3.jpg", "email": "mhoffa@example.com", "phone": "(234) 555-6789", "parent":2},
-{"key":4, "name":"Peggy Flaming", "title":"VP Engineering", "dept": "Management", "pic":"4.jpg", "email": "pflaming@example.com", "phone": "(234) 555-6789", "parent":1},
-{"key":5, "name":"Saul Wellingood", "title":"Manufacturing", "dept": "Production", "pic":"5.jpg", "email": "swellingood@example.com", "phone": "(234) 555-6789", "parent":4},
-{"key":6, "name":"Al Ligori", "title":"Marketing", "dept": "Marketing", "pic":"6.jpg", "email": "aligori@example.com", "phone": "(234) 555-6789", "parent":2},
-{"key":7, "name":"Dot Stubadd", "title":"Sales Rep", "dept": "Sales", "pic":"7.jpg", "email": "dstubadd@example.com", "phone": "(234) 555-6789", "parent":3},
-{"key":8, "name":"Les Ismore", "title":"Project Mgr", "dept": "Production", "pic":"8.jpg", "email": "lismore@example.com", "phone": "(234) 555-6789", "parent":5},
-{"key":9, "name":"April Lynn Parris", "title":"Events Mgr", "dept": "Marketing", "pic":"9.jpg", "email": "aparris@example.com", "phone": "(234) 555-6789", "parent":6},
-{"key":10, "name":"Xavier Breath", "title":"Engineering", "dept": "Engineering", "pic":"10.jpg", "email": "xbreath@example.com", "phone": "(234) 555-6789", "parent":4},
-{"key":11, "name":"Anita Hammer", "title":"Process", "dept": "Production", "pic":"11.jpg", "email": "ahammer@example.com", "phone": "(234) 555-6789", "parent":5},
-{"key":12, "name":"Billy Aiken", "title":"Software", "dept": "Engineering", "pic":"12.jpg", "email": "baiken@example.com", "phone": "(234) 555-6789", "parent":10},
-{"key":13, "name":"Stan Wellback", "title":"Testing", "dept": "Engineering", "pic":"13.jpg", "email": "swellback@example.com", "phone": "(234) 555-6789", "parent":10},
-{"key":14, "name":"Marge Innovera", "title":"Hardware", "dept": "Engineering", "pic":"14.jpg", "email": "minnovera@example.com", "phone": "(234) 555-6789", "parent":10},
-{"key":15, "name":"Evan Elpus", "title":"Quality", "dept": "Production", "pic":"15.jpg", "email": "eelpus@example.com", "phone": "(234) 555-6789", "parent":5},
-{"key":16, "name":"Lotta B. Essen", "title":"Sales Rep", "dept": "Sales", "pic":"16.jpg", "email": "lessen@example.com", "phone": "(234) 555-6789", "parent":3}
- ]
-}
-    </textarea>
-  </div>
-  <dialog>
-    <div style="display: flex; flex-direction: column">
-      <p></p>
-      <p>Click anywhere to close</p>
-    </div>
-  </dialog>
-  <p id="hidden">this forces the font to load in Chromium browsers</p>
-</div>
-
-          
-        </div>
-        <!-- * * * * * * * * * * * * * -->
-        <!--  End of GoJS sample code  -->
-      </div>
-
-      <div id="allTagDescriptions" class="p-4 w-full max-w-screen-xl mx-auto">
-        <hr/>
-        <h3 class="text-xl">GoJS Features in this sample</h3>
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Commands</h4>
-<p>
-A <a href="../api/symbols/CommandHandler.html" target="api">CommandHandler</a> handles all default keyboard input events in a Diagram.
-There are many predefined methods on <a>CommandHandler</a> that implement common commands to operate on the Diagram or the current <a>Diagram.selection></a>.
-</p>
-<p>
-You can override <a>CommandHandler.doKeyDown</a> to handle additional keyboard shortcuts or to change which commands are invoked via the keyboard.
-<p>
-Your code can invoke a command by calling the appropriate method on the <a>Diagram.commandHandler</a>.
-Each command method has a corresponding <b>can...</b> predicate that your code can use to enable or disable any buttons that invoke the command.
-Your code can customize the behavior of a command by overriding the method on <a>CommandHandler</a>,
-or by setting properties on the <a>CommandHandler</a> or <a>Diagram</a> or <a>Part</a>s --
-see <a href="../intro/permissions.html">GoJS Permissions</a>.
-</p>
-<p>
-There are several CommandHandler extensions that provide additional functionality.
-<p>
-More information can be found in the <a href="../intro/commands.html">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#commands">Related samples</a>
-            </p>
-            <hr>
-          
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>GoJS Extensions</h4>
-<p>
-  <b>GoJS</b> can be extended in a variety of ways.
-  The most common way to change the standard behavior is to set properties on the <a href="../api/symbols/GraphObject.html" target="api">GraphObject</a>, <a href="../api/symbols/Diagram.html" target="api">Diagram</a>, <a href="../api/symbols/CommandHandler.html" target="api">CommandHandler</a>, <a href="../api/symbols/Tool.html" target="api">Tool</a>, or <a href="../api/symbols/Layout.html" target="api">Layout</a>.
-  But when the desired property does not exist, you might need to override methods of CommandHandler, Tool, Layout, Link, or Node.
-  Methods that you can override are documented in the API reference.
-  Various features of GoJS can be overriden, either by replacing a method on an instance (a feature of JavaScript) or by defining a subclass.
-  You should not modify the prototypes of any of the <b>GoJS</b> classes.
-</p>
-<p>
-  In addition to our samples, <b>GoJS</b> provides an <strong><a href="../samples/#extensions">extensions gallery</a></strong>,
-  showcasing the creation of custom tools and layouts.
-  Those classes and samples are written in TypeScript, available at <code>../extensionsJSM/</code>,
-  as ECMAScript/JavaScript modules -- these use the <code>../release/go-module.js</code> library.
-  We recommend that you copy the files that you need into your project, so that you can adjust how they refer to the GoJS library
-  that you choose and so that you can include them into your own building and packaging procedures.
-</p>
-<p>
-More information can be found in the <a href="../intro/extensions.html">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#extensions">Related samples</a>
-            </p>
-            <hr>
-          
-        </div>
-    </div>
-  </body>
-  <!--  This script is part of the gojs.net website, and is not needed to run the sample -->
-  
+  </script>
+</body>
 </html>

@@ -91,7 +91,7 @@ export class DoubleTreeLayout extends Layout {
   // ============ Methods ============
 
   copy(): DoubleTreeLayout {
-    const copy = new DoubleTreeLayout();
+    const copy = new (this.constructor as new () => any)();
     this.cloneProtected(copy);
     copy._vertical = this._vertical;
     copy._directionFunction = this._directionFunction;

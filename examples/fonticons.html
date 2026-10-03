@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Font Icons from Various Fonts for Drawing Icons using TextBlocks</title>
+  <script src="../dist/open-gojs.umd.js"></script>
+  
+  
+  
+  
+</head>
+<body>
+Currently viewing icons from font:
+  <select id="fontSelector" onchange="changeFont()"></select>
+  <div style="display: flex; flex-direction: row; flex-wrap: wrap;">
+    <div style="margin-right: 0.5rem; flex: none;">
+      <!-- The DIV for the Diagram needs an explicit size or else we won't see anything.
+           This also adds a border to help see the edges of the viewport. -->
+      <div
+        id="myDiagramDiv"
+        style="width: 575px; height: 575px; margin-bottom: 0.5rem; border: solid 1px black;"></div>
+      <div id="propmenu" style="margin-bottom: 2.5rem; width: fit-content; border-radius: calc(var(--radius) - 2px); border: solid 1px black;">
+        <!-- Properties card -->
+        <table style="margin-right: 0.5rem;">
+          <tr>
+            <td style="min-width: 102px;">
+              <p
+                id="char"
+                style="margin: 0; border-collapse: collapse; border-radius: calc(var(--radius) - 2px); text-align: center;"></p>
+            </td>
+            <td style="max-width: 400px; padding-left: 0.5rem;">
+              <h5 id="unicode"></h5>
+              <a id="fontpage">Official Font Page</a><br />
+              <a id="alturl">Font Stylesheet URL</a><br />
+              <a id="url">Font URL</a><br />
+            </td>
+          </tr>
+        </table>
+      </div>
+    </div>
+    <div style="min-width: 600px; flex: 1;">
+      <pre><code id="codeBox1" class="lang-js"></code></pre>
+      <p>
+        This is a simple example <a>Diagram.nodeTemplate</a> with the necessary <a>Binding</a>s for
+        font, text, and color. We also set <a>Textblock.spacingBelow</a> so that there is an equal
+        margin above and below the text.
+      </p>
+
+      <pre><code id="codeBox2" class="lang-js"></code></pre>
+      <p>
+        Here we set the <a>Diagram.model</a> inside a function <code>init()</code>, this way it can
+        be called later once the font has been loaded. You may want to create your
+        <a>Diagram</a> and <a>Diagram.nodeTemplate</a> inside this <code>init()</code>
+        function too.
+      </p>
+    </div>
+  </div>
+  <pre><code id="codeBox3" class="lang-js"></code></pre>
+  <p>
+    This creates the font, then after it has loaded, adds it to the document fonts before
+    calling <code>init()</code>.
+  </p>
+
+  <pre>
+    <code id="codeBox4a" class="lang-html"></code><br>
+    <code class="lang-html">&lt;script&gt;</code><br>
+    <code id="codeBox4b" class="lang-js"></code><br>
+    <code class="lang-html">&lt;\script&gt;</code>
+  </pre>
+  <p>
+    Using FontFace comes with limitations in font formats. Another option is to make sure all
+    fonts are loaded before
+    <code>init()</code> is called. Normally fonts aren't loaded until they are used which causes
+    them to not be in the <a>Diagram</a> on the first render.
+  </p>
+  <div id="description">
+<p>
+    This <a href="https://gojs.net/latest/api/symbols/Diagram.html" target="api">Diagram</a> uses custom icon fonts in <a href="https://gojs.net/latest/api/symbols/TextBlock.html" target="api">TextBlock</a>s to display symbols.
+    Alternatively this could be done using SVG <a href="https://gojs.net/latest/api/symbols/Shape.html" target="api">Shape</a>s, which can be seen in the
+    <a href="icons.html">Icons sample</a>.
+  </p>
+  <p>
+    There are a few example fonts in this page -- to switch between them use the dropdown above
+    the <a href="https://gojs.net/latest/api/symbols/Diagram.html" target="api">Diagram</a>.
+    To see all of the icons available in the <i>Google Material</i> font, visit
+    <a href="https://fonts.google.com/icons">fonts.google.com/icons</a>.
+    For <i>Font Awesome</i>, visit
+    <a href="https://fontawesome.com/search">fontawesome.com/search</a>.
+    For <i>Phosphor Icons</i>, visit <a href="https://phosphoricons.com/">phosphoricons.com</a>.
+  </p>
+  <p>
+    When clicking on these <a href="https://gojs.net/latest/api/symbols/Node.html" target="api">Node</a>s some sample code will be generated
+    showing how these fonts can be used in your own <a href="https://gojs.net/latest/api/symbols/Diagram.html" target="api">Diagram</a>.
+  </p>
+  </div>
+  <script >
+// this is used to generate the example code
+  const TEMPLATE = `
+myDiagram.nodeTemplate =
+  new go.Node('Auto')
+    .add(
+      new go.Shape('RoundedRectangle', { strokeWidth: 0, fill: 'white' })
+        .bind('fill', 'color'),
+      new go.TextBlock({ margin: 8, stroke: '#333', spacingBelow: {SPACING} })
+        .bind('text')
+        .bind('font')
+    );
+
+function init() {
+  // construct the Diagram first; then assign the model:
+  myDiagram.model = new go.GraphLinksModel(
+    [
+      { font: "14pt {FONTNAME}", text: '{CHAR}', color: '{COLOR}' },
+    ]
+  );
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  new FontFace("{FONTNAME}", "url({FONTURL})").load().then(
+    font => {
+      document.fonts.add(font);
+      init();
+    },
+    err => {
+      console.error(err);
+    }
+  );
+});
+
+<link rel="stylesheet" href="{ALTLINK}" />
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.fonts.forEach(f => f.load());
+  document.fonts.ready.then(() => {
+    init();
+  });
+});
+`;
+
+  // list of example fonts
+  const Fonts = [
+    {
+      name: 'Material Symbols Outlined',
+      color: '#D6DBDF',
+      spaceingBelow: -8,
+      samples: ['e84d', 100],
+      skip: ['e88f'],
+      officialurl: 'https://fonts.google.com/icons',
+      url: 'https://fonts.gstatic.com/s/materialsymbolsoutlined/v183/kJEhBvYX7BgnkSrUwT8OhrdQw4oELdPIeeII9v6oFsI.woff2',
+      alturl: 'https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0'
+    },
+    {
+      name: 'FontAwesome',
+      color: '#D6EAF8',
+      spaceingBelow: -4,
+      samples: ['f007', 100],
+      skip: ['f00f', 'f01f', 'f020', 'f03f', 'f04f', 'f05f', 'f06f'],
+      officialurl: 'https://fontawesome.com/search',
+      url: 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/webfonts/fa-solid-900.woff2',
+      alturl: 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css'
+    },
+    {
+      name: 'Phosphor',
+      color: 'linen',
+      spaceingBelow: -4,
+      samples: ['eb9a', 100],
+      skip: ['eb9f'],
+      officialurl: 'https://phosphoricons.com/',
+      url: 'https://cdn.jsdelivr.net/npm/phosphor-icons@1.4.2/src/fonts/Phosphor.woff2',
+      alturl: 'https://cdn.jsdelivr.net/npm/phosphor-icons@1.4.2/src/css/icons.min.css'
+    }
+  ];
+
+  // re-generate the Nodes when the font is changed
+  function changeFont() {
+    let ani_old_value = myDiagram.animationManager.isEnabled;
+    myDiagram.animationManager.isEnabled = false;
+
+    let f = Fonts[document.getElementById('fontSelector').value];
+
+    myDiagram.model.commit(m => {
+      m.set(m.modelData, 'color', f.color);
+    });
+    myDiagram.setDivBackground(f.color);
+
+    linkArr = [];
+
+    let stop_char = parseInt(f.samples[0], 16) + f.samples[1];
+    for (let i = parseInt(f.samples[0], 16); i < stop_char; i++) {
+      let char = String.fromCharCode(i);
+      let codePoint = char.charCodeAt(0);
+      let hexString = codePoint.toString(16);
+      while (hexString.length < 4) {
+        hexString = '0' + hexString;
+      }
+      let ucode = '\\u' + hexString;
+
+      // some characters are not included in the free versions of the used fonts
+      // so they must be skipped
+      if (f.skip.includes(hexString)) {
+        stop_char += 1;
+        continue;
+      }
+
+      linkArr.push({
+        font: `14pt ${f.name}`,
+        text: char,
+        fill: f.color,
+        spacing: f.spaceingBelow,
+        unicode: ucode,
+        fonturl: f.url,
+        fonturl2: f.alturl,
+        officialurl: f.officialurl
+      });
+    }
+
+    myDiagram.model.nodeDataArray = linkArr;
+
+    // select the first node in the diagram
+    updateSelection({ subject: { part: myDiagram.nodes.first() } });
+    myDiagram.select(myDiagram.nodes.first());
+
+    myDiagram.animationManager.isEnabled = ani_old_value;
+  }
+
+  // generate the example code for the selected Node
+  function updateSelection(e) {
+    let part = e.subject.part;
+
+    // find the parent node
+    while ((part.panel || part.part) != part) {
+      part = part.panel || part.part;
+    }
+
+    let data = part.data;
+
+    // get data on selected node
+    let fontname = data.font.split(' ').slice(1).join(' ');
+    let f = Fonts.filter(f => f.name == fontname)[0];
+    let fonturl = data.fonturl;
+    let alturl = f.alturl;
+    let color = f.color;
+    let char = data.unicode;
+
+    // update properties menu
+    let prop_div = document.getElementById('propmenu');
+    prop_div.style.backgroundColor = new go.Brush(color).lightenBy(0.1).color;
+
+    let ele_char = document.getElementById('char');
+    ele_char.style.fontFamily = fontname;
+    ele_char.style.fontSize = '50pt';
+    ele_char.innerText = data.text;
+    ele_char.style.backgroundColor = color;
+
+    document.getElementById('unicode').innerText = char;
+    document.getElementById('url').href = fonturl;
+    document.getElementById('alturl').href = alturl;
+    document.getElementById('fontpage').href = data.officialurl;
+
+    // fill out the template code with information from the selected node
+    templates = TEMPLATE.replaceAll('{FONTNAME}', fontname)
+      .replaceAll('{CHAR}', char)
+      .replaceAll('{FONTURL}', fonturl)
+      .replaceAll('{COLOR}', color)
+      .replaceAll('{ALTLINK}', alturl)
+      .replaceAll('{SPACING}', f.spaceingBelow)
+      .split('\n\n');
+
+    document.getElementById('codeBox1').textContent = templates[0];
+    document.getElementById('codeBox2').textContent = templates[1];
+    document.getElementById('codeBox3').textContent = templates[2];
+    document.getElementById('codeBox4a').textContent = templates[3];
+    document.getElementById('codeBox4b').textContent = templates[4];
+    const box4b = document.getElementById('codeBox4b');
+    if (window.Prism) {
+      // Give the code syntax highlighting
+      window.Prism.highlightAll();
+    }
+  }
+
+  function init() {
+    myDiagram = new go.Diagram('myDiagramDiv', {
+      'animationManager.isEnabled': true,
+      'animationManager.initialAnimationStyle': go.AnimationStyle.None,
+      'dragSelectingTool.isEnabled': false,
+      'undoManager.isEnabled': false,
+      'panningTool.isEnabled': false,
+      'toolManager.mouseWheelBehavior': 'none',
+      isReadOnly: true,
+      allowZoom: false,
+
+      // pack the Nodes together
+      layout: new go.GridLayout({ spacing: new go.Size(0, 0) })
+    });
+
+    myDiagram.nodeTemplate =
+      new go.Node('Auto', {
+          selectionAdorned: false,
+          mouseEnter: (e, obj) => {
+            // lighten the Node on hover
+            if (obj.part.isSelected) return;
+            let br = new go.Brush(myDiagram.model.modelData.color);
+            br.lightenBy(0.1);
+            obj.part.elt(0).fill = br.color;
+          },
+          mouseLeave: (e, obj) => {
+            if (obj.part.isSelected) return;
+            obj.part.elt(0).fill = myDiagram.model.modelData.color;
+          }
+        })
+        .add(
+          new go.Shape('RoundedRectangle', {
+              strokeWidth: 0,
+              width: 56,
+              height: 56
+            })
+            .trigger(  // animate the color change
+              new go.AnimationTrigger('fill', { duration: 200 })
+            )
+            .bindObject('fill', 'isSelected', (isSelected, obj) => {
+              return !isSelected ? myDiagram.model.modelData.color : 'white';
+            }),
+          new go.TextBlock({ margin: 8, font: 'bold 14px sans-serif', stroke: '#333' })
+            .bind('text')
+            .bind('font')
+            .bind('spacingBelow', 'spacing')
+        );
+
+    // add all font options to drop down
+    let fontSelector = document.getElementById('fontSelector');
+    Fonts.forEach((f, i) => {
+      let opt = document.createElement('option');
+      opt.innerText = f.name;
+      opt.value = i;
+      if (i == 0) fontSelector.value = opt.value;
+      fontSelector.appendChild(opt);
+    });
+
+    changeFont();
+    myDiagram.addDiagramListener('ObjectSingleClicked', updateSelection);
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    let n_loaded = 0;
+
+    Fonts.forEach(f => {
+      // load each fonts
+      new FontFace(f.name, `url(${f.url})`).load().then(
+        font => {
+          document.fonts.add(font);
+
+          // call init once all fonts have been loaded
+          if (++n_loaded == Fonts.length) {
+            init();
+          }
+        },
+        err => {
+          console.error(f.name + '\n' + err);
+        }
+      );
+    });
+  });
+  </script>
+</body>
+</html>

@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Saving and Loading Models in local files</title>
+  <script src="../dist/open-gojs.umd.js"></script>
+  
+  <script src="https://cdn.jsdelivr.net/npm/gojs-extensions@latest/extensions/DrawCommandHandler.js"></script>
+  
+  
+</head>
+<body>
+<div style="display: flex;">
+    <span style="display: inline-block; vertical-align: to; flex: 1 1 auto">
+      <div id="myDiagramDiv" style="border: solid 1px black; width: 100%; height: 300px; background: whitesmoke;"></div>
+    </span>
+    <span style="display: inline-block; vertical-align: top; flex: 1 1 auto">
+      <div id="myDiagramDiv2" style="border: solid 1px black; width: 100%; height: 300px; background: whitesmoke;"></div>
+    </span>
+    <div>
+      <p>
+        <button style="margin: 4px;" id="myFileSaveButton" title="Save a file to the Downloads folder">Save left Diagram model file to Downloads folder as .gojs file</button>
+      </p>
+      <p>
+        <div>
+          <input type="file" id="myFileInput" multiple style="display:none"></input> <!-- this stays hidden -->
+          <button id="myFileOpenButton" style="margin: 4px;" title="Load a saved file for first diagram">Load a saved file to left Diagram</button>
+          <input type="file" id="myFileInput2" multiple style="display:none"></input> <!-- this stays hidden -->
+          <button id="myFileOpenButton2" style="margin: 4px;" title="Load a saved file for second diagram">Load a saved file to right Diagram</button>
+          <br>
+          Or drag-and-drop from your Downloads folder directly into the desired Diagram.
+        </div>
+      </p>
+    </div>
+  </div>
+  <div id="description">
+<p>
+    This example uses the <a href="https://gojs.net/latest/api/symbols/DrawCommandHandler.html" target="api">DrawCommandHandler</a> extension to save and load Diagram <a href="https://gojs.net/latest/api/symbols/Model.html" target="api">Model</a>s on your local machine.
+    Make some changes to either or both diagrams, click the "Save..." button, maybe make more changes,
+    and then click either of the "Load..." buttons or just drag-and-drop the saved <code>.gojs</code> file
+    directly into the Diagram.
+  </p>
+  </div>
+  <script >
+function init() {
+
+    myDiagram = new go.Diagram('myDiagramDiv', {
+      commandHandler: new DrawCommandHandler({
+        // options for saving:
+        // The default saved file name comes from the Model.name; if there is no name it uses 'gojs'
+        // localFileType: 'gojs'  // the default saved file type
+
+        // support for loading:
+        localFileInput: document.getElementById('myFileInput'),
+        localFileDropElement: document.getElementById('myDiagramDiv')
+      }),
+      'undoManager.isEnabled': true
+    });
+
+    // a second diagram, for demonstrating copy-and-paste
+    myDiagram2 = new go.Diagram('myDiagramDiv2', {
+      commandHandler: new DrawCommandHandler({
+        // support for loading:
+        localFileInput: document.getElementById('myFileInput2'),
+        localFileDropElement: document.getElementById('myDiagramDiv2')
+      }),
+      'undoManager.isEnabled': true
+    });
+
+    // define a simple Node template
+    myDiagram.nodeTemplate =
+      new go.Node('Auto') // the Shape will go around the TextBlock
+        .bindTwoWay('location', 'loc', go.Point.parse, go.Point.stringify)
+        .add(
+          new go.Shape('RoundedRectangle', { strokeWidth: 0 })
+            // Shape.fill is bound to Node.data.color
+            .bind('fill', 'color'),
+          new go.TextBlock({ margin: 8, editable: true }) // some room around the text
+            // TextBlock.text is bound to Node.data.text
+            .bindTwoWay('text')
+        );
+
+    // share the templates
+    myDiagram2.nodeTemplate = myDiagram.nodeTemplate;
+
+    // create the model data that will be represented by Nodes and Links
+    myDiagram.model = new go.GraphLinksModel({
+        name: 'example',
+        nodeDataArray: [
+          { key: 1, text: 'Alpha', color: 'lightblue' },
+          { key: 2, text: 'Beta', color: 'orange' },
+          { key: 3, text: 'Gamma', color: 'lightgreen' },
+          { key: 4, text: 'Delta', color: 'pink' }
+        ],
+        linkDataArray: [
+          { from: 1, to: 2 },
+          { from: 1, to: 3 },
+          { from: 2, to: 2 },
+          { from: 3, to: 4 },
+          { from: 4, to: 1 }
+        ]
+      });
+
+    myDiagram2.model = new go.GraphLinksModel({
+        name: 'simple',
+        nodeDataArray: [
+          { key: 1, text: 'Alpha', color: 'lightblue' },
+          { key: 2, text: 'Beta', color: 'orange' }
+        ],
+        linkDataArray: [
+          { from: 1, to: 2 },
+        ]
+      });
+
+    // support for saving and loading files to and from the local machine
+    document.getElementById('myFileSaveButton').addEventListener('click', () => myDiagram.commandHandler.saveLocalFile());
+    document.getElementById('myFileOpenButton').addEventListener('click', () => document.getElementById('myFileInput').click());
+    document.getElementById('myFileOpenButton2').addEventListener('click', () => document.getElementById('myFileInput2').click());
+  }
+
+  window.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>

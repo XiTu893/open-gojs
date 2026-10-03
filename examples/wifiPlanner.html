@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Wi-Fi Coverage Planner with a Signal Heat Map</title>
+  
+  <script type="importmap">
+  {
+    "imports": {
+      "gojs": "../dist/open-gojs.esm.js",
+      "../release/go.mjs": "../dist/open-gojs.esm.js",
+      "../extensionsJSM/": "https://cdn.jsdelivr.net/npm/gojs-extensions@latest/extensionsJSM/"
+    }
+  }
+</script>
+  
+  
+  
+</head>
+<body>
+<div
+    id="myDiagramDiv"
+    style="height: 604px; border: solid 1px black; background: white"
+  ></div>
+  <div id="description">
+<p>
+    This sample simulates planning Wi-Fi coverage for an office, demonstrating the
+    <a href="https://gojs.net/latest/extensions/HeatMap.js">HeatMap extension</a>. Right-click the floor
+    plan to install an access point or repeater at that spot, using buttons in the
+    <a href="https://gojs.net/latest/api/symbols/Diagram.html#contextmenu" target="api">Diagram.contextMenu</a> that add a node at <a href="https://gojs.net/latest/api/symbols/ContextMenuTool.html#mousedownpoint" target="api">ContextMenuTool.mouseDownPoint</a>.
+    The heat map draws each unit's signal strength as a circular gradient on the heat map.
+  </p>
+  <p>
+    Because wireless coverage is circular, the heat map's <code>metric</code> is set to
+    <code>HeatMapMetric.Euclidean</code>, with a <code>chamferSize</code> of 5 to keep
+    large areas round. Its <code>spreadUnits</code> is set to
+    <code>HeatMapSpreadUnits.Document</code> so that the coverage areas stay fixed to
+    the floor plan at every zoom level. The <code>getTemperature</code> function returns
+    each unit's transmit power, which determines how far into the color gradient its
+    signal starts and therefore how far it reaches.
+  </p>
+  <p>
+    Selecting a unit shows its <a href="https://gojs.net/latest/api/symbols/Part.html#selectionadornmenttemplate" target="api">Part.selectionAdornmentTemplate</a>, holding the model
+    name, the current power, and a slider for adjusting it. The slider handle sets
+    <a href="https://gojs.net/latest/api/symbols/GraphObject.html#isactionable" target="api">GraphObject.isActionable</a> so that the <a href="https://gojs.net/latest/api/symbols/ActionTool.html" target="api">ActionTool</a> calls its
+    <a href="https://gojs.net/latest/api/symbols/GraphObject.html#actionmove" target="api">GraphObject.actionMove</a> handler, which commits the new power to the model.
+    Each committed transaction re-renders the heat map, so the coverage follows the
+    slider.
+  </p>
+  <p>
+    Repeaters are not wired to the network, so one only operates when it is within the
+    coverage of a wired access point or of another operating repeater. After every
+    change the sample recomputes which repeaters have signal.
+  </p>
+  <p>
+    See <a href="https://gojs.net/latest/extensions/HeatMap.js">HeatMap.js</a> for the TypeScript source of
+    the extension.
+  </p>
+  </div>
+  <script type="module">
+import go from 'gojs';
+  import { HeatMap, HeatMapMetric, HeatMapSpreadUnits } from '../extensionsJSM/HeatMap.js';
+
+  
+  const REACH = 260; // coverage radius in document units of an access point
+  const STEPS = REACH + 1;
+  const LEN1 = REACH;
+  const UNITS_PER_M = 20; 
+
+  // interpolate color stops
+  function makeGradient(stops) {
+    const colors = [];
+    for (let i = 0; i < STEPS; i++) {
+      const t = i / LEN1;
+      const seg = Math.min(stops.length - 2, Math.floor(t * (stops.length - 1)));
+      const f = t * (stops.length - 1) - seg;
+      const a = stops[seg];
+      const b = stops[seg + 1];
+      colors.push([0, 1, 2, 3].map((k) => Math.round(a[k] + (b[k] - a[k]) * f)));
+    }
+    return colors;
+  }
+  const SIGNAL_COLORS = makeGradient([
+    [20, 140, 105, 185],
+    [30, 150, 95, 170],
+    [45, 160, 82, 155],
+    [70, 172, 68, 140],
+    [130, 190, 60, 125],
+    [225, 205, 55, 105],
+    [235, 170, 58, 85],
+    [232, 120, 60, 55],
+    [230, 95, 60, 8]
+  ]);
+
+  const MODELS = {
+    ap: { model: 'Access Point', power: 0.8, cost: 149, color: '#4f8fd0' },
+    repeater: { model: 'Repeater', power: 0.5, cost: 59,  color: '#e0a63b', repeater: true }
+  };
+
+  function apReach(power) {
+    return Math.round(LEN1 * power);
+  }
+
+  function makeAP(key, x, y, power) {
+    const m = MODELS[key];
+    // the repeater flag is always present so template bindings can use it
+    const data = { category: 'ap', model: m.model, power: m.power, cost: m.cost, color: m.color, repeater: !!m.repeater };
+    if (power !== undefined) data.power = power;
+    // assume an uplink until the coverage pass says otherwise
+    if (m.repeater) data.active = true;
+    if (x !== undefined) data.loc = x + ' ' + y;
+    return data;
+  }
+
+  const myDiagram = new go.Diagram('myDiagramDiv', {
+    initialAutoScale: go.AutoScale.Uniform,
+    padding: 24,
+    // repaint the signal map while dragging so coverage previews live
+    'draggingTool.doMouseMove': function () {
+      go.DraggingTool.prototype.doMouseMove.call(this);
+      if (myHeatMap.heatMapPart.visible) {
+        updateStats();
+        myHeatMap.updateHeatMap();
+      }
+    },
+    'animationManager.isEnabled': false,
+    'undoManager.isEnabled': true,
+    ModelChanged: (e) => {
+      if (e.isTransactionFinished) updateStats();
+    }
+  });
+
+  // the heatmap draws in the "ViewportForeground" layer, above the normal layers
+  // give the access points a layer of their own just above it
+
+  // AboveSignal (access point/repeater nodes)
+  // ViewportForeground (heatmap)
+  // Default Layer (floorplan)
+  // ViewportBackground
+  myDiagram.addLayerAfter(
+    new go.Layer({ name: 'AboveSignal' }),
+    myDiagram.findLayer('ViewportForeground')
+  );
+
+  const WALL = '#333333';
+  const INK = '#7a7a7a';
+
+  function planPart() {
+    return new go.Node('Spot', {
+      locationSpot: go.Spot.TopLeft,
+      layerName: 'Background',
+      selectable: false, pickable: false, movable: false
+    }).bind('location', 'loc', go.Point.parse);
+  }
+
+  myDiagram.nodeTemplateMap.add('wall',
+    planPart().add(
+      new go.Shape('Rectangle', { fill: WALL, strokeWidth: 0 })
+        .bind('desiredSize', '', (d) => new go.Size(d.w, d.h))
+        .bind('fill')
+    )
+  );
+
+  myDiagram.nodeTemplateMap.add('door',
+    planPart().add(
+      new go.Shape({ geometryString: 'M-3 0 L38 0 A38 38 0 0 1 0 38 L-3 38', fill: null, stroke: WALL, strokeWidth: 1.5 })
+        .bind('angle')
+    )
+  );
+
+  myDiagram.nodeTemplateMap.add('label',
+    planPart().add(
+      new go.TextBlock({ font: '700 11px sans-serif', stroke: '#b8b2a4' }).bind('text', 'name')
+    )
+  );
+
+  const FURN = {
+    // conference table with three chairs on each side
+    meetTable:
+      'M0 18 h150 v60 h-150 z M16 0 h26 v14 h-26 z M62 0 h26 v14 h-26 z M108 0 h26 v14 h-26 z M16 82 h26 v14 h-26 z M62 82 h26 v14 h-26 z M108 82 h26 v14 h-26 z',
+    // lobby sofa: seat back and a cushion split
+    sofa:
+      'M0 8 q0 -8 8 -8 h104 q8 0 8 8 v30 q0 8 -8 8 h-104 q-8 0 -8 -8 z M4 12 h112 M60 12 v26',
+    // kitchen counter with a four-burner stove and a double sink
+    counter:
+      'M0 0 h240 v45 h-240 z M15 6 h64 v33 h-64 z M23 14 a6 6 0 1 0 12 0 a6 6 0 1 0 -12 0 M55 14 a6 6 0 1 0 12 0 a6 6 0 1 0 -12 0 M23 31 a6 6 0 1 0 12 0 a6 6 0 1 0 -12 0 M55 31 a6 6 0 1 0 12 0 a6 6 0 1 0 -12 0 M160 8 h56 v29 h-56 z M168 22 a8 8 0 1 0 16 0 a8 8 0 1 0 -16 0 M192 22 a8 8 0 1 0 16 0 a8 8 0 1 0 -16 0',
+    // server rack with shelf lines
+    rack:
+      'M0 0 h34 v90 h-34 z M4 12 h26 M4 24 h26 M4 36 h26 M4 48 h26 M4 60 h26 M4 72 h26',
+    // potted plant
+    plant:
+      'M0 14 a14 14 0 1 0 28 0 a14 14 0 1 0 -28 0 M14 2 v24 M4 6 l20 16 M24 6 l-20 16'
+  };
+  myDiagram.nodeTemplateMap.add('furn',
+    planPart().add(
+      new go.Shape({ fill: 'white', stroke: INK, strokeWidth: 1.5 })
+        .bind('geometryString', 'kind', (k) => FURN[k])
+        .bind('angle')
+    )
+  );
+
+  myDiagram.nodeTemplateMap.add('desk',
+    new go.Node('Spot', {
+      locationSpot: go.Spot.TopLeft,
+      selectionAdorned: true,
+      deletable: false,
+      toolTip: new go.Adornment('Auto').add(
+        new go.Shape('RoundedRectangle', { fill: 'white', stroke: '#b5b5b5' }),
+        new go.TextBlock({ margin: 6, font: '11px sans-serif', stroke: '#333' })
+          .bind('text', 'covered', (c) => c ? 'Wi-Fi coverage: good' : 'No Wi-Fi coverage')
+      )
+    })
+      .bindTwoWay('location', 'loc', go.Point.parse, go.Point.stringify)
+      .add(
+        new go.Shape('RoundedRectangle', {
+          parameter1: 3, desiredSize: new go.Size(46, 28),
+          fill: 'white', stroke: '#8a8a8a', strokeWidth: 1.5
+        }),
+        new go.Shape('Rectangle', { desiredSize: new go.Size(18, 11), fill: '#eceff1', stroke: '#8a8a8a', strokeWidth: 1 }),
+        new go.Shape('Circle', {
+          desiredSize: new go.Size(6, 6), strokeWidth: 0,
+          alignment: new go.Spot(1, 0, -6, 6)
+        }).bind('fill', 'covered', (c) => (c ? '#59a86e' : '#cf5b52'))
+      )
+  );
+
+  // access point / repeater
+  myDiagram.nodeTemplateMap.add('ap',
+    new go.Node('Spot', {
+      locationSpot: go.Spot.Center,
+      locationObjectName: 'ICON',
+      layerName: 'AboveSignal',
+      isShadowed: true,
+      shadowOffset: new go.Point(0, 1),
+      shadowBlur: 5,
+      shadowColor: 'rgba(0,0,0,0.22)',
+      toolTip: new go.Adornment('Auto').add(
+        new go.Shape('RoundedRectangle', { fill: 'white', stroke: '#b5b5b5' }),
+        new go.TextBlock({ margin: 6, font: '11px sans-serif', stroke: '#333' })
+          .bind('text', '', (d) =>
+            d.model + '\nIdeal coverage ≈ ' + (apReach(d.power) / UNITS_PER_M).toFixed(1) + ' m · $' + d.cost +
+            (d.repeater ? (d.active ? '\nWireless uplink: connected' : '\nWireless uplink: NONE — move into coverage') : ''))
+      )
+    })
+      .bindTwoWay('location', 'loc', go.Point.parse, go.Point.stringify)
+      .add(
+        new go.Panel('Spot', { name: 'ICON' })
+          .add(
+            // an invisible main element so both device kinds share the same footprint
+            new go.Shape('Circle', { desiredSize: new go.Size(34, 34), fill: 'transparent', strokeWidth: 0 }),
+            // the access point
+            new go.Shape('Circle', { desiredSize: new go.Size(34, 34), stroke: '#98a0a8', strokeWidth: 1.5 })
+              .bind('visible', 'repeater', (r) => !r)
+              .bind('fill', 'color', (c) => new go.Brush('Radial', {0: 'white', 0.199: 'white', 0.2: c, 0.399: c, 0.4: '#e9ecef', 0.74: '#dde1e5', 1: 'white'})),
+            // the repeater
+            new go.Panel('Vertical')
+              .bind('visible', 'repeater', (r) => !!r)
+              .add(
+                new go.Shape({ geometryString: 'M5 12 L0 0 M23 12 L28 0', fill: null, strokeWidth: 2, strokeCap: 'round' })
+                  .bind('stroke', '', (d) => (d.active ? '#98a0a8' : '#c9ccd1')),
+                new go.Panel('Spot').add(
+                  new go.Shape('RoundedRectangle', { parameter1: 4, desiredSize: new go.Size(30, 19), fill: 'white', stroke: '#98a0a8', strokeWidth: 1.5 })
+                    .bind('strokeDashArray', '', (d) => (d.active ? null : [4, 3])),
+                  new go.Shape('Rectangle', { desiredSize: new go.Size(10, 1.5), fill: '#dfe3e7', strokeWidth: 0, alignment: new go.Spot(0.36, 0.5) }),
+                  new go.Shape('Circle', { desiredSize: new go.Size(4.5, 4.5), strokeWidth: 0, alignment: new go.Spot(0.8, 0.5) })
+                    .bind('fill', '', (d) => (d.active ? d.color : '#d0453e'))
+                )
+              )
+      ))
+  );
+
+  const TRACK_W = 70;
+  const PWR_MIN = 0.3;
+  const PWR_MAX = 1.0;
+  const powerToSpot = (p) =>
+    new go.Spot((8 + ((p - PWR_MIN) / (PWR_MAX - PWR_MIN)) * TRACK_W) / (TRACK_W + 16), 0.5);
+
+  myDiagram.nodeTemplateMap.get('ap').selectionAdornmentTemplate =
+    new go.Adornment('Spot').add(
+      new go.Placeholder(),
+      new go.Panel('Auto', { alignment: new go.Spot(0.5, 1, 0, 8), alignmentFocus: go.Spot.Top }).add(
+        new go.Shape('RoundedRectangle', {
+          parameter1: 6, fill: 'rgba(255,255,255,0.96)', stroke: '#b5b5b5'
+        }),
+        new go.Panel('Vertical', { margin: new go.Margin(5, 8) }).add(
+          new go.TextBlock({ font: '600 10px sans-serif' })
+            .bind('text', '', (d) =>
+              d.model + ' — ' + Math.round(d.power * 100) + '%' +
+              (d.repeater && !d.active ? ' · no uplink' : ''))
+            .bind('stroke', '', (d) => (d.repeater && !d.active ? '#c0392b' : '#333')),
+          new go.Panel('Spot', { margin: new go.Margin(4, 0, 0, 0) }).add(
+            new go.Shape('Rectangle', {
+              desiredSize: new go.Size(TRACK_W + 16, 14), fill: 'transparent', strokeWidth: 0
+            }),
+            new go.Shape('RoundedRectangle', {
+              name: 'TRACK', desiredSize: new go.Size(TRACK_W, 4), parameter1: 2,
+              fill: '#c9ced6', strokeWidth: 0
+            }),
+            new go.Shape('Circle', {
+              desiredSize: new go.Size(12, 12), fill: 'white', stroke: '#555', strokeWidth: 1.5,
+              cursor: 'ew-resize', isActionable: true,
+              actionMove: (e, obj) => {
+                const node = obj.part.adornedPart;
+                const tb = obj.part.findObject('TRACK').getDocumentBounds();
+                let t = (e.diagram.lastInput.documentPoint.x - tb.left) / tb.width;
+                t = Math.max(0, Math.min(1, t));
+                const power = Math.round((PWR_MIN + t * (PWR_MAX - PWR_MIN)) * 20) / 20;
+                if (power !== node.data.power) {
+                  e.diagram.model.commit((m) => m.set(node.data, 'power', power), 'change power');
+                }
+              }
+            }).bind('alignment', 'power', powerToSpot)
+          )
+        )
+      )
+    );
+
+
+  const myHeatMap = new HeatMap(myDiagram, {
+    // radio coverage is radial so use the Euclidean metric
+    // larger chamfer keeps big halos looking round
+    metric: HeatMapMetric.Euclidean,
+    chamferSize: 5,
+    // spread in document units
+    spreadUnits: HeatMapSpreadUnits.Document,
+    colors: SIGNAL_COLORS,
+    getTemperature: (part) =>
+      (part.data &&
+        part.data.category === 'ap' &&
+        (!part.data.repeater || part.data.active) &&
+        part.data.power) || 0
+  });
+
+  // walls draw 6 units thick on the same centerlines the doorways and door
+  // hinges were laid out on, with every junction end flush to its meeting wall
+  const wall = (x, y, w, h) => ({ category: 'wall', loc: x + ' ' + y, w, h });
+  const plan = [
+    // the floor slab
+    { category: 'wall', loc: '0 0', w: 920, h: 600, fill: '#ffffff' },
+    // outer walls
+    wall(2, 2, 916, 6), wall(2, 592, 916, 6), wall(2, 2, 6, 596), wall(912, 2, 6, 596),
+    // lobby walls
+    wall(202, 2, 6, 83), wall(202, 123, 6, 25), wall(2, 142, 206, 6),
+    // meeting room walls
+    wall(602, 2, 6, 103), wall(602, 143, 6, 45), wall(602, 182, 316, 6),
+    wall(602, 188, 6, 52), wall(602, 278, 6, 60), wall(602, 332, 316, 6),
+    // server room walls
+    wall(2, 442, 90, 6), wall(130, 442, 58, 6), wall(182, 442, 6, 156),
+    // kitchen walls
+    wall(188, 442, 102, 6), wall(360, 442, 102, 6),
+    wall(462, 442, 6, 48), wall(462, 528, 6, 70),
+    // doors
+    { category: 'door', loc: '202 85', angle: 0 },
+    { category: 'door', loc: '602 105', angle: 0 },
+    { category: 'door', loc: '602 240', angle: 0 },
+    { category: 'door', loc: '92 442', angle: 90 },
+    { category: 'door', loc: '427 490', angle: 180 },
+    // room labels
+    { category: 'label', name: 'LOBBY', loc: '18 16' },
+    { category: 'label', name: 'MEETING A', loc: '624 22' },
+    { category: 'label', name: 'MEETING B', loc: '624 200' },
+    { category: 'label', name: 'SERVER ROOM', loc: '20 456' },
+    { category: 'label', name: 'KITCHEN', loc: '202 456' },
+    // furniture
+    { category: 'furn', kind: 'meetTable', loc: '680 45' },
+    { category: 'furn', kind: 'meetTable', loc: '680 210' },
+    { category: 'furn', kind: 'sofa', loc: '30 92' },
+    { category: 'furn', kind: 'plant', loc: '164 16' },
+    { category: 'furn', kind: 'rack', loc: '34 486' },
+    { category: 'furn', kind: 'rack', loc: '86 486' },
+    { category: 'furn', kind: 'counter', loc: '198 540' },
+    { category: 'furn', kind: 'plant', loc: '874 552' },
+    { category: 'furn', kind: 'plant', loc: '620 552' }
+  ];
+
+  // pods of four desks around the open plan, plus two hot desks in the lobby
+  const desks = [
+    { category: 'desk', covered: false, loc: '36 42' }, 
+    { category: 'desk', covered: false, loc: '104 42' }
+  ];
+  const pods = [
+    [250, 56], [402, 56], [250, 180], [402, 180], [250, 304], [402, 304],
+    [560, 478], [720, 478], [720, 384]
+  ];
+  for (const [px, py] of pods) {
+    for (let c = 0; c < 2; c++) {
+      for (let r = 0; r < 2; r++) {
+        desks.push({ category: 'desk', covered: false, loc: (px + c * 56) + ' ' + (py + r * 36) });
+      }
+    }
+  }
+
+  // starting deployment of access points / repeaters
+  const aps = [
+    makeAP('ap', 445, 150, 1.0),
+    makeAP('ap', 145, 565, 0.55),
+    makeAP('repeater', 700, 255, 0.85),
+    makeAP('repeater', 700, 90, 0.45),
+    makeAP('repeater', 180, 118, 0.6),
+    makeAP('repeater', 690, 515, 0.5)
+  ];
+
+  myDiagram.model = new go.GraphLinksModel({
+    nodeCategoryProperty: 'category',
+    nodeDataArray: plan.concat(desks, aps)
+  });
+
+
+  // right-clicking the floor plan offers to install a unit at that spot
+  function installAt(key) {
+    const point = myDiagram.toolManager.contextMenuTool.mouseDownPoint;
+    myDiagram.commit((d) => {
+      const data = makeAP(key, Math.round(point.x), Math.round(point.y));
+      d.model.addNodeData(data);
+      d.select(d.findNodeForData(data));
+    }, 'install ' + key);
+  }
+
+  function installButton(text, key) {
+    return go.GraphObject.build('ContextMenuButton', {
+      click: () => installAt(key)
+    }).add(new go.TextBlock(text, { margin: 4 }));
+  }
+
+  myDiagram.contextMenu = go.GraphObject.build('ContextMenu').add(
+    installButton('Install Access Point', 'ap'),
+    installButton('Install Repeater', 'repeater')
+  );
+
+  function gapDist(a, b) {
+    const dx = Math.max(0, b.left - a.right, a.left - b.right);
+    const dy = Math.max(0, b.top - a.bottom, a.top - b.bottom);
+    return Math.hypot(dx, dy) + 20;
+  }
+
+  let updatingStats = false;
+
+  function updateStats() {
+    if (updatingStats) return;
+    const deskNodes = [];
+    const wired = [];
+    const repeaters = [];
+    myDiagram.nodes.each((n) => {
+      if (!n.data) return;
+      if (n.data.category === 'desk') deskNodes.push(n);
+      else if (n.data.category === 'ap') {
+        (n.data.repeater ? repeaters : wired).push(n);
+      }
+    });
+    // access points always radiate ----- a repeater radiates only once its in range of wifi
+    const sources = wired.map((n) => ({
+      rect: n.findObject('ICON').getDocumentBounds(),
+      reach: apReach(n.data.power)
+    }));
+    const pending = repeaters.map((n) => ({
+      node: n,
+      rect: n.findObject('ICON').getDocumentBounds(),
+      active: false
+    }));
+    let rippled = true;
+    while (rippled) {
+      rippled = false;
+      for (const r of pending) {
+        if (r.active) continue;
+        if (sources.some((s) => gapDist(r.rect, s.rect) <= s.reach)) {
+          r.active = true;
+          sources.push({ rect: r.rect, reach: apReach(r.node.data.power) });
+          rippled = true;
+        }
+      }
+    }
+    const changes = [];
+    for (const r of pending) {
+      if (r.node.data.active !== r.active) changes.push([r.node.data, 'active', r.active]);
+    }
+    for (const n of deskNodes) {
+      const isCovered = sources.some((s) => gapDist(n.actualBounds, s.rect) <= s.reach);
+      if (n.data.covered !== isCovered) changes.push([n.data, 'covered', isCovered]);
+    }
+    if (changes.length > 0) {
+      updatingStats = true;
+      // status updates aren't user edits -> so skip the undo manager
+      myDiagram.model.commit((m) => changes.forEach(([d, p, v]) => m.set(d, p, v)), null);
+      updatingStats = false;
+    }
+  }
+
+  updateStats();
+  </script>
+</body>
+</html>

@@ -1,133 +1,55 @@
-﻿
 <!DOCTYPE html>
-<html lang="en">
-  <head>
-    
-    <meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover"/>
-
-<meta name="description" content="An IVR (Interactive Voice Response) diagram showing a call-menu tree with various prompts and responses." />
-<meta itemprop="description" content="An IVR (Interactive Voice Response) diagram showing a call-menu tree with various prompts and responses." />
-<meta property="og:description" content="An IVR (Interactive Voice Response) diagram showing a call-menu tree with various prompts and responses." />
-<meta name="twitter:description" content="An IVR (Interactive Voice Response) diagram showing a call-menu tree with various prompts and responses." />
-
-
-<link rel="preconnect" href="https://rsms.me/">
-
-<!-- Copyright 1998-2026 by Northwoods Software Corporation. -->
-
-
-<meta itemprop="name" content="Interactive Voice Response Tree Diagram with Collapsible List of Details" />
-<meta property="og:title" content="Interactive Voice Response Tree Diagram with Collapsible List of Details" />
-<meta name="twitter:title" content="Interactive Voice Response Tree Diagram with Collapsible List of Details" />
-
-
-<meta property="og:image" content="https://gojs.net/latest/assets/images/screenshots/ivrtree.png" />
-<meta itemprop="image" content="https://gojs.net/latest/assets/images/screenshots/ivrtree.png" />
-<meta name="twitter:image" content="https://gojs.net/latest/assets/images/screenshots/ivrtree.png" />
-
-<meta property="og:url" content="https://gojs.net/latest/samples/IVRtree.html" />
-<meta property="twitter:url" content="https://gojs.net/latest/samples/IVRtree.html" />
-
-<meta name="twitter:card" content="summary_large_image" />
-<meta property="og:type" content="website" />
-<meta property="twitter:domain" content="gojs.net" />
-
-    <title>
-      Interactive Voice Response Tree Diagram with Collapsible List of Details | GoJS Diagramming Library
-    </title>
-  </head>
-
-  <body>
-    <!-- This top nav is not part of the sample code -->
-    <nav id="navTop" class=" w-full h-[var(--topnav-h)] z-30 bg-white border-b border-b-gray-200">
-  <div class="max-w-screen-xl mx-auto flex flex-wrap items-start justify-between px-4">
-    <a class="text-white bg-nwoods-primary font-bold !leading-[calc(var(--topnav-h)_-_1px)] my-0 px-2 text-4xl lg:text-5xl logo"
-       href="../">
-      GoJS
-    </a>
-    <div class="relative">
-      <button id="topnavButton" class="h-[calc(var(--topnav-h)_-_1px)] px-2 m-0 text-gray-900 bg-inherit shadow-none md:hidden hover:!bg-inherit hover:!text-nwoods-accent hover:!shadow-none" aria-label="Navigation">
-        <svg class="h-7 w-7 block" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </button>
-      <div id="topnavList" class="hidden md:block">
-        <div class="absolute right-0 z-30 flex flex-col items-end rounded border border-gray-200 p-4 pl-12 shadow bg-white text-gray-900 font-semibold
-                    md:flex-row md:space-x-4 md:items-start md:border-0 md:p-0 md:shadow-none md:bg-inherit">
-          <a href="../learn/">Learn</a>
-          <a href="../samples/">Samples</a>
-          <a href="../intro/">Intro</a>
-          <a href="../api/">API</a>
-          <a href="../download.html">Download</a>
-          <a href="https://forum.nwoods.com/c/gojs/11" target="_blank" rel="noopener">Forum</a>
-          <a id="tc" href="https://nwoods.com/contact.html"
-            target="_blank" rel="noopener" onclick="getOutboundLink('https://nwoods.com/contact.html', 'contact');">Contact</a>
-          <a id="tb" href="https://nwoods.com/sales/index.html"
-            target="_blank" rel="noopener" onclick="getOutboundLink('https://nwoods.com/sales/index.html', 'buy');">Buy</a>
-        </div>
-      </div>
-    </div>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Interactive Voice Response Tree Diagram with Collapsible List of Details</title>
+  <script src="../dist/open-gojs.umd.js"></script>
+  
+  <script src="https://cdn.jsdelivr.net/npm/gojs-extensions@latest/extensions/Figures.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/gojs-extensions@latest/extensions/Themes.js"></script>
+  
+  
+</head>
+<body>
+<div id="myDiagramDiv" style="border: solid 1px black; width: 100%; height: 500px"></div>
+  Theme:
+  <select id="theme" onchange="changeTheme()">
+    <option value="system">System</option>
+    <option value="light">Light</option>
+    <option value="dark">Dark</option>
+  </select>
+  Screen Reader: <output id="screenreader"></output>
+  <div id="description">
+<p>
+    An <em>IVR tree</em>, or Interactive Voice Response Tree, is typically used by automated answering systems to direct calls to the correct party. This
+    particular example is for a car dealership to route calls.
+  </p>
+  <p>
+    This Interactive Voice Response Tree (IVR tree) has nodes that contain a collapsible list of actions, controlled by a <b>PanelExpanderButton</b>, with a
+    <b>TreeExpanderButton</b> underneath the body. See the <a href="https://gojs.net/latest/learn/buttons">learn page on buttons</a> for more GoJS button information.
+  </p>
+  <p>
+    Once <a href="https://gojs.net/latest/api/symbols/CommandHandler.html#isfocusenabled" target="api">CommandHandler.isFocusEnabled</a> has been set to true, the root node becomes the GoJS <a href="https://gojs.net/latest/api/symbols/CommandHandler.html#focus" target="api">CommandHandler.focus</a>,
+    as shown by a double-colored dashed box around the node.
+    This allows the user to use the arrow keys to change focus, <code>Space</code> to select the focused Part,
+    and <code>Enter</code> to go into Nodes and click buttons such as the "PanelExpanderButton" or "TreeExpanderButton".
+    Read more about <a href="https://gojs.net/latest/learn/interactivity#FocusKeyboardControlTools">Keyboard Control</a>.
+  </p>
+  <p>
+    Once <a href="https://gojs.net/latest/api/symbols/CommandHandler.html#isvirtualpointerenabled" target="api">CommandHandler.isVirtualPointerEnabled</a> has also been set to true, then when the user holds down the <code>Shift</code> key,
+    it shows a virtual pointer that allows the user to use <code>Shift-Enter</code> and <code>Shift-arrow</code> keys to drag nodes.
+    The user can always toggle "keyboard control mode" using the <code>Ctrl-Alt-Enter</code> keyboard command.
+  </p>
+  <p>
+    For another sample demonstrating screen-reader assistance, see <a href="Accessibility.html">Accessibility</a> sample.
+  </p>
+  <p>
+    The dark and light themes are controlled using the <a href="https://gojs.net/latest/api/symbols/ThemeManager.html" target="api">ThemeManager</a>.
+  </p>
   </div>
-</nav>
-<script>
-  window.addEventListener("DOMContentLoaded", function () {
-    // topnav
-    var topButton = document.getElementById("topnavButton");
-    var topnavList = document.getElementById("topnavList");
-    if (topButton && topnavList) {
-      topButton.addEventListener("click", function (e) {
-        topnavList
-          .classList
-          .toggle("hidden");
-        e.stopPropagation();
-      });
-      document.addEventListener("click", function (e) {
-        // if the clicked element isn't the list, close the list
-        if (!topnavList.classList.contains("hidden") && !e.target.closest("#topnavList")) {
-          topButton.click();
-        }
-      });
-
-      // set active <a> element
-      var url = window
-        .location
-        .href
-        .toLowerCase();
-      var aTags = topnavList.getElementsByTagName('a');
-      for (var i = 0; i < aTags.length; i++) {
-        var lowerhref = aTags[i]
-          .href
-          .toLowerCase();
-        if (lowerhref.endsWith('.html')) 
-          lowerhref = lowerhref.slice(0, -5);
-        if (url.startsWith(lowerhref)) {
-          aTags[i]
-            .classList
-            .add('active');
-          break;
-        }
-      }
-    }
-  });
-</script>
-    <div class="flex flex-col prose">
-      <div class="w-full max-w-screen-xl mx-auto">
-        <!-- * * * * * * * * * * * * * -->
-        <!-- Start of GoJS sample code -->
-        <script src="../dist/open-gojs.umd.js"></script>
-
-        
-
-        <div id="allSampleContent" class="p-4 w-full">
-          
-            
-            
-
-
-
-<script id="code">
-  function init() {
+  <script >
+function init() {
     myDiagram = new go.Diagram('myDiagramDiv', {
       allowCopy: false,
       'draggingTool.dragsTree': true,
@@ -427,138 +349,6 @@
   }
 
   window.addEventListener('keydown', enableKeyboard);
-</script>
-
-<div id="sample">
-  <div id="myDiagramDiv" style="border: solid 1px black; width: 100%; height: 500px"></div>
-  Theme:
-  <select id="theme" onchange="changeTheme()">
-    <option value="system">System</option>
-    <option value="light">Light</option>
-    <option value="dark">Dark</option>
-  </select>
-  Screen Reader: <output id="screenreader"></output>
-  <p>
-    An <em>IVR tree</em>, or Interactive Voice Response Tree, is typically used by automated answering systems to direct calls to the correct party. This
-    particular example is for a car dealership to route calls.
-  </p>
-  <p>
-    This Interactive Voice Response Tree (IVR tree) has nodes that contain a collapsible list of actions, controlled by a <b>PanelExpanderButton</b>, with a
-    <b>TreeExpanderButton</b> underneath the body. See the <a href="../intro/buttons.html">Intro page on Buttons</a> for more GoJS button information.
-  </p>
-  <p>
-    Once <a>CommandHandler.isFocusEnabled</a> has been set to true, the root node becomes the GoJS <a>CommandHandler.focus</a>,
-    as shown by a double-colored dashed box around the node.
-    This allows the user to use the arrow keys to change focus, <code>Space</code> to select the focused Part,
-    and <code>Enter</code> to go into Nodes and click buttons such as the "PanelExpanderButton" or "TreeExpanderButton".
-    Read more about <a href="../learn/interactivity.html#FocusKeyboardControlTools">Keyboard Control</a>.
-  </p>
-  <p>
-    Once <a>CommandHandler.isVirtualPointerEnabled</a> has also been set to true, then when the user holds down the <code>Shift</code> key,
-    it shows a virtual pointer that allows the user to use <code>Shift-Enter</code> and <code>Shift-arrow</code> keys to drag nodes.
-    The user can always toggle "keyboard control mode" using the <code>Ctrl-Alt-Enter</code> keyboard command.
-  </p>
-  <p>
-    For another sample demonstrating screen-reader assistance, see <a href="./Accessibility.html">Accessibility</a> sample.
-  </p>
-  <p>
-    The dark and light themes are controlled using the <a>ThemeManager</a>.
-  </p>
-</div>
-
-          
-        </div>
-        <!-- * * * * * * * * * * * * * -->
-        <!--  End of GoJS sample code  -->
-      </div>
-
-      <div id="allTagDescriptions" class="p-4 w-full max-w-screen-xl mx-auto">
-        <hr/>
-        <h3 class="text-xl">GoJS Features in this sample</h3>
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Table Panels</h4>
-<p>
-The "Table" Panel, <a href="../api/symbols/Panel.html#static-Table" target="api">Panel.Table</a>, arranges objects in rows and columns.
-Each object in a Table Panel is put into the cell indexed by the value of <a href="../api/symbols/GraphObject.html#row" target="api">GraphObject.row</a> and <a href="../api/symbols/GraphObject.html#column" target="api">GraphObject.column</a>.
-The panel will look at the rows and columns for all of the objects in the panel to determine how many rows and columns the table should have.
-More information can be found in the <a href="../intro/tablePanels.html">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#tables">Related samples</a>
-            </p>
-            <hr>
-          
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Item Arrays</h4>
-<p>
-It is sometimes useful to display a variable number of elements in a node by data binding to a JavaScript Array.
-In GoJS, this is simply achieved by binding (or setting) <a href="../api/symbols/Panel.html#itemArray" target="api">Panel.itemArray</a>.
-The <a href="../api/symbols/Panel.html" target="api">Panel</a> will create an element in the panel for each value in the Array.
-More information can be found in the <a href="../intro/itemArrays.html">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#itemarrays">Related samples</a>
-            </p>
-            <hr>
-          
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Tree Layout</h4>
-<p>
-This predefined layout is used for placing Nodes of a tree-structured graph in layers (rows or columns).
-For discussion and examples of the most commonly used properties of the <a href="../api/symbols/TreeLayout.html">TreeLayout</a>,
-see the <a href="../intro/trees.html">Trees</a> page in the Introduction.
-More information can be found in the <a href="../intro/layouts.html#TreeLayout">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#treelayout">Related samples</a>
-            </p>
-            <hr>
-          
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Buttons</h4>
-<p>
-GoJS defines several <a href="../api/symbols/Panel.html" target="api">Panel</a>s for common uses.
-These include "Button", "TreeExpanderButton", "SubGraphExpanderButton", "PanelExpanderButton", "ContextMenuButton", and "CheckBoxButton".
-"ContextMenuButton"s are typically used inside of "ContextMenu" Panels;
-"CheckBoxButton"s are used in the implementation of "CheckBox" Panels.
-</p>
-<p>
-These predefined panels can be used as if they were <a href="../api/symbols/Panel.html" target="api">Panel</a>-derived classes in calls to <a href="../api/symbols/GraphObject.html#build" target="api">GraphObject.build</a>.
-They are implemented as simple visual trees of <a href="../api/symbols/GraphObject.html" target="api">GraphObject</a>s in <a href="../api/symbols/Panel.html" target="api">Panel</a>s,
-with pre-set properties and event handlers.
-</p>
-<p>
-More information can be found in the <a href="../intro/buttons.html">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#buttons">Related samples</a>
-            </p>
-            <hr>
-          
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Theming</h4>
-<p>
-  <b>GoJS</b> allows diagrams to be themed. This is commonly used to provide a light and dark mode for diagrams.
-</p>
-<p>
-  The <a href="../api/symbols/Diagram.html#themeManager" target="api">Diagram.themeManager</a> handles themes within a <a href="../api/symbols/Diagram.html" target="api">Diagram</a>.
-  The <a href="../api/symbols/ThemeManager.html" target="api">ThemeManager</a> can by shared by multiple diagrams,
-  and is responsible to managing the current theme and default theme, along with any theme updates.
-  More information can be found in the <a href="../intro/theming.html">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#theme">Related samples</a>
-            </p>
-            <hr>
-          
-        </div>
-    </div>
-  </body>
-  <!--  This script is part of the gojs.net website, and is not needed to run the sample -->
-  
+  </script>
+</body>
 </html>

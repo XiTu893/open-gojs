@@ -56,7 +56,7 @@ export class TextBlock extends GraphObject {
   private _textAlign: string = 'start';
   private _isMultiline: boolean = true;
   private _editable: boolean = false;
-  private _wrap: EnumValue = WrapFit;
+  private _wrap: EnumValue = WrapDesiredSize;
   private _overflow: EnumValue = OverflowClip;
   private _lineCount: number = 1;
   private _spacingAbove: number = 0;
@@ -324,12 +324,17 @@ export class TextBlock extends GraphObject {
       // documentBounds 全错。这里按同样规则补上行高。
       const canvas = TextBlock._tempCanvas;
       const ctx = canvas.getContext('2d')!;
+      // 官方 hF：空文本 `return Pi=0, Te=1, s`，其中 s = max(0, ky()+spacing)，
+      // ky() 用**本对象字体**测 "M" 的宽度 ×1.3。若不先设置 ctx.font，
+      // 会沿用上次 measure 残留的字体（如 bold）导致行高偏大。
+      ctx.font = this._font;
+      this._applySpacing(ctx);
       const fontSize = TextBlock._getFontSize(this._font);
       const lh = this._getLineHeight(ctx, fontSize);
       const h = lh + this._spacingAbove + this._spacingBelow;
       this._naturalBounds = new Rect(0, 0, 0, h);
       this._measuredBounds = new Rect(0, 0, 0, h);
-      this._lineCount = 0;
+      this._lineCount = 1;
       this._metricsWidth = 0;
       this._metricsConstraint = widthConstraint;
       this._metricsFontHeight = null;
@@ -399,7 +404,7 @@ export class TextBlock extends GraphObject {
     const fontSize = TextBlock._getFontSize(this._font);
     const lineHeight = this._getLineHeight(ctx, fontSize);
 
-    if (!this._isMultiline || this._wrap === WrapNone) {
+    if (this._wrap === WrapNone) {
       const m = ctx.measureText(this._text);
       const lines = [this._text];
       const lineWidths = [m.width];
@@ -414,28 +419,25 @@ export class TextBlock extends GraphObject {
       };
     }
 
+    // 官方 hF：isMultiline=false 时先截断到第一个 \n，随后仍按宽度换行
+    let rawText = this._text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    if (!this._isMultiline) {
+      const nl = rawText.indexOf('\n');
+      if (nl >= 0) rawText = rawText.substring(0, nl);
+    }
+
     let wrapWidth = widthConstraint;
     if (this._wrap === WrapDesiredSize) {
       const dw = this.desiredSize;
+      // 官方 Yd：desiredSize.width 为 NaN 时按**测量约束**换行
+      //（faultTree 的 maxSize(100,NaN) → 约束被收紧为 100 → 两行）；
+      // 只有 desiredSize.width 是有效数值时才按它换行。
       if (dw && dw.width > 0 && isFinite(dw.width)) {
         wrapWidth = dw.width;
-      } else {
-        const m = ctx.measureText(this._text);
-        const lines = [this._text];
-        const lineWidths = [m.width];
-        this._isOverflowed = false;
-        return {
-          width: m.width,
-          height: lineHeight + this._spacingAbove + this._spacingBelow,
-          lineCount: 1,
-          lines,
-          lineWidths,
-          lineHeight,
-        };
       }
     }
 
-    const lines = this._wrapText(ctx, this._text, wrapWidth);
+    const lines = this._wrapText(ctx, rawText, wrapWidth);
     // 官方：超出 maxLines 时截断并置位 isOverflowed
     this._isOverflowed = false;
     if (this._maxLines !== Infinity && lines.length > this._maxLines) {

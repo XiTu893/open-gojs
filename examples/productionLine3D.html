@@ -1,0 +1,1066 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Production Line: A Factory Floor in 3D</title>
+  <script src="../dist/open-gojs.umd.js"></script>
+  
+  
+  
+  
+</head>
+<body>
+<div
+    id="myDiagramDiv"
+    style="border: solid 1px black; width: 100%; height: 620px; background-color: #e8ebef"></div>
+  <div id="description">
+<p>
+    A diagram outlining the processes of machining and assembling a gearbox. Multiple lines shape and refine parts to be
+    assembled together. <b>Click any machine</b> to open its
+    info card, and <b>drag on the 3D image</b> to spin the part that station produces.
+  </p>
+  <p>
+    The info card <a href="https://gojs.net/latest/api/symbols/Adornment.html" target="api">Adornment</a> is defined through the nodes <a href="https://gojs.net/latest/api/symbols/Part.html#selectionadornmenttemplate" target="api">Part.selectionAdornmentTemplate</a>. 
+    The 3D view is a shown by a
+    <a href="https://gojs.net/latest/api/symbols/Picture.html" target="api">Picture</a>, rendered with the browser's built-in WebGL API. Each part is a
+    small polygon mesh, and the assembled gearbox is just the component
+    meshes merged. Setting <a href="https://gojs.net/latest/api/symbols/GraphObject.html#isactionable" target="api">GraphObject.isActionable</a> on the Picture lets the
+    <a href="https://gojs.net/latest/api/symbols/ActionTool.html" target="api">ActionTool</a> send mouse drags to rerender the part instead of moving the
+    machine or panning the diagram.
+  </p>
+  <p>
+    Conveyor belts are drawn using <a href="https://gojs.net/latest/api/symbols/Link.html" target="api">Link</a>s stroked by three stacked Shapes in a background layer,
+    kept moving by an infinite <a href="https://gojs.net/latest/api/symbols/Animation.html" target="api">Animation</a> of <a href="https://gojs.net/latest/api/symbols/Shape.html#strokedashoffset" target="api">Shape.strokeDashOffset</a>. Each
+    belt also carries its own line's workpieces with <a href="https://gojs.net/latest/api/symbols/Geometry.html#getpointalongpath" target="api">Geometry.getPointAlongPath</a>.
+  </p>
+  </div>
+  <script >
+function init() {
+    myDiagram = new go.Diagram('myDiagramDiv', {
+      initialAutoScale: go.AutoScale.Uniform,
+      padding: 24,
+      'undoManager.isEnabled': true,
+      // faint tile lines make the background read as a factory floor
+      grid: new go.Panel('Grid', { gridCellSize: new go.Size(50, 50) })
+        .add(
+          new go.Shape('LineH', { stroke: '#dde2e8', strokeWidth: 1 }),
+          new go.Shape('LineV', { stroke: '#dde2e8', strokeWidth: 1 })
+        )
+    });
+
+    const VIEW_W = 360, VIEW_H = 260; // drawn at 2x the Picture's size for crispness
+
+    // --- mesh construction ---
+    // A mesh is { verts: [[x,y,z], ...], faces: [{ p: [vertex indexes], col: '#rrggbb' }] }.
+
+    // an axis-aligned box of the given size, centered at (cx, cy, cz)
+    function makeBox(w, h, d, col, cx, cy, cz) {
+      cx = cx || 0; cy = cy || 0; cz = cz || 0;
+      const x = w / 2, y = h / 2, z = d / 2;
+      const verts = [
+        [cx - x, cy - y, cz - z], [cx + x, cy - y, cz - z], [cx + x, cy + y, cz - z], [cx - x, cy + y, cz - z],
+        [cx - x, cy - y, cz + z], [cx + x, cy - y, cz + z], [cx + x, cy + y, cz + z], [cx - x, cy + y, cz + z]
+      ];
+      const quads = [[0, 1, 2, 3], [4, 5, 6, 7], [0, 1, 5, 4], [2, 3, 7, 6], [1, 2, 6, 5], [0, 3, 7, 4]];
+      return { verts, faces: quads.map(p => ({ p, col })) };
+    }
+
+    // extrude a solid flat profile (an array of [x,y] points) into a prism of
+    // the given depth along the z axis, centered at z = cz
+    function extrude(profile, depth, col, cz) {
+      cz = cz || 0;
+      const n = profile.length;
+      const verts = [];
+      profile.forEach(([x, y]) => verts.push([x, y, cz - depth / 2]));
+      profile.forEach(([x, y]) => verts.push([x, y, cz + depth / 2]));
+      const faces = [];
+      for (let i = 0; i < n; i++) {
+        const j = (i + 1) % n;
+        faces.push({ p: [i, j, n + j, n + i], col });
+      }
+      // cap the two ends with triangle fans around the profile's centroid
+      let mx = 0, my = 0;
+      profile.forEach(([x, y]) => { mx += x / n; my += y / n; });
+      verts.push([mx, my, cz - depth / 2], [mx, my, cz + depth / 2]);
+      for (let i = 0; i < n; i++) {
+        const j = (i + 1) % n;
+        faces.push({ p: [2 * n, i, j], col });
+        faces.push({ p: [2 * n + 1, n + i, n + j], col });
+      }
+      return { verts, faces };
+    }
+
+    // extrude the area between an outer and an inner outline (of equal length) along the z axis
+    function ringMesh(outer, inner, depth, col, cz) {
+      cz = cz || 0;
+      const n = outer.length;
+      const zb = cz - depth / 2, zf = cz + depth / 2;
+      const verts = [];
+      outer.forEach(([x, y]) => verts.push([x, y, zb]));
+      outer.forEach(([x, y]) => verts.push([x, y, zf]));
+      inner.forEach(([x, y]) => verts.push([x, y, zb]));
+      inner.forEach(([x, y]) => verts.push([x, y, zf]));
+      const faces = [];
+      for (let i = 0; i < n; i++) {
+        const j = (i + 1) % n;
+        faces.push({ p: [i, j, n + j, n + i], col }); // outer wall
+        faces.push({ p: [2 * n + i, 2 * n + j, 3 * n + j, 3 * n + i], col }); // hole wall
+        faces.push({ p: [i, j, 2 * n + j, 2 * n + i], col }); // back cap
+        faces.push({ p: [n + i, n + j, 3 * n + j, 3 * n + i], col }); // front cap
+      }
+      return { verts, faces };
+    }
+
+    // a washer/tube: a disc along the z axis with a round bore through it
+    function makeTube(rOuter, rBore, depth, segs, col, cz) {
+      return ringMesh(circle(rOuter, segs), circle(rBore, segs), depth, col, cz);
+    }
+
+    function circle(r, segs) {
+      const pts = [];
+      for (let i = 0; i < segs; i++) {
+        const a = (i / segs) * 2 * Math.PI;
+        pts.push([r * Math.cos(a), r * Math.sin(a)]);
+      }
+      return pts;
+    }
+
+    // a gear outline: alternating tooth tips and roots around a circle
+    function gearProfile(rOuter, rRoot, teeth) {
+      const pts = [];
+      const step = (2 * Math.PI) / teeth;
+      const pt = (a, r) => [r * Math.cos(a), r * Math.sin(a)];
+      for (let i = 0; i < teeth; i++) {
+        const a = i * step;
+        pts.push(pt(a, rRoot), pt(a + step * 0.2, rOuter), pt(a + step * 0.5, rOuter), pt(a + step * 0.7, rRoot));
+      }
+      return pts;
+    }
+
+    // a gear body with a real center bore
+    function gearMesh(rOuter, rRoot, rBore, teeth, depth, col, cz) {
+      const prof = gearProfile(rOuter, rRoot, teeth);
+      // sample the bore circle at the same angles as the tooth profile points
+      const bore = prof.map(([x, y]) => {
+        const a = Math.atan2(y, x);
+        return [rBore * Math.cos(a), rBore * Math.sin(a)];
+      });
+      return ringMesh(prof, bore, depth, col, cz);
+    }
+
+    function merge(...meshes) {
+      const verts = [], faces = [];
+      for (const m of meshes) {
+        const off = verts.length;
+        verts.push(...m.verts);
+        m.faces.forEach(f => faces.push({ p: f.p.map(i => i + off), col: f.col }));
+      }
+      return { verts, faces };
+    }
+
+    function translate(mesh, dx, dy, dz) {
+      mesh.verts = mesh.verts.map(v => [v[0] + dx, v[1] + dy, v[2] + dz]);
+      return mesh;
+    }
+
+    function rotateX(mesh, angle) {
+      const c = Math.cos(angle), s = Math.sin(angle);
+      mesh.verts = mesh.verts.map(([x, y, z]) => [x, y * c - z * s, y * s + z * c]);
+      return mesh;
+    }
+
+    function scaleMesh(mesh, k) {
+      mesh.verts = mesh.verts.map(v => [v[0] * k, v[1] * k, v[2] * k]);
+      return mesh;
+    }
+
+    // scale a mesh to fit in a unit sphere, so every part is framed consistently
+    function normalize(mesh) {
+      let max = 0;
+      mesh.verts.forEach(v => { max = Math.max(max, Math.hypot(v[0], v[1], v[2])); });
+      return scaleMesh(mesh, 1 / max);
+    }
+
+    // the machined gear body: toothed ring plus a protruding hub, all bored through
+    function gearAtStage(bodyCol, hubCol) {
+      return merge(
+        gearMesh(1, 0.8, 0.22, 14, 0.34, bodyCol),
+        makeTube(0.42, 0.22, 0.85, 18, hubCol)
+      );
+    }
+
+    // the four corners of a w x h rectangle, for ringMesh walls
+    function rect(w, h) {
+      return [[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]];
+    }
+
+    // a stepped transmission shaft along the z axis: end journals, shoulders, and the wider center section, as slightly overlapping turned cylinders
+    function shaftMesh(colA, colB) {
+      return merge(
+        extrude(circle(0.14, 16), 0.36, colB, -0.82),
+        extrude(circle(0.22, 16), 0.52, colA, -0.4),
+        extrude(circle(0.3, 16), 0.52, colB, 0.1),
+        extrude(circle(0.22, 16), 0.4, colA, 0.54),
+        extrude(circle(0.14, 16), 0.3, colB, 0.87)
+      );
+    }
+
+    // the finished shaft after the second station: journals ground bright, a splined drive end, a snap-ring groove, and a keyway
+    function finishedShaftMesh() {
+      return merge(
+        extrude(gearProfile(0.17, 0.13, 12), 0.34, '#98a3af', -0.85), // splined drive end
+        extrude(circle(0.22, 16), 0.52, '#c2ccd6', -0.42),
+        extrude(circle(0.3, 16), 0.52, '#dae4ee', 0.09),
+        extrude(circle(0.17, 16), 0.09, '#75808c', 0.375), // snap-ring groove
+        extrude(circle(0.22, 16), 0.36, '#c2ccd6', 0.59),
+        extrude(circle(0.14, 16), 0.3, '#dae4ee', 0.9),
+        makeBox(0.09, 0.07, 0.38, '#5f6a76', 0, 0.28, 0.09) // keyway slot
+      );
+    }
+
+    // the gearbox housing: an open-fronted case with bearing bosses for the two shafts, mounting feet, and a cover flange
+    // cast controls coloring
+    function housingMesh(cast) {
+      const body = cast ? '#a09a86' : '#b8c2cc';
+      const rim = cast ? '#948e7b' : '#cbd5df';
+      const parts = [
+        makeBox(2.2, 1.4, 0.14, body, 0, 0, -0.53), // back plate
+        ringMesh(rect(2.2, 1.4), rect(1.98, 1.18), 1.06, rim), // the four walls
+        makeBox(0.52, 0.14, 0.8, body, -0.94, -0.77, 0), // mounting feet
+        makeBox(0.52, 0.14, 0.8, body, 0.94, -0.77, 0)
+      ];
+      // bearing bosses on the back plate: solid as cast, bored once machined
+      for (const x of [-0.42, 0.5]) {
+        parts.push(cast
+          ? translate(extrude(circle(0.3, 14), 0.2, body), x, 0, -0.36)
+          : translate(makeTube(0.3, 0.13, 0.2, 14, rim), x, 0, -0.36));
+      }
+      if (cast) {
+        parts.push(makeBox(0.34, 0.24, 0.34, body, 0.6, 0.8, 0)); // riser stub, not yet ground off
+      } else {
+        // drilled bolt bosses around the cover flange
+        [[-0.98, -0.58], [0.98, -0.58], [-0.98, 0.58], [0.98, 0.58]].forEach(([x, y]) =>
+          parts.push(translate(makeTube(0.08, 0.035, 0.14, 8, rim), x, y, 0.5)));
+      }
+      return merge(...parts);
+    }
+
+    // the two dark heat-treated gears meshed together on their bright shafts positioned in the housing
+    function gearsetMesh() {
+      const steel = '#c2ccd6';
+      return merge(
+        translate(merge(gearMesh(0.6, 0.48, 0.13, 15, 0.32, '#55627a'),
+                        extrude(circle(0.12, 14), 1.5, steel)), -0.42, 0, 0),
+        translate(merge(gearMesh(0.34, 0.25, 0.11, 9, 0.32, '#5f6d86'),
+                        extrude(circle(0.1, 14), 1.5, steel)), 0.5, 0, 0)
+      );
+    }
+
+    // the assembled gearbox withLid = true bolts the cover on over the gears
+    function gearboxMesh(withLid) {
+      const parts = [housingMesh(false), gearsetMesh()];
+      if (withLid) {
+        parts.push(makeBox(2.3, 1.5, 0.12, '#c2ccd6', 0, 0, 0.56));
+        [[-0.98, -0.58], [0.98, -0.58], [-0.98, 0.58], [0.98, 0.58]].forEach(([x, y]) =>
+          parts.push(translate(makeTube(0.07, 0.03, 0.1, 8, '#98a3af'), x, y, 0.63)));
+      }
+      return merge(...parts);
+    }
+
+    const PARTS = {
+      // sawn slug of round bar stock
+      billet: () => normalize(extrude(circle(0.75, 24), 1.2, '#8d99a6')),
+      // turned on the lathe: clean faces, a raised hub, and the center bore
+      turned: () => normalize(merge(
+        makeTube(1, 0.22, 0.34, 24, '#aab4bf'),
+        makeTube(0.42, 0.22, 0.85, 18, '#b8c2cc')
+      )),
+      // teeth cut on the hobbing machine
+      hobbed: () => normalize(gearAtStage('#b0bac4', '#c2ccd6')),
+      // case hardened and tempered -- the surface takes on a dark blued finish
+      gear: () => normalize(gearAtStage('#55627a', '#5f6d86')),
+      // the stepped shaft off the turning lathe: all diameters, no features yet
+      shaftTurned: () => normalize(shaftMesh('#9aa4b0', '#aab4bf')),
+      // ground, splined, grooved, and keyed at the finishing station
+      shaft: () => normalize(finishedShaftMesh()),
+      // the housing as it leaves the foundry: rough, sand-cast, unbored
+      castHousing: () => normalize(housingMesh(true)),
+      // faces milled and bearing seats bored on the machining center
+      machinedHousing: () => normalize(housingMesh(false)),
+      // gears and shafts seated in the open housing at the assembly cell
+      gearbox: () => normalize(gearboxMesh(false)),
+      // the cover bolted on: the sealed unit that reaches final inspection
+      inspected: () => normalize(gearboxMesh(true)),
+      // crated for dispatch
+      packed: () => {
+        const wood = '#b98a4e', woodDark = '#9c7240';
+        const parts = [makeBox(1.7, 0.12, 1.2, woodDark, 0, -0.65, 0)];
+        [[-0.79, -0.54], [0.79, -0.54], [-0.79, 0.54], [0.79, 0.54]].forEach(([x, z]) =>
+          parts.push(makeBox(0.14, 1.3, 0.14, wood, x, 0, z)));
+        [-0.35, 0.1, 0.55].forEach(y => {
+          parts.push(makeBox(1.72, 0.22, 0.1, wood, 0, y, -0.6));
+          parts.push(makeBox(1.72, 0.22, 0.1, wood, 0, y, 0.6));
+          parts.push(makeBox(0.1, 0.22, 1.24, wood, -0.85, y, 0));
+          parts.push(makeBox(0.1, 0.22, 1.24, wood, 0.85, y, 0));
+        });
+        // the finished gearbox nestled in the crate
+        parts.push(translate(scaleMesh(gearboxMesh(true), 0.48), 0, -0.24, 0));
+        return normalize(merge(...parts));
+      }
+    };
+
+    // --- the WebGL pipeline ---
+
+    let gl = null, glCanvas = null, glLoc = null;
+
+    function ensureGL() {
+      if (gl) return;
+      glCanvas = document.createElement('canvas');
+      glCanvas.width = VIEW_W;
+      glCanvas.height = VIEW_H;
+      gl = glCanvas.getContext('webgl', { antialias: true, alpha: true, preserveDrawingBuffer: true });
+      // the vertex shader does all of the lighting, since colors are constant per face
+      const vsrc =
+        'attribute vec3 aPos;\n' +
+        'attribute vec3 aNorm;\n' +
+        'attribute vec3 aCol;\n' +
+        'uniform mat4 uMV;\n' +
+        'uniform mat4 uProj;\n' +
+        'varying vec3 vCol;\n' +
+        'void main() {\n' +
+        '  mat3 rot = mat3(uMV[0].xyz, uMV[1].xyz, uMV[2].xyz);\n' +
+        '  vec3 n = normalize(rot * aNorm);\n' +
+        '  if (n.z < 0.0) n = -n;\n' + // orient the normal toward the camera
+        '  vec3 L = normalize(vec3(-0.45, 0.62, 0.8));\n' + // direction toward the light
+        '  float lum = 0.3 + 0.7 * max(dot(n, L), 0.0);\n' +
+        '  vCol = aCol * lum;\n' +
+        '  gl_Position = uProj * uMV * vec4(aPos, 1.0);\n' +
+        '}';
+      const fsrc =
+        'precision mediump float;\n' +
+        'varying vec3 vCol;\n' +
+        'void main() { gl_FragColor = vec4(vCol, 1.0); }';
+      function compile(type, src) {
+        const s = gl.createShader(type);
+        gl.shaderSource(s, src);
+        gl.compileShader(s);
+        return s;
+      }
+      const prog = gl.createProgram();
+      gl.attachShader(prog, compile(gl.VERTEX_SHADER, vsrc));
+      gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, fsrc));
+      gl.linkProgram(prog);
+      gl.useProgram(prog);
+      gl.enable(gl.DEPTH_TEST);
+      glLoc = {
+        aPos: gl.getAttribLocation(prog, 'aPos'),
+        aNorm: gl.getAttribLocation(prog, 'aNorm'),
+        aCol: gl.getAttribLocation(prog, 'aCol'),
+        uMV: gl.getUniformLocation(prog, 'uMV')
+      };
+      gl.enableVertexAttribArray(glLoc.aPos);
+      gl.enableVertexAttribArray(glLoc.aNorm);
+      gl.enableVertexAttribArray(glLoc.aCol);
+      // a fixed perspective projection
+      const fov = 44 * Math.PI / 180, aspect = VIEW_W / VIEW_H, near = 0.1, far = 20;
+      const f = 1 / Math.tan(fov / 2);
+      gl.uniformMatrix4fv(gl.getUniformLocation(prog, 'uProj'), false, new Float32Array([
+        f / aspect, 0, 0, 0,
+        0, f, 0, 0,
+        0, 0, (far + near) / (near - far), -1,
+        0, 0, (2 * far * near) / (near - far), 0
+      ]));
+    }
+
+    function hexToRgb(hex) {
+      const n = parseInt(hex.slice(1), 16);
+      return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
+    }
+
+    // triangulate the mesh with one normal per face, for flat shading, and upload the vertex data to GPU buffers
+    function uploadMesh(mesh) {
+      const pos = [], norm = [], col = [];
+      for (const f of mesh.faces) {
+        const c = hexToRgb(f.col);
+        const pts = f.p.map(i => mesh.verts[i]);
+        const a = pts[0], b = pts[1], d = pts[2];
+        const u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+        const w = [d[0] - a[0], d[1] - a[1], d[2] - a[2]];
+        const n = [u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]];
+        for (let i = 1; i < pts.length - 1; i++) {
+          [pts[0], pts[i], pts[i + 1]].forEach(p => {
+            pos.push(p[0], p[1], p[2]);
+            norm.push(n[0], n[1], n[2]);
+            col.push(c[0], c[1], c[2]);
+          });
+        }
+      }
+      function buffer(data) {
+        const b = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, b);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(data), gl.STATIC_DRAW);
+        return b;
+      }
+      return { pos: buffer(pos), norm: buffer(norm), col: buffer(col), count: pos.length / 3 };
+    }
+
+    // GPU buffers are cached per stage, since a new info card Adornment is built every time a machine is selected
+    const meshBuffers = {};
+    function buffersFor(part) {
+      if (!meshBuffers[part]) meshBuffers[part] = uploadMesh(PARTS[part]());
+      return meshBuffers[part];
+    }
+
+    // render one frame
+    function renderView(v) {
+      const cX = Math.cos(v.rx), sX = Math.sin(v.rx);
+      const cY = Math.cos(v.ry), sY = Math.sin(v.ry);
+      const D = 3.2; // camera distance
+      // rotate about the Y axis, then the X axis, then move back from the camera
+      gl.uniformMatrix4fv(glLoc.uMV, false, new Float32Array([
+        cY, sX * sY, -cX * sY, 0,
+        0, cX, sX, 0,
+        sY, -sX * cY, cX * cY, 0,
+        0, 0, -D, 1
+      ]));
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+      gl.bindBuffer(gl.ARRAY_BUFFER, v.buffers.pos);
+      gl.vertexAttribPointer(glLoc.aPos, 3, gl.FLOAT, false, 0, 0);
+      gl.bindBuffer(gl.ARRAY_BUFFER, v.buffers.norm);
+      gl.vertexAttribPointer(glLoc.aNorm, 3, gl.FLOAT, false, 0, 0);
+      gl.bindBuffer(gl.ARRAY_BUFFER, v.buffers.col);
+      gl.vertexAttribPointer(glLoc.aCol, 3, gl.FLOAT, false, 0, 0);
+      gl.drawArrays(gl.TRIANGLES, 0, v.buffers.count);
+      // paint the background gradient, then copy the WebGL image on top
+      const ctx = v.ctx;
+      const grad = ctx.createRadialGradient(VIEW_W / 2, VIEW_H * 0.42, 20, VIEW_W / 2, VIEW_H / 2, VIEW_W * 0.65);
+      grad.addColorStop(0, '#2d3748');
+      grad.addColorStop(1, '#1a202c');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+      ctx.drawImage(glCanvas, 0, 0);
+    }
+
+    // this Binding conversion function creates the Canvas element shown by the info card's Picture and renders the machine's workpiece into it
+    function makePartView(part, pict) {
+      ensureGL();
+      const canvas = document.createElement('canvas');
+      canvas.width = VIEW_W;
+      canvas.height = VIEW_H;
+      const v = {
+        canvas,
+        ctx: canvas.getContext('2d'),
+        buffers: buffersFor(part),
+        rx: 0.42, // current rotation angles
+        ry: -0.62,
+        vx: 0, // angular velocity, for momentum after a drag
+        vy: 0
+      };
+      pict._view = v;
+      renderView(v);
+      return canvas;
+    }
+
+    // after a drag ends, let the part keep spinning briefly with momentum
+    function spinDown(pict) {
+      const v = pict._view;
+      if (!v) return;
+      v.dragging = false;
+      function step() {
+        if (v.dragging || pict.part === null || pict.part.diagram === null) return;
+        v.vx *= 0.94;
+        v.vy *= 0.94;
+        if (Math.abs(v.vx) + Math.abs(v.vy) < 0.001) return;
+        v.ry += v.vx;
+        v.rx += v.vy;
+        renderView(v);
+        pict.redraw();
+        requestAnimationFrame(step);
+      }
+      requestAnimationFrame(step);
+    }
+
+    const STATUS_COLORS = { running: '#22c55e', idle: '#f59e0b', fault: '#ef4444' };
+
+    // one row of the statistics table in the info card
+    const statTemplate =
+      new go.Panel('TableRow')
+        .add(
+          new go.TextBlock({
+            column: 0,
+            font: '11px sans-serif',
+            stroke: '#6b7280',
+            alignment: go.Spot.Left,
+            margin: new go.Margin(1, 8, 1, 0)
+          })
+            .bind('text', 'label'),
+          new go.TextBlock({
+            column: 1,
+            font: 'bold 11px sans-serif',
+            stroke: '#374151',
+            alignment: go.Spot.Right,
+            stretch: go.Stretch.Horizontal,
+            textAlign: 'right'
+          })
+            .bind('text', 'value')
+        );
+
+    // where the info card floats relative to the selected machine
+    const CARD_SPOTS = {
+      below: { alignment: new go.Spot(0.5, 1, 0, 16), alignmentFocus: go.Spot.Top },
+      above: { alignment: new go.Spot(0.5, 0, 0, -16), alignmentFocus: go.Spot.Bottom }
+    };
+
+    // the selection Adornment
+    const infoCardAdornment =
+      new go.Adornment('Spot')
+        .add(
+          new go.Panel('Auto', { shadowVisible: false })
+            .add(
+              new go.Shape('RoundedRectangle', { parameter1: 10, fill: null, stroke: '#f0b429', strokeWidth: 3 }),
+              new go.Placeholder({ margin: 3 })
+            ),
+          new go.Panel('Auto')
+            .bind('alignment', 'cardSide', s => CARD_SPOTS[s].alignment)
+            .bind('alignmentFocus', 'cardSide', s => CARD_SPOTS[s].alignmentFocus)
+            .add(
+              new go.Shape('RoundedRectangle', { parameter1: 8, fill: '#ffffff', stroke: '#d3dae3' }),
+              new go.Panel('Vertical', { margin: 12, width: 196, defaultStretch: go.Stretch.Horizontal })
+                .add(
+                  // header: status light and machine name
+                  new go.Panel('Table', { stretch: go.Stretch.Horizontal })
+                    .add(
+                      new go.Shape('Circle', {
+                        column: 0,
+                        desiredSize: new go.Size(9, 9),
+                        strokeWidth: 0,
+                        margin: new go.Margin(0, 6, 0, 0)
+                      })
+                        .bind('fill', 'status', s => STATUS_COLORS[s]),
+                      new go.TextBlock({
+                        column: 1,
+                        font: 'bold 13px sans-serif',
+                        stroke: '#111827',
+                        stretch: go.Stretch.Horizontal,
+                        textAlign: 'left'
+                      })
+                        .bind('text')
+                    ),
+                  new go.TextBlock({
+                    font: '11px sans-serif',
+                    stroke: '#6b7280',
+                    textAlign: 'left',
+                    margin: new go.Margin(2, 0, 0, 15)
+                  })
+                    .bind('text', 'process'),
+                  // the interactive 3D view of the workpiece at this stage
+                  new go.Picture({
+                    width: 180,
+                    height: 130,
+                    margin: new go.Margin(8, 0, 0, 0),
+                    cursor: 'move',
+                    // isActionable lets the ActionTool call these handlers,
+                    // so dragging on the image rotates the part instead of
+                    // moving the machine or panning the diagram
+                    isActionable: true,
+                    actionDown: (e, pict) => {
+                      const v = pict._view;
+                      if (!v) return;
+                      v.dragging = true;
+                      v.vx = v.vy = 0;
+                      v.last = e.viewPoint.copy();
+                    },
+                    actionMove: (e, pict) => {
+                      const v = pict._view;
+                      if (!v || !v.dragging) return;
+                      const pt = e.viewPoint;
+                      v.vx = (pt.x - v.last.x) * 0.012;
+                      v.vy = (pt.y - v.last.y) * 0.012;
+                      v.last = pt.copy();
+                      v.ry += v.vx;
+                      v.rx += v.vy;
+                      renderView(v);
+                      pict.redraw(); // tell the Picture that its Canvas has changed
+                    },
+                    actionUp: (e, pict) => spinDown(pict),
+                    actionCancel: (e, pict) => spinDown(pict)
+                  })
+                    .bind('element', 'part', makePartView),
+                  new go.TextBlock('drag to rotate', {
+                    font: 'italic 10px sans-serif',
+                    stroke: '#9ca3af',
+                    textAlign: 'center',
+                    margin: new go.Margin(3, 0, 6, 0)
+                  }),
+                  new go.Panel('Table', {
+                    itemTemplate: statTemplate,
+                    stretch: go.Stretch.Horizontal,
+                    margin: new go.Margin(0, 4, 0, 4)
+                  })
+                    .bind('itemArray', 'stats')
+                )
+            )
+        );
+
+    // each machine's top-down drawing is an item array of flat shapes with positions and sizes
+    const machinePartTemplate =
+      new go.Panel()
+        .bind('position', 'xy', go.Point.parse)
+        .add(
+          new go.Shape({ fill: null, strokeWidth: 0 })
+            .bind('figure', 'fig')
+            .bind('desiredSize', 'size', go.Size.parse)
+            .bind('fill')
+            .bind('stroke')
+            .bind('strokeWidth', 'sw')
+            .bind('strokeDashArray', 'dash')
+        );
+
+    myDiagram.nodeTemplate =
+      new go.Node('Vertical', {
+        locationSpot: go.Spot.Center,
+        locationObjectName: 'PAD',
+        cursor: 'pointer',
+        selectionAdornmentTemplate: infoCardAdornment
+      })
+        .bindTwoWay('location', 'loc', go.Point.parse, go.Point.stringify)
+        .add(
+          new go.Panel('Spot')
+            .add(
+              // the machine on its floor pad, outlined with safety-yellow floor tape
+              new go.Panel('Auto', { name: 'PAD' })
+                .add(
+                  new go.Shape('RoundedRectangle', {
+                    parameter1: 6,
+                    fill: '#dce1e7',
+                    stroke: '#f0b429',
+                    strokeWidth: 2,
+                    strokeDashArray: [8, 5]
+                  }),
+                  new go.Panel('Position', { margin: 14, itemTemplate: machinePartTemplate })
+                    .bind('itemArray', 'frame')
+                ),
+              // the status lamp on the pad's corner
+              new go.Shape('Circle', {
+                alignment: go.Spot.TopRight,
+                alignmentFocus: go.Spot.Center,
+                desiredSize: new go.Size(13, 13),
+                stroke: '#ffffff',
+                strokeWidth: 2
+              })
+                .bind('fill', 'status', s => STATUS_COLORS[s])
+            ),
+          new go.TextBlock({
+            shadowVisible: false,
+            font: 'bold 12px sans-serif',
+            stroke: '#374151',
+            margin: new go.Margin(6, 0, 0, 0)
+          })
+            .bind('text')
+        );
+
+    // Conveyor belts
+    myDiagram.linkTemplate =
+      new go.Link({
+        routing: go.Routing.Orthogonal,
+        corner: 12,
+        // negative shortLengths extend the route past the ports, tucking the belt ends under the machines 
+        fromShortLength: -24,
+        toShortLength: -24,
+        layerName: 'Background', // belts run underneath the machines
+        selectable: false
+      })
+        .bind('fromSpot', 'fromSide', s => go.Spot[s])
+        .bind('toSpot', 'toSide', s => go.Spot[s])
+        .add(
+          new go.Shape({ isPanelMain: true, stroke: '#6e7987', strokeWidth: 18, strokeCap: 'butt' }),
+          new go.Shape({ isPanelMain: true, stroke: '#c9d0d8', strokeWidth: 14, strokeCap: 'butt' }),
+          new go.Shape({ isPanelMain: true, name: 'SLATS', stroke: '#98a3af', strokeWidth: 10, strokeCap: 'butt', strokeDashArray: [4, 10] })
+        );
+
+    myDiagram.model = new go.GraphLinksModel({
+      copiesArrays: true,
+      copiesArrayObjects: true,
+      nodeDataArray: [
+        {
+          key: 1, text: 'Bar Stock Intake', process: 'Cut gear billets and shaft blanks', part: 'billet',
+          status: 'running', loc: '0 0', cardSide: 'below',
+          frame: [
+            { fig: 'Rectangle', xy: '0 18', size: '124 24', fill: '#c9d0d8', stroke: '#9aa4b0', sw: 1 }, // infeed table
+            { fig: 'Rectangle', xy: '8 20', size: '3 20', fill: '#98a3af' }, // feed rollers
+            { fig: 'Rectangle', xy: '22 20', size: '3 20', fill: '#98a3af' },
+            { fig: 'Rectangle', xy: '36 20', size: '3 20', fill: '#98a3af' },
+            { fig: 'Rectangle', xy: '50 20', size: '3 20', fill: '#98a3af' },
+            { fig: 'Rectangle', xy: '64 20', size: '3 20', fill: '#98a3af' },
+            { fig: 'Rectangle', xy: '4 26', size: '86 8', fill: '#8d99a6', stroke: '#6e7987', sw: 1 }, // round bar stock
+            { fig: 'Rectangle', xy: '82 4', size: '38 48', fill: '#98a3af', stroke: '#6e7987', sw: 1 }, // saw housing
+            { fig: 'Rectangle', xy: '82 4', size: '38 7', fill: '#f0b429' }, // hazard band
+            { fig: 'LineH', xy: '82 4', size: '38 7', stroke: '#3f4854', sw: 7, dash: [6, 6] },
+            { fig: 'Circle', xy: '90 17', size: '22 22', fill: '#5f6a76', stroke: '#4a5560', sw: 1 }, // saw blade
+            { fig: 'Circle', xy: '98 25', size: '6 6', fill: '#c9d0d8' }, // blade arbor
+            { fig: 'Rectangle', xy: '104 40', size: '12 8', fill: '#6e7987' }, // control box
+            { fig: 'Circle', xy: '106 42', size: '3 3', fill: '#22c55e' },
+            { fig: 'Circle', xy: '111 42', size: '3 3', fill: '#f0b429' }
+          ],
+          stats: [
+            { label: 'Cycle time', value: '12 s' },
+            { label: 'Saw speed', value: '80 m/min' },
+            { label: 'Uptime', value: '99.2%' }
+          ]
+        },
+        {
+          key: 3, text: 'Turning Lathe', process: 'Turn faces, hub, and bore', part: 'turned',
+          status: 'running', loc: '240 0', cardSide: 'below',
+          frame: [
+            { fig: 'Rectangle', xy: '0 12', size: '130 26', fill: '#c9d0d8', stroke: '#9aa4b0', sw: 1 }, // bed
+            { fig: 'Rectangle', xy: '28 18', size: '100 2', fill: '#9aa4b0' }, // the ways
+            { fig: 'Rectangle', xy: '28 30', size: '100 2', fill: '#9aa4b0' },
+            { fig: 'Rectangle', xy: '0 0', size: '30 48', fill: '#98a3af', stroke: '#6e7987', sw: 1 }, // headstock
+            { fig: 'Rectangle', xy: '46 21', size: '24 8', fill: '#aab4bf', stroke: '#8d99a6', sw: 1 }, // workpiece in the chuck
+            { fig: 'Circle', xy: '30 14', size: '20 20', fill: '#5f6a76', stroke: '#4a5560', sw: 1 }, // chuck
+            { fig: 'Circle', xy: '36 20', size: '8 8', fill: '#98a3af' }, // chuck center
+            { fig: 'Rectangle', xy: '64 6', size: '24 36', fill: '#98a3af', stroke: '#6e7987', sw: 1 }, // carriage
+            { fig: 'Rectangle', xy: '70 12', size: '12 10', fill: '#6e7987' }, // cross slide
+            { fig: 'Rectangle', xy: '104 23', size: '10 4', fill: '#6e7987' }, // tailstock quill
+            { fig: 'Rectangle', xy: '112 10', size: '18 28', fill: '#98a3af', stroke: '#6e7987', sw: 1 }, // tailstock
+            { fig: 'Circle', xy: '119 20', size: '8 8', fill: '#6e7987', stroke: '#4a5560', sw: 1 } // handwheel
+          ],
+          stats: [
+            { label: 'Cycle time', value: '64 s' },
+            { label: 'Spindle', value: '2800 rpm' },
+            { label: 'Insert wear', value: '22%' }
+          ]
+        },
+        {
+          key: 4, text: 'Gear Hobbing', process: 'Cut the tooth profile', part: 'hobbed',
+          status: 'running', loc: '480 0', cardSide: 'below',
+          frame: [
+            { fig: 'Rectangle', xy: '0 0', size: '96 72', fill: '#98a3af', stroke: '#6e7987', sw: 1 }, // machine base
+            { fig: 'Circle', xy: '28 12', size: '48 48', fill: '#c9d0d8', stroke: '#9aa4b0', sw: 1 }, // rotary table
+            { fig: 'Circle', xy: '36 20', size: '32 32', fill: '#b0bac4', stroke: '#6e7987', sw: 2, dash: [3, 2] }, // blank with teeth forming
+            { fig: 'Circle', xy: '48 32', size: '8 8', fill: '#5f6a76' }, // arbor
+            { fig: 'Rectangle', xy: '4 22', size: '18 28', fill: '#6e7987', stroke: '#4a5560', sw: 1 }, // hob column
+            { fig: 'Rectangle', xy: '22 28', size: '16 16', fill: '#8d99a6', stroke: '#6e7987', sw: 1 }, // hob cutter at the blank
+            { fig: 'Rectangle', xy: '25 28', size: '2 16', fill: '#c9d0d8' }, // hob flutes
+            { fig: 'Rectangle', xy: '29 28', size: '2 16', fill: '#c9d0d8' },
+            { fig: 'Rectangle', xy: '33 28', size: '2 16', fill: '#c9d0d8' },
+            { fig: 'Rectangle', xy: '74 8', size: '16 12', fill: '#6e7987' }, // control panel
+            { fig: 'Circle', xy: '77 11', size: '3 3', fill: '#22c55e' },
+            { fig: 'Circle', xy: '82 11', size: '3 3', fill: '#ef4444' }
+          ],
+          stats: [
+            { label: 'Cycle time', value: '96 s' },
+            { label: 'Hob speed', value: '1400 rpm' },
+            { label: 'Tool life', value: '61%' }
+          ]
+        },
+        {
+          key: 5, text: 'Heat Treatment', process: 'Case harden and temper the gears', part: 'gear',
+          status: 'idle', loc: '720 0', cardSide: 'below',
+          frame: [
+            { fig: 'Rectangle', xy: '0 0', size: '92 70', fill: '#6e7987', stroke: '#4a5560', sw: 1 }, // furnace shell
+            { fig: 'Rectangle', xy: '10 10', size: '72 50', fill: '#98a3af', stroke: '#6e7987', sw: 1 }, // roof panel
+            { fig: 'Circle', xy: '18 26', size: '14 14', fill: '#5f6a76', stroke: '#4a5560', sw: 1 }, // burner vents
+            { fig: 'Circle', xy: '40 26', size: '14 14', fill: '#5f6a76', stroke: '#4a5560', sw: 1 },
+            { fig: 'Circle', xy: '62 26', size: '14 14', fill: '#5f6a76', stroke: '#4a5560', sw: 1 },
+            { fig: 'Circle', xy: '23 31', size: '4 4', fill: '#e8833a' }, // flame glow in each vent
+            { fig: 'Circle', xy: '45 31', size: '4 4', fill: '#e8833a' },
+            { fig: 'Circle', xy: '67 31', size: '4 4', fill: '#e8833a' },
+            { fig: 'Rectangle', xy: '0 0', size: '92 7', fill: '#f0b429' }, // hazard band
+            { fig: 'LineH', xy: '0 0', size: '92 7', stroke: '#3f4854', sw: 7, dash: [8, 8] },
+            { fig: 'Rectangle', xy: '92 20', size: '10 30', fill: '#e8833a', stroke: '#b45f22', sw: 1 } // quench door
+          ],
+          stats: [
+            { label: 'Batch size', value: '24 pcs' },
+            { label: 'Furnace', value: '880 °C' },
+            { label: 'Quench', value: '60 °C' }
+          ]
+        },
+        {
+          key: 6, text: 'Shaft Turning', process: 'Turn the stepped shafts', part: 'shaftTurned',
+          status: 'running', loc: '0 260', cardSide: 'below',
+          frame: [
+            { fig: 'Rectangle', xy: '0 0', size: '130 52', fill: '#98a3af', stroke: '#6e7987', sw: 1 }, // CNC lathe enclosure
+            { fig: 'Rectangle', xy: '6 14', size: '86 30', fill: '#6e7987', stroke: '#4a5560', sw: 1 }, // viewing window
+            { fig: 'Circle', xy: '10 20', size: '18 18', fill: '#5f6a76', stroke: '#c9d0d8', sw: 1 }, // chuck
+            { fig: 'Rectangle', xy: '28 26', size: '58 6', fill: '#c2ccd6' }, // shaft being turned
+            { fig: 'Rectangle', xy: '52 16', size: '8 10', fill: '#8d99a6' }, // tool turret
+            { fig: 'Rectangle', xy: '96 8', size: '28 36', fill: '#8d99a6', stroke: '#6e7987', sw: 1 }, // control cabinet
+            { fig: 'Rectangle', xy: '100 12', size: '20 12', fill: '#2d3748' }, // display
+            { fig: 'Circle', xy: '100 30', size: '4 4', fill: '#22c55e' },
+            { fig: 'Circle', xy: '107 30', size: '4 4', fill: '#f0b429' },
+            { fig: 'Rectangle', xy: '0 0', size: '130 6', fill: '#f0b429' }, // hazard band
+            { fig: 'LineH', xy: '0 0', size: '130 6', stroke: '#3f4854', sw: 6, dash: [6, 6] }
+          ],
+          stats: [
+            { label: 'Cycle time', value: '38 s' },
+            { label: 'Concentricity', value: '4 µm' },
+            { label: 'Uptime', value: '98.8%' }
+          ]
+        },
+        {
+          key: 12, text: 'Shaft Finishing', process: 'Grind, spline, and key the shafts', part: 'shaft',
+          status: 'running', loc: '320 260', cardSide: 'below',
+          frame: [
+            { fig: 'Rectangle', xy: '0 20', size: '112 32', fill: '#c9d0d8', stroke: '#9aa4b0', sw: 1 }, // bed
+            { fig: 'Rectangle', xy: '8 26', size: '62 20', fill: '#b0bac4', stroke: '#98a3af', sw: 1 }, // work table
+            { fig: 'Rectangle', xy: '10 33', size: '58 6', fill: '#c2ccd6', stroke: '#98a3af', sw: 1 }, // shaft between centers
+            { fig: 'Circle', xy: '0 32', size: '8 8', fill: '#6e7987', stroke: '#4a5560', sw: 1 }, // traverse handwheel
+            { fig: 'Rectangle', xy: '78 0', size: '32 52', fill: '#98a3af', stroke: '#6e7987', sw: 1 }, // column
+            { fig: 'Circle', xy: '52 8', size: '28 28', fill: '#5f6a76', stroke: '#4a5560', sw: 1 }, // wheel guard
+            { fig: 'Rectangle', xy: '56 30', size: '18 6', fill: '#8d99a6' }, // wheel edge at the shaft
+            { fig: 'Circle', xy: '62 18', size: '8 8', fill: '#c9d0d8' }, // spindle
+            { fig: 'Rectangle', xy: '86 6', size: '16 12', fill: '#6e7987' }, // control panel
+            { fig: 'Circle', xy: '89 9', size: '3 3', fill: '#22c55e' },
+            { fig: 'Circle', xy: '94 9', size: '3 3', fill: '#f0b429' }
+          ],
+          stats: [
+            { label: 'Cycle time', value: '45 s' },
+            { label: 'Wheel wear', value: '38%' },
+            { label: 'Roundness', value: '1.5 µm' }
+          ]
+        },
+        {
+          key: 7, text: 'Housing Foundry', process: 'Sand-cast the housings', part: 'castHousing',
+          status: 'running', loc: '0 520', cardSide: 'above',
+          frame: [
+            { fig: 'Rectangle', xy: '0 0', size: '100 72', fill: '#98a3af', stroke: '#6e7987', sw: 1 }, // floor plate
+            { fig: 'Circle', xy: '6 20', size: '32 32', fill: '#5f6a76', stroke: '#4a5560', sw: 1 }, // crucible
+            { fig: 'Circle', xy: '13 27', size: '18 18', fill: '#e8833a' }, // molten aluminum
+            { fig: 'Circle', xy: '18 32', size: '8 8', fill: '#f4b76a' },
+            { fig: 'Rectangle', xy: '46 10', size: '24 24', fill: '#8a8471', stroke: '#6e6a5b', sw: 1 }, // sand molds
+            { fig: 'Circle', xy: '52 16', size: '12 12', fill: '#6e6a5b' }, // mold cavities
+            { fig: 'Rectangle', xy: '46 40', size: '24 24', fill: '#8a8471', stroke: '#6e6a5b', sw: 1 },
+            { fig: 'Circle', xy: '52 46', size: '12 12', fill: '#6e6a5b' },
+            { fig: 'Rectangle', xy: '76 10', size: '18 54', fill: '#a09a86', stroke: '#84806e', sw: 1 }, // cooling rack
+            { fig: 'Rectangle', xy: '79 16', size: '12 10', fill: '#948e7b' }, // fresh castings
+            { fig: 'Rectangle', xy: '79 32', size: '12 10', fill: '#948e7b' },
+            { fig: 'Rectangle', xy: '79 48', size: '12 10', fill: '#948e7b' },
+            { fig: 'Rectangle', xy: '0 0', size: '100 6', fill: '#f0b429' }, // hazard band
+            { fig: 'LineH', xy: '0 0', size: '100 6', stroke: '#3f4854', sw: 6, dash: [8, 8] }
+          ],
+          stats: [
+            { label: 'Melt temp', value: '720 °C' },
+            { label: 'Pour weight', value: '1.8 kg' },
+            { label: 'Batch', value: '12 molds' }
+          ]
+        },
+        {
+          key: 8, text: 'CNC Machining', process: 'Mill faces, bore bearing seats', part: 'machinedHousing',
+          status: 'fault', loc: '240 520', cardSide: 'above',
+          frame: [
+            { fig: 'Rectangle', xy: '0 0', size: '104 72', fill: '#98a3af', stroke: '#6e7987', sw: 1 }, // enclosure
+            { fig: 'Rectangle', xy: '8 20', size: '56 44', fill: '#6e7987', stroke: '#4a5560', sw: 1 }, // door window
+            { fig: 'Rectangle', xy: '16 34', size: '32 22', fill: '#b8c2cc', stroke: '#8d99a6', sw: 1 }, // housing on the table
+            { fig: 'Circle', xy: '20 38', size: '10 10', fill: '#5f6a76' }, // bored bearing seats
+            { fig: 'Circle', xy: '34 40', size: '8 8', fill: '#5f6a76' },
+            { fig: 'Circle', xy: '28 22', size: '8 8', fill: '#c9d0d8' }, // spindle over the part
+            { fig: 'Circle', xy: '70 6', size: '28 28', fill: '#6e7987', stroke: '#4a5560', sw: 1 }, // tool carousel
+            { fig: 'Circle', xy: '74 10', size: '6 6', fill: '#c9d0d8' }, // tools ringed on it
+            { fig: 'Circle', xy: '88 10', size: '6 6', fill: '#c9d0d8' },
+            { fig: 'Circle', xy: '74 24', size: '6 6', fill: '#c9d0d8' },
+            { fig: 'Circle', xy: '88 24', size: '6 6', fill: '#c9d0d8' },
+            { fig: 'Rectangle', xy: '72 42', size: '26 22', fill: '#8d99a6', stroke: '#6e7987', sw: 1 }, // control cabinet
+            { fig: 'Rectangle', xy: '76 46', size: '18 8', fill: '#2d3748' }, // display
+            { fig: 'Circle', xy: '76 58', size: '4 4', fill: '#ef4444' }, // fault light
+            { fig: 'Circle', xy: '83 58', size: '4 4', fill: '#f0b429' }
+          ],
+          stats: [
+            { label: 'Spindle load', value: '4%' },
+            { label: 'Tool life', value: '0%' },
+            { label: 'Fault', value: 'Tool breakage' }
+          ]
+        },
+        {
+          key: 9, text: 'Assembly Cell', process: 'Seat gears and shafts in housing', part: 'gearbox',
+          status: 'running', loc: '720 260', cardSide: 'below',
+          frame: [
+            { fig: 'Rectangle', xy: '0 0', size: '110 76', fill: '#98a3af', stroke: '#6e7987', sw: 1 }, // cell floor
+            { fig: 'Circle', xy: '8 8', size: '24 24', fill: '#6e7987', stroke: '#4a5560', sw: 1 }, // robot base
+            { fig: 'Rectangle', xy: '16 16', size: '8 30', fill: '#f0b429', stroke: '#c98d1a', sw: 1 }, // upper arm
+            { fig: 'Rectangle', xy: '16 42', size: '30 8', fill: '#f0b429', stroke: '#c98d1a', sw: 1 }, // forearm
+            { fig: 'Circle', xy: '14 40', size: '12 12', fill: '#6e7987' }, // elbow joint
+            { fig: 'Circle', xy: '42 42', size: '8 8', fill: '#4a5560' }, // gripper
+            { fig: 'Rectangle', xy: '52 24', size: '46 44', fill: '#c9d0d8', stroke: '#9aa4b0', sw: 1 }, // fixture table
+            { fig: 'Rectangle', xy: '58 32', size: '34 28', fill: '#b8c2cc', stroke: '#8d99a6', sw: 1 }, // open housing
+            { fig: 'Circle', xy: '60 36', size: '20 20', fill: '#55627a', stroke: '#3f4854', sw: 2, dash: [3, 2] }, // gear seated
+            { fig: 'Circle', xy: '78 40', size: '12 12', fill: '#5f6d86', stroke: '#3f4854', sw: 1, dash: [2, 2] }, // pinion
+            { fig: 'Rectangle', xy: '52 6', size: '20 14', fill: '#8d99a6', stroke: '#6e7987', sw: 1 }, // shaft bin
+            { fig: 'Rectangle', xy: '55 10', size: '14 2', fill: '#c2ccd6' },
+            { fig: 'Rectangle', xy: '55 14', size: '14 2', fill: '#c2ccd6' },
+            { fig: 'Rectangle', xy: '78 6', size: '20 14', fill: '#8d99a6', stroke: '#6e7987', sw: 1 }, // gear bin
+            { fig: 'Circle', xy: '81 8', size: '10 10', fill: '#55627a' },
+            { fig: 'Circle', xy: '89 9', size: '8 8', fill: '#5f6d86' }
+          ],
+          stats: [
+            { label: 'Cycle time', value: '74 s' },
+            { label: 'Torque spec', value: '18 N·m' },
+            { label: 'Shift count', value: '214' }
+          ]
+        },
+        {
+          key: 10, text: 'Final Inspection', process: 'Spin test and dimensional checks', part: 'inspected',
+          status: 'running', loc: '980 260', cardSide: 'above',
+          frame: [
+            { fig: 'Rectangle', xy: '0 0', size: '90 70', fill: '#c9d0d8', stroke: '#9aa4b0', sw: 1 }, // granite table
+            { fig: 'Rectangle', xy: '30 42', size: '30 20', fill: '#c2ccd6', stroke: '#8d99a6', sw: 1 }, // gearbox under test
+            { fig: 'Circle', xy: '34 48', size: '8 8', fill: '#5f6a76' }, // its shaft ends
+            { fig: 'Circle', xy: '49 49', size: '6 6', fill: '#5f6a76' },
+            { fig: 'Rectangle', xy: '2 0', size: '8 70', fill: '#98a3af', stroke: '#6e7987', sw: 1 }, // gantry rails
+            { fig: 'Rectangle', xy: '80 0', size: '8 70', fill: '#98a3af', stroke: '#6e7987', sw: 1 },
+            { fig: 'Rectangle', xy: '2 24', size: '86 12', fill: '#6e7987', stroke: '#4a5560', sw: 1 }, // bridge
+            { fig: 'Rectangle', xy: '38 22', size: '14 16', fill: '#98a3af', stroke: '#6e7987', sw: 1 }, // probe carriage
+            { fig: 'Circle', xy: '42 38', size: '6 6', fill: '#f0b429' } // touch probe on the gearbox
+          ],
+          stats: [
+            { label: 'Pass rate', value: '99.1%' },
+            { label: 'Backlash', value: '12 arcmin' },
+            { label: 'Noise', value: '61 dB' }
+          ]
+        },
+        {
+          key: 11, text: 'Packaging', process: 'Crate for dispatch', part: 'packed',
+          status: 'running', loc: '980 520', cardSide: 'above',
+          frame: [
+            { fig: 'Rectangle', xy: '0 18', size: '54 24', fill: '#b0bac4', stroke: '#98a3af', sw: 1 }, // roller table
+            { fig: 'Rectangle', xy: '6 20', size: '3 20', fill: '#8d99a6' }, // rollers
+            { fig: 'Rectangle', xy: '16 20', size: '3 20', fill: '#8d99a6' },
+            { fig: 'Rectangle', xy: '26 20', size: '3 20', fill: '#8d99a6' },
+            { fig: 'Rectangle', xy: '36 20', size: '3 20', fill: '#8d99a6' },
+            { fig: 'Rectangle', xy: '46 20', size: '3 20', fill: '#8d99a6' },
+            { fig: 'Rectangle', xy: '13 22', size: '17 17', fill: '#c2ccd6', stroke: '#5f6a76', sw: 1 }, // sealed gearbox arriving
+            { fig: 'Circle', xy: '16 28', size: '5 5', fill: '#5f6a76' }, // its shaft ends
+            { fig: 'Circle', xy: '24 28', size: '4 4', fill: '#5f6a76' },
+            { fig: 'Rectangle', xy: '56 6', size: '48 48', fill: '#b98a4e', stroke: '#8a6437', sw: 1 }, // crate
+            { fig: 'Rectangle', xy: '56 26', size: '48 8', fill: '#9c7240' }, // slats
+            { fig: 'Rectangle', xy: '76 6', size: '8 48', fill: '#9c7240' },
+            { fig: 'Rectangle', xy: '60 10', size: '10 10', fill: '#f4f1ea', stroke: '#c9c2b4', sw: 1 } // shipping label
+          ],
+          stats: [
+            { label: 'Cycle time', value: '30 s' },
+            { label: 'Shift count', value: '186' },
+            { label: 'Uptime', value: '99.7%' }
+          ]
+        }
+      ],
+      linkDataArray: [
+        // the saw splits its output: gear billets right, shaft blanks down
+        { from: 1, to: 3, fromSide: 'Right', toSide: 'Left', carries: 'gearBillet' },
+        { from: 1, to: 6, fromSide: 'Bottom', toSide: 'Top', carries: 'shaftBlank' },
+        { from: 3, to: 4, fromSide: 'Right', toSide: 'Left', carries: 'turned' },
+        { from: 4, to: 5, fromSide: 'Right', toSide: 'Left', carries: 'hobbed' },
+        { from: 6, to: 12, fromSide: 'Right', toSide: 'Left', carries: 'shaftTurned' },
+        // three feeder lines converge on the assembly cell
+        { from: 5, to: 9, fromSide: 'Bottom', toSide: 'Top', carries: 'gear' },
+        { from: 12, to: 9, fromSide: 'Right', toSide: 'Left', carries: 'shaft' },
+        { from: 7, to: 8, fromSide: 'Right', toSide: 'Left', carries: 'castHousing' },
+        { from: 8, to: 9, fromSide: 'Right', toSide: 'Bottom', carries: 'machinedHousing' },
+        // and the finished gearboxes flow out
+        { from: 9, to: 10, fromSide: 'Right', toSide: 'Left', carries: 'gearbox' },
+        { from: 10, to: 11, fromSide: 'Bottom', toSide: 'Top', carries: 'inspectedBox' }
+      ]
+    });
+
+    // keep the conveyor belts moving
+    const beltAnimation = new go.Animation();
+    beltAnimation.easing = go.Animation.EaseLinear;
+    beltAnimation.duration = 900;
+    beltAnimation.runCount = Infinity;
+    myDiagram.links.each(link => {
+      const slats = link.findObject('SLATS');
+      if (slats) beltAnimation.add(slats, 'strokeDashOffset', 14, 0);
+    });
+    beltAnimation.start();
+
+    myDiagram.addLayerAfter(
+      new go.Layer({ name: 'BeltItems', isTemporary: true }),
+      myDiagram.findLayer('Background')
+    );
+
+    // what each belt carries, keyed by the link data's 'carries' property
+    const PIECE_STYLES = {
+      gearBillet: { fill: '#8d99a6', size: 9 },
+      shaftBlank: { fill: '#8d99a6', size: 7 },
+      turned: { fill: '#aab4bf', size: 10, bored: true },
+      hobbed: { fill: '#b0bac4', size: 11, bored: true },
+      gear: { fill: '#55627a', size: 11, bored: true },
+      shaftTurned: { fill: '#9aa4b0', size: 8 },
+      shaft: { fill: '#c2ccd6', size: 8 },
+      castHousing: { shape: 'Square', fill: '#a09a86', size: 12 },
+      machinedHousing: { shape: 'Square', fill: '#b8c2cc', size: 12, bored: true },
+      gearbox: { shape: 'Square', fill: '#6e7987', size: 13, bored: true },
+      inspectedBox: { shape: 'Square', fill: '#c2ccd6', size: 13 } // sealed under its lid
+    };
+
+    function makePiece(style) {
+      const piece = new go.Part('Spot', {
+        layerName: 'BeltItems',
+        locationSpot: go.Spot.Center,
+        selectable: false,
+        pickable: false
+      })
+        .add(
+          new go.Shape(style.shape || 'Circle', {
+            desiredSize: new go.Size(style.size, style.size),
+            fill: style.fill,
+            stroke: '#5f6a76', // outlined so pale parts still read against the pale belt
+            strokeWidth: 1
+          })
+        );
+      if (style.bored) {
+        piece.add(new go.Shape('Circle', { desiredSize: new go.Size(3, 3), fill: '#4a5560', strokeWidth: 0 }));
+      }
+      myDiagram.add(piece);
+      return piece;
+    }
+
+    const PIECE_SPACING = 60; // distance between successive workpieces on a belt
+    const BELT_SPEED = 14 / 900; // pixels per millisecond -- the slat dashes' own rate
+
+    const belts = [];
+    myDiagram.links.each(link =>
+      belts.push({ link, style: PIECE_STYLES[link.data.carries], travel: 0, pieces: [] }));
+
+    let lastTime = 0;
+    function stepPieces(now) {
+      const dt = lastTime === 0 ? 0 : Math.min(now - lastTime, 100);
+      lastTime = now;
+      // commit with a null transaction name, so these moves are never undoable
+      myDiagram.commit(d => {
+        for (const belt of belts) {
+          const link = belt.link;
+          const geo = link.diagram !== null ? link.geometry : null;
+          const length = geo !== null ? geo.flattenedTotalLength : 0;
+          // one piece per stretch of belt; recount whenever a drag reroutes the link
+          const count = length > 0 ? Math.max(1, Math.round(length / PIECE_SPACING)) : 0;
+          while (belt.pieces.length < count) belt.pieces.push(makePiece(belt.style));
+          while (belt.pieces.length > count) d.remove(belt.pieces.pop());
+          if (count === 0) continue;
+          // spread the pieces evenly along the belt; since the route's ends are
+          // hidden under the machines, each piece slips beneath the downstream
+          // machine and wraps back, out of sight, to emerge from the upstream one
+          belt.travel = (belt.travel + dt * BELT_SPEED) % length;
+          const spacing = length / count;
+          const origin = link.routeBounds.position; // the geometry's document origin
+          for (let i = 0; i < belt.pieces.length; i++) {
+            const frac = ((belt.travel + i * spacing) % length) / length;
+            const pt = geo.getPointAlongPath(frac);
+            belt.pieces[i].location = new go.Point(pt.x + origin.x, pt.y + origin.y);
+          }
+        }
+      }, null);
+      requestAnimationFrame(stepPieces);
+    }
+    requestAnimationFrame(stepPieces);
+
+    // start with one machine selected, so its info card is visible;
+    // Final Inspection's card opens into an empty corner of the floor
+    myDiagram.select(myDiagram.findNodeForKey(10));
+  }
+
+  window.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>

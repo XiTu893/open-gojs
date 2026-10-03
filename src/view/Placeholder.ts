@@ -1,11 +1,13 @@
 import { GraphObject } from './GraphObject';
 import { Rect } from '../core/Rect';
 import { Point } from '../core/Point';
+import { Margin } from '../core/Margin';
 import type { Group } from './Group';
 
 export class Placeholder extends GraphObject {
   static readonly className: string = "Placeholder";
-  private _padding: number = 0;
+  /** 官方 Placeholder.padding：number 或 Margin（官方 setter 把 number 归一成 Margin） */
+  private _padding: number | Margin = 0;
 
   constructor(init?: Placeholder) {
     super();
@@ -16,14 +18,26 @@ export class Placeholder extends GraphObject {
     }
   }
 
-  get padding(): number {
+  get padding(): number | Margin {
     return this._padding;
   }
-  set padding(val: number) {
-    if (this._padding !== val) {
-      this._padding = val;
-      this._invalidateMeasure();
-    }
+  set padding(val: number | Margin) {
+    const old = this._padding;
+    const differs = (typeof val === 'number' || typeof old === 'number')
+      ? val !== old
+      : !(old as Margin).equals || !(old as Margin).equals(val as Margin);
+    if (!differs) return;
+    this._padding = val;
+    this._invalidateMeasure();
+  }
+
+  /** padding 的四边值（number 四边均匀；Margin 按 top/right/bottom/left） */
+  private _padSides(): { t: number; r: number; b: number; l: number } {
+    const p = this._padding;
+    if (typeof p === 'number') return { t: p, r: p, b: p, l: p };
+    const m = p as Margin;
+    const nz = (v: any): number => (typeof v === 'number' && isFinite(v) ? v : 0);
+    return { t: nz((m as any).top), r: nz((m as any).right), b: nz((m as any).bottom), l: nz((m as any).left) };
   }
 
   get _placeholderBounds(): Rect {
@@ -73,7 +87,7 @@ export class Placeholder extends GraphObject {
   }
 
   /**
-   * 官方 `Placeholder.computeBorder(result)`：成员并集再按 `margin` 外扩，写入 `result`（原地修改并返回）。
+   * 官方 `Placeholder.computeBorder(result)`：成员并集再按 `padding`（Margin）外扩，写入 `result`。
    * - 子图折叠（`!isSubGraphExpanded`）时宽高为 0；
    * - `Group.computesBoundsIncludingLocation` 且 group.location 有效时，把 location 并入边界。
    */
@@ -84,15 +98,15 @@ export class Placeholder extends GraphObject {
     if (group === null) return result;
     const union = new Rect();
     this.computeMemberBounds(union);
-    const m = this.margin;
+    const p = this._padSides();
     if (!group.isSubGraphExpanded) {
-      result.setTo(union.x - m.left, union.y - m.top, 0, 0);
+      result.setTo(union.x - p.l, union.y - p.t, 0, 0);
     } else {
       result.setTo(
-        union.x - m.left,
-        union.y - m.top,
-        Math.max(union.width + m.left + m.right, 0),
-        Math.max(union.height + m.top + m.bottom, 0)
+        union.x - p.l,
+        union.y - p.t,
+        Math.max(union.width + p.l + p.r, 0),
+        Math.max(union.height + p.t + p.b, 0)
       );
     }
     if (group.computesBoundsIncludingLocation && group.location.isReal()) {
@@ -128,8 +142,13 @@ export class Placeholder extends GraphObject {
       }
       let border: Rect;
       if (union) {
-        const pad = this._padding;
-        border = new Rect(union.x - pad, union.y - pad, union.width + pad * 2, union.height + pad * 2);
+        const pad = this._padSides();
+        border = new Rect(
+          union.x - pad.l,
+          union.y - pad.t,
+          union.width + pad.l + pad.r,
+          union.height + pad.t + pad.b
+        );
       } else {
         const gloc = group.location;
         border = new Rect(gloc && !isNaN(gloc.x) ? gloc.x : 0, gloc && !isNaN(gloc.y) ? gloc.y : 0, 0, 0);

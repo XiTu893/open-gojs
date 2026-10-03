@@ -1,141 +1,59 @@
-﻿
 <!DOCTYPE html>
-<html lang="en">
-  <head>
-    
-    <meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover"/>
-
-<meta name="description" content="A continuously operating ForceDirectedLayout lets the user push and pull nodes around." />
-<meta itemprop="description" content="A continuously operating ForceDirectedLayout lets the user push and pull nodes around." />
-<meta property="og:description" content="A continuously operating ForceDirectedLayout lets the user push and pull nodes around." />
-<meta name="twitter:description" content="A continuously operating ForceDirectedLayout lets the user push and pull nodes around." />
-
-
-<link rel="preconnect" href="https://rsms.me/">
-
-<!-- Copyright 1998-2026 by Northwoods Software Corporation. -->
-
-
-<meta itemprop="name" content="Interactive Force Directed Layout During Dragging" />
-<meta property="og:title" content="Interactive Force Directed Layout During Dragging" />
-<meta name="twitter:title" content="Interactive Force Directed Layout During Dragging" />
-
-
-<meta property="og:image" content="https://gojs.net/latest/assets/images/screenshots/interactiveforce.png" />
-<meta itemprop="image" content="https://gojs.net/latest/assets/images/screenshots/interactiveforce.png" />
-<meta name="twitter:image" content="https://gojs.net/latest/assets/images/screenshots/interactiveforce.png" />
-
-<meta property="og:url" content="https://gojs.net/latest/samples/interactiveForce.html" />
-<meta property="twitter:url" content="https://gojs.net/latest/samples/interactiveForce.html" />
-
-<meta name="twitter:card" content="summary_large_image" />
-<meta property="og:type" content="website" />
-<meta property="twitter:domain" content="gojs.net" />
-
-    <title>
-      Interactive Force Directed Layout During Dragging | GoJS Diagramming Library
-    </title>
-  </head>
-
-  <body>
-    <!-- This top nav is not part of the sample code -->
-    <nav id="navTop" class=" w-full h-[var(--topnav-h)] z-30 bg-white border-b border-b-gray-200">
-  <div class="max-w-screen-xl mx-auto flex flex-wrap items-start justify-between px-4">
-    <a class="text-white bg-nwoods-primary font-bold !leading-[calc(var(--topnav-h)_-_1px)] my-0 px-2 text-4xl lg:text-5xl logo"
-       href="../">
-      GoJS
-    </a>
-    <div class="relative">
-      <button id="topnavButton" class="h-[calc(var(--topnav-h)_-_1px)] px-2 m-0 text-gray-900 bg-inherit shadow-none md:hidden hover:!bg-inherit hover:!text-nwoods-accent hover:!shadow-none" aria-label="Navigation">
-        <svg class="h-7 w-7 block" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </button>
-      <div id="topnavList" class="hidden md:block">
-        <div class="absolute right-0 z-30 flex flex-col items-end rounded border border-gray-200 p-4 pl-12 shadow bg-white text-gray-900 font-semibold
-                    md:flex-row md:space-x-4 md:items-start md:border-0 md:p-0 md:shadow-none md:bg-inherit">
-          <a href="../learn/">Learn</a>
-          <a href="../samples/">Samples</a>
-          <a href="../intro/">Intro</a>
-          <a href="../api/">API</a>
-          <a href="../download.html">Download</a>
-          <a href="https://forum.nwoods.com/c/gojs/11" target="_blank" rel="noopener">Forum</a>
-          <a id="tc" href="https://nwoods.com/contact.html"
-            target="_blank" rel="noopener" onclick="getOutboundLink('https://nwoods.com/contact.html', 'contact');">Contact</a>
-          <a id="tb" href="https://nwoods.com/sales/index.html"
-            target="_blank" rel="noopener" onclick="getOutboundLink('https://nwoods.com/sales/index.html', 'buy');">Buy</a>
-        </div>
-      </div>
-    </div>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Interactive Force Directed Layout During Dragging</title>
+  <script src="../dist/open-gojs.umd.js"></script>
+  
+  
+  
+  
+</head>
+<body>
+<div id="myDiagramDiv" style="background-color: whitesmoke; border: solid 1px black; width: 100%; height: 700px"></div>
+  <div id="description">
+<p>As you drag a node around, the custom <a href="https://gojs.net/latest/api/symbols/ForceDirectedLayout.html" target="api">ForceDirectedLayout</a> operates continuously, causing other nodes to be pushed aside or pulled along.</p>
+  <p>The graph is exactly the same as the <a href="conceptMap.html">Concept Map</a> sample. But the node template is different, and the layout is different.</p>
   </div>
-</nav>
-<script>
-  window.addEventListener("DOMContentLoaded", function () {
-    // topnav
-    var topButton = document.getElementById("topnavButton");
-    var topnavList = document.getElementById("topnavList");
-    if (topButton && topnavList) {
-      topButton.addEventListener("click", function (e) {
-        topnavList
-          .classList
-          .toggle("hidden");
-        e.stopPropagation();
-      });
-      document.addEventListener("click", function (e) {
-        // if the clicked element isn't the list, close the list
-        if (!topnavList.classList.contains("hidden") && !e.target.closest("#topnavList")) {
-          topButton.click();
-        }
-      });
-
-      // set active <a> element
-      var url = window
-        .location
-        .href
-        .toLowerCase();
-      var aTags = topnavList.getElementsByTagName('a');
-      for (var i = 0; i < aTags.length; i++) {
-        var lowerhref = aTags[i]
-          .href
-          .toLowerCase();
-        if (lowerhref.endsWith('.html')) 
-          lowerhref = lowerhref.slice(0, -5);
-        if (url.startsWith(lowerhref)) {
-          aTags[i]
-            .classList
-            .add('active');
-          break;
-        }
-      }
-    }
-  });
-</script>
-    <div class="flex flex-col prose">
-      <div class="w-full max-w-screen-xl mx-auto">
-        <!-- * * * * * * * * * * * * * -->
-        <!-- Start of GoJS sample code -->
-        <script src="../dist/open-gojs.umd.js"></script>
-
-        
-
-        <div id="allSampleContent" class="p-4 w-full">
-          
-            
-            
-
-<script id="code">
-
-  // This variation on ForceDirectedLayout does not move any selected Nodes
+  <script >
+// This variation on ForceDirectedLayout does not move any selected Nodes
   // but does move all other nodes (vertexes).
+  //
+  // It is meant to be run repeatedly, once per mouse-move during a drag. This layout
+  // treats each call as one small step of an ongoing simulation, so the graph eases
+  // towards its new shape rather than snapping to it.
   class ContinuousForceDirectedLayout extends go.ForceDirectedLayout {
     constructor(init) {
       super();
+      // how many iterations to run per mouse-move, once the graph has been laid out once;
+      // the very first layout still gets the full ForceDirectedLayout.maxIterations
+      this.dragIterations = 3;
+      // fraction of each vertex's previous movement carried into its next one:
+      // 0 makes nodes jitter back and forth, values near 1 make them barely respond
+      this.smoothing = 0.75;
       if (init) Object.assign(this, init);
+      this._hasLaidOut = false;
     }
 
     isFixed(v) {
       return v.node.isSelected;
+    }
+
+    // Move each vertex partway along the force acting on it, blended with the movement it made last time.
+    moveVertex(v) {
+      // the initial layout is a normal ForceDirectedLayout, so let it move nodes normally
+      if (!this._hasLaidOut) return super.moveVertex(v);
+      var mag = Math.sqrt(v.forceX * v.forceX + v.forceY * v.forceY);
+      var scale = mag > 0 ? this.moveLimit / (this.moveLimit + mag) : 0;
+      var keep = this.smoothing;
+      var dx = (v.lastMoveX || 0) * keep + v.forceX * scale * (1 - keep);
+      var dy = (v.lastMoveY || 0) * keep + v.forceY * scale * (1 - keep);
+      v.lastMoveX = dx;
+      v.lastMoveY = dy;
+      v.centerX += dx;
+      v.centerY += dy;
+      return dx * dx + dy * dy;  // the square of the distance moved
     }
 
     // optimization: reuse the ForceDirectedNetwork rather than re-create it each time
@@ -150,6 +68,8 @@
           // Also clear the network when replacing the model.
           if (e.modelChange !== '' || (e.change === go.ChangeType.Transaction && e.propertyName === 'StartingFirstTransaction')) {
             this.network = null;
+            // a brand new network needs a full layout again, not an incremental step
+            this._hasLaidOut = false;
           }
         });
       }
@@ -164,14 +84,14 @@
           if (v !== null) v.bounds = n.actualBounds;
         });
       }
+      // after the first layout, each call is just a nudge towards the new solution
+      if (this._hasLaidOut) this.maxIterations = this.dragIterations;
       // now perform the normal layout
       super.doLayout(coll);
       // doLayout normally discards the LayoutNetwork by setting Layout.network to null;
       // here we remember it for next time
       this.network = net;
-
-      // in the future, don't allow nodes to move as far
-      //this.initialTemperature = x => 10;
+      this._hasLaidOut = true;
     }
   }
   // end ContinuousForceDirectedLayout
@@ -181,7 +101,8 @@
       initialAutoScale: go.AutoScale.Uniform, // an initial automatic zoom-to-fit
       contentAlignment: go.Spot.Center, // align document to the center of the viewport
       layout: new ContinuousForceDirectedLayout({ // automatically spread nodes apart while dragging
-        defaultSpringLength: 150
+        moveLimit: 10,
+        defaultElectricalCharge: 500
       }),
       // do an extra layout at the end of a move
       SelectionMoved: e => e.diagram.layout.invalidateLayout()
@@ -290,56 +211,6 @@
   }
 
   window.addEventListener('DOMContentLoaded', init);
-</script>
-
-<div id="sample">
-  <div id="myDiagramDiv" style="background-color: whitesmoke; border: solid 1px black; width: 100%; height: 700px"></div>
-  <p>As you drag a node around, the custom <a>ForceDirectedLayout</a> operates continuously, causing other nodes to be pushed aside or pulled along.</p>
-  <p>The graph is exactly the same as the <a href="conceptMap.html">Concept Map</a> sample. But the node template is different, and the layout is different.</p>
-</div>
-
-          
-        </div>
-        <!-- * * * * * * * * * * * * * -->
-        <!--  End of GoJS sample code  -->
-      </div>
-
-      <div id="allTagDescriptions" class="p-4 w-full max-w-screen-xl mx-auto">
-        <hr/>
-        <h3 class="text-xl">GoJS Features in this sample</h3>
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Force Directed Layout</h4>
-<p>
-This predefined layout treats the graph as if it were a system of physical bodies with forces acting on and between them.
-The layout iteratively moves nodes and links to minimize the total sum of forces on each node. The resulting layout will normally not contain
-overlapping Nodes, excluding cases where the graph is densely interconnected.
-More information can be found in the <a href="../intro/layouts.html#ForceDirectedLayout">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#force-directed">Related samples</a>
-            </p>
-            <hr>
-          
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Custom Layouts</h4>
-<p>
-  GoJS allows for the creation of custom layouts to meet specific needs. 
-</p>
-<p>
-There are also many layouts that are extensions -- not predefined in the <code>go.js</code> or <code>go-debug.js</code> library,
-but available as source code in one of the three extension directories, with some documentation and corresponding samples.
-More information can be found in the <a href="../intro/layouts.html#CustomLayouts">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#customlayout">Related samples</a>
-            </p>
-            <hr>
-          
-        </div>
-    </div>
-  </body>
-  <!--  This script is part of the gojs.net website, and is not needed to run the sample -->
-  
+  </script>
+</body>
 </html>

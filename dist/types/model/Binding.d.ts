@@ -10,8 +10,12 @@ export declare class Binding {
     mode: EnumValue;
     sourceObject: string | null;
     name: string;
-    /** 官方 ThemeBinding.themeConverter：主题取值后的转换（在普通 converter 之前） */
+    /** 官方 ThemeBinding.themeConverter：findValue 之后的转换 */
     themeConverter: ((value: any, targetObject: any, model?: any) => any) | null;
+    /** 官方 ThemeBinding.themeSource：findValue 的 theme 子路径（'colors' / 'levels' ...） */
+    themeSource: string | null;
+    /** 官方 theme()/themeObject()/themeData()/themeModel() 建立的主题绑定（flags&16） */
+    isThemeBinding: boolean;
     constructor(targetProperty?: string, sourceProperty?: string, conversion?: (value: any, targetObject: any, model: any) => any);
     get isTwoWay(): boolean;
     get isFromModel(): boolean;
@@ -21,6 +25,23 @@ export declare class Binding {
     ofObject(name?: string): Binding;
     copy(): Binding;
     getValueFromSource(data: any, targetObject: any, model: any): any;
+    /**
+     * 官方 ThemeBinding 求值（GraphObject.qo - Binding.updateTarget - ThemeBinding.pv）：
+     *  - theme()（sourceObject === 'theme'，官方 PT 标志）：key 直接用 sourceProperty，
+     *    findValue 后接 themeConverter；
+     *  - themeObject()/themeData()/themeModel()：先按 source 求源值，源值 undefined 整段跳过，
+     *    再跑 converter 得到主题 key，findValue 后接 themeConverter。
+     */
+    private _getThemeValue;
+    /**
+     * 官方 GraphObject.CD(sourceName) + freezeBindings(Ut) 语义：
+     * 官方在模板冻结时把所有子对象的绑定收集进 part.Xs，求值时 RN/DD 的 `this`=part，
+     * 因此 sourceName='' → DD('')=this=**part**（实测官方 updateTarget 收到的源对象是 Node）。
+     * 官方 RN 末尾的覆盖：'/'→elt.part、'.'→elt、'..'→elt.panel；
+     * 本实现中绑定就挂在 elt（owner）上，故 ''/'/' 取 part、'.' 取自身、'..' 取所在面板。
+     * 具名对象从 part.findObject(name) 找。
+     */
+    private _findSourceObject;
     getValueFromTarget(targetValue: any, data: any, model: any): any;
     toString(): string;
     private _targetId;
@@ -40,7 +61,7 @@ export declare class Binding {
     get isToModel(): boolean;
     /** 官方 Binding.isToObject：源是某个 GraphObject（theme 绑定不算） */
     get isToObject(): boolean;
-    /** 官方 Binding.isToTheme：theme() 建立的主题绑定（sourceObject === 'theme'） */
+    /** 官方 Binding.isToTheme：theme/themeObject/themeData/themeModel 的主题绑定（flags&16） */
     get isToTheme(): boolean;
     /** 官方 Binding.cloneProtected */
     cloneProtected(copy: Binding): void;

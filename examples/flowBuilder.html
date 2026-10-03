@@ -1,132 +1,67 @@
-﻿
 <!DOCTYPE html>
-<html lang="en">
-  <head>
-    
-    <meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover"/>
-
-<meta name="description" content="An editor of flow diagrams that supports deletion by dropping onto a particular node and relinking by dragging a link." />
-<meta itemprop="description" content="An editor of flow diagrams that supports deletion by dropping onto a particular node and relinking by dragging a link." />
-<meta property="og:description" content="An editor of flow diagrams that supports deletion by dropping onto a particular node and relinking by dragging a link." />
-<meta name="twitter:description" content="An editor of flow diagrams that supports deletion by dropping onto a particular node and relinking by dragging a link." />
-
-
-<link rel="preconnect" href="https://rsms.me/">
-
-<!-- Copyright 1998-2026 by Northwoods Software Corporation. -->
-
-
-<meta itemprop="name" content="Flow Builder for Building Acyclic Graphs" />
-<meta property="og:title" content="Flow Builder for Building Acyclic Graphs" />
-<meta name="twitter:title" content="Flow Builder for Building Acyclic Graphs" />
-
-
-<meta property="og:image" content="https://gojs.net/latest/assets/images/screenshots/flowbuilder.png" />
-<meta itemprop="image" content="https://gojs.net/latest/assets/images/screenshots/flowbuilder.png" />
-<meta name="twitter:image" content="https://gojs.net/latest/assets/images/screenshots/flowbuilder.png" />
-
-<meta property="og:url" content="https://gojs.net/latest/samples/flowBuilder.html" />
-<meta property="twitter:url" content="https://gojs.net/latest/samples/flowBuilder.html" />
-
-<meta name="twitter:card" content="summary_large_image" />
-<meta property="og:type" content="website" />
-<meta property="twitter:domain" content="gojs.net" />
-
-    <title>
-      Flow Builder for Building Acyclic Graphs | GoJS Diagramming Library
-    </title>
-  </head>
-
-  <body>
-    <!-- This top nav is not part of the sample code -->
-    <nav id="navTop" class=" w-full h-[var(--topnav-h)] z-30 bg-white border-b border-b-gray-200">
-  <div class="max-w-screen-xl mx-auto flex flex-wrap items-start justify-between px-4">
-    <a class="text-white bg-nwoods-primary font-bold !leading-[calc(var(--topnav-h)_-_1px)] my-0 px-2 text-4xl lg:text-5xl logo"
-       href="../">
-      GoJS
-    </a>
-    <div class="relative">
-      <button id="topnavButton" class="h-[calc(var(--topnav-h)_-_1px)] px-2 m-0 text-gray-900 bg-inherit shadow-none md:hidden hover:!bg-inherit hover:!text-nwoods-accent hover:!shadow-none" aria-label="Navigation">
-        <svg class="h-7 w-7 block" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </button>
-      <div id="topnavList" class="hidden md:block">
-        <div class="absolute right-0 z-30 flex flex-col items-end rounded border border-gray-200 p-4 pl-12 shadow bg-white text-gray-900 font-semibold
-                    md:flex-row md:space-x-4 md:items-start md:border-0 md:p-0 md:shadow-none md:bg-inherit">
-          <a href="../learn/">Learn</a>
-          <a href="../samples/">Samples</a>
-          <a href="../intro/">Intro</a>
-          <a href="../api/">API</a>
-          <a href="../download.html">Download</a>
-          <a href="https://forum.nwoods.com/c/gojs/11" target="_blank" rel="noopener">Forum</a>
-          <a id="tc" href="https://nwoods.com/contact.html"
-            target="_blank" rel="noopener" onclick="getOutboundLink('https://nwoods.com/contact.html', 'contact');">Contact</a>
-          <a id="tb" href="https://nwoods.com/sales/index.html"
-            target="_blank" rel="noopener" onclick="getOutboundLink('https://nwoods.com/sales/index.html', 'buy');">Buy</a>
-        </div>
-      </div>
-    </div>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Flow Builder for Building Acyclic Graphs</title>
+  <script src="../dist/open-gojs.umd.js"></script>
+  
+  
+  
+  
+</head>
+<body>
+<div id="myDiagramDiv" style="border: solid 1px black; width: 100%; height: 500px"></div>
+  <button onclick="layout()">Diagram Layout</button>
+  <div style="margin-block: .5em;">
+    <button id="SaveButton" onclick="save()">Save</button>
+    <button onclick="load()">Load</button>
+    Diagram Model saved in JSON format:
   </div>
-</nav>
-<script>
-  window.addEventListener("DOMContentLoaded", function () {
-    // topnav
-    var topButton = document.getElementById("topnavButton");
-    var topnavList = document.getElementById("topnavList");
-    if (topButton && topnavList) {
-      topButton.addEventListener("click", function (e) {
-        topnavList
-          .classList
-          .toggle("hidden");
-        e.stopPropagation();
-      });
-      document.addEventListener("click", function (e) {
-        // if the clicked element isn't the list, close the list
-        if (!topnavList.classList.contains("hidden") && !e.target.closest("#topnavList")) {
-          topButton.click();
-        }
-      });
-
-      // set active <a> element
-      var url = window
-        .location
-        .href
-        .toLowerCase();
-      var aTags = topnavList.getElementsByTagName('a');
-      for (var i = 0; i < aTags.length; i++) {
-        var lowerhref = aTags[i]
-          .href
-          .toLowerCase();
-        if (lowerhref.endsWith('.html')) 
-          lowerhref = lowerhref.slice(0, -5);
-        if (url.startsWith(lowerhref)) {
-          aTags[i]
-            .classList
-            .add('active');
-          break;
-        }
-      }
-    }
-  });
-</script>
-    <div class="flex flex-col prose">
-      <div class="w-full max-w-screen-xl mx-auto">
-        <!-- * * * * * * * * * * * * * -->
-        <!-- Start of GoJS sample code -->
-        <script src="../dist/open-gojs.umd.js"></script>
-
-        
-
-        <div id="allSampleContent" class="p-4 w-full">
-          
-            
-            
-
-<script id="code">
-
-  // Define a custom tool that changes a drag operation on a Link to a relinking operation,
+  <textarea id="mySavedModel" style="width: 100%; height: 300px">
+{ "class": "go.GraphLinksModel",
+  "nodeDataArray": [
+    { "key":1, "text":"Loading Screen", "category":"Loading" },
+    { "key":2, "text":"Beginning" },
+    { "key":3, "text":"Segment 1" },
+    { "key":4, "text":"Segment 2" },
+    { "key":5, "text":"Segment 3"},
+    { "key":6, "text":"End Screen", "category":"End" },
+    { "key":-2, "category": "Recycle" }
+  ],
+  "linkDataArray": [
+    { "from":1, "to":2 },
+    { "from":2, "to":3 },
+    { "from":2, "to":5 },
+    { "from":3, "to":4 },
+    { "from":4, "to":6 }
+  ]
+}
+  </textarea>
+  <div id="description">
+<p>
+    This sample let's users construct a flowing diagrmam with a few quality of
+    life features. <a href="https://gojs.net/latest/api/symbols/Node.html" target="api">Node</a>s can be deleted by dragging them over the
+    "Drop Here To Delete" box.
+  </p>
+  <p>
+    This sample implements a custom DragLinkingTool that allows <a href="https://gojs.net/latest/api/symbols/Link.html" target="api">Link</a>s to
+    be re-linked by dragging them to different <a href="https://gojs.net/latest/api/symbols/Node.html" target="api">Node</a>s.
+  </p>
+  <p>
+    To create a new <a href="https://gojs.net/latest/api/symbols/Node.html" target="api">Node</a>, click the "+". This will create and link a new
+    <a href="https://gojs.net/latest/api/symbols/Node.html" target="api">Node</a>.
+  </p>
+  <p>
+    When <a href="https://gojs.net/latest/api/symbols/Node.html" target="api">Node</a>s are dragged to new locations they will be snapped to the
+    nearest lane.
+  </p>
+  <p>
+    All <a href="https://gojs.net/latest/api/symbols/Node.html" target="api">Node</a>s <a href="https://gojs.net/latest/api/symbols/TextBlock.html" target="api">TextBlock</a>s are editable.
+  </p>
+  </div>
+  <script >
+// Define a custom tool that changes a drag operation on a Link to a relinking operation,
   // but that operates like a normal DraggingTool otherwise.
   class DragLinkingTool extends go.DraggingTool {
     constructor(init) {
@@ -542,152 +477,6 @@
   }
 
   window.addEventListener('DOMContentLoaded', init);
-</script>
-
-<div id="sample">
-  <div id="myDiagramDiv" style="border: solid 1px black; width: 100%; height: 500px"></div>
-  <button onclick="layout()">Diagram Layout</button>
-  <p>
-    This sample let's users construct a flowing diagrmam with a few quality of
-    life features. <a>Node</a>s can be deleted by dragging them over the
-    "Drop Here To Delete" box.
-  </p>
-  <p>
-    This sample implements a custom DragLinkingTool that allows <a>Link</a>s to
-    be re-linked by dragging them to different <a>Node</a>s.
-  </p>
-  <p>
-    To create a new <a>Node</a>, click the "+". This will create and link a new
-    <a>Node</a>.
-  </p>
-  <p>
-    When <a>Nodes</a> are dragged to new locations they will be snapped to the
-    nearest lane.
-  </p>
-  <p>
-    All <a>Node</a>s <a>TextBlock</a>s are editable.
-  </p>
-  <button id="SaveButton" onclick="save()">Save</button>
-  <button onclick="load()">Load</button>
-  <br />
-  <textarea id="mySavedModel" style="width: 100%; height: 300px">
-{ "class": "go.GraphLinksModel",
-  "nodeDataArray": [
-    { "key":1, "text":"Loading Screen", "category":"Loading" },
-    { "key":2, "text":"Beginning" },
-    { "key":3, "text":"Segment 1" },
-    { "key":4, "text":"Segment 2" },
-    { "key":5, "text":"Segment 3"},
-    { "key":6, "text":"End Screen", "category":"End" },
-    { "key":-2, "category": "Recycle" }
-  ],
-  "linkDataArray": [
-    { "from":1, "to":2 },
-    { "from":2, "to":3 },
-    { "from":2, "to":5 },
-    { "from":3, "to":4 },
-    { "from":4, "to":6 }
-  ]
-}
-  </textarea>
-</div>
-
-          
-        </div>
-        <!-- * * * * * * * * * * * * * -->
-        <!--  End of GoJS sample code  -->
-      </div>
-
-      <div id="allTagDescriptions" class="p-4 w-full max-w-screen-xl mx-auto">
-        <hr/>
-        <h3 class="text-xl">GoJS Features in this sample</h3>
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Layered Digraph Layout</h4>
-<p>
-This predefined layout is used for placing Nodes of a general directed graph in layers (rows or columns). This is more general than <a href="../api/symbols/TreeLayout.html">TreeLayout</a>,
-as it does not require that the graph be tree-structured.
-More information can be found in the <a href="../intro/layouts.html#LayeredDigraphLayout">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#layered-digraph">Related samples</a>
-            </p>
-            <hr>
-          
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Context Menus</h4>
-<p>
-A GoJS context menu is an <a href="../api/symbols/Adornment.html" target="api">Adornment</a> that is shown when the user context-clicks (right mouse click or long touch hold)
-an object that has its <a href="../api/symbols/GraphObject.html#contextMenu" target="api">GraphObject.contextMenu</a> set.
-The context menu is bound to the same data as the part itself.
-</p>
-<p>
-It is typical to implement a context menu as a "ContextMenu" Panel containing "ContextMenuButton"s,
-as you can see in the code below in the assignment of the Node's <a href="../api/symbols/GraphObject.html#contextMenu" target="api">GraphObject.contextMenu</a> and <a href="../api/symbols/Diagram.html#contextMenu" target="api">Diagram.contextMenu</a> properties.
-Each "ContextMenu" is just a "Vertical" Panel <a href="../api/symbols/Adornment.html" target="api">Adornment</a> that is shadowed.
-Each "ContextMenuButton" is a Panel on which you can set the <a href="../api/symbols/GraphObject.html#click" target="api">GraphObject.click</a> event handler.
-In the event handler <code>obj.part</code> will be the whole context menu Adornment.
-<code>obj.part.adornedPart</code> will be the adorned Node or Link.
-The bound data is <code>obj.part.data</code>, which will be the same as <code>obj.part.adornedPart.data</code>.
-</p>
-<p>
-More information can be found in the <a href="../intro/contextMenus.html">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#contextmenus">Related samples</a>
-            </p>
-            <hr>
-          
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Tools</h4>
-<p>
-<a href="../api/symbols/Tool.html" target="api">Tool</a>s handle all input events, such as mouse and keyboard interactions, in a Diagram.
-There are many kinds of predefined Tool classes that implement all of the common operations that users do.
-</p>
-<p>
-For flexibility and simplicity, all input events are canonicalized as <a href="../api/symbols/InputEvent.html" target="api">InputEvent</a>s and
-redirected by the diagram to go to the <a href="../api/symbols/Diagram.html#currentTool" target="api">Diagram.currentTool</a>.
-By default the Diagram.currentTool is an instance of <a href="../api/symbols/ToolManager.html" target="api">ToolManager</a> held as the <a href="../api/symbols/Diagram.html#toolManager" target="api">Diagram.toolManager</a>.
-The ToolManager implements support for all mode-less tools.
-The ToolManager is responsible for finding another tool that is ready to run and then making it the new current tool.
-This causes the new tool to process all of the input events (mouse, keyboard, and touch) until the tool decides that it is finished,
-at which time the diagram's current tool reverts back to the <a href="../api/symbols/Diagram.html#defaultTool" target="api">Diagram.defaultTool</a>, which is normally the ToolManager, again.
-</p>
-<p>
-More information can be found in the <a href="../intro/tools.html">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#tools">Related samples</a>
-            </p>
-            <hr>
-          
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Buttons</h4>
-<p>
-GoJS defines several <a href="../api/symbols/Panel.html" target="api">Panel</a>s for common uses.
-These include "Button", "TreeExpanderButton", "SubGraphExpanderButton", "PanelExpanderButton", "ContextMenuButton", and "CheckBoxButton".
-"ContextMenuButton"s are typically used inside of "ContextMenu" Panels;
-"CheckBoxButton"s are used in the implementation of "CheckBox" Panels.
-</p>
-<p>
-These predefined panels can be used as if they were <a href="../api/symbols/Panel.html" target="api">Panel</a>-derived classes in calls to <a href="../api/symbols/GraphObject.html#build" target="api">GraphObject.build</a>.
-They are implemented as simple visual trees of <a href="../api/symbols/GraphObject.html" target="api">GraphObject</a>s in <a href="../api/symbols/Panel.html" target="api">Panel</a>s,
-with pre-set properties and event handlers.
-</p>
-<p>
-More information can be found in the <a href="../intro/buttons.html">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#buttons">Related samples</a>
-            </p>
-            <hr>
-          
-        </div>
-    </div>
-  </body>
-  <!--  This script is part of the gojs.net website, and is not needed to run the sample -->
-  
+  </script>
+</body>
 </html>

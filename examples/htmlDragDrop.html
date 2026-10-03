@@ -1,135 +1,20 @@
-﻿
 <!DOCTYPE html>
-<html lang="en">
-  <head>
-    
-    <meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover"/>
-
-<meta name="description" content="Use HTML drag-and-drop to implement dragging HTML elements onto a GoJS Diagram to create new nodes. Also demonstrates pasting from the external clipboard." />
-<meta itemprop="description" content="Use HTML drag-and-drop to implement dragging HTML elements onto a GoJS Diagram to create new nodes. Also demonstrates pasting from the external clipboard." />
-<meta property="og:description" content="Use HTML drag-and-drop to implement dragging HTML elements onto a GoJS Diagram to create new nodes. Also demonstrates pasting from the external clipboard." />
-<meta name="twitter:description" content="Use HTML drag-and-drop to implement dragging HTML elements onto a GoJS Diagram to create new nodes. Also demonstrates pasting from the external clipboard." />
-
-
-<link rel="preconnect" href="https://rsms.me/">
-
-<!-- Copyright 1998-2026 by Northwoods Software Corporation. -->
-
-
-<meta itemprop="name" content="Drag and Drop From HTML Element to Diagram" />
-<meta property="og:title" content="Drag and Drop From HTML Element to Diagram" />
-<meta name="twitter:title" content="Drag and Drop From HTML Element to Diagram" />
-
-
-<meta property="og:image" content="https://gojs.net/latest/assets/images/screenshots/htmldragdrop.png" />
-<meta itemprop="image" content="https://gojs.net/latest/assets/images/screenshots/htmldragdrop.png" />
-<meta name="twitter:image" content="https://gojs.net/latest/assets/images/screenshots/htmldragdrop.png" />
-
-<meta property="og:url" content="https://gojs.net/latest/samples/htmlDragDrop.html" />
-<meta property="twitter:url" content="https://gojs.net/latest/samples/htmlDragDrop.html" />
-
-<meta name="twitter:card" content="summary_large_image" />
-<meta property="og:type" content="website" />
-<meta property="twitter:domain" content="gojs.net" />
-
-    <title>
-      Drag and Drop From HTML Element to Diagram | GoJS Diagramming Library
-    </title>
-  </head>
-
-  <body>
-    <!-- This top nav is not part of the sample code -->
-    <nav id="navTop" class=" w-full h-[var(--topnav-h)] z-30 bg-white border-b border-b-gray-200">
-  <div class="max-w-screen-xl mx-auto flex flex-wrap items-start justify-between px-4">
-    <a class="text-white bg-nwoods-primary font-bold !leading-[calc(var(--topnav-h)_-_1px)] my-0 px-2 text-4xl lg:text-5xl logo"
-       href="../">
-      GoJS
-    </a>
-    <div class="relative">
-      <button id="topnavButton" class="h-[calc(var(--topnav-h)_-_1px)] px-2 m-0 text-gray-900 bg-inherit shadow-none md:hidden hover:!bg-inherit hover:!text-nwoods-accent hover:!shadow-none" aria-label="Navigation">
-        <svg class="h-7 w-7 block" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </button>
-      <div id="topnavList" class="hidden md:block">
-        <div class="absolute right-0 z-30 flex flex-col items-end rounded border border-gray-200 p-4 pl-12 shadow bg-white text-gray-900 font-semibold
-                    md:flex-row md:space-x-4 md:items-start md:border-0 md:p-0 md:shadow-none md:bg-inherit">
-          <a href="../learn/">Learn</a>
-          <a href="../samples/">Samples</a>
-          <a href="../intro/">Intro</a>
-          <a href="../api/">API</a>
-          <a href="../download.html">Download</a>
-          <a href="https://forum.nwoods.com/c/gojs/11" target="_blank" rel="noopener">Forum</a>
-          <a id="tc" href="https://nwoods.com/contact.html"
-            target="_blank" rel="noopener" onclick="getOutboundLink('https://nwoods.com/contact.html', 'contact');">Contact</a>
-          <a id="tb" href="https://nwoods.com/sales/index.html"
-            target="_blank" rel="noopener" onclick="getOutboundLink('https://nwoods.com/sales/index.html', 'buy');">Buy</a>
-        </div>
-      </div>
-    </div>
-  </div>
-</nav>
-<script>
-  window.addEventListener("DOMContentLoaded", function () {
-    // topnav
-    var topButton = document.getElementById("topnavButton");
-    var topnavList = document.getElementById("topnavList");
-    if (topButton && topnavList) {
-      topButton.addEventListener("click", function (e) {
-        topnavList
-          .classList
-          .toggle("hidden");
-        e.stopPropagation();
-      });
-      document.addEventListener("click", function (e) {
-        // if the clicked element isn't the list, close the list
-        if (!topnavList.classList.contains("hidden") && !e.target.closest("#topnavList")) {
-          topButton.click();
-        }
-      });
-
-      // set active <a> element
-      var url = window
-        .location
-        .href
-        .toLowerCase();
-      var aTags = topnavList.getElementsByTagName('a');
-      for (var i = 0; i < aTags.length; i++) {
-        var lowerhref = aTags[i]
-          .href
-          .toLowerCase();
-        if (lowerhref.endsWith('.html')) 
-          lowerhref = lowerhref.slice(0, -5);
-        if (url.startsWith(lowerhref)) {
-          aTags[i]
-            .classList
-            .add('active');
-          break;
-        }
-      }
-    }
-  });
-</script>
-    <div class="flex flex-col prose">
-      <div class="w-full max-w-screen-xl mx-auto">
-        <!-- * * * * * * * * * * * * * -->
-        <!-- Start of GoJS sample code -->
-        <script src="../dist/open-gojs.umd.js"></script>
-
-        
-
-        <div id="allSampleContent" class="p-4 w-full">
-          
-            
-            
-
-<style>
-  .draggable {
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Drag and Drop From HTML Element to Diagram</title>
+  <script src="../dist/open-gojs.umd.js"></script>
+  
+  
+  
+  <style>
+.draggable {
     font: bold 16px sans-serif;
     width: 140px;
     height: 20px;
     text-align: center;
+    color: black;
     background: white;
     cursor: move;
     margin-top: 20px;
@@ -143,9 +28,10 @@
     padding-top: 1px;
     float: left;
   }
-</style>
-<div id="sample">
-  <div style="width: 100%; display: flex; justify-content: space-between">
+  </style>
+</head>
+<body>
+<div style="width: 100%; display: flex; justify-content: space-between">
     <div
       id="paletteZone"
       style="
@@ -161,11 +47,11 @@
     </div>
     <div id="myDiagramDiv" style="flex-grow: 1; height: 400px; border: solid 1px black"></div>
   </div>
-  <input id="removeCheckBox" type="checkbox" /><label for="removeCheckBox"
-    >Remove HTML item after drop</label
-  >
-  <p>
-    The "Palette" in this sample is not a <a>Palette</a> (or GoJS component) at all. It is a
+  <input id="removeCheckBox" type="checkbox" />
+  <label for="removeCheckBox">Remove HTML item after drop</label>
+  <div id="description">
+<p>
+    The "Palette" in this sample is not a <a href="https://gojs.net/latest/api/symbols/Palette.html" target="api">Palette</a> (or GoJS component) at all. It is a
     collection of HTML elements with draggable attributes using the
     <a href="https://developer.mozilla.org/en-US/docs/DragDrop/Drag_and_Drop"
       >HTML Drag and Drop API</a
@@ -188,9 +74,9 @@
     some text, either on the page or in some other app, and then a paste in the diagram will create
     a new node using that text.
   </p>
-</div>
-<script id="code">
-  // *********************************************************
+  </div>
+  <script >
+// *********************************************************
   // First, set up the infrastructure to do HTML drag-and-drop
   // *********************************************************
 
@@ -512,78 +398,6 @@
     );
   }
   init();
-</script>
-
-          
-        </div>
-        <!-- * * * * * * * * * * * * * -->
-        <!--  End of GoJS sample code  -->
-      </div>
-
-      <div id="allTagDescriptions" class="p-4 w-full max-w-screen-xl mx-auto">
-        <hr/>
-        <h3 class="text-xl">GoJS Features in this sample</h3>
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Palette</h4>
-<p>
-A <a href="../api/symbols/Palette.html" target="api">Palette</a> is a subclass of <a href="../api/symbols/Diagram.html" target="api">Diagram</a> that is used to display a number of <a href="../api/symbols/Part.html" target="api">Part</a>s that
-can be dragged into the diagram that is being modified by the user.
-The initialization of a <a href="../api/symbols/Palette.html" target="api">Palette</a> is just like the initialization of any <a href="../api/symbols/Diagram.html" target="api">Diagram</a>.
-Like Diagrams, you can have more than one Palette on the page at the same time.
-</p>
-<p>
-More information can be found in the <a href="../intro/palette.html">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#palette">Related samples</a>
-            </p>
-            <hr>
-          
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>HTML Interaction</h4>
-<p>
-GoJS Diagrams can be used alongside other HTML elements in a webapp.
-For custom Text Editors, Context Menus, and ToolTips, which are invoked and hidden via GoJS tool operations, it is best to use the <a href="../api/symbols/HTMLInfo.html" target="api">HTMLInfo</a> class.
-</p>
-<p>
-More information can be found in the <a href="../intro/htmlInteraction.html">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#html">Related samples</a>
-            </p>
-            <hr>
-          
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Commands</h4>
-<p>
-A <a href="../api/symbols/CommandHandler.html" target="api">CommandHandler</a> handles all default keyboard input events in a Diagram.
-There are many predefined methods on <a>CommandHandler</a> that implement common commands to operate on the Diagram or the current <a>Diagram.selection></a>.
-</p>
-<p>
-You can override <a>CommandHandler.doKeyDown</a> to handle additional keyboard shortcuts or to change which commands are invoked via the keyboard.
-<p>
-Your code can invoke a command by calling the appropriate method on the <a>Diagram.commandHandler</a>.
-Each command method has a corresponding <b>can...</b> predicate that your code can use to enable or disable any buttons that invoke the command.
-Your code can customize the behavior of a command by overriding the method on <a>CommandHandler</a>,
-or by setting properties on the <a>CommandHandler</a> or <a>Diagram</a> or <a>Part</a>s --
-see <a href="../intro/permissions.html">GoJS Permissions</a>.
-</p>
-<p>
-There are several CommandHandler extensions that provide additional functionality.
-<p>
-More information can be found in the <a href="../intro/commands.html">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#commands">Related samples</a>
-            </p>
-            <hr>
-          
-        </div>
-    </div>
-  </body>
-  <!--  This script is part of the gojs.net website, and is not needed to run the sample -->
-  
+  </script>
+</body>
 </html>

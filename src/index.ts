@@ -432,18 +432,8 @@ export const ChangeType = {
   Remove: ChangedEventRemove,
 };
 
-// 官方 SegmentType = {Move, Line, Bezier, QuadraticBezier, Arc, SvgArc}。
-// 本项目 PathSegment 内部的 MoveTo / Close 常量仍导出，但不进该命名空间。
-// Bezier/Move 直接映射到内部的 CubicBezier/MoveTo，使 ext/Figures.js 等官方代码
-// 创建的三次贝塞尔与移动段能被所有内部绘制/序列化逻辑按 'CubicBezier'/'MoveTo' 处理。
-export const SegmentType = {
-  Move: PathSegmentMoveTo,
-  Line: PathSegmentLine,
-  Bezier: PathSegmentCubicBezier,
-  QuadraticBezier: PathSegmentQuadraticBezier,
-  Arc: PathSegmentArc,
-  SvgArc: SegmentTypeSvgArc,
-};
+// 定义在 core/EnumValues.ts，供 src/figures 的生成文件共用（见该处注释）。
+export { SegmentType } from './core/EnumValues';
 
 export const AnimationStyle = {
   Default: AnimationStyleDefault,
@@ -509,19 +499,9 @@ export const LayoutConditions = {
   All: LayoutConditionsAll,
 };
 
-export const GeometryStretch = {
-  None: GeometryStretchNone,
-  Default: GeometryStretchDefault,
-  Fill: GeometryStretchFill,
-  Uniform: GeometryStretchUniform,
-};
 
-export const GeometryType = {
-  Line: GeometryTypeLine,
-  Rectangle: GeometryTypeRectangle,
-  Ellipse: GeometryTypeEllipse,
-  Path: GeometryTypePath,
-};
+
+export { GeometryStretch, GeometryType } from './core/EnumValues';
 
 export const LinkingDirection = {
   Either: LinkingDirectionEither,

@@ -23,6 +23,7 @@ import { Geometry } from '../core/Geometry';
 import { PathFigure } from '../core/PathFigure';
 import { PathSegment } from '../core/PathSegment';
 import { Shape } from './Shape';
+import { Knot, LinkInfo } from './LinkKnot';
 
 /**
  * Link - a Part that represents a connection between two Nodes.
@@ -214,6 +215,11 @@ export class Link extends Part {
     return 0;
   }
 
+  /** 供 Panel._measureLink 使用的 orientation 分支码（官方 measure 里 `L` 的值） */
+  static orientationCode(o: any): number {
+    return Link._orientationCode(o);
+  }
+
   /** 官方 `G.u`（近似相等，用于正交路由的共线判定） */
   private static _approx(a: number, b: number): boolean {
     return Math.abs(a - b) < 1e-7;
@@ -301,16 +307,94 @@ export class Link extends Part {
   // ============ Properties ============
 
   get fromNode(): Node | null { return this._fromNode; }
-  set fromNode(val: Node | null) { this._fromNode = val; }
+  set fromNode(val: Node | null) {
+    if (this._fromNode === val) return;
+    const oldPort = this.fromPort;
+    this._fromNode = val;
+    this._ggPort(oldPort);
+    this._ggPort(this.fromPort);
+    this.updateContainingGroup();
+  }
 
   get toNode(): Node | null { return this._toNode; }
-  set toNode(val: Node | null) { this._toNode = val; }
+  set toNode(val: Node | null) {
+    if (this._toNode === val) return;
+    const oldPort = this.toPort;
+    this._toNode = val;
+    this._ggPort(oldPort);
+    this._ggPort(this.toPort);
+    this.updateContainingGroup();
+  }
 
   get fromPortId(): string { return this._fromPortId; }
-  set fromPortId(val: string) { this._fromPortId = val; }
+  set fromPortId(val: string) {
+    if (this._fromPortId === val) return;
+    const oldPort = this.fromPort;
+    this._fromPortId = val;
+    this._ggPort(oldPort);
+    this._ggPort(this.fromPort);
+  }
 
   get toPortId(): string { return this._toPortId; }
-  set toPortId(val: string) { this._toPortId = val; }
+  set toPortId(val: string) {
+    if (this._toPortId === val) return;
+    const oldPort = this.toPort;
+    this._toPortId = val;
+    this._ggPort(oldPort);
+    this._ggPort(this.toPort);
+  }
+
+  /** 官方 `Node.OS/ES → ne(port)`：连线端点变更时清空端口 knot 缓存 */
+  private _ggPort(port: GraphObject | null): void {
+    if (port !== null && port !== undefined && typeof (port as any).invalidateConnectedLinksCache === 'function') {
+      (port as any).invalidateConnectedLinksCache();
+    }
+  }
+
+  /**
+   * 官方 `Link.dg()`：按两端点的公共 containingGroup 更新本 Link 的从属关系。
+   * 官方 Link 的 containment 不是模型 group 数据直接给的，而是
+   * `fromNode.findCommonContainingGroup(toNode)` 的结果（嵌套组时取最深公共祖先）；
+   * 两端都在同一 Group 内的连线 `isTopLevel === false`，
+   * 布局收集（Layout.collectParts 的 toplevelonly 过滤）才不会把组内连线
+   * 及其端点塞进顶层网络 —— 否则 ParallelLayout.findSplitMerge 会看到
+   * 组内的多个 Split 节点而抛 "Split node already exists"（flowgrammer）。
+   * 由 fromNode/toNode setter 与 Part.containingGroup 变更传播调用。
+   */
+  updateContainingGroup(): void {
+    const f = this._fromNode;
+    const t = this._toNode;
+    let g: any = null;
+    if (f !== null && f !== undefined) {
+      g = (t !== null && t !== undefined) ? f.findCommonContainingGroup(t) : f.containingGroup;
+    } else if (t !== null && t !== undefined) {
+      g = t.containingGroup;
+    }
+    const old = this._containingGroup;
+    if (old === g) return;
+    // 官方 `Link.s4(t)`：老组 vN、新组 WN（成员集合 + 布局失效 + memberRemoved/Added 回调），再发 containingGroupChanged
+    if (old !== null && typeof (old as any)._notifyMemberRemoved === 'function') {
+      (old as any)._memberParts.remove(this);
+      if ((old as any).layout && (old as any).layout.isOngoing) (old as any).layout.invalidateLayout();
+      (old as any)._notifyMemberRemoved(this);
+    }
+    this._containingGroup = g;
+    if (g !== null && typeof (g as any)._notifyMemberAdded === 'function') {
+      (g as any)._memberParts.add(this);
+      if ((g as any).layout && (g as any).layout.isOngoing) (g as any).layout.invalidateLayout();
+      (g as any)._notifyMemberAdded(this);
+    }
+    const ev = this.containingGroupChanged;
+    if (ev !== null) ev(this, old, g);
+    // 官方 Link.dg 尾部：isLabeledLink 时把 label 节点的 containingGroup 同步为同一值
+    if (this.isLabeledLink) {
+      const s = this.labelNodes;
+      while (s.next()) {
+        const n: any = s.value;
+        if (n !== null && n !== undefined && n.containingGroup !== g) n.containingGroup = g;
+      }
+    }
+  }
 
   /** 官方 `Link.isTreeLink`（默认 true） */
   get isTreeLink(): boolean { return this._isTreeLink; }
@@ -432,148 +516,178 @@ export class Link extends Part {
     const to = this._toNode;
     if (!from || !to) return false;
 
-    const fromPort = (from as any).findPortWithName ? (from as any).findPortWithName(this._fromPortId) || from : from;
-    const toPort = (to as any).findPortWithName ? (to as any).findPortWithName(this._toPortId) || to : to;
-
-    const fromBounds = fromPort.getDocumentBounds();
-    const toBounds = toPort.getDocumentBounds();
+    const fromPort = (from as any).findPort ? (from as any).findPort(this._fromPortId) : from;
+    const toPort = (to as any).findPort ? (to as any).findPort(this._toPortId) : to;
 
     if (from === to) {
-      return this._computeSelfLinkPoints(fromBounds);
+      // 官方同端口（c）走 else 分支自链接逻辑；本项目保留同节点自链接快路径（偏差同前）。
+      return this._computeSelfLinkPoints(fromPort.getDocumentBounds());
     }
 
-    const fromCenter = fromBounds.center;
-    const toCenter = toBounds.center;
+    // ---- 官方 computePoints 主流程（go-debug.js 761432..764750）----
+    const o = this.pointsCount;
+    const r = this.computeSpot(true, fromPort);
+    const l = this.computeSpot(false, toPort);
+    const h = this._isCenterSpot(r);
+    const a = this._isCenterSpot(l);
+    const c = fromPort === toPort && fromPort !== null;
+    const f = this.isOrthogonal;
+    const d = this.computeAdjusting() === LinkAdjustingNone || c;
 
-    const fromSpot = this._resolveFromSpot(fromPort);
-    const toSpot = this._resolveToSpot(toPort);
-
-    let fromPoint: Point;
-    let toPoint: Point;
-
-    // 官方 Link.getLinkPoint → Port.Rf → 逐元素 Shape.Rf：端点按【图形几何】求交，
-    // 所以圆形节点的连线端点落在圆上；若按 actualBounds 矩形求交，
-    // fromArrow 会贴在外接正方形上（官方 arrowheads 样例即为此症状）。
-    if (fromSpot.isNone()) {
-      fromPoint = this._connectionPoint(fromPort, fromBounds, fromCenter, toCenter);
-    } else {
-      const fp = fromSpot.positionInRect(fromBounds);
-      fromPoint = new Point(fp.x, fp.y);
-    }
-
-    if (toSpot.isNone()) {
-      toPoint = this._connectionPoint(toPort, toBounds, toCenter, fromCenter);
-    } else {
-      const tp = toSpot.positionInRect(toBounds);
-      toPoint = new Point(tp.x, tp.y);
-    }
-
-    this._points.clear();
-    this._points.add(fromPoint);
-
-    if (this._routing === RoutingOrthogonal) {
-      const fromSegLen = (fromPort as any).fromEndSegmentLength || 10;
-      const toSegLen = (toPort as any).toEndSegmentLength || 10;
-
-      const fromDir = this._getPortDirection(fromPort, fromSpot, fromPoint, fromCenter);
-      const toDir = this._getPortDirection(toPort, toSpot, toPoint, toCenter);
-
-      const fromEnd = this._offsetPoint(fromPoint, fromDir, fromSegLen);
-      const toEnd = this._offsetPoint(toPoint, toDir, toSegLen);
-
-      if (fromDir === toDir) {
-        const perpDir = this._perpendicularDir(fromDir);
-        const midDist = this._distAlongDir(fromEnd, toEnd, perpDir);
-        const mid1 = this._offsetPoint(fromEnd, perpDir, midDist / 2);
-        const mid2 = this._offsetPoint(toEnd, perpDir, midDist / 2);
-        this._points.add(fromEnd);
-        this._points.add(mid1);
-        this._points.add(mid2);
-        this._points.add(toEnd);
-      } else if (this._isOppositeDir(fromDir, toDir)) {
-        const perpDir = this._perpendicularDir(fromDir);
-        const midDist = this._distAlongDir(fromEnd, toEnd, perpDir);
-        const midAlong = this._distAlongDir(fromEnd, toEnd, fromDir);
-        if ((midAlong > 0 && fromDir === 'right') || (midAlong > 0 && fromDir === 'down') ||
-            (midAlong < 0 && fromDir === 'left') || (midAlong < 0 && fromDir === 'up')) {
-          const mid1 = this._offsetPoint(fromEnd, fromDir, midAlong / 2);
-          const mid2 = this._offsetPoint(toEnd, toDir, -midAlong / 2);
-          this._points.add(fromEnd);
-          this._points.add(mid1);
-          this._points.add(mid2);
-          this._points.add(toEnd);
-        } else {
-          const perpMid = this._distAlongDir(fromEnd, toEnd, perpDir) / 2;
-          const mid1 = this._offsetPoint(fromEnd, perpDir, perpMid);
-          const mid2 = this._offsetPoint(toEnd, perpDir, perpMid);
-          this._points.add(fromEnd);
-          this._points.add(mid1);
-          this._points.add(mid2);
-          this._points.add(toEnd);
+    if (!f && !c && h && a) {
+      // 官方 r4/o4 快速路径：非正交 + 两端无方向 spot
+      let ok = false;
+      if (!d && o >= 3) {
+        let g = this.getLinkPoint(from, fromPort, r, true, false, to, toPort);
+        let p = this.getLinkPoint(to, toPort, l, false, false, from, fromPort);
+        ok = this.adjustPoints(0, g, o - 1, p);
+        if (ok) {
+          g = this.getLinkPoint(from, fromPort, r, true, false, to, toPort);
+          p = this.getLinkPoint(to, toPort, l, false, false, from, fromPort);
+          ok = this.adjustPoints(0, g, o - 1, p);
         }
-      } else {
-        const canTurn = this._canReachWithCorner(fromEnd, fromDir, toEnd, toDir);
-        if (canTurn) {
-          const corner = this._cornerPoint(fromEnd, fromDir, toEnd, toDir);
-          this._points.add(fromEnd);
-          this._points.add(corner);
-          this._points.add(toEnd);
-        } else {
-          const perpDir = this._perpendicularDir(fromDir);
-          const mid1 = this._offsetPoint(fromEnd, perpDir, this._distAlongDir(fromEnd, toEnd, perpDir));
-          this._points.add(fromEnd);
-          this._points.add(mid1);
-          this._points.add(toEnd);
+      }
+      if (!ok) {
+        const g = this.getLinkPoint(from, fromPort, r, true, false, to, toPort);
+        const p = this.getLinkPoint(to, toPort, l, false, false, from, fromPort);
+        this._points.clear();
+        this.addPoint(g);
+        this.addPoint(p);
+        if (this._curve === CurveBezier) {
+          this._o4(from, fromPort, r, to, toPort, l);
+        } else if (this.hasCurviness()) {
+          this._r4Mid(g, p);
         }
+        // 官方 r4 内的 ZF（节点重叠端点修正）未移植（flowchart 不触发）。
+      }
+      return true;
+    }
+
+    if (d && ((f && this.isAvoiding) || c)) this._points.clear();
+    const g = this.getLinkPoint(from, fromPort, r, true, f, to, toPort);
+    const p = this.getLinkPoint(to, toPort, l, false, f, from, fromPort);
+
+    let y = 0;
+    let x = 0;
+    let b = 0;
+    if (f || !h || c) {
+      b = this.getLinkDirection(from, fromPort, g, r, true, f, to, toPort);
+      const M = this.computeEndSegmentLength(from, fromPort, r, true, b);
+      b = Link._normalizeAngle(b);
+      if (b === 0) y = M;
+      else if (b === 90) x = M;
+      else if (b === 180) y = -M;
+      else if (b === 270) x = -M;
+      else {
+        y = M * Math.cos((b * Math.PI) / 180);
+        x = M * Math.sin((b * Math.PI) / 180);
       }
     }
 
-    this._points.add(toPoint);
+    let S = 0;
+    let k = 0;
+    let P = 0;
+    if (f || !a || c) {
+      P = this.getLinkDirection(to, toPort, p, l, false, f, from, fromPort);
+      const M = this.computeEndSegmentLength(to, toPort, l, false, P);
+      P = Link._normalizeAngle(P);
+      if (P === 0) S = M;
+      else if (P === 90) k = M;
+      else if (P === 180) S = -M;
+      else if (P === 270) k = -M;
+      else {
+        S = M * Math.cos((P * Math.PI) / 180);
+        k = M * Math.sin((P * Math.PI) / 180);
+      }
+    }
 
-    this._applyShortLengths();
+    let A = g;
+    if (f || !h || c) A = new Point(g.x + y, g.y + x);
+    let N = p;
+    if (f || !a || c) N = new Point(p.x + S, p.y + k);
 
+    if (!d && !f && h && o > 3 && this.adjustPoints(0, g, o - 2, N)) {
+      this.setPoint(o - 1, p);
+    } else if (!d && !f && a && o > 3 && this.adjustPoints(1, A, o - 1, p)) {
+      this.setPoint(0, g);
+    } else if (!d && (f ? o >= 6 : o > 4) && this.adjustPoints(1, A, o - 2, N)) {
+      this.setPoint(0, g);
+      this.setPoint(o - 1, p);
+    } else {
+      this._points.clear();
+      this.addPoint(g);
+      if (f || !h || c) this.addPoint(A);
+      if (f) this.addOrthoPoints(A, b, N, P, from, to);
+      if (f || !a || c) this.addPoint(N);
+      this.addPoint(p);
+    }
     return true;
   }
 
-  private _applyShortLengths(): void {
-    const fromShort = (this as any)._fromShortLength as number || 0;
-    const toShort = (this as any)._toShortLength as number || 0;
-    if (fromShort <= 0 && toShort <= 0) return;
-    if (this._points.count < 2) return;
-
-    const pts = this._points.toArray();
-
-    if (fromShort > 0 && pts.length >= 2) {
-      const dx = pts[1].x - pts[0].x;
-      const dy = pts[1].y - pts[0].y;
-      const len = Math.sqrt(dx * dx + dy * dy);
-      if (len > 0) {
-        const ratio = Math.min(fromShort / len, 1);
-        pts[0] = new Point(
-          pts[0].x + dx * ratio,
-          pts[0].y + dy * ratio
-        );
-      }
+  /** 官方 `Link.r4` 的 curviness 中点插入（非 Bezier 快路径，显式设置 curviness 时） */
+  private _r4Mid(g: Point, p: Point): void {
+    const h3 = p.x - g.x;
+    const a3 = p.y - g.y;
+    const c3 = this.computeCurviness();
+    const f3 = c3;
+    const mx = g.x + h3 / 2;
+    const my = g.y + a3 / 2;
+    let mmx = mx;
+    let mmy = my;
+    if (Link._approxZero(a3)) {
+      if (h3 > 0) mmy -= f3;
+      else mmy += f3;
+    } else {
+      const pp = -h3 / a3;
+      let yy = Math.sqrt((f3 * f3) / (pp * pp + 1));
+      if (c3 < 0) yy = -yy;
+      mmx = (a3 < 0 ? -1 : 1) * yy + mx;
+      mmy = pp * (mmx - mx) + my;
     }
+    this.insertPointAt(1, mmx, mmy);
+  }
 
-    if (toShort > 0 && pts.length >= 2) {
-      const last = pts.length - 1;
-      const dx = pts[last - 1].x - pts[last].x;
-      const dy = pts[last - 1].y - pts[last].y;
-      const len = Math.sqrt(dx * dx + dy * dy);
-      if (len > 0) {
-        const ratio = Math.min(toShort / len, 1);
-        pts[last] = new Point(
-          pts[last].x + dx * ratio,
-          pts[last].y + dy * ratio
-        );
-      }
+  /** 官方 `Link.o4`：Bezier 快路径插入两个控制点并重算端点 */
+  private _o4(
+    from: Node, fromPort: GraphObject, r: Spot,
+    to: Node, toPort: GraphObject, l: Spot
+  ): void {
+    const g = this.getPoint(0);
+    const p = this.getPoint(1);
+    const h3 = p.x - g.x;
+    const a3 = p.y - g.y;
+    const c3 = this.computeCurviness();
+    let f3 = 0;
+    let u3 = 0;
+    let d1 = g.x + h3 / 3;
+    let m1 = g.y + a3 / 3;
+    let g1 = d1;
+    let p1 = m1;
+    if (Link._approxZero(a3)) {
+      if (h3 > 0) p1 -= c3;
+      else p1 += c3;
+    } else {
+      f3 = -h3 / a3;
+      u3 = Math.sqrt((c3 * c3) / (f3 * f3 + 1));
+      if (c3 < 0) u3 = -u3;
+      g1 = (a3 < 0 ? -1 : 1) * u3 + d1;
+      p1 = f3 * (g1 - d1) + m1;
     }
-
-    this._points.clear();
-    for (const pt of pts) {
-      this._points.add(pt);
+    d1 = g.x + (2 * h3) / 3;
+    m1 = g.y + (2 * a3) / 3;
+    let g2 = d1;
+    let p2 = m1;
+    if (Link._approxZero(a3)) {
+      if (h3 > 0) p2 -= c3;
+      else p2 += c3;
+    } else {
+      g2 = (a3 < 0 ? -1 : 1) * u3 + d1;
+      p2 = f3 * (g2 - d1) + m1;
     }
+    this.insertPointAt(1, g1, p1);
+    this.insertPointAt(2, g2, p2);
+    this.setPoint(0, this.getLinkPoint(from, fromPort, r, true, false, to, toPort));
+    this.setPoint(3, this.getLinkPoint(to, toPort, l, false, false, from, fromPort));
   }
 
   /** Resolve the effective fromSpot for this link */
@@ -1024,16 +1138,22 @@ export class Link extends Part {
     return isNaN(v) ? 0 : v;
   }
 
-  /** 官方 `Link.computeEndSegmentLength(node, port, spot, isFrom, dir?)`（本项目无 Knot，跳过 side-spot 分支） */
+  /** 官方 `Link.computeEndSegmentLength(node, port, spot, isFrom, dir?)` */
   computeEndSegmentLength(node: Node | null, port: GraphObject | null, spot: Spot, isFrom: boolean, dir?: number): number {
+    // 官方：side spot → 端口 Knot 的 KS（优先于 link/port 自身设置）
+    if (port !== null && spot !== null && spot.isSide()) {
+      const li = this._ys(port);
+      if (li !== null) return li.KS;
+    }
     let o = isFrom ? this.fromEndSegmentLength : this.toEndSegmentLength;
     if (port !== null && isNaN(o)) {
-      if (Link._lA > 0 && this.computeCurve() === CurveBezier && dir !== undefined && !isNaN(dir) && spot.isSpot()) {
+      const d = dir !== undefined && !isNaN(dir) ? dir : NaN;
+      if (Link._lA > 0 && this.computeCurve() === CurveBezier && !isNaN(d) && spot.isSpot()) {
         const other = this.getOtherPort(port);
         if (other !== null) {
           const a = port.getDocumentBounds().center;
           const b = other.getDocumentBounds().center;
-          const horizontal = dir >= 315 || dir <= 45 || (dir >= 135 && dir <= 225);
+          const horizontal = d >= 315 || d <= 45 || (d >= 135 && d <= 225);
           const u = Math.abs(horizontal ? a.x - b.x : a.y - b.y) / Link._lA;
           return Math.max(u, Link._hA);
         }
@@ -1043,6 +1163,25 @@ export class Link extends Part {
     return isNaN(o) ? Link._hA : o;
   }
 
+  /** 官方 `Link.l4(port, link)`：只查已有 knot，不创建 */
+  private _l4(port: GraphObject | null): LinkInfo | null {
+    if (port === null || port === undefined) return null;
+    const k = (port as any)._knot;
+    if (k === null || k === undefined) return null;
+    return k.$F(this);
+  }
+
+  /** 官方 `Link.YS(port)`：取（必要时创建）端口 Knot 中本连线的 LinkInfo */
+  private _ys(port: GraphObject | null): LinkInfo | null {
+    if (port === null || port === undefined) return null;
+    let k = (port as any)._knot;
+    if (k === null || k === undefined) {
+      k = new Knot((port as any).part, port);
+      (port as any)._knot = k;
+    }
+    return k.$F(this);
+  }
+
   /** 官方 `Link.computeOtherPoint(othernode, otherport, otherspot?, from?, result?)` */
   computeOtherPoint(othernode: Node, otherport: GraphObject, otherspot?: Spot, from?: boolean, result?: Point): Point {
     const out = result !== undefined && result !== null ? result : new Point();
@@ -1050,6 +1189,12 @@ export class Link extends Part {
       const p = this.getPoint(Math.floor(this.pointsCount / 2));
       out.x = p.x;
       out.y = p.y;
+      return out;
+    }
+    // 官方 l4：对端口已有 side-spot knot → 直接用它的端点位置
+    const li = this._l4(otherport);
+    if (li !== null) {
+      out.set(li.yc);
       return out;
     }
     if (otherport === null || otherport === undefined) {
@@ -1104,22 +1249,26 @@ export class Link extends Part {
   ): Point {
     const out = result !== undefined && result !== null ? result : new Point();
     if (spot !== null && spot.isSpot() && !this._isCenterSpot(spot)) return Link._docPoint(port, spot, out);
-    const focus = Link._docPoint(port, this.computeSpot(from, port), new Point());
+    if (spot !== null && spot.isSide()) {
+      const li = this._ys(port);
+      if (li !== null) {
+        out.set(li.yc);
+        return out;
+      }
+      // 官方 routing===7（AvoidsNodesStraight）跨侧协调分支未移植；knot 缺失时落入中心逻辑
+    }
+    const focus = Link._docPoint(port, this._resolveLinkSpot(spot), new Point());
     const a = new Point();
     if (this.pointsCount > (ortho ? 6 : 2)) {
-      const i = from ? 1 : this.pointsCount - 2;
-      const rp = this.getPoint(i);
-      a.x = rp.x;
-      a.y = rp.y;
+      a.set(this.getPoint(from ? 1 : this.pointsCount - 2));
       if (ortho) Link._orthogonalize(focus, a);
     } else if (otherport !== null && otherport !== undefined) {
-      const c = otherport.getDocumentBounds().center;
-      a.x = c.x;
-      a.y = c.y;
+      // 官方 gA：aim = 对端口按其对应 spot 的文档点（Sg 后非点位 spot 即中心）
+      const os = this.computeSpot(!from, otherport);
+      Link._docPoint(otherport, this._resolveLinkSpot(os), a);
       if (ortho) Link._orthogonalize(focus, a);
     } else {
-      a.x = focus.x;
-      a.y = focus.y;
+      a.set(focus);
     }
     return this.getLinkPointFromPoint(node, port, focus, a, from, out);
   }
@@ -1129,26 +1278,9 @@ export class Link extends Part {
     node: Node | null, port: GraphObject | null, linkpoint: Point, spot: Spot, from: boolean,
     ortho: boolean, othernode: Node | null, otherport: GraphObject | null
   ): number {
-    let h: number;
-    if (spot !== null && spot.isSpot()) h = Link._spotDirection(spot);
-    else if (port === null || otherport === null) h = 0;
-    else {
-      const center = port.getDocumentBounds().center;
-      const a = new Point();
-      if (this.pointsCount > (ortho ? 6 : 2)) {
-        const i = from ? 1 : this.pointsCount - 2;
-        const rp = this.getPoint(i);
-        a.x = rp.x;
-        a.y = rp.y;
-        if (ortho) Link._orthogonalize(center, a);
-      } else {
-        const c = otherport.getDocumentBounds().center;
-        a.x = c.x;
-        a.y = c.y;
-      }
-      if (Math.abs(a.x - center.x) > Math.abs(a.y - center.y)) h = a.x >= center.x ? 0 : 180;
-      else h = a.y >= center.y ? 90 : 270;
-    }
+    let h = this._h4(node, port, linkpoint, spot, from, ortho, othernode, otherport);
+    // 官方 getLinkDirection 中的 Group 包含关系（isMemberOf）分支未移植：
+    // 本项目连线不经过 Group 归属翻转。
     if (this._isCenterSpot(spot) || port === null) return h;
     const angle = port.getDocumentAngle();
     if (angle === 0) return h;
@@ -1158,13 +1290,63 @@ export class Link extends Part {
     return Link._normalizeAngle(h);
   }
 
-  /** 官方 `G.Sx(null, spot.x, spot.y)`：spot → 方向角 */
+  /** 官方 `Link.h4(...)`（getLinkDirection 内核） */
+  private _h4(
+    node: Node | null, port: GraphObject | null, linkpoint: Point, spot: Spot, from: boolean,
+    ortho: boolean, othernode: Node | null, otherport: GraphObject | null
+  ): number {
+    void node;
+    void othernode;
+    if (spot !== null && spot.isSpot()) return Link._spotDirection(spot);
+    if (spot !== null && spot.isSide()) {
+      const li = port !== null ? this._ys(port) : null;
+      if (li !== null) {
+        switch (li.ye) {
+          case 1: return 270;
+          case 8: return 90;
+          case 2: return 180;
+          default: return 0;
+        }
+      }
+      if (spot.includesSide(Spot.TopSide)) return 270;
+      if (spot.includesSide(Spot.BottomSide)) return 90;
+      if (spot.includesSide(Spot.LeftSide)) return 180;
+      return 0;
+    }
+    if (port === null || otherport === null) return 0;
+    const center = port.getDocumentBounds().center;
+    const a = new Point();
+    if (this.pointsCount > (ortho ? 6 : 2)) {
+      if (ortho) {
+        a.set(this.getPoint(from ? 1 : this.pointsCount - 2));
+        Link._orthogonalize(center, a);
+      } else {
+        a.set(linkpoint);
+      }
+    } else {
+      a.set(otherport.getDocumentBounds().center);
+    }
+    let c: number;
+    if (Math.abs(a.x - center.x) > Math.abs(a.y - center.y)) c = a.x >= center.x ? 0 : 180;
+    else c = a.y >= center.y ? 90 : 270;
+    return c;
+  }
+
+  /** 官方 `G.Sx(null, spot.x, spot.y)`：点位 spot → 方向角（含 45/135/225/315 对角方向） */
   private static _spotDirection(s: Spot): number {
-    const dx = s.x - 0.5;
-    const dy = s.y - 0.5;
-    if (dx === 0 && dy === 0) return 0;
-    if (Math.abs(dy) >= Math.abs(dx)) return dy > 0 ? 90 : 270;
-    return dx > 0 ? 0 : 180;
+    const n = s.x;
+    const o = s.y;
+    let ret = 0;
+    if (n > o) {
+      if (!(n > 1 - o)) ret = n < 1 - o ? 270 : 315;
+    } else if (n < o) {
+      if (n > 1 - o) ret = 90;
+      else ret = n < 1 - o ? 180 : 135;
+    } else {
+      if (n < 0.5) ret = 225;
+      else if (n > 0.5) ret = 45;
+    }
+    return ret;
   }
 
   /** 官方 `Link.computeSpacing()` */
@@ -1391,49 +1573,29 @@ export class Link extends Part {
     let minY = Infinity;
     let maxX = -Infinity;
     let maxY = -Infinity;
+    // 官方 cA 用 Math.min/Math.max 累积：**NaN 会传播**（布局前路线点为 NaN 时
+    // routeBounds 变成 NaN 而非 ±Infinity）。若用 `if (p.x < minX)` 比较，
+    // NaN 全部落空 → minX/maxX 保持 ±Infinity → 宽高为 -Infinity →
+    // Panel._measureLink 里 `new Rect(0,0,-Infinity,-Infinity)` 抛错，
+    // 整个 _performLayout 中断、TreeLayout 根本没机会执行（faultTree 全部节点
+    // position=NaN、104 个 Rect 报错）。
     for (let i = 0; i < n; i++) {
       const p = this.getPoint(i);
-      if (p.x < minX) minX = p.x;
-      if (p.y < minY) minY = p.y;
-      if (p.x > maxX) maxX = p.x;
-      if (p.y > maxY) maxY = p.y;
+      minX = Math.min(minX, p.x);
+      minY = Math.min(minY, p.y);
+      maxX = Math.max(maxX, p.x);
+      maxY = Math.max(maxY, p.y);
     }
     t.setTo(minX, minY, maxX - minX, maxY - minY);
     this._routeOffset.setTo(0, 0);
 
-    // 官方 `Link.position` 即路线中点。Part._position 默认是 Point(NaN, NaN)，
-    // 而 Link 从来不写它 —— 于是 Diagram 用 pos 去 arrange 时得到 NaN 矩形，
-    // link.actualBounds 整体作废。这里按路线包围盒中心回写。
-    (this as any)._position = new Point(t.x + t.width / 2, t.y + t.height / 2);
-
-    // 官方 Link 的包围盒 = 路线范围与各子图元（尤其是箭头，measured = natural×scale）
-    // 的并集，并按路线中点居中。早先这里只算了 _routeBounds 却没回写 Link 自身的
-    // natural/measured/actualBounds，导致 link 的 bounds 退化成 1x1，
-    // documentBounds 随之错位（箭头样例整图被推偏 9px）。
-    let childW = 0;
-    let childH = 0;
-    const els = (this as any)._elements as GraphObject[] | undefined;
-    if (els) {
-      for (const el of els) {
-        if (!el || (el as any)._isMainLinkShape) continue;
-        const mb = el.measuredBounds;
-        if (mb && mb.width > 0 && mb.height > 0) {
-          if (mb.width > childW) childW = mb.width;
-          if (mb.height > childH) childH = mb.height;
-        }
-      }
-    }
-    const w = Math.max(t.width, childW);
-    const h = Math.max(t.height, childH);
-    if (w > 0 && h > 0) {
-      this._naturalBounds = new Rect(0, 0, w, h);
-      this._measuredBounds = new Rect(0, 0, w, h);
-      this._actualBounds = new Rect(
-        t.x + (t.width - w) / 2,
-        t.y + (t.height - h) / 2,
-        w, h
-      );
-    }
+    // 官方 `Link.cA()` 只写 routeBounds + routeOffset（BS），
+    // 不碰 position / naturalBounds / measuredBounds / actualBounds ——
+    // 这些由 Panel._measureLink（官方 PanelLayoutLink.measure）在测量阶段写入：
+    //   position = routeBounds 原点 + or.origin，
+    //   natural = measured = (0,0,or.width,or.height)，
+    //   actualBounds = (position, measured)（由 Part.ensureBounds 派生）。
+    // 早先这里按路线中点居中回写 position/bounds 是错误简化，已移除。
   }
 
   /** 官方 `Link.startRoute()` */
@@ -1567,6 +1729,14 @@ export class Link extends Part {
 
   /** 官方：把 link 的几何同步给 `path` 以及所有 isPanelMain 的 Shape 元素 */
   private _syncGeometryToMainShapes(): void {
+    // 官方 `Link.CN()`：几何无效时先重建（`pointsCount>=2 → bt=makeGeometry()`，
+    // 否则也把 jh 置 true），再同步给 path 与各主 Shape。
+    // 早先这里直接读可能过期的 `_geometry`，route 重算后主 Shape 拿到旧几何，
+    // measureLinkPath 量出的 path bounds 与官方不符。
+    if (!this._isGeometryValid) {
+      if (this.pointsCount >= 2) this._geometry = this.makeGeometry();
+      this._isGeometryValid = true;
+    }
     const geo = this._geometry;
     if (!geo) return;
     const path = this.path;
@@ -1621,29 +1791,73 @@ export class Link extends Part {
     return this._geometry;
   }
 
+  /**
+   * 官方 `Link.wc(t, isFrom, ref)`：把几何端点沿首/末线段向内缩短
+   * `computeShortLength`（2 点时上限为半段长，多点时上限为整段长）。
+   * 官方在 makeGeometry 内对几何做短化（link.points 本身不含短化）。
+   * 经官方坐标系（平移到 min、ref=min/0,0）化简后等价于对原始坐标直接缩短。
+   */
+  private _wcPoint(t: Point, isFrom: boolean): void {
+    const s = this.pointsCount;
+    if (s < 2) return;
+    const nb = isFrom ? this.getPoint(1) : this.getPoint(s - 2);
+    const dx = nb.x - t.x;
+    const dy = nb.y - t.y;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    if (len === 0) return;
+    const h = s === 2 ? len * 0.5 : len;
+    let a = this.computeShortLength(isFrom);
+    if (isNaN(a) || a <= 0) return;
+    if (a > h) a = h;
+    t.x += (a * dx) / len;
+    t.y += (a * dy) / len;
+  }
+
   /** 官方 `Link.makeGeometry()`（本项目无 Transform 矩阵，按点列构造折线/贝塞尔几何） */
   makeGeometry(): Geometry {
     const n = this.pointsCount;
     const geo = new Geometry();
     if (n < 2) return geo;
     const pts = this._points;
-    const first = pts.elt(0);
+    // 官方：n = min(points.x) - BS.x，o = min(points.y) - BS.y，所有点减 (n,o) ——
+    // 几何原点是点列 bbox 左上角（route-local 帧），不是文档坐标。
+    // BS = routeOffset（本项目恒 (0,0)，仍按官方参与平移）。
+    let nx = Infinity;
+    let ny = Infinity;
+    for (let i = 0; i < n; i++) {
+      const p = pts.elt(i);
+      if (p.x < nx) nx = p.x;
+      if (p.y < ny) ny = p.y;
+    }
+    if (!isFinite(nx) || !isFinite(ny)) { nx = 0; ny = 0; }
+    const bs = this._routeOffset;
+    nx -= bs.x;
+    ny -= bs.y;
+    // 官方先平移再用「原始」首点 ref 做短化：与「先短化再平移」等价（平移是均匀的）。
+    const first = pts.elt(0).copy();
+    if (this.computeShortLength(true) !== 0) this._wcPoint(first, true);
+    const last = pts.elt(n - 1).copy();
+    if (this.computeShortLength(false) !== 0) this._wcPoint(last, false);
+    first.x -= nx; first.y -= ny;
+    last.x -= nx; last.y -= ny;
+    const at = (i: number): Point =>
+      i === n - 1 ? last : i === 0 ? first : new Point(pts.elt(i).x - nx, pts.elt(i).y - ny);
     const fig = new PathFigure(first.x, first.y, false);
     const bezier = this.computeCurve() === CurveBezier;
     if (bezier && !this.isOrthogonal && n >= 4 && (n - 1) % 3 === 0) {
       for (let i = 1; i + 2 < n; i += 3) {
-        const p1 = pts.elt(i);
-        const p2 = pts.elt(i + 1);
-        const p3 = pts.elt(i + 2);
+        const p1 = new Point(pts.elt(i).x - nx, pts.elt(i).y - ny);
+        const p2 = new Point(pts.elt(i + 1).x - nx, pts.elt(i + 1).y - ny);
+        const p3 = at(i + 2);
         fig.add(PathSegment.CubicBezier(p3.x, p3.y, p1.x, p1.y, p2.x, p2.y));
       }
     } else if (bezier && n === 3) {
-      const p1 = pts.elt(1);
-      const p2 = pts.elt(2);
+      const p1 = new Point(pts.elt(1).x - nx, pts.elt(1).y - ny);
+      const p2 = at(2);
       fig.add(PathSegment.QuadraticBezier(p2.x, p2.y, p1.x, p1.y));
     } else {
       for (let i = 1; i < n; i++) {
-        const p = pts.elt(i);
+        const p = at(i);
         fig.add(PathSegment.Line(p.x, p.y));
       }
     }
@@ -1651,8 +1865,8 @@ export class Link extends Part {
     return geo;
   }
 
-  /** 官方 `Link.adjustPoints(start, end, p1, p2)` */
-  adjustPoints(start: number, end: number, p1: Point, p2: Point): boolean {
+  /** 官方 `Link.adjustPoints(start, p1, end, p2)` */
+  adjustPoints(start: number, p1: Point, end: number, p2: Point): boolean {
     let n: EnumValue = this.computeAdjusting();
     if (this.isOrthogonal) {
       if (n === LinkAdjustingScale) return false;
@@ -1801,27 +2015,258 @@ export class Link extends Part {
 
   /**
    * 官方 `Link.addOrthoPoints(startFrom, fromDir, endTo, toDir, fromnode, tonode)`。
-   * 官方是约 90 行的分情况折线表；本项目用等价的最少拐点正交连接（只补中间点，不含 startFrom/endTo）。
+   * 逐分支转译自 go-debug.js 778104..784083（含 fA/sA/nA 路由状态与尾部两点追加）。
    */
   addOrthoPoints(startFrom: Point, fromDir: number, endTo: Point, toDir: number, fromnode: Node, tonode: Node): void {
-    const f = Link._normalizeAngle(fromDir);
-    const t = Link._normalizeAngle(toDir);
-    const fromVertical = f === 90 || f === 270;
-    const toVertical = t === 90 || t === 270;
-    if (fromVertical && toVertical) {
-      const y = this.computeMidOrthoPosition(startFrom.x, startFrom.y, endTo.x, endTo.y, true);
-      if (!Link._approx(y, startFrom.y)) this.addPointAt(startFrom.x, y);
-      if (!Link._approx(y, endTo.y)) this.addPointAt(endTo.x, y);
-    } else if (!fromVertical && !toVertical) {
-      const x = this.computeMidOrthoPosition(startFrom.x, startFrom.y, endTo.x, endTo.y, false);
-      if (!Link._approx(x, startFrom.x)) this.addPointAt(x, startFrom.y);
-      if (!Link._approx(x, endTo.x)) this.addPointAt(x, endTo.y);
-    } else if (fromVertical) {
-      this.addPointAt(startFrom.x, endTo.y);
+    let i = Link._normalizeAngle(fromDir);
+    let s = Link._normalizeAngle(toDir);
+    const c = s;
+    if (i >= 315 || i < 45) i = 0;
+    else if (i >= 45 && i < 135) i = 90;
+    else if (i >= 135 && i < 225) i = 180;
+    else i = 270;
+    if (s >= 315 || s < 45) s = 0;
+    else if (s >= 45 && s < 135) s = 90;
+    else if (s >= 135 && s < 225) s = 180;
+    else s = 270;
+
+    const f = startFrom;
+    const u = endTo;
+    const d = fromnode.getDocumentBounds().copy();
+    const m = tonode.getDocumentBounds().copy();
+    d.inflate(Link._Wh, Link._Wh);
+    m.inflate(Link._Wh, Link._Wh);
+    d.unionPoint(startFrom);
+    m.unionPoint(endTo);
+    const g = new Point();
+    const p = new Point();
+    const mid = (x1: number, y1: number, x2: number, y2: number, vertical: boolean): number =>
+      this.computeMidOrthoPosition(x1, y1, x2, y2, vertical);
+
+    if (i === 0) {
+      if (u.x > f.x || (s === 270 && u.y < f.y && m.right > f.x) || (s === 90 && u.y > f.y && m.right > f.x)) {
+        g.setTo(u.x, f.y);
+        p.setTo(u.x, (f.y + u.y) / 2);
+        if (s === 180) {
+          g.x = mid(f.x, f.y, u.x, u.y, false);
+          p.x = g.x;
+          p.y = u.y;
+        } else if ((s === 270 && u.y < f.y) || (s === 90 && u.y > f.y)) {
+          if (f.x < m.left) g.x = mid(f.x, f.y, m.left, u.y, false);
+          else if (f.x < m.right && ((s === 270 && f.y < m.top) || (s === 90 && f.y > m.bottom)))
+            g.x = mid(f.x, f.y, u.x, u.y, false);
+          else g.x = m.right;
+          p.x = g.x;
+          p.y = u.y;
+        } else if (s === 0 && f.x < m.left && f.y > m.top && f.y < m.bottom) {
+          g.x = f.x;
+          g.y = f.y < u.y ? Math.min(u.y, m.top) : Math.max(u.y, m.bottom);
+          p.y = g.y;
+        }
+      } else {
+        g.setTo(f.x, u.y);
+        p.setTo((f.x + u.x) / 2, u.y);
+        if (s === 180 || (s === 90 && u.y < d.top) || (s === 270 && u.y > d.bottom)) {
+          const y = m.containsPoint(f) || d.containsPoint(u);
+          if (s === 180 && y) g.y = mid(f.x, f.y, u.x, u.y, true);
+          else if (u.y < f.y && (s === 180 || s === 90)) {
+            const x = y ? Math.min(u.y, m.bottom) : Math.max(u.y, m.bottom);
+            g.y = mid(f.x, d.top, u.x, x, true);
+          } else if (u.y > f.y && (s === 180 || s === 270)) {
+            const x = y ? Math.max(u.y, m.top) : Math.min(u.y, m.top);
+            g.y = mid(f.x, d.bottom, u.x, x, true);
+          }
+          p.x = u.x;
+          p.y = g.y;
+        }
+        if (g.y > d.top && g.y < d.bottom) {
+          if ((u.x >= d.left && u.x <= f.x) || (f.x <= m.right && f.x >= u.x)) {
+            if (s === 90 || s === 270) {
+              g.setTo(Math.max((f.x + u.x) / 2, f.x), f.y);
+              p.setTo(g.x, u.y);
+            }
+          } else {
+            if (s === 270 || ((s === 0 || s === 180) && u.y < f.y))
+              g.y = Math.min(u.y, s === 0 ? d.top : Math.min(d.top, m.top));
+            else
+              g.y = Math.max(u.y, s === 0 ? d.bottom : Math.max(d.bottom, m.bottom));
+            p.x = u.x;
+            p.y = g.y;
+          }
+        }
+      }
+    } else if (i === 180) {
+      if (u.x < f.x || (s === 270 && u.y < f.y && m.left < f.x) || (s === 90 && u.y > f.y && m.left < f.x)) {
+        g.setTo(u.x, f.y);
+        p.setTo(u.x, (f.y + u.y) / 2);
+        if (s === 0) {
+          g.x = mid(f.x, f.y, u.x, u.y, false);
+          p.x = g.x;
+          p.y = u.y;
+        } else if ((s === 270 && u.y < f.y) || (s === 90 && u.y > f.y)) {
+          if (f.x > m.right) g.x = mid(f.x, f.y, m.right, u.y, false);
+          else if (f.x > m.left && ((s === 270 && f.y < m.top) || (s === 90 && f.y > m.bottom)))
+            g.x = mid(f.x, f.y, u.x, u.y, false);
+          else g.x = m.left;
+          p.x = g.x;
+          p.y = u.y;
+        } else if (s === 180 && f.x > m.right && f.y > m.top && f.y < m.bottom) {
+          g.x = f.x;
+          g.y = f.y < u.y ? Math.min(u.y, m.top) : Math.max(u.y, m.bottom);
+          p.y = g.y;
+        }
+      } else {
+        g.setTo(f.x, u.y);
+        p.setTo((f.x + u.x) / 2, u.y);
+        if (s === 0 || (s === 90 && u.y < d.top) || (s === 270 && u.y > d.bottom)) {
+          const y = m.containsPoint(f) || d.containsPoint(u);
+          if (s === 0 && y) g.y = mid(f.x, f.y, u.x, u.y, true);
+          else if (u.y < f.y && (s === 0 || s === 90)) {
+            const x = y ? Math.min(u.y, m.bottom) : Math.max(u.y, m.bottom);
+            g.y = mid(f.x, d.top, u.x, x, true);
+          } else if (u.y > f.y && (s === 0 || s === 270)) {
+            const x = y ? Math.max(u.y, m.top) : Math.min(u.y, m.top);
+            g.y = mid(f.x, d.bottom, u.x, x, true);
+          }
+          p.x = u.x;
+          p.y = g.y;
+        }
+        if (g.y > d.top && g.y < d.bottom) {
+          if ((u.x <= d.right && u.x >= f.x) || (f.x >= m.left && f.x <= u.x)) {
+            if (s === 90 || s === 270) {
+              g.setTo(Math.min((f.x + u.x) / 2, f.x), f.y);
+              p.setTo(g.x, u.y);
+            }
+          } else {
+            if (s === 270 || ((s === 0 || s === 180) && u.y < f.y))
+              g.y = Math.min(u.y, s === 180 ? d.top : Math.min(d.top, m.top));
+            else
+              g.y = Math.max(u.y, s === 180 ? d.bottom : Math.max(d.bottom, m.bottom));
+            p.x = u.x;
+            p.y = g.y;
+          }
+        }
+      }
+    } else if (i === 90) {
+      if (u.y > f.y || (s === 180 && u.x < f.x && m.bottom > f.y) || (s === 0 && u.x > f.x && m.bottom > f.y)) {
+        g.setTo(f.x, u.y);
+        p.setTo((f.x + u.x) / 2, u.y);
+        if (s === 270) {
+          g.y = mid(f.x, f.y, u.x, u.y, true);
+          p.x = u.x;
+          p.y = g.y;
+        } else if ((s === 180 && u.x < f.x) || (s === 0 && u.x > f.x)) {
+          if (f.y < m.top) g.y = mid(f.x, f.y, u.x, m.top, true);
+          else if (f.y < m.bottom && ((s === 180 && f.x < m.left) || (s === 0 && f.x > m.right)))
+            g.y = mid(f.x, f.y, u.x, u.y, true);
+          else g.y = m.bottom;
+          p.x = u.x;
+          p.y = g.y;
+        } else if (s === 90 && f.y < m.top && f.x > m.left && f.x < m.right) {
+          if (f.x < u.x) g.x = Math.min(u.x, m.left);
+          else g.x = Math.max(u.x, m.right);
+          g.y = f.y;
+          p.x = g.x;
+        }
+      } else {
+        g.setTo(u.x, f.y);
+        p.setTo(u.x, (f.y + u.y) / 2);
+        if (s === 270 || (s === 0 && u.x < d.left) || (s === 180 && u.x > d.right)) {
+          const y = m.containsPoint(f) || d.containsPoint(u);
+          if (s === 270 && y) g.x = mid(f.x, f.y, u.x, u.y, false);
+          else if (u.x < f.x && (s === 270 || s === 0)) {
+            const x = y ? Math.min(u.x, m.right) : Math.max(u.x, m.right);
+            g.x = mid(d.left, f.y, x, u.y, false);
+          } else if (u.x > f.x && (s === 270 || s === 180)) {
+            const x = y ? Math.max(u.x, m.left) : Math.min(u.x, m.left);
+            g.x = mid(d.right, f.y, x, u.y, false);
+          }
+          p.x = g.x;
+          p.y = u.y;
+        }
+        if (g.x > d.left && g.x < d.right) {
+          if ((u.y >= d.top && u.y <= f.y) || (f.y <= m.bottom && f.y >= u.y)) {
+            if (s === 0 || s === 180) {
+              g.setTo(f.x, Math.max((f.y + u.y) / 2, f.y));
+              p.setTo(u.x, g.y);
+            }
+          } else {
+            if (s === 180 || ((s === 90 || s === 270) && u.x < f.x))
+              g.x = Math.min(u.x, s === 90 ? d.left : Math.min(d.left, m.left));
+            else
+              g.x = Math.max(u.x, s === 90 ? d.right : Math.max(d.right, m.right));
+            p.x = g.x;
+            p.y = u.y;
+          }
+        }
+      }
     } else {
-      this.addPointAt(endTo.x, startFrom.y);
+      // i === 270
+      if (u.y < f.y || (s === 180 && u.x < f.x && m.top < f.y) || (s === 0 && u.x > f.x && m.top < f.y)) {
+        g.setTo(f.x, u.y);
+        p.setTo((f.x + u.x) / 2, u.y);
+        if (s === 90) {
+          g.y = mid(f.x, f.y, u.x, u.y, true);
+          p.x = u.x;
+          p.y = g.y;
+        } else if ((s === 180 && u.x < f.x) || (s === 0 && u.x >= f.x)) {
+          if (f.y > m.bottom) g.y = mid(f.x, f.y, u.x, m.bottom, true);
+          else if (f.y > m.top && ((s === 180 && f.x < m.left) || (s === 0 && f.x > m.right)))
+            g.y = mid(f.x, f.y, u.x, u.y, true);
+          else g.y = m.top;
+          p.x = u.x;
+          p.y = g.y;
+        } else if (s === 270 && f.y > m.bottom && f.x > m.left && f.x < m.right) {
+          if (f.x < u.x) g.x = Math.min(u.x, m.left);
+          else g.x = Math.max(u.x, m.right);
+          g.y = f.y;
+          p.x = g.x;
+        }
+      } else {
+        g.setTo(u.x, f.y);
+        p.setTo(u.x, (f.y + u.y) / 2);
+        if (s === 90 || (s === 0 && u.x < d.left) || (s === 180 && u.x > d.right)) {
+          const y = m.containsPoint(f) || d.containsPoint(u);
+          if (s === 90 && y) g.x = mid(f.x, f.y, u.x, u.y, false);
+          else if (u.x < f.x && (s === 90 || s === 0)) {
+            const x = y ? Math.min(u.x, m.right) : Math.max(u.x, m.right);
+            g.x = mid(d.left, f.y, x, u.y, false);
+          } else if (u.x > f.x && (s === 90 || s === 180)) {
+            const x = y ? Math.max(u.x, m.left) : Math.min(u.x, m.left);
+            g.x = mid(d.right, f.y, x, u.y, false);
+          }
+          p.x = g.x;
+          p.y = u.y;
+        }
+        if (g.x > d.left && g.x < d.right) {
+          if ((u.y <= d.bottom && u.y >= f.y) || (f.y >= m.top && f.y <= u.y)) {
+            if (s === 0 || s === 180) {
+              g.setTo(f.x, Math.min((f.y + u.y) / 2, f.y));
+              p.setTo(u.x, g.y);
+            }
+          } else {
+            if (s === 180 || ((s === 90 || s === 270) && u.x < f.x))
+              g.x = Math.min(u.x, s === 270 ? d.left : Math.min(d.left, m.left));
+            else
+              g.x = Math.max(u.x, s === 270 ? d.right : Math.max(d.right, m.right));
+            p.x = g.x;
+            p.y = u.y;
+          }
+        }
+      }
     }
+
+    this._fA = s !== c;
+    this._sA = i;
+    this._nA = s;
+    this.addPoint(g.copy());
+    this.addPoint(p.copy());
   }
+
+  /** 官方 Link 路由状态字段：fA=toDir 被吸附, sA=fromDir 吸附值, nA=toDir 吸附值 */
+  private _fA: boolean = false;
+  private _sA: number = 0;
+  private _nA: number = 0;
 
   /** 官方 `Link.invalidateOtherJumpOvers(bounds)`（本项目不做 jump 几何缓存，仅让同批 JumpOver/Gap 失效） */
   invalidateOtherJumpOvers(bounds: Rect): void {

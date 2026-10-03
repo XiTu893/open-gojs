@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reshaping of Orthogonal Links and Adding/Removing Segments</title>
+  <script src="../dist/open-gojs.umd.js"></script>
+  
+  <script src="https://cdn.jsdelivr.net/npm/gojs-extensions@latest/extensions/OrthogonalLinkReshapingTool.js"></script>
+  
+  
+</head>
+<body>
+<div id="myDiagramDiv" style="border: solid 1px black; width: 100%; height: 600px"></div>
+  Routing:
+  <input type="radio" name="routing" id="option1" onclick="updateRouting()" value="orthogonal" />
+  <label for="option1">Orthogonal</label>
+  <input type="radio" name="routing" id="option2" onclick="updateRouting()" value="avoidsnodes" checked="checked" />
+  <label for="option2">AvoidsNodes</label>
+  <div id="description">
+<p style="margin-top: 1rem;">
+    This sample demonstrates the OrthogonalLinkReshapingTool that is defined in its own file, as
+    <a href="https://gojs.net/latest/extensions/OrthogonalLinkReshapingTool.js">OrthogonalLinkReshapingTool.js</a>. This tool allow users to shift the sections of orthogonal links in addition to
+    resegmenting them. The Diagram's <a href="https://gojs.net/latest/api/symbols/ToolManager.html#linkreshapingtool" target="api">ToolManager.linkReshapingTool</a> and link template's <a href="https://gojs.net/latest/api/symbols/Part.html#reshapable" target="api">Part.reshapable</a> properties must be set to use this tool.
+    The <a href="https://gojs.net/latest/api/symbols/Link.html#resegmentable" target="api">Link.resegmentable</a> property can still optionally be used.
+  </p>
+  </div>
+  <script >
+function init() {
+
+    myDiagram = new go.Diagram('myDiagramDiv', {
+      'undoManager.isEnabled': true,
+      linkReshapingTool: new OrthogonalLinkReshapingTool()
+    });
+
+    myDiagram.nodeTemplate =
+      new go.Node('Auto', {
+          width: 80,
+          height: 50,
+          locationSpot: go.Spot.Center
+        })
+        .add(
+          new go.Shape({ fill: 'lightgray' }),
+          new go.TextBlock({ margin: 10 })
+            .bind('text')
+        )
+        .bindTwoWay('location', 'location', go.Point.parse, go.Point.stringify);
+
+    myDiagram.linkTemplate =
+      new go.Link({
+          routing: go.Routing.AvoidsNodes,
+          reshapable: true,
+          resegmentable: true
+        })
+        .bindTwoWay('points')
+        .add(
+          new go.Shape({ strokeWidth: 2 })
+        );
+
+    myDiagram.model = new go.GraphLinksModel({
+      pointsDigits: 0,
+      nodeDataArray:
+      [
+        { key: 1, text: 'Alpha', location: '0 0' },
+        { key: 2, text: 'Beta', location: '200 0' },
+        { key: 3, text: 'Gamma', location: '100 0' }
+      ],
+      linkDataArray: [{ from: 1, to: 2 }]
+    });
+
+    myDiagram.addDiagramListener('InitialLayoutCompleted', e => {
+      // select the Link in order to show its two additional Adornments, for shifting the ends
+      myDiagram.links.first().isSelected = true;
+    });
+  }
+
+  function updateRouting() {
+    var routing = getRadioValue('routing');
+    var newRouting = routing === 'orthogonal' ? go.Routing.Orthogonal : go.Routing.AvoidsNodes;
+    myDiagram.startTransaction('update routing');
+    myDiagram.linkTemplate.routing = newRouting;
+    myDiagram.links.each(l => {
+      l.routing = newRouting;
+    });
+    myDiagram.commitTransaction('update routing');
+  }
+
+  function getRadioValue(name) {
+    var radio = document.getElementsByName(name);
+    for (var i = 0; i < radio.length; i++) if (radio[i].checked) return radio[i].value;
+  }
+
+  window.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>

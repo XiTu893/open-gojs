@@ -1,132 +1,15 @@
-﻿
 <!DOCTYPE html>
-<html lang="en">
-  <head>
-    
-    <meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover"/>
-
-<meta name="description" content="Belts &amp; gears: chains, pulleys, tensioners, conveyor belts, rollers." />
-<meta itemprop="description" content="Belts &amp; gears: chains, pulleys, tensioners, conveyor belts, rollers." />
-<meta property="og:description" content="Belts &amp; gears: chains, pulleys, tensioners, conveyor belts, rollers." />
-<meta name="twitter:description" content="Belts &amp; gears: chains, pulleys, tensioners, conveyor belts, rollers." />
-
-
-<link rel="preconnect" href="https://rsms.me/">
-
-<!-- Copyright 1998-2026 by Northwoods Software Corporation. -->
-
-
-<meta itemprop="name" content="Belts and Rollers Diagram Showing Continuous Belts Winding Around Circular Rollers" />
-<meta property="og:title" content="Belts and Rollers Diagram Showing Continuous Belts Winding Around Circular Rollers" />
-<meta name="twitter:title" content="Belts and Rollers Diagram Showing Continuous Belts Winding Around Circular Rollers" />
-
-
-<meta property="og:image" content="https://gojs.net/latest/assets/images/screenshots/belts.png" />
-<meta itemprop="image" content="https://gojs.net/latest/assets/images/screenshots/belts.png" />
-<meta name="twitter:image" content="https://gojs.net/latest/assets/images/screenshots/belts.png" />
-
-<meta property="og:url" content="https://gojs.net/latest/samples/belts.html" />
-<meta property="twitter:url" content="https://gojs.net/latest/samples/belts.html" />
-
-<meta name="twitter:card" content="summary_large_image" />
-<meta property="og:type" content="website" />
-<meta property="twitter:domain" content="gojs.net" />
-
-    <title>
-      Belts and Rollers Diagram Showing Continuous Belts Winding Around Circular Rollers | GoJS Diagramming Library
-    </title>
-  </head>
-
-  <body>
-    <!-- This top nav is not part of the sample code -->
-    <nav id="navTop" class=" w-full h-[var(--topnav-h)] z-30 bg-white border-b border-b-gray-200">
-  <div class="max-w-screen-xl mx-auto flex flex-wrap items-start justify-between px-4">
-    <a class="text-white bg-nwoods-primary font-bold !leading-[calc(var(--topnav-h)_-_1px)] my-0 px-2 text-4xl lg:text-5xl logo"
-       href="../">
-      GoJS
-    </a>
-    <div class="relative">
-      <button id="topnavButton" class="h-[calc(var(--topnav-h)_-_1px)] px-2 m-0 text-gray-900 bg-inherit shadow-none md:hidden hover:!bg-inherit hover:!text-nwoods-accent hover:!shadow-none" aria-label="Navigation">
-        <svg class="h-7 w-7 block" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </button>
-      <div id="topnavList" class="hidden md:block">
-        <div class="absolute right-0 z-30 flex flex-col items-end rounded border border-gray-200 p-4 pl-12 shadow bg-white text-gray-900 font-semibold
-                    md:flex-row md:space-x-4 md:items-start md:border-0 md:p-0 md:shadow-none md:bg-inherit">
-          <a href="../learn/">Learn</a>
-          <a href="../samples/">Samples</a>
-          <a href="../intro/">Intro</a>
-          <a href="../api/">API</a>
-          <a href="../download.html">Download</a>
-          <a href="https://forum.nwoods.com/c/gojs/11" target="_blank" rel="noopener">Forum</a>
-          <a id="tc" href="https://nwoods.com/contact.html"
-            target="_blank" rel="noopener" onclick="getOutboundLink('https://nwoods.com/contact.html', 'contact');">Contact</a>
-          <a id="tb" href="https://nwoods.com/sales/index.html"
-            target="_blank" rel="noopener" onclick="getOutboundLink('https://nwoods.com/sales/index.html', 'buy');">Buy</a>
-        </div>
-      </div>
-    </div>
-  </div>
-</nav>
-<script>
-  window.addEventListener("DOMContentLoaded", function () {
-    // topnav
-    var topButton = document.getElementById("topnavButton");
-    var topnavList = document.getElementById("topnavList");
-    if (topButton && topnavList) {
-      topButton.addEventListener("click", function (e) {
-        topnavList
-          .classList
-          .toggle("hidden");
-        e.stopPropagation();
-      });
-      document.addEventListener("click", function (e) {
-        // if the clicked element isn't the list, close the list
-        if (!topnavList.classList.contains("hidden") && !e.target.closest("#topnavList")) {
-          topButton.click();
-        }
-      });
-
-      // set active <a> element
-      var url = window
-        .location
-        .href
-        .toLowerCase();
-      var aTags = topnavList.getElementsByTagName('a');
-      for (var i = 0; i < aTags.length; i++) {
-        var lowerhref = aTags[i]
-          .href
-          .toLowerCase();
-        if (lowerhref.endsWith('.html')) 
-          lowerhref = lowerhref.slice(0, -5);
-        if (url.startsWith(lowerhref)) {
-          aTags[i]
-            .classList
-            .add('active');
-          break;
-        }
-      }
-    }
-  });
-</script>
-    <div class="flex flex-col prose">
-      <div class="w-full max-w-screen-xl mx-auto">
-        <!-- * * * * * * * * * * * * * -->
-        <!-- Start of GoJS sample code -->
-        <script src="../dist/open-gojs.umd.js"></script>
-
-        
-
-        <div id="allSampleContent" class="p-4 w-full">
-          
-            
-            
-
-
-<style>
-  #myDiagramDiv {
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Belts and Rollers Diagram Showing Continuous Belts Winding Around Circular Rollers</title>
+  <script src="../dist/open-gojs.umd.js"></script>
+  
+  
+  
+  <style>
+#myDiagramDiv {
     width: 900px;
     height: 800px;
     background-color: #262626;
@@ -137,10 +20,46 @@
     background-color: #d3d3d3;
     padding: 0 3px;
   }
-</style>
-
-<script id="code">
-  // =================== GLOBAL VARIABLES ===================
+  </style>
+</head>
+<body>
+<div style="display: flex">
+    <div id="myDiagramDiv" style="flex-grow: 1"></div>
+  </div>
+  <div style="margin-block: .5em;">
+    <button id="SaveButton" onclick="save()">Save</button>
+    <button onclick="load()">Load</button>
+    Diagram Model saved in JSON format:
+  </div>
+  <textarea id="mySavedModel" style="width: 100%; height: 300px"> </textarea>
+  <div id="description">
+<p>
+    This sample uses <a href="https://gojs.net/latest/api/symbols/Animation.html" target="api">Animation</a>s and <a href="https://gojs.net/latest/api/symbols/Node.html" target="api">Node</a>s to give the illusion of a
+    continuous conveyor belt. The belt is guided by rollers and bends around them using a
+    custom <a href="https://gojs.net/latest/api/symbols/Geometry.html" target="api">Geometry</a> built of
+    <code><a href="https://gojs.net/latest/api/symbols/PathSegment.html">PathSegments</a></code
+    >. Each <code>PathSegment</code> is either a line segment between two rollers or an
+    arc wrapping around a roller.
+  </p>
+  <p>
+    Rollers can be dragged around, and the belt will update automatically. The program
+    prevents you from moving the rollers in a way that would make:
+  </p>
+  <ul>
+    <li>a belt overlap itself</li>
+    <li>a belt go through its rollers</li>
+    <li>a roller overlap another roller in the same belt</li>
+  </ul>
+  <p>
+    Rollers can be contained to one belt or be part of multiple belts. In the model, the
+    <code>guides</code> list for a belt defines the rollers that can interact with the
+    belt. Some rollers in this sample have a fill color, meaning that they are part of
+    both belts shown. Try it out: you'll see that normal rollers will go right through
+    other belts, but rollers with a fill color will affect both belts.
+  </p>
+  </div>
+  <script >
+// =================== GLOBAL VARIABLES ===================
 
   const ROLLER_DEFAULT_DIAMETER = 30;
   const BELT_STROKE_WIDTH = 4;
@@ -154,20 +73,20 @@
   // =================== TEMPLATES ===================
 
   const rollerTemplate = new go.Node('Auto', {
-    locationSpot: go.Spot.Center,
-    selectionAdorned: false,
-    dragComputation: rollerDragComputation
-  })
+      locationSpot: go.Spot.Center,
+      selectionAdorned: false,
+      dragComputation: rollerDragComputation
+    })
     .add(
       // roller outline circle
       new go.Shape('Circle', {
-        name: 'GUIDE',
-        stroke: DEFAULT_COLOR,
-        strokeWidth: 2,
-        fill: 'transparent',
-        width: ROLLER_DEFAULT_DIAMETER,
-        height: ROLLER_DEFAULT_DIAMETER
-      })
+          name: 'GUIDE',
+          stroke: DEFAULT_COLOR,
+          strokeWidth: 2,
+          fill: 'transparent',
+          width: ROLLER_DEFAULT_DIAMETER,
+          height: ROLLER_DEFAULT_DIAMETER
+        })
         .bind('stroke', 'color')
         .bind('width', 'diameter')
         .bind('height', 'diameter')
@@ -180,12 +99,12 @@
         }),
       // center dot, visible if roller is attached to a belt
       new go.Shape('Circle', {
-        width: 5,
-        fill: 'white',
-        stroke: null
-      })
+          width: 5,
+          fill: 'white',
+          stroke: null
+        })
         .bind('fill', 'color')
-        .bind('width', 'diameter', (d) => {
+        .bind('width', 'diameter', d => {
           if (d > 15)
             return 5; // if diameter is less than 15, make the center dot smaller
           else return d / 4;
@@ -199,21 +118,24 @@
     )
     .bindTwoWay('location', 'xy', go.Point.parse, go.Point.stringify);
 
-  const beltTemplate = new go.Node({
-    selectionAdorned: false,
-    layerName: 'Foreground',
-    movable: false
-  }).add(
-    new go.Shape({
-      name: 'BELT',
-      fill: null,
-      stroke: DEFAULT_COLOR,
-      strokeWidth: BELT_STROKE_WIDTH,
-      // to create the dotted lines
-      // 8 px of line, 4 px of space, repeat
-      strokeDashArray: [8, 4]
-    }).bind('stroke', 'color')
-  );
+  const beltTemplate =
+    new go.Node({
+        selectionAdorned: false,
+        layerName: 'Foreground',
+        movable: false
+      })
+      .add(
+        new go.Shape({
+            name: 'BELT',
+            fill: null,
+            stroke: DEFAULT_COLOR,
+            strokeWidth: BELT_STROKE_WIDTH,
+            // to create the dotted lines
+            // 8 px of line, 4 px of space, repeat
+            strokeDashArray: [8, 4]
+          })
+          .bind('stroke', 'color')
+      );
 
   const modelTemplate = [
     { key: '11', category: 'Roller', xy: '450 450' },
@@ -429,7 +351,7 @@
     let nodeRadius = node.findObject('GUIDE').actualBounds.width / 2;
     let overlapping = false;
     let it = node.diagram.nodes.iterator;
-    myDiagram.nodes.each((n) => {
+    myDiagram.nodes.each(n => {
       if (n === node || n.category === 'Belt') return;
       let dist2 = newloc.distanceSquaredPoint(n.location);
       let radius = n.findObject('GUIDE').actualBounds.width / 2;
@@ -501,7 +423,7 @@
     // all items in rollers that are not in ordered
     unordered = [];
     for (const roller of rollers) {
-      if (!ordered.some((r) => r.key === roller.key)) {
+      if (!ordered.some(r => r.key === roller.key)) {
         unordered.push(roller);
       }
     }
@@ -513,8 +435,8 @@
 
   function getAllBeltKeys() {
     return myDiagram.model.nodeDataArray
-      .filter((n) => n.category === 'Belt')
-      .map((n) => n.key);
+      .filter(n => n.category === 'Belt')
+      .map(n => n.key);
   }
 
   function getNodesBeltKeys(node) {
@@ -917,7 +839,7 @@
     let animation = new go.Animation();
     animation.easing = go.Animation.EaseLinear;
     animation.duration = 1000; // 1 second instead of default 600 milliseconds
-    myDiagram.nodes.each((node) => {
+    myDiagram.nodes.each(node => {
       if (node.category !== 'Belt') return;
       const belt = node.findObject('BELT');
       // animate the strokeDashOffset from 36 to 0 create the illusion of a moving belt
@@ -936,6 +858,17 @@
     // initialize the GoJS Diagram
     myDiagram = new go.Diagram('myDiagramDiv', {
       'undoManager.isEnabled': true
+    });
+
+    myDiagram.addDiagramListener('Modified', e => {
+      const button = document.getElementById('SaveButton');
+      if (button) button.disabled = !myDiagram.isModified;
+      const idx = document.title.indexOf('*');
+      if (myDiagram.isModified) {
+        if (idx < 0) document.title += '*';
+      } else {
+        if (idx >= 0) document.title = document.title.slice(0, idx);
+      }
     });
 
     myDiagram.nodeTemplateMap.add('Roller', rollerTemplate);
@@ -969,7 +902,7 @@
         guides.push(obj);
       }
       const beltNode = myDiagram.model.findNodeDataForKey(beltKey);
-      myDiagram.model.setDataProperty(beltNode, 'guides', guides);
+      myDiagram.model.set(beltNode, 'guides', guides);
     }
     document.getElementById('mySavedModel').value = myDiagram.model.toJson();
     myDiagram.isModified = false;
@@ -981,98 +914,12 @@
 
     for (const data of myDiagram.model.nodeDataArray) {
       if (!data.diameter && data.category === 'Roller') {
-        myDiagram.model.setDataProperty(data, 'diameter', ROLLER_DEFAULT_DIAMETER);
+        myDiagram.model.set(data, 'diameter', ROLLER_DEFAULT_DIAMETER);
       }
     }
 
     startAnimation();
   }
-</script>
-
-<div id="sample">
-  <div style="display: flex">
-    <div id="myDiagramDiv" style="flex-grow: 1"></div>
-  </div>
-  <p>
-    This sample uses <a>Animation</a>s and <a>Node</a>s to give the illusion of a
-    continuous conveyor belt. The belt is guided by rollers and bends around them using a
-    custom <a>Geometry</a> built of
-    <code><a href="../api/symbols/PathSegment.html">PathSegments</a></code
-    >. Each <code>PathSegment</code> is either a line segment between two rollers or an
-    arc wrapping around a roller.
-  </p>
-  <p>
-    Rollers can be dragged around, and the belt will update automatically. The program
-    prevents you from moving the rollers in a way that would make:
-  </p>
-  <ul>
-    <li>a belt overlap itself</li>
-    <li>a belt go through its rollers</li>
-    <li>a roller overlap another roller in the same belt</li>
-  </ul>
-  <p>
-    Rollers can be contained to one belt or be part of multiple belts. In the model, the
-    <code>guides</code> list for a belt defines the rollers that can interact with the
-    belt. Some rollers in this sample have a fill color, meaning that they are part of
-    both belts shown. Try it out: you'll see that normal rollers will go right through
-    other belts, but rollers with a fill color will affect both belts.
-  </p>
-  <button id="SaveButton" onclick="save()">Save</button>
-  <button onclick="load()">Load</button>
-  Diagram Model saved in JSON format:
-  <textarea id="mySavedModel" style="width: 100%; height: 300px"> </textarea>
-</div>
-          
-        </div>
-        <!-- * * * * * * * * * * * * * -->
-        <!--  End of GoJS sample code  -->
-      </div>
-
-      <div id="allTagDescriptions" class="p-4 w-full max-w-screen-xl mx-auto">
-        <hr/>
-        <h3 class="text-xl">GoJS Features in this sample</h3>
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Animation</h4>
-<p>
-  <b>GoJS</b> offers several built-in animations, enabled by default, as well as the ability to create arbitrary animations.
-</p>
-<p>
-  The <a href="../api/symbols/Diagram.html#animationManager" target="api">Diagram.animationManager</a> handles animations within a <a href="../api/symbols/Diagram.html" target="api">Diagram</a>.
-  The <a href="../api/symbols/AnimationManager.html" target="api">AnimationManager</a> automatically sets up and dispatches default animations, and has properties to customize and disable them.
-  Custom animations are possible by creating instances of <a href="../api/symbols/Animation.html" target="api">Animation</a> or <a href="../api/symbols/AnimationTrigger.html" target="api">AnimationTrigger</a>.
-  More information can be found in the <a href="../intro/animation.html">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#animation">Related samples</a>
-            </p>
-            <hr>
-          
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Geometry Path Strings</h4>
-<p>
-The <b>GoJS</b> <a href="../api/symbols/Geometry.html" target="api">Geometry</a> class controls the "shape" of a <a href="../api/symbols/Shape.html" target="api">Shape</a>,
-whereas the <a href="../api/symbols/Shape.html#fill" target="api">Shape.fill</a> and <a href="../api/symbols/Shape.html#stroke" target="api">Shape.stroke</a> and other shape properties control the colors and appearance of the shape.
-For common shape figures, there are predefined geometries that can be used by setting <a href="../api/symbols/Shape.html#figure" target="api">Shape.figure</a>.
-However one can also define custom geometries.
-</p>
-<p>
-One can construct any Geometry by allocating and initializing a <a href="../api/symbols/Geometry.html" target="api">Geometry</a> of at least one <a href="../api/symbols/PathFigure.html" target="api">PathFigure</a> holding some <a href="../api/symbols/PathSegment.html" target="api">PathSegment</a>s.
-But you may find that using the string representation of a Geometry is easier to write and save in a database.
-Use the static method <a href="../api/symbols/Geometry.html#parse" target="api">Geometry.parse</a> or the <a href="../api/symbols/Shape.html#geometryString" target="api">Shape.geometryString</a> property to transform a geometry path string into a <a href="../api/symbols/Geometry.html" target="api">Geometry</a> object.
-</p>
-<p>
-More information can be found in the <a href="../intro/geometry.html">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#geometries">Related samples</a>
-            </p>
-            <hr>
-          
-        </div>
-    </div>
-  </body>
-  <!--  This script is part of the gojs.net website, and is not needed to run the sample -->
-  
+  </script>
+</body>
 </html>

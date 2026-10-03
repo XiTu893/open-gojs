@@ -1,44 +1,175 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <meta charset="utf-8">
-  <title>Dimensioning Links - Open GoJS</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dimensioning Links Showing Distances Between Spots on Two Nodes</title>
+  <script src="../dist/open-gojs.umd.js"></script>
+  
+  <script src="https://cdn.jsdelivr.net/npm/gojs-extensions@latest/extensions/DimensioningLink.js"></script>
+  
+  
 </head>
 <body>
-  <div id="myDiagramDiv" style="border: solid 1px black; width: 100%; height: 500px"></div>
-  <script src="../dist/open-gojs.umd.js"></script>
-  <script>
-    var myDiagram = new go.Diagram("myDiagramDiv", {
-      "undoManager.isEnabled": true
+<div id="myDiagramDiv" style="border: solid 1px black; width: 100%; height: 400px"></div>
+  <div id="description">
+<p>
+    This sample makes use of the DimensioningLink extension, which inherits from the <a href="https://gojs.net/latest/api/symbols/Link.html" target="api">Link</a> class.
+    The extension definition can be found at <a href="https://gojs.net/latest/extensions/DimensioningLink.js">DimensioningLink.js</a>.
+  </p>
+  </div>
+  <script >
+function init() {
+    myDiagram = new go.Diagram('myDiagramDiv', {
+      'undoManager.isEnabled': true
     });
+
+    // A simple resizable node
     myDiagram.nodeTemplate =
-      new go.Node("Auto")
+      new go.Node('Auto', {
+          locationSpot: go.Spot.Center,
+          resizable: true
+        })
+        .bindTwoWay('location', 'loc', go.Point.parse, go.Point.stringify)
         .add(
-          new go.Shape("Rectangle", { fill: "lightgray", stroke: "gray", desiredSize: new go.Size(40, 40) }),
-          new go.TextBlock({ font: "bold 10px sans-serif" })
-            .bind("text")
+          new go.Shape({ strokeWidth: 0, fill: 'lightgray' })
+            .bind('fill', 'color'),
+          new go.TextBlock({ margin: 10 })
+            .bind('text', 'key')
         );
-    myDiagram.linkTemplate =
-      new go.Link()
+
+    // A generalized example template using a DimensioningLink.
+    // Most usage might not have so many Bindings.
+    myDiagram.linkTemplateMap.add('Dimensioning',
+      new DimensioningLink()
+        .bind('fromSpot', 'fromSpot', go.Spot.parse)
+        .bind('toSpot', 'toSpot', go.Spot.parse)
+        .bind('direction')
+        .bind('extension')
+        .bind('inset')
         .add(
-          new go.Shape({ strokeWidth: 1, stroke: "gray", strokeDashArray: [4, 2] }),
-          new go.TextBlock({ segmentOffset: new go.Point(0, -10), font: "10px sans-serif", stroke: "gray" })
-            .bind("text", "distance")
-        );
+          new go.Shape({ stroke: 'gray' })
+            .bind('stroke', 'color'),
+          new go.Shape({ fromArrow: 'BackwardOpenTriangle', segmentIndex: 2, stroke: 'gray' })
+            .bind('stroke', 'color'),
+          new go.Shape({ toArrow: 'OpenTriangle', segmentIndex: -3, stroke: 'gray' })
+            .bind('stroke', 'color'),
+          new go.TextBlock({
+              segmentIndex: 2,
+              segmentFraction: 0.5,
+              segmentOrientation: go.Orientation.Upright,
+              alignmentFocus: go.Spot.Bottom,
+              stroke: 'gray',
+              font: '8pt sans-serif'
+            })
+            .bindObject('text', '', showDistance)
+            .bind('stroke', 'color')
+        ));
+
+    // Return a string representing the distance between the two points.
+    // This is the cartesian distance if this.direction is NaN;
+    // otherwise it is the orthogonal distance along that axis.
+    function showDistance(link) {
+      const numpts = link.pointsCount;
+      if (numpts < 2) return '';
+      const p0 = link.getPoint(0);
+      const pn = link.getPoint(numpts - 1);
+      const ang = link.direction;
+      if (isNaN(ang)) return Math.floor(Math.sqrt(p0.distanceSquaredPoint(pn))) + '';
+      const rad = (ang * Math.PI) / 180;
+      return '' + Math.floor(Math.abs(Math.cos(rad) * (p0.x - pn.x)) +
+                             Math.abs(Math.sin(rad) * (p0.y - pn.y)));
+    }
+
     myDiagram.model = new go.GraphLinksModel(
       [
-        { key: 1, text: "A" },
-        { key: 2, text: "B" },
-        { key: 3, text: "C" },
-        { key: 4, text: "D" }
+        { key: 'Alpha', loc: '0 50' },
+        { key: 'Beta', loc: '150 0' },
+        { key: 'Gamma', loc: '100 150' }
       ],
       [
-        { from: 1, to: 2, distance: "100px" },
-        { from: 2, to: 3, distance: "150px" },
-        { from: 3, to: 4, distance: "80px" },
-        { from: 1, to: 4, distance: "200px" }
+        {
+          from: 'Alpha',
+          to: 'Beta',
+          category: 'Dimensioning',
+          fromSpot: 'TopRight',
+          toSpot: 'TopLeft'
+        },
+        {
+          from: 'Alpha',
+          to: 'Beta',
+          category: 'Dimensioning',
+          fromSpot: 'TopLeft',
+          toSpot: 'TopRight',
+          extension: 50,
+          color: 'blue'
+        },
+        {
+          from: 'Alpha',
+          to: 'Beta',
+          category: 'Dimensioning',
+          fromSpot: 'TopLeft',
+          toSpot: 'TopLeft',
+          direction: 270,
+          color: 'green'
+        },
+        {
+          from: 'Alpha',
+          to: 'Beta',
+          category: 'Dimensioning',
+          fromSpot: 'BottomRight',
+          toSpot: 'BottomRight',
+          direction: 90,
+          color: 'purple'
+        },
+        {
+          from: 'Alpha',
+          to: 'Beta',
+          category: 'Dimensioning',
+          fromSpot: 'Center',
+          toSpot: 'Center',
+          extension: 50,
+          direction: NaN,
+          color: 'red'
+        },
+
+        {
+          from: 'Gamma',
+          to: 'Gamma',
+          category: 'Dimensioning',
+          fromSpot: 'TopLeft',
+          toSpot: 'TopRight',
+          direction: 0
+        },
+        {
+          from: 'Gamma',
+          to: 'Gamma',
+          category: 'Dimensioning',
+          fromSpot: 'TopRight',
+          toSpot: 'BottomRight',
+          direction: 90
+        },
+        {
+          from: 'Gamma',
+          to: 'Gamma',
+          category: 'Dimensioning',
+          fromSpot: 'BottomRight',
+          toSpot: 'BottomLeft',
+          direction: 180
+        },
+        {
+          from: 'Gamma',
+          to: 'Gamma',
+          category: 'Dimensioning',
+          fromSpot: 'BottomLeft',
+          toSpot: 'TopLeft',
+          direction: 270
+        }
       ]
     );
+  }
+
+  window.addEventListener('DOMContentLoaded', init);
   </script>
 </body>
 </html>

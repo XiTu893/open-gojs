@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Simulating Input using InputEvents</title>
+  <script src="../dist/open-gojs.umd.js"></script>
+  
+  
+  
+  <style>
+#myStatus {
+    color: green;
+    font: bold 10pt sans-serif;
+  }
+
+  :root.dark #myStatus {
+    color: lightgreen;
+  }
+  </style>
+</head>
+<body>
+<div style="width: 100%; display: flex; justify-content: space-between">
+    <div id="myPaletteDiv" style="width: 80px; height: 300px; margin-right: 2px; border: solid 1px black"></div>
+    <div id="myDiagramDiv" style="flex-grow: 1; height: 300px; border: solid 1px black"></div>
+  </div>
+  Message: <span id="myStatus">(none)</span>
+  <p>
+    Click these buttons in order from top to bottom:<br />
+    <p>
+      <button onclick="clickLambda()">Click Lambda</button><br />
+      <button onclick="doubleClickLambda()">Double Click Lambda</button><br />
+    </p>
+    <p>
+      <button onclick="dragFromPalette()">Drag From Palette</button><br />
+      <button onclick="copyNode()">Copy Node</button><br />
+      <button onclick="linkNodes()">Link Nodes</button><br />
+      <button onclick="dragSelectNodes()">Drag Select Nodes</button><br />
+      <button onclick="clickContextMenu()">Context Menu Click Alpha</button><br />
+      <button onclick="deleteSelection()">Delete</button><br />
+    </p>
+    <button onclick="pan()">Pan the Diagram</button><br />
+  </p>
+  <div id="description">
+<p>To simulate mouse events the buttons above use the <b>emit...</b> methods of the Diagram class.</p>
+  <p>
+    The <a href="https://gojs.net/latest/api/symbols/UndoManager.html" target="api">UndoManager</a> has been enabled in the main Diagram. Give focus to the Diagram and you can undo everything and then redo everything to confirm what
+    was executed by the simulated events.
+  </p>
+  <p>
+    The <a href="https://gojs.net/latest/api/symbols/Robot.html" target="api">Robot</a> extension class has been deprecated, because the functionality has been moved to the Diagram class.
+    The extension remains here for compatibility, but we recommend that you use the "emit..." methods of <a href="https://gojs.net/latest/api/symbols/Diagram.html" target="api">Diagram</a>,
+    which are compatible with the functionality of the extension, except that their names start with "emit...".
+  </p>
+  </div>
+  <script >
+function init() {
+
+    function showProperties(e, obj) {
+      // executed by ContextMenuButton
+      var node = obj.part.adornedPart;
+      var msg = 'Context clicked: ' + node.data.key + '. ';
+      msg += 'Selection includes:';
+      myDiagram.selection.each(part => {
+        msg += ' ' + part.toString();
+      });
+      document.getElementById('myStatus').textContent = msg;
+    }
+
+    function nodeClicked(e, obj) {
+      // executed by click and doubleclick handlers
+      var evt = e.copy();
+      var node = obj.part;
+      var type = evt.clickCount === 2 ? 'Double-Clicked: ' : 'Clicked: ';
+      var msg = type + node.data.key + '. ';
+      document.getElementById('myStatus').textContent = msg;
+    }
+
+    myDiagram = new go.Diagram('myDiagramDiv', {
+      initialContentAlignment: go.Spot.Top,
+      "InitialLayoutCompleted": e => {
+        document.getElementById('myStatus').textContent = 'Initial Layout Completed';
+      },
+      nodeTemplate:
+        new go.Node('Auto', {
+            click: nodeClicked,
+            doubleClick: nodeClicked,
+            contextMenu:
+              go.GraphObject.build('ContextMenu')
+                .add(
+                  go.GraphObject.build('ContextMenuButton', {
+                      click: showProperties
+                    })
+                    .add(new go.TextBlock('Properties'))
+                )
+          })
+          .add(
+            new go.Shape('Rectangle', {
+              fill: 'lightgray',
+              portId: '',
+              fromLinkable: true,
+              toLinkable: true,
+              cursor: 'pointer'
+            }),
+            new go.TextBlock({ margin: 6 })
+              .bind('text', 'key')
+          ),
+      model: new go.GraphLinksModel({
+        copiesKey: true, // so that the newly dropped node will have key == "Alpha"
+        nodeDataArray: [{ key: 'Lambda' }, { key: 'Mu' }],
+        linkDataArray: [{ from: 'Lambda', to: 'Mu' }]
+      }),
+      'undoManager.isEnabled': true
+    });
+
+    // initialize the Palette that is on the left side of the page
+    myPalette = new go.Palette('myPaletteDiv', {
+      nodeTemplate: myDiagram.nodeTemplate,
+      model: new go.GraphLinksModel([
+        // specify the contents of the Palette
+        { key: 'Alpha' },
+        { key: 'Beta' },
+        { key: 'Gamma' },
+        { key: 'Delta' }
+      ])
+    });
+  }
+
+  // These are the HTML button event handlers.
+
+  function clickLambda() {
+    var lambda = myDiagram.findNodeForKey('Lambda');
+    if (lambda === null) return;
+    var loc = lambda.location;
+
+    // click on Lambda
+    myDiagram.emitMouseDown(loc.x + 10, loc.y + 10, 0, {});
+    myDiagram.emitMouseUp(loc.x + 10, loc.y + 10, 100, {});
+
+    // Clicking is just a sequence of input events.
+    // There is no command in CommandHandler for such a basic gesture.
+
+    // Alternatively, if the GraphObject.click property is non null, you could just call it:
+    // const clickfunc = lambda.click;
+    // if (clickfunc !== null) {
+    //   const ie = new go.InputEvent();
+    //   ie.diagram = myDiagram;
+    //   ie.documentPoint = new go.Point(loc.x + 10, loc.y + 10);
+    //   ie.viewPoint = myDiagram.transformDocToView(ie.documentPoint);
+    //   clickfunc(ie, lambda);
+    // }
+  }
+
+  function doubleClickLambda() {
+    var lambda = myDiagram.findNodeForKey('Lambda');
+    if (lambda === null) return;
+    var loc = lambda.location;
+
+    // double-click on Lambda
+    myDiagram.emitMouseDown(loc.x + 10, loc.y + 10, 0, {});
+    myDiagram.emitMouseUp(loc.x + 10, loc.y + 10, 100, {});
+    myDiagram.emitMouseDown(loc.x + 10, loc.y + 10, 200, { clickCount: 2 });
+    myDiagram.emitMouseUp(loc.x + 10, loc.y + 10, 300, { clickCount: 2 });
+
+    // Alternatively, if the GraphObject.doubleClick property is non null, you could just call it:
+    // const clickfunc = lambda.doubleClick;
+    // if (clickfunc !== null) {
+    //   const ie = new go.InputEvent();
+    //   ie.diagram = myDiagram;
+    //   ie.documentPoint = new go.Point(loc.x + 10, loc.y + 10);
+    //   ie.viewPoint = myDiagram.transformDocToView(ie.documentPoint);
+    //   ie.clickCount = 2;
+    //   clickfunc(ie, lambda);
+    // }
+  }
+
+  function dragFromPalette() {
+    // simulate a drag-and-drop between Diagrams:
+    var dragdrop = { sourceDiagram: myPalette, targetDiagram: myDiagram };
+    myDiagram.emitMouseDown(5, 5, 0, dragdrop); // this should be where the Alpha node is in the source myPalette
+    myDiagram.emitMouseMove(60, 60, 100, dragdrop);
+    myDiagram.emitMouseUp(100, 100, 200, dragdrop); // this is where the node will be dropped in the target myDiagram
+    // If successful in dragging a node from the Palette into the Diagram,
+    // the DraggingTool will perform a transaction.
+  }
+
+  function copyNode() {
+    var alpha = myDiagram.findNodeForKey('Alpha');
+    if (alpha === null) return;
+    var loc = alpha.actualBounds.center;
+
+    var options = { control: true, alt: true };
+    // Simulate a mouse drag to move the Alpha node:
+    myDiagram.emitMouseDown(loc.x, loc.y, 0, options);
+    myDiagram.emitMouseMove(loc.x + 80, loc.y + 50, 50, options);
+    myDiagram.emitMouseMove(loc.x + 20, loc.y + 100, 100, options);
+    myDiagram.emitMouseUp(loc.x + 20, loc.y + 100, 150, options);
+    // If successful, will have made a copy of the "Alpha" node below it.
+
+    // Alternatively you could copy the Node using commands:
+    // myDiagram.commandHandler.copySelection();
+    // myDiagram.commandHandler.pasteSelection(new go.Point(loc.x+20, loc.y+100));
+  }
+
+  function linkNodes() {
+    var alpha = myDiagram.findNodeForKey('Alpha');
+    if (alpha === null) return;
+    var ptA = alpha.getDocumentPoint(go.Spot.Bottom);
+    var alpha2 = myDiagram.findNodeForKey('Alpha2');
+    if (alpha2 === null) return;
+    var ptB = alpha.actualBounds.center;
+
+    // Simulate dragging from the inside edge of the Alpha node, to start drawing a new link.
+    myDiagram.emitMouseDown(ptA.x, ptA.y-2, 0);
+    myDiagram.emitMouseMove(ptA.x+10, ptA.y+10, 100);
+    myDiagram.emitMouseMove((ptA.x+ptB.x)/2, (ptA.y+ptB.y)/2, 200);
+    myDiagram.emitMouseUp(ptB.x, ptB.y, 250);
+    // Now should have drawn a new Link
+
+    // Alternatively, you could draw a new Link via:
+    // const tool = myDiagram.toolManager.linkingTool;
+    // tool.insertLink(alpha, null, alpha2, null);
+  }
+
+  function dragSelectNodes() {
+    var alpha = myDiagram.findNodeForKey('Alpha');
+    if (alpha === null) return;
+    var alpha2 = myDiagram.findNodeForKey('Alpha2');
+    if (alpha2 === null) return;
+    var coll = new go.Set();
+    coll.add(alpha);
+    coll.add(alpha2);
+    var area = myDiagram.computePartsBounds(coll);
+    area.inflate(30, 30);
+
+    // Simulate dragging in the background around the two Alpha nodes.
+    // This uses timestamps to pretend to wait a while to avoid activating the PanningTool.
+    // Hopefully this mouse down does not hit any Part, but in the Diagram's background:
+    myDiagram.emitMouseDown(area.x, area.y, 0);
+    // NOTE that this mouseMove timestamp needs to be > myDiagram.toolManager.dragSelectingTool.delay:
+    myDiagram.emitMouseMove(area.x+10, area.y+10, 300);
+    myDiagram.emitMouseMove(area.right-10, area.bottom-10, 350);
+    myDiagram.emitMouseUp(area.right, area.bottom, 500);
+    // Now should have selected both "Alpha" and "Alpha2", and any Link between them, using the DragSelectingTool.
+
+    // Alternatively you could select the Nodes programmatically:
+    // alpha.isSelected = true;
+    // alpha2.isSelected = true;
+
+    // Or you could select all Parts in the rectangular AREA:
+    //myDiagram.selectCollection(myDiagram.findPartsIn(area));
+  }
+
+  function clickContextMenu() {
+    var alpha = myDiagram.findNodeForKey('Alpha');
+    if (alpha === null) return;
+    var loc = alpha.location;
+
+    // right click on Alpha
+    myDiagram.emitMouseDown(loc.x + 10, loc.y + 10, 0, { right: true });
+    myDiagram.emitMouseUp(loc.x + 10, loc.y + 10, 100, { right: true });
+
+    // Alternatively you could invoke the Show Context Menu command directly:
+    // myDiagram.commandHandler.showContextMenu(alpha);
+
+    // move mouse over first context menu button
+    myDiagram.emitMouseMove(loc.x + 20, loc.y + 20, 200);
+    // and click that button
+    myDiagram.emitMouseDown(loc.x + 20, loc.y + 20, 300);
+    myDiagram.emitMouseUp(loc.x + 20, loc.y + 20, 350);
+    // This should have invoked the ContextMenuButton's click function, showProperties,
+    // which should have put a green message in the myStatus DIV.
+  }
+
+  function deleteSelection() {
+    // Simulate clicking the "Delete" key:
+    myDiagram.emitKeyDown('Delete');
+    myDiagram.emitKeyUp('Delete');
+    // Now the selected Nodes are deleted.
+
+    // Alternatively you could invoke the Delete command directly:
+    // myDiagram.commandHandler.deleteSelection();
+  }
+
+  function pan() {
+    var pos1 = myDiagram.position.copy();
+
+    var pt = new go.Point(myDiagram.viewportBounds.x + 30, myDiagram.viewportBounds.centerY);
+    myDiagram.emitMouseDown(pt.x, pt.y, 0, {});
+    // Minimal wait after mouseDown when moving, else the PanningTool will be pre-empted
+    // by the DragSelectingTool, which is controlled by the DragSelectingTool.delay property.
+    // Remember that these are document coordinates, which are shifted by the panning motion.
+    myDiagram.emitMouseMove(pt.x + 20, pt.y + 10, 10, {});
+    myDiagram.emitMouseMove(pt.x + 20, pt.y + 10, 30, {});
+    myDiagram.emitMouseMove(pt.x + 20, pt.y + 10, 50, {});
+    myDiagram.emitMouseUp(pt.x + 20, pt.y + 10, 70, {});
+
+    var pos2 = myDiagram.position.copy();
+    document.getElementById('myStatus').textContent = 'Document.position before: ' + pos1.toString() + ' ' + 'Document.position after: ' + pos2.toString();
+
+    // Alternatively, you could scroll programmatically:
+    // const newpos = myDiagram.position.copy();
+    // newpos.offset(-80, -40);
+    // myDiagram.position = newpos;
+  }
+
+  window.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>

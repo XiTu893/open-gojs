@@ -21,6 +21,9 @@ export declare class CircularLayout extends Layout {
     private _comparer;
     private _nodeDiameterFormula;
     private _actualSpacing;
+    /** 最近一次布局产生的子网络（splitIntoSubNetworks 会把顶点搬进去，
+     *  主网络 vertexes 因此变空，commitNodes/commitLinks 需要遍历它们）。 */
+    private _lastSubNetworks;
     private _actualCenter;
     get radius(): number;
     set radius(val: number);
@@ -70,6 +73,8 @@ export declare class CircularLayout extends Layout {
      */
     private _computeRadius;
     commitNodes(): void;
+    /** 提交时要遍历的网络：有子网络就遍历子网络，否则遍历主网络 */
+    private _commitNetworks;
     commitLinks(): void;
     static ConstantSpacing: EnumValue;
     static ConstantDistance: EnumValue;

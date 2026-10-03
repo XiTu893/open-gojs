@@ -215,7 +215,7 @@ export class TreeLayout extends Layout {
   static LayerUniform = TreeLayerStyleUniform;
 
   copy(): TreeLayout {
-    const copy = new TreeLayout();
+    const copy = new (this.constructor as new () => any)();
     this.cloneProtected(copy);
     copy._path = this._path;
     copy._treeStyle = this._treeStyle;
@@ -287,7 +287,10 @@ export class TreeLayout extends Layout {
         const tn: any = link.toNode;
         if (!fn || !tn || fn === tn) continue;
         if (!nodeOK(fn) || !nodeOK(tn)) continue;
-        net.addLink(link);
+        // 官方 addParts 阶段 2：端点经 findGroupVertex 解析（自身 → 网络中已有的
+        // 最深祖先 vertex），不自动建端点 vertex；任一侧为 null 则跳过该连线。
+        // flowgrammer 组 -1 的 L3→4 因此连到嵌套组 -2 的 vertex，而不是把 node4 塞进网络。
+        net.linkVertexes(net.findGroupVertex(fn), net.findGroupVertex(tn), link);
       }
     }
 
@@ -1964,9 +1967,9 @@ export class TreeLayout extends Layout {
 
   commitLayout(): void {
     this._setPortSpotsAll();
-    this._commitNodes();
+    this.commitNodes();
     this._commitLayerRects();
-    if (this._isRouting) this._commitLinks();
+    if (this._isRouting) this.commitLinks();
   }
 
   private _commitNodes(): void {
@@ -2314,23 +2317,7 @@ export class TreeLayout extends Layout {
 
   computeBusLastRowSpacing(c: TreeVertex, dir: number): number { return this._computeBusLastRowSpacing(c, dir); }
 
-  commitNodes(): void {
-    if (this.network !== null) {
-      const it = this.network.vertexes.iterator;
-      while (it.next()) {
-        const v = it.value;
-        if (v.node) v.node.move(new Point(v.x, v.y));
-      }
-    }
-  }
+  commitNodes(): void { this._commitNodes(); }
 
-  commitLinks(): void {
-    if (this.network !== null) {
-      const it = this.network.edges.iterator;
-      while (it.next()) {
-        const e = it.value;
-        if (e.link) e.link.updateRoute();
-      }
-    }
-  }
+  commitLinks(): void { this._commitLinks(); }
 }

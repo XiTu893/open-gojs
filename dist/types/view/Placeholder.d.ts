@@ -1,11 +1,15 @@
 import { GraphObject } from './GraphObject';
 import { Rect } from '../core/Rect';
+import { Margin } from '../core/Margin';
 export declare class Placeholder extends GraphObject {
     static readonly className: string;
+    /** 官方 Placeholder.padding：number 或 Margin（官方 setter 把 number 归一成 Margin） */
     private _padding;
     constructor(init?: Placeholder);
-    get padding(): number;
-    set padding(val: number);
+    get padding(): number | Margin;
+    set padding(val: number | Margin);
+    /** padding 的四边值（number 四边均匀；Margin 按 top/right/bottom/left） */
+    private _padSides;
     get _placeholderBounds(): Rect;
     /**
      * 官方 `Placeholder.computeMemberBounds(result)`：把所属 Group 的可见成员并集写入 `result`（原地修改并返回）。
@@ -14,7 +18,7 @@ export declare class Placeholder extends GraphObject {
      */
     computeMemberBounds(result: Rect): Rect;
     /**
-     * 官方 `Placeholder.computeBorder(result)`：成员并集再按 `margin` 外扩，写入 `result`（原地修改并返回）。
+     * 官方 `Placeholder.computeBorder(result)`：成员并集再按 `padding`（Margin）外扩，写入 `result`。
      * - 子图折叠（`!isSubGraphExpanded`）时宽高为 0；
      * - `Group.computesBoundsIncludingLocation` 且 group.location 有效时，把 location 并入边界。
      */

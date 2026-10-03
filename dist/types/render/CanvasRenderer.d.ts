@@ -46,7 +46,6 @@ export declare class CanvasRenderer {
     private _drawPathWithJumpGap;
     /** Render an arrowhead at the end of a link */
     private _renderArrow;
-    private _renderLinkLabel;
     /** Render any GraphObject by dispatching to the appropriate handler */
     renderGraphObject(obj: GraphObject, offsetX: number, offsetY: number): void;
     /** Render a Panel and its children */
@@ -80,6 +79,17 @@ export declare class CanvasRenderer {
     _restoreTransform(): void;
     /** Trace a geometry path on the canvas context */
     _drawGeometry(ctx: CanvasRenderingContext2D, geo: Geometry): void;
+    /**
+     * 开一条新路径并画单个 figure。
+     *
+     * 官方 Geometry（type 4）是**逐 figure** 提交的：`... endPath(p)` 里的 `p` 就是
+     * figure 序号，所以「填不填」是按 figure 自己判定的。本项目以前把整个 geometry
+     * 当成一条路径统一 fill，导致 `PathFigure(..., false)` 的图形（CircleLine、
+     * Curve1/2、AsteriskLine、Terminator…）被涂色，与官方差一大片。
+     */
+    private _drawFigure;
+    /** 把单个 figure 的线段追加到当前路径（不 beginPath） */
+    private _drawFigureSegments;
     /** Draw an arc segment from current point using SVG arc parameterization */
     private _drawArcSegment;
     /** Resolve a BrushLike to a fill style string or CanvasGradient */

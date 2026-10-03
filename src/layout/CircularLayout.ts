@@ -1,4 +1,5 @@
 import { Point } from '../core/Point';
+import { List } from '../core/List';
 import { EnumValue } from '../core/EnumValues';
 import {
   CircularArrangementConstantDistance, CircularArrangementConstantAngle,
@@ -63,6 +64,9 @@ export class CircularLayout extends Layout {
   private _comparer: ((a: any, b: any) => number) | null = null;
   private _nodeDiameterFormula: EnumValue = CircularNodeDiameterFormulaPythagorean;
   private _actualSpacing: number = 0;
+  /** 最近一次布局产生的子网络（splitIntoSubNetworks 会把顶点搬进去，
+   *  主网络 vertexes 因此变空，commitNodes/commitLinks 需要遍历它们）。 */
+  private _lastSubNetworks: List<LayoutNetwork> | null = null;
   private _actualCenter: Point = new Point(0, 0);
 
   get radius(): number { return this._radius; }
@@ -120,7 +124,7 @@ get aspectRatio(): number { return this._aspectRatio; }
   }
 
   copy(): CircularLayout {
-    const copy = new CircularLayout();
+    const copy = new (this.constructor as new () => any)();
     this.cloneProtected(copy);
     copy._radius = this._radius;
     copy._startAngle = this._startAngle;
@@ -142,8 +146,14 @@ get aspectRatio(): number { return this._aspectRatio; }
     // Build network
     const net = this.makeNetwork(coll);
     if (net.vertexes.count === 0) return;
+    // 官方在 commitNodes()/commitLinks() 之前把 network 挂上、结束后才置空。
+    // 样例（friendWheel 的 WheelLayout 等）在覆写里遍历 this.network.vertexes/edges，
+    // 这里不设的话它们拿到 null，径向旋转与 link.curviness 全部失效。
+    this.network = net;
 
-    // Find connected components
+    // Find connected components（破坏性拆分：顶点/边会被搬进子网络）
+    const allVertexes = net.vertexes.toArray();
+    const allEdges = net.edges.toArray();
     const subNetworks = net.splitIntoSubNetworks();
 
     const origin = this.arrangementOrigin;
@@ -172,34 +182,17 @@ get aspectRatio(): number { return this._aspectRatio; }
     }
 
     // splitIntoSubNetworks 会把顶点搬进子网络（主网络 vertexes 变空），
-    // 因此提交时遍历所有子网络的顶点：加上圆心偏移并写回 actualCenter。
-    const e = this._actualCenter;
-    const ax = origin.x + (isNaN(this._actualXRadius) ? 0 : this._actualXRadius);
-    const ay = origin.y + (isNaN(this._actualYRadius) ? 0 : this._actualYRadius);
-    e.x = ax;
-    e.y = ay;
-    const commit = (network: LayoutNetwork) => {
-      const vit = network.vertexes.iterator;
-      while (vit.next()) {
-        const v = vit.value;
-        if (v.node && !v._isArtificial) {
-          v.node.move(new Point(v.x + ax, v.y + ay));
-        }
-      }
-    };
-    if (subNetworks.count > 0) {
-      const sit = subNetworks.iterator;
-      while (sit.next()) commit(sit.value);
-    } else {
-      commit(net);
-    }
+    // commitNodes/commitLinks 因此要遍历所有子网络。
+    this._lastSubNetworks = subNetworks.count > 0 ? subNetworks : null;
+    // 但官方语义是「this.network 始终持有全部顶点/边」，样例覆写依赖这一点。
+    net.reattach(allVertexes, allEdges);
 
-    // 注：这里**不**调用 `commitLinks()`。实测调用后 friendWheel 21.578→21.702、
-    // conceptMap 3.785→3.926、doubleCircle 26.654→27.622，全是负收益，
-    // 且样例的 `link.curviness` 仍是 NaN（说明它的覆写并未真正生效）。
-    // 官方在 `commitNodes()` 里完成节点定位、随后由 `commitLinks()` 重算路线；
-    // 本项目把定位内联进 `_layoutComponent`，直接调用会导致重复偏移。
-    // 待办见 doc/sample-parity-2026-09-30.md §6。
+    // 官方 CircularLayout.doLayout 的收尾就是这两步：`updateParts()` → commitNodes →
+    // commitLinks。样例覆写 commitNodes/commitLinks（friendWheel 用前者做径向旋转、
+    // 后者给 link.curviness 赋值）必须能跑在官方流程上，否则径向文字和贝塞尔连线都做不出来。
+    this.commitNodes();
+    this.commitLinks();
+    this.network = null;
 
     this.isValidLayout = true;
   }
@@ -346,6 +339,12 @@ get aspectRatio(): number { return this._aspectRatio; }
 
       v.x = x - v.width / 2;
       v.y = y - v.height / 2;
+      // 官方在排列阶段就写好 actualAngle（度）与 centerX/centerY，
+      // 样例（如 friendWheel 的 WheelLayout.commitNodes）据此把节点旋转成径向、
+      // 并把文字翻正。少了这一步 v.actualAngle 恒为 0，文字就不会沿法线排布。
+      v.actualAngle = (angle * 180) / Math.PI;
+      v.centerX = x;
+      v.centerY = y;
     }
   }
 
@@ -383,20 +382,32 @@ get aspectRatio(): number { return this._aspectRatio; }
     const e = this._actualCenter;
     e.x = this.arrangementOrigin.x + (isNaN(this._actualXRadius) ? 0 : this._actualXRadius);
     e.y = this.arrangementOrigin.y + (isNaN(this._actualYRadius) ? 0 : this._actualYRadius);
-    if (this.network !== null) {
-      const it = this.network.vertexes.iterator;
+    for (const net of this._commitNetworks()) {
+      const it = net.vertexes.iterator;
       while (it.next()) {
         const v = it.value;
         const nx = v.x + e.x;
         const ny = v.y + e.y;
-        if (v.node) v.node.move(new Point(nx, ny));
+        if (v.node && !v._isArtificial) v.node.move(new Point(nx, ny));
       }
     }
   }
 
+  /** 提交时要遍历的网络：有子网络就遍历子网络，否则遍历主网络 */
+  private _commitNetworks(): LayoutNetwork[] {
+    const out: LayoutNetwork[] = [];
+    if (this._lastSubNetworks) {
+      const sit = this._lastSubNetworks.iterator;
+      while (sit.next()) out.push(sit.value);
+    } else if (this.network !== null) {
+      out.push(this.network);
+    }
+    return out;
+  }
+
   commitLinks(): void {
-    if (this.network !== null) {
-      const it = this.network.edges.iterator;
+    for (const net of this._commitNetworks()) {
+      const it = net.edges.iterator;
       while (it.next()) {
         const e = it.value;
         if (e.link) e.link.updateRoute();

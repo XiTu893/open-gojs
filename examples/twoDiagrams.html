@@ -1,135 +1,63 @@
-﻿
 <!DOCTYPE html>
-<html lang="en">
-  <head>
-    
-    <meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover"/>
-
-<meta name="description" content="Moving (not copying) nodes between two Diagrams and two different Models sharing an UndoManager." />
-<meta itemprop="description" content="Moving (not copying) nodes between two Diagrams and two different Models sharing an UndoManager." />
-<meta property="og:description" content="Moving (not copying) nodes between two Diagrams and two different Models sharing an UndoManager." />
-<meta name="twitter:description" content="Moving (not copying) nodes between two Diagrams and two different Models sharing an UndoManager." />
-
-
-<link rel="preconnect" href="https://rsms.me/">
-
-<!-- Copyright 1998-2026 by Northwoods Software Corporation. -->
-
-
-<meta itemprop="name" content="Drag-and-Drop Between Two Diagrams Controlled by Permissions" />
-<meta property="og:title" content="Drag-and-Drop Between Two Diagrams Controlled by Permissions" />
-<meta name="twitter:title" content="Drag-and-Drop Between Two Diagrams Controlled by Permissions" />
-
-
-<meta property="og:image" content="https://gojs.net/latest/assets/images/screenshots/minimal.png" />
-<meta itemprop="image" content="https://gojs.net/latest/assets/images/screenshots/minimal.png" />
-<meta name="twitter:image" content="https://gojs.net/latest/assets/images/screenshots/minimal.png" />
-
-<meta property="og:url" content="https://gojs.net/latest/samples/twoDiagrams.html" />
-<meta property="twitter:url" content="https://gojs.net/latest/samples/twoDiagrams.html" />
-
-<meta name="twitter:card" content="summary_large_image" />
-<meta property="og:type" content="website" />
-<meta property="twitter:domain" content="gojs.net" />
-
-    <title>
-      Drag-and-Drop Between Two Diagrams Controlled by Permissions | GoJS Diagramming Library
-    </title>
-  </head>
-
-  <body>
-    <!-- This top nav is not part of the sample code -->
-    <nav id="navTop" class=" w-full h-[var(--topnav-h)] z-30 bg-white border-b border-b-gray-200">
-  <div class="max-w-screen-xl mx-auto flex flex-wrap items-start justify-between px-4">
-    <a class="text-white bg-nwoods-primary font-bold !leading-[calc(var(--topnav-h)_-_1px)] my-0 px-2 text-4xl lg:text-5xl logo"
-       href="../">
-      GoJS
-    </a>
-    <div class="relative">
-      <button id="topnavButton" class="h-[calc(var(--topnav-h)_-_1px)] px-2 m-0 text-gray-900 bg-inherit shadow-none md:hidden hover:!bg-inherit hover:!text-nwoods-accent hover:!shadow-none" aria-label="Navigation">
-        <svg class="h-7 w-7 block" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </button>
-      <div id="topnavList" class="hidden md:block">
-        <div class="absolute right-0 z-30 flex flex-col items-end rounded border border-gray-200 p-4 pl-12 shadow bg-white text-gray-900 font-semibold
-                    md:flex-row md:space-x-4 md:items-start md:border-0 md:p-0 md:shadow-none md:bg-inherit">
-          <a href="../learn/">Learn</a>
-          <a href="../samples/">Samples</a>
-          <a href="../intro/">Intro</a>
-          <a href="../api/">API</a>
-          <a href="../download.html">Download</a>
-          <a href="https://forum.nwoods.com/c/gojs/11" target="_blank" rel="noopener">Forum</a>
-          <a id="tc" href="https://nwoods.com/contact.html"
-            target="_blank" rel="noopener" onclick="getOutboundLink('https://nwoods.com/contact.html', 'contact');">Contact</a>
-          <a id="tb" href="https://nwoods.com/sales/index.html"
-            target="_blank" rel="noopener" onclick="getOutboundLink('https://nwoods.com/sales/index.html', 'buy');">Buy</a>
-        </div>
-      </div>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Drag-and-Drop Between Two Diagrams Controlled by Permissions</title>
+  <script src="../dist/open-gojs.umd.js"></script>
+  
+  
+  
+  
+</head>
+<body>
+<div style="width: 100%; display: flex; flex-wrap: wrap; justify-content: center; gap: 40px">
+    <div>
+      <div id="myDiagramDiv" style="border: solid 1px black; width: 400px; height: 300px; margin: 0 2px 0 0; background: whitesmoke;"></div>
+      <p>
+        <label><input type="checkbox" onclick="allChecks()" id="MD1allowDragOut" />allowDragOut</label>
+        <label><input type="checkbox" onclick="allChecks()" id="MD1allowDrop" />allowDrop</label>
+        <label><input type="checkbox" onclick="allChecks()" id="MD1isReadOnly" />isReadOnly</label>
+      </p>
+      <p>
+        <label><input type="checkbox" onclick="allChecks()" id="MD1allowCopy" />allowCopy</label>
+        <label><input type="checkbox" onclick="allChecks()" id="MD1allowDelete" />allowDelete</label>
+        <label><input type="checkbox" onclick="allChecks()" id="MD1allowInsert" />allowInsert</label>
+        <label><input type="checkbox" onclick="allChecks()" id="MD1allowMove" />allowMove</label>
+      </p>
+    </div>
+    <div>
+      <div id="myDiagramDiv2" style="border: solid 1px black; width: 400px; height: 300px; background: whitesmoke;"></div>
+      <p>
+        <label><input type="checkbox" onclick="allChecks()" id="MD2allowDragOut" />allowDragOut</label>
+        <label><input type="checkbox" onclick="allChecks()" id="MD2allowDrop" />allowDrop</label>
+        <label><input type="checkbox" onclick="allChecks()" id="MD2isReadOnly" />isReadOnly</label>
+      </p>
+      <p>
+        <label><input type="checkbox" onclick="allChecks()" id="MD2allowCopy" />allowCopy</label>
+        <label><input type="checkbox" onclick="allChecks()" id="MD2allowDelete" />allowDelete</label>
+        <label><input type="checkbox" onclick="allChecks()" id="MD2allowInsert" />allowInsert</label>
+        <label><input type="checkbox" onclick="allChecks()" id="MD2allowMove" />allowMove</label>
+      </p>
     </div>
   </div>
-</nav>
-<script>
-  window.addEventListener("DOMContentLoaded", function () {
-    // topnav
-    var topButton = document.getElementById("topnavButton");
-    var topnavList = document.getElementById("topnavList");
-    if (topButton && topnavList) {
-      topButton.addEventListener("click", function (e) {
-        topnavList
-          .classList
-          .toggle("hidden");
-        e.stopPropagation();
-      });
-      document.addEventListener("click", function (e) {
-        // if the clicked element isn't the list, close the list
-        if (!topnavList.classList.contains("hidden") && !e.target.closest("#topnavList")) {
-          topButton.click();
-        }
-      });
-
-      // set active <a> element
-      var url = window
-        .location
-        .href
-        .toLowerCase();
-      var aTags = topnavList.getElementsByTagName('a');
-      for (var i = 0; i < aTags.length; i++) {
-        var lowerhref = aTags[i]
-          .href
-          .toLowerCase();
-        if (lowerhref.endsWith('.html')) 
-          lowerhref = lowerhref.slice(0, -5);
-        if (url.startsWith(lowerhref)) {
-          aTags[i]
-            .classList
-            .add('active');
-          break;
-        }
-      }
-    }
-  });
-</script>
-    <div class="flex flex-col prose">
-      <div class="w-full max-w-screen-xl mx-auto">
-        <!-- * * * * * * * * * * * * * -->
-        <!-- Start of GoJS sample code -->
-        <script src="../dist/open-gojs.umd.js"></script>
-
-        
-          <link rel="stylesheet" href="../assets/css/prism.css"/>
-          <script src="../assets/js/prism.js"></script>
-        
-
-        <div id="allSampleContent" class="p-4 w-full">
-          
-            
-            
-
-
-<script id="code">
-  function init() {
+  <div>
+    Using simulated InputEvents:<br />
+    <button onclick="dragBetaAcross()">Drag Beta across</button><br />
+    <button onclick="copyBetaBack()">Copy Beta back</button>
+  </div>
+  <div id="description">
+<p>
+    In this sample dragging from one Diagram to the other effectively "moves" the selection. It does this by having an "ExternalObjectsDropped" Diagram listener
+    on each Diagram, which deletes the selection in the original Diagram when it is dropped on an external one.
+  </p>
+  <p>The two Diagrams do not share a Model, but the two Models do share the same UndoManager:</p>
+  <pre class="lang-js"><code>myDiagram.model.undoManager = myDiagram2.model.undoManager;</code></pre>
+  <p>Hence an undo or redo in one Diagram affects the other Diagram. This allows Node "moves" to be undone across Diagrams.</p>
+  <p>(This is different from the <a href="updateDemo.html">Update Demo</a>, which is an example of two Diagrams sharing/showing the same Model.)</p>
+  </div>
+  <script >
+function init() {
 
     // ****** First Diagram ******
 
@@ -279,22 +207,20 @@
   }
 
   function dragBetaAcross() {
-    var robot = new Robot(myDiagram);
     var beta = myDiagram.findNodeForKey(2);
     if (beta !== null) {
       var opts = { sourceDiagram: myDiagram, targetDiagram: myDiagram2 };
       var loc = beta.location;
-      robot.mouseDown(loc.x + 15, loc.y + 15, 0, opts);
-      robot.mouseMove(loc.x + 20, loc.y + 10, 100, opts);
-      robot.mouseMove(60, 20, 200, opts);
-      robot.mouseUp(80, 50, 300, opts);
+      myDiagram.emitMouseDown(loc.x + 15, loc.y + 15, 0, opts);
+      myDiagram.emitMouseMove(loc.x + 20, loc.y + 10, 100, opts);
+      myDiagram.emitMouseMove(60, 20, 200, opts);
+      myDiagram.emitMouseUp(80, 50, 300, opts);
     } else {
       console.log('Beta not found in myDiagram');
     }
   }
 
   function copyBetaBack() {
-    var robot = new Robot(myDiagram2);
     var beta = myDiagram2.findNodesByExample({ text: 'Beta' }).first();
     if (beta !== null) {
       // turn off deletion in myDiagram2
@@ -305,91 +231,16 @@
       // now dragging between diagrams won't delete the source node in myDiagram2
       var opts = { sourceDiagram: myDiagram2, targetDiagram: myDiagram };
       var loc = beta.location;
-      robot.mouseDown(loc.x + 15, loc.y + 15, 0, opts);
-      robot.mouseMove(loc.x - 20, loc.y + 10, 100, opts);
-      robot.mouseMove(160, 40, 200, opts);
-      robot.mouseUp(80, 10, 300, opts);
+      myDiagram.emitMouseDown(loc.x + 15, loc.y + 15, 0, opts);
+      myDiagram.emitMouseMove(loc.x - 20, loc.y + 10, 100, opts);
+      myDiagram.emitMouseMove(160, 40, 200, opts);
+      myDiagram.emitMouseUp(80, 10, 300, opts);
     } else {
       console.log('Beta not found in myDiagram2');
     }
   }
 
   window.addEventListener('DOMContentLoaded', init);
-</script>
-
-<div id="sample">
-  <p>
-    In this sample dragging from one Diagram to the other effectively "moves" the selection. It does this by having an "ExternalObjectsDropped" Diagram listener
-    on each Diagram, which deletes the selection in the original Diagram when it is dropped on an external one.
-  </p>
-  <p>The two Diagrams do not share a Model, but the two Models do share the same UndoManager:</p>
-  <pre class="lang-js"><code>myDiagram.model.undoManager = myDiagram2.model.undoManager;</code></pre>
-  <p>Hence an undo or redo in one Diagram affects the other Diagram. This allows Node "moves" to be undone across Diagrams.</p>
-  <p>(This is different from the <a href="updateDemo.html">Update Demo</a>, which is an example of two Diagrams sharing/showing the same Model.)</p>
-  <div style="width: 100%; display: flex; flex-wrap: wrap">
-    <div>
-      <div id="myDiagramDiv" style="border: solid 1px black; width: 350px; height: 300px; margin: 0 2px 0 0"></div>
-      <p>
-        <label><input type="checkbox" onclick="allChecks()" id="MD1allowDragOut" />allowDragOut</label>
-        <label><input type="checkbox" onclick="allChecks()" id="MD1allowDrop" />allowDrop</label>
-        <label><input type="checkbox" onclick="allChecks()" id="MD1isReadOnly" />isReadOnly</label>
-      </p>
-      <p>
-        <label><input type="checkbox" onclick="allChecks()" id="MD1allowCopy" />allowCopy</label>
-        <label><input type="checkbox" onclick="allChecks()" id="MD1allowDelete" />allowDelete</label>
-        <label><input type="checkbox" onclick="allChecks()" id="MD1allowInsert" />allowInsert</label>
-        <label><input type="checkbox" onclick="allChecks()" id="MD1allowMove" />allowMove</label>
-      </p>
-    </div>
-    <div>
-      <div id="myDiagramDiv2" style="border: solid 1px black; width: 350px; height: 300px"></div>
-      <p>
-        <label><input type="checkbox" onclick="allChecks()" id="MD2allowDragOut" />allowDragOut</label>
-        <label><input type="checkbox" onclick="allChecks()" id="MD2allowDrop" />allowDrop</label>
-        <label><input type="checkbox" onclick="allChecks()" id="MD2isReadOnly" />isReadOnly</label>
-      </p>
-      <p>
-        <label><input type="checkbox" onclick="allChecks()" id="MD2allowCopy" />allowCopy</label>
-        <label><input type="checkbox" onclick="allChecks()" id="MD2allowDelete" />allowDelete</label>
-        <label><input type="checkbox" onclick="allChecks()" id="MD2allowInsert" />allowInsert</label>
-        <label><input type="checkbox" onclick="allChecks()" id="MD2allowMove" />allowMove</label>
-      </p>
-    </div>
-  </div>
-  <div>
-    Using the Robot extension class:<br />
-    <button onclick="dragBetaAcross()">Drag Beta across</button><br />
-    <button onclick="copyBetaBack()">Copy Beta back</button>
-  </div>
-</div>
-
-          
-        </div>
-        <!-- * * * * * * * * * * * * * -->
-        <!--  End of GoJS sample code  -->
-      </div>
-
-      <div id="allTagDescriptions" class="p-4 w-full max-w-screen-xl mx-auto">
-        <hr/>
-        <h3 class="text-xl">GoJS Features in this sample</h3>
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>HTML Interaction</h4>
-<p>
-GoJS Diagrams can be used alongside other HTML elements in a webapp.
-For custom Text Editors, Context Menus, and ToolTips, which are invoked and hidden via GoJS tool operations, it is best to use the <a href="../api/symbols/HTMLInfo.html" target="api">HTMLInfo</a> class.
-</p>
-<p>
-More information can be found in the <a href="../intro/htmlInteraction.html">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#html">Related samples</a>
-            </p>
-            <hr>
-          
-        </div>
-    </div>
-  </body>
-  <!--  This script is part of the gojs.net website, and is not needed to run the sample -->
-  
+  </script>
+</body>
 </html>

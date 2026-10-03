@@ -17,6 +17,8 @@ export declare class Picture extends GraphObject {
     private _source;
     private _image;
     private _loadedImage;
+    /** source 直接是 <canvas>/<img>/<video> 元素时的可绘制对象（官方 4.x 支持）。 */
+    private _canvasSource;
     private _imageStretch;
     private _imageAlignment;
     private _sourceRect;
@@ -27,7 +29,13 @@ export declare class Picture extends GraphObject {
     constructor(source?: string | Partial<Picture>, init?: Partial<Picture>);
     get source(): string;
     set source(val: string);
-    get element(): HTMLImageElement | null;
+    /**
+     * 官方 4.x 的 `Picture.element`：直接给一个 <canvas>/<img>/<video> 元素来绘制
+     * （canvases 样例用 Chart.js 画到 canvas 上再 `.bind('element', 'datasets', fn)`）。
+     * 官方只接受 Image/Canvas/Video 三种，其他类型直接报错。
+     */
+    get element(): HTMLImageElement | HTMLCanvasElement | HTMLVideoElement | null;
+    set element(val: HTMLImageElement | HTMLCanvasElement | HTMLVideoElement | null);
     get image(): HTMLImageElement | null;
     set image(val: HTMLImageElement | null);
     get imageStretch(): EnumValue;

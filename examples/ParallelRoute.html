@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Custom Link Routing for Parallel Duplicate Links</title>
+  <script src="../dist/open-gojs.umd.js"></script>
+  
+  <script src="https://cdn.jsdelivr.net/npm/gojs-extensions@latest/extensions/ParallelRouteLink.js"></script>
+  
+  
+</head>
+<body>
+<div id="myDiagramDiv" style="border: solid 1px black; width: 100%; height: 600px"></div>
+  <div id="description">
+<p>
+    A <b>ParallelRouteLink</b> is a custom <a href="https://gojs.net/latest/api/symbols/Link.html" target="api">Link</a> that overrides <a href="https://gojs.net/latest/api/symbols/Link.html#computepoints" target="api">Link.computePoints</a> in order to produce a middle segment that is parallel to the
+    routes of other <b>ParallelRouteLink</b>s connecting the same two ports.
+  </p>
+  <p>This Link extension is defined in its own file, as <a href="https://gojs.net/latest/extensions/ParallelRouteLink.js">ParallelRouteLink.js</a>.</p>
+  </div>
+  <script >
+function init() {
+
+    myDiagram = new go.Diagram('myDiagramDiv', {
+      'undoManager.isEnabled': true
+    });
+
+    myDiagram.nodeTemplate =
+      new go.Node('Auto')
+        .bindTwoWay('location', 'loc', go.Point.parse, go.Point.stringify)
+        .add(
+          new go.Shape({
+              portId: '',
+              fromLinkable: true,
+              toLinkable: true,
+              fromLinkableDuplicates: true,
+              toLinkableDuplicates: true,
+              cursor: 'pointer'
+            })
+            .bind('fill', 'color'),
+          new go.TextBlock({ margin: 8 })
+            .bind('text')
+        );
+
+    myDiagram.linkTemplate =
+      new ParallelRouteLink({
+          corner: 10,
+          relinkableFrom: true,
+          relinkableTo: true,
+          reshapable: true //, resegmentable: true
+        })
+        .add(
+          new go.Shape({ strokeWidth: 2 })
+            .bindObject('stroke', 'fromNode', node => node.port.fill),
+          new go.Shape({ toArrow: 'OpenTriangle', strokeWidth: 1.5 })
+            .bindObject('stroke', 'fromNode', node => node.port.fill)
+        );
+
+    myDiagram.model = new go.GraphLinksModel(
+      [
+        { key: 1, text: 'Alpha', color: 'lightblue', loc: '0 0' },
+        { key: 2, text: 'Beta', color: 'orange', loc: '130 70' },
+        { key: 3, text: 'Gamma', color: 'lightgreen', loc: '0 130' }
+      ],
+      [
+        { from: 1, to: 2 },
+        { from: 2, to: 1 },
+        { from: 1, to: 3 },
+        { from: 1, to: 3 },
+        { from: 3, to: 1 },
+        { from: 1, to: 3 },
+        { from: 1, to: 3 }
+      ]
+    );
+  }
+
+  window.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>

@@ -1,155 +1,72 @@
-﻿﻿
 <!DOCTYPE html>
-<html lang="en">
-  <head>
-    
-    <meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover"/>
-
-<meta name="description" content="A larger org chart with an Overview and searching capability." />
-<meta itemprop="description" content="A larger org chart with an Overview and searching capability." />
-<meta property="og:description" content="A larger org chart with an Overview and searching capability." />
-<meta name="twitter:description" content="A larger org chart with an Overview and searching capability." />
-
-
-<link rel="preconnect" href="https://rsms.me/">
-
-<!-- Copyright 1998-2026 by Northwoods Software Corporation. -->
-
-
-<meta itemprop="name" content="Organizational Chart Diagram with Overview and Search" />
-<meta property="og:title" content="Organizational Chart Diagram with Overview and Search" />
-<meta name="twitter:title" content="Organizational Chart Diagram with Overview and Search" />
-
-
-<meta property="og:image" content="https://gojs.net/latest/assets/images/screenshots/orgchartstatic.png" />
-<meta itemprop="image" content="https://gojs.net/latest/assets/images/screenshots/orgchartstatic.png" />
-<meta name="twitter:image" content="https://gojs.net/latest/assets/images/screenshots/orgchartstatic.png" />
-
-<meta property="og:url" content="https://gojs.net/latest/samples/orgChartStatic.html" />
-<meta property="twitter:url" content="https://gojs.net/latest/samples/orgChartStatic.html" />
-
-<meta name="twitter:card" content="summary_large_image" />
-<meta property="og:type" content="website" />
-<meta property="twitter:domain" content="gojs.net" />
-
-    <title>
-      Organizational Chart Diagram with Overview and Search | GoJS Diagramming Library
-    </title>
-  </head>
-
-  <body>
-    <!-- This top nav is not part of the sample code -->
-    <nav id="navTop" class=" w-full h-[var(--topnav-h)] z-30 bg-white border-b border-b-gray-200">
-  <div class="max-w-screen-xl mx-auto flex flex-wrap items-start justify-between px-4">
-    <a class="text-white bg-nwoods-primary font-bold !leading-[calc(var(--topnav-h)_-_1px)] my-0 px-2 text-4xl lg:text-5xl logo"
-       href="../">
-      GoJS
-    </a>
-    <div class="relative">
-      <button id="topnavButton" class="h-[calc(var(--topnav-h)_-_1px)] px-2 m-0 text-gray-900 bg-inherit shadow-none md:hidden hover:!bg-inherit hover:!text-nwoods-accent hover:!shadow-none" aria-label="Navigation">
-        <svg class="h-7 w-7 block" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </button>
-      <div id="topnavList" class="hidden md:block">
-        <div class="absolute right-0 z-30 flex flex-col items-end rounded border border-gray-200 p-4 pl-12 shadow bg-white text-gray-900 font-semibold
-                    md:flex-row md:space-x-4 md:items-start md:border-0 md:p-0 md:shadow-none md:bg-inherit">
-          <a href="../learn/">Learn</a>
-          <a href="../samples/">Samples</a>
-          <a href="../intro/">Intro</a>
-          <a href="../api/">API</a>
-          <a href="../download.html">Download</a>
-          <a href="https://forum.nwoods.com/c/gojs/11" target="_blank" rel="noopener">Forum</a>
-          <a id="tc" href="https://nwoods.com/contact.html"
-            target="_blank" rel="noopener" onclick="getOutboundLink('https://nwoods.com/contact.html', 'contact');">Contact</a>
-          <a id="tb" href="https://nwoods.com/sales/index.html"
-            target="_blank" rel="noopener" onclick="getOutboundLink('https://nwoods.com/sales/index.html', 'buy');">Buy</a>
-        </div>
-      </div>
-    </div>
-  </div>
-</nav>
-<script>
-  window.addEventListener("DOMContentLoaded", function () {
-    // topnav
-    var topButton = document.getElementById("topnavButton");
-    var topnavList = document.getElementById("topnavList");
-    if (topButton && topnavList) {
-      topButton.addEventListener("click", function (e) {
-        topnavList
-          .classList
-          .toggle("hidden");
-        e.stopPropagation();
-      });
-      document.addEventListener("click", function (e) {
-        // if the clicked element isn't the list, close the list
-        if (!topnavList.classList.contains("hidden") && !e.target.closest("#topnavList")) {
-          topButton.click();
-        }
-      });
-
-      // set active <a> element
-      var url = window
-        .location
-        .href
-        .toLowerCase();
-      var aTags = topnavList.getElementsByTagName('a');
-      for (var i = 0; i < aTags.length; i++) {
-        var lowerhref = aTags[i]
-          .href
-          .toLowerCase();
-        if (lowerhref.endsWith('.html')) 
-          lowerhref = lowerhref.slice(0, -5);
-        if (url.startsWith(lowerhref)) {
-          aTags[i]
-            .classList
-            .add('active');
-          break;
-        }
-      }
-    }
-  });
-</script>
-    <div class="flex flex-col prose">
-      <div class="w-full max-w-screen-xl mx-auto">
-        <!-- * * * * * * * * * * * * * -->
-        <!-- Start of GoJS sample code -->
-        <script src="../dist/open-gojs.umd.js"></script>
-
-        
-
-        <div id="allSampleContent" class="p-4 w-full">
-          
-            
-            
-
-
-<style type="text/css">
-  #myOverviewDiv {
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Organizational Chart Diagram with Overview and Search</title>
+  <script src="../dist/open-gojs.umd.js"></script>
+  
+  
+  
+  <style>
+#myOverviewDiv {
     position: absolute;
-    width: 200px;
-    height: 100px;
-    top: 10px;
-    left: 10px;
-    background-color: #f2f2f2;
+    width: 250px;
+    height: 125px;
+    top: 8px;
+    left: 8px;
+    background-color: #f5f5f7;
     z-index: 300;
     /* make sure its in front */
-    border: solid 1px #7986cb;
+    border: solid 1px #d2d2d7;
+    border-radius: 8px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
   }
-</style>
-<link
-  href="https://fonts.googleapis.com/css?family=Roboto:400,500"
-  rel="stylesheet"
-  type="text/css" />
-<script id="code">
-  function init() {
+  </style>
+</head>
+<body>
+<div
+    id="myDiagramDiv"
+    style="background-color: #f2f2f2; border: solid 1px black; width: 100%; height: 700px"></div>
+  <div id="myOverviewDiv"></div>
+  <!-- Styled in a <style> tag at the top of the html page -->
+  <div style="margin-block: .5em;">
+    <input type="search" id="mySearch" onkeypress="if (event.keyCode === 13) searchDiagram()" style="padding: 8px; width: 200px;"/>
+    <button onclick="searchDiagram()" style="padding: 8px">Search</button> 
+  </div>
+  <div id="description">
+<p>
+    This sample shows an organizational chart diagram and uses an in-laid GoJS <a href="https://gojs.net/latest/api/symbols/Overview.html" target="api">Overview</a> to
+    aid the user in navigation. The diagram uses a <a href="https://gojs.net/latest/api/symbols/TreeLayout.html" target="api">TreeLayout</a> featuring
+    <a href="https://gojs.net/latest/api/symbols/TreeStyle.html#lastparents" target="api">TreeStyle.LastParents</a> to allow for different alignments on the last parents. The data was
+    taken from the UN web site in August 2009.
+  </p>
+  <p>
+    A search box demonstrates one way of finding and highlighting nodes whose data includes
+    particular strings. Note that one can see all of the highlighted nodes in the Overview.
+  </p>
+  <p>
+    To learn how to build an org chart from scratch with GoJS, see the
+    <a href="https://gojs.net/latest/learn">Getting Started tutorial</a>.
+  </p>
+  <p>
+    If you want to have some "assistant" nodes on the side, above the regular reports, see the
+    <a href="orgChartAssistants.html">Org Chart Assistants</a> sample, which is a copy of this
+    sample that uses a custom <a href="https://gojs.net/latest/api/symbols/TreeLayout.html" target="api">TreeLayout</a> to position "assistants" that way.
+  </p>
+  <p>
+    Flag images are from <a href="https://openmoji.org/">OpenMoji</a> – the open-source emoji and
+    icon project. License: CC BY-SA 4.0.
+  </p>
+  </div>
+  <script >
+function init() {
     // some constants that will be reused within templates
     const mt8 = new go.Margin(8, 0, 0, 0);
     const mr8 = new go.Margin(0, 8, 0, 0);
     const ml8 = new go.Margin(0, 0, 0, 8);
     const roundedRectangleParams = {
-      parameter1: 2, // set the rounded corner
+      parameter1: 8, // set the rounded corner
       spot1: go.Spot.TopLeft,
       spot2: go.Spot.BottomRight // make content go all the way to inside edges of rounded corners
     };
@@ -185,7 +102,7 @@
 
     // This function provides a common style for most of the TextBlocks.
     function textStyle(node, field) {
-      node.font = '12px Roboto, sans-serif';
+      node.font = '12px system-ui, sans-serif';
       node.stroke = 'rgba(0, 0, 0, .60)';
       node.visible = false; // only show textblocks when there is corresponding data for them
       node.bind('visible', field, val => val !== undefined);
@@ -199,69 +116,69 @@
     // define the Node template
     myDiagram.nodeTemplate =
       new go.Node('Auto', {
-          locationSpot: go.Spot.Top,
-          isShadowed: true,
-          shadowBlur: 1,
-          shadowOffset: new go.Point(0, 1),
-          shadowColor: 'rgba(0, 0, 0, .14)',
-          // selection adornment to match shape of nodes
-          selectionAdornmentTemplate:
-            new go.Adornment('Auto')
-              .add(
-                new go.Shape('RoundedRectangle', { fill: null, stroke: '#7986cb', strokeWidth: 3 })
-                  .set(roundedRectangleParams),
-                new go.Placeholder()
-              ) // end Adornment
-        })
+        locationSpot: go.Spot.Top,
+        isShadowed: true,
+        shadowBlur: 6,
+        shadowOffset: new go.Point(0, 2),
+        shadowColor: 'rgba(0, 0, 0, .12)',
+        // selection adornment to match shape of nodes
+        selectionAdornmentTemplate:
+          new go.Adornment('Auto')
+            .add(
+              new go.Shape('RoundedRectangle', { fill: null, stroke: '#0071e3', strokeWidth: 1.5 })
+                .set(roundedRectangleParams),
+              new go.Placeholder()
+            ) // end Adornment
+      })
         .add(
           new go.Shape('RoundedRectangle', { name: 'SHAPE', fill: '#ffffff', strokeWidth: 0 })
             .set(roundedRectangleParams)
-            // gold if highlighted, white otherwise
-            .bindObject('fill', 'isHighlighted', h => h ? 'gold' : '#ffffff'),
+            // light blue if highlighted, white otherwise
+            .bindObject('fill', 'isHighlighted', h => h ? '#8ab4f8' : '#ffffff'),
           new go.Panel('Vertical')
             .add(
               new go.Panel('Horizontal', { margin: 8 })
                 .add(
                   new go.Picture({ // flag image, only visible if a nation is specified
-                      margin: mr8,
-                      visible: false,
-                      desiredSize: new go.Size(50, 50)
-                    })
+                    margin: mr8,
+                    visible: false,
+                    desiredSize: new go.Size(50, 50)
+                  })
                     .bind('source', 'nation', theNationFlagConverter)
                     .bind('visible', 'nation', nat => nat !== undefined),
                   new go.Panel('Table')
                     .add(
                       new go.TextBlock({
-                          row: 0,
-                          alignment: go.Spot.Left,
-                          font: '16px Roboto, sans-serif',
-                          stroke: 'rgba(0, 0, 0, .87)',
-                          maxSize: new go.Size(160, NaN)
-                        })
+                        row: 0,
+                        alignment: go.Spot.Left,
+                        font: '16px system-ui, sans-serif',
+                        stroke: 'rgba(0, 0, 0, .87)',
+                        maxSize: new go.Size(160, NaN)
+                      })
                         .bind('text', 'name'),
                       new go.TextBlock({
-                          row: 1,
-                          alignment: go.Spot.Left,
-                          maxSize: new go.Size(160, NaN)
-                        })
+                        row: 1,
+                        alignment: go.Spot.Left,
+                        maxSize: new go.Size(160, NaN)
+                      })
                         .apply(textStyle, 'title')
                         .bind('text', 'title'),
                       go.GraphObject.build('PanelExpanderButton', { row: 0, column: 1, rowSpan: 2, margin: ml8 }, 'INFO')
                     )
                 ),
               new go.Shape('LineH', {
-                  stroke: 'rgba(0, 0, 0, .60)',
-                  strokeWidth: 1,
-                  height: 1,
-                  stretch: go.Stretch.Horizontal
-                })
+                stroke: 'rgba(0, 0, 0, .1)',
+                strokeWidth: 1,
+                height: 1,
+                stretch: go.Stretch.Horizontal
+              })
                 .bindObject('visible', undefined, null, null, 'INFO'), // only visible when info is expanded
               new go.Panel('Vertical', {
-                  name: 'INFO', // identify to the PanelExpanderButton
-                  stretch: go.Stretch.Horizontal, // take up whole available width
-                  margin: 8,
-                  defaultAlignment: go.Spot.Left // thus no need to specify alignment on each element
-                })
+                name: 'INFO', // identify to the PanelExpanderButton
+                stretch: go.Stretch.Horizontal, // take up whole available width
+                margin: 8,
+                defaultAlignment: go.Spot.Left // thus no need to specify alignment on each element
+              })
                 .add(
                   new go.TextBlock()
                     .apply(textStyle, 'headOf')
@@ -281,12 +198,12 @@
     // define the Link template, a simple orthogonal line
     myDiagram.linkTemplate =
       new go.Link({
-          routing: go.Routing.Orthogonal,
-          corner: 5,
-          selectable: false
-        })
+        routing: go.Routing.Orthogonal,
+        corner: 5,
+        selectable: false
+      })
         .add(
-          new go.Shape({ strokeWidth: 3, stroke: '#424242' }) // dark gray, rounded corner links
+          new go.Shape({ strokeWidth: 1.5, stroke: '#c7c7cc' }) // light gray, rounded corner links
         );
 
     // set up the nodeDataArray, describing each person/position
@@ -581,103 +498,6 @@
   }
 
   window.addEventListener('DOMContentLoaded', init);
-</script>
-
-<div id="sample" style="position: relative">
-  <div
-    id="myDiagramDiv"
-    style="background-color: #f2f2f2; border: solid 1px black; width: 100%; height: 700px"></div>
-  <div id="myOverviewDiv"></div>
-  <!-- Styled in a <style> tag at the top of the html page -->
-  <p>
-    This sample shows an organizational chart diagram and uses an in-laid GoJS <a>Overview</a> to
-    aid the user in navigation. The diagram uses a <a>TreeLayout</a> featuring
-    <a>TreeStyle.LastParents</a> to allow for different alignments on the last parents. The data was
-    taken from the UN web site in August 2009.
-  </p>
-  <p>
-    A search box demonstrates one way of finding and highlighting nodes whose data includes
-    particular strings. Note that one can see all of the highlighted nodes in the Overview.
-  </p>
-  <input type="search" id="mySearch" onkeypress="if (event.keyCode === 13) searchDiagram()" />
-  <button onclick="searchDiagram()">Search</button>
-  <p>
-    To learn how to build an org chart from scratch with GoJS, see the
-    <a href="../learn/index.html">Getting Started tutorial</a>.
-  </p>
-  <p>
-    If you want to have some "assistant" nodes on the side, above the regular reports, see the
-    <a href="orgChartAssistants.html">Org Chart Assistants</a> sample, which is a copy of this
-    sample that uses a custom <a>TreeLayout</a> to position "assistants" that way.
-  </p>
-  <p>
-    Flag images are from <a href="https://openmoji.org/">OpenMoji</a> – the open-source emoji and
-    icon project. License: CC BY-SA 4.0.
-  </p>
-</div>
-
-          
-        </div>
-        <!-- * * * * * * * * * * * * * -->
-        <!--  End of GoJS sample code  -->
-      </div>
-
-      <div id="allTagDescriptions" class="p-4 w-full max-w-screen-xl mx-auto">
-        <hr/>
-        <h3 class="text-xl">GoJS Features in this sample</h3>
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Table Panels</h4>
-<p>
-The "Table" Panel, <a href="../api/symbols/Panel.html#static-Table" target="api">Panel.Table</a>, arranges objects in rows and columns.
-Each object in a Table Panel is put into the cell indexed by the value of <a href="../api/symbols/GraphObject.html#row" target="api">GraphObject.row</a> and <a href="../api/symbols/GraphObject.html#column" target="api">GraphObject.column</a>.
-The panel will look at the rows and columns for all of the objects in the panel to determine how many rows and columns the table should have.
-More information can be found in the <a href="../intro/tablePanels.html">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#tables">Related samples</a>
-            </p>
-            <hr>
-          
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Tree Layout</h4>
-<p>
-This predefined layout is used for placing Nodes of a tree-structured graph in layers (rows or columns).
-For discussion and examples of the most commonly used properties of the <a href="../api/symbols/TreeLayout.html">TreeLayout</a>,
-see the <a href="../intro/trees.html">Trees</a> page in the Introduction.
-More information can be found in the <a href="../intro/layouts.html#TreeLayout">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#treelayout">Related samples</a>
-            </p>
-            <hr>
-          
-        <!-- blacklist tags that do not correspond to a specific GoJS feature -->
-          
-            <h4>Overview Diagrams</h4>
-<p>
-An <a href="../api/symbols/Overview.html" target="api">Overview</a> is a subclass of <a href="../api/symbols/Diagram.html" target="api">Diagram</a> that is used to display all of the <a href="../api/symbols/Part.html" target="api">Part</a>s
-of another diagram and to show where that diagram's viewport is relative to all of those parts.
-The user can also scroll the overviewed diagram by clicking or dragging within the overview.
-</p>
-<p>
-The initialization of an <a href="../api/symbols/Overview.html" target="api">Overview</a> is just a matter of setting <a href="../api/symbols/Overview.html#observed" target="api">Overview.observed</a>
-to refer to the <a href="../api/symbols/Diagram.html" target="api">Diagram</a> that you want it to show.  So there needs to be a DIV for your main diagram,
-for which you create a Diagram in the normal manner, and a separate DIV for your overview, for which you
-create the Overview in a very simple manner.
-</p>
-<p>
-More information can be found in the <a href="../intro/overview.html">GoJS Intro</a>.
-</p>
-            <p>
-              <a href="../samples/index.html#overview">Related samples</a>
-            </p>
-            <hr>
-          
-        </div>
-    </div>
-  </body>
-  <!--  This script is part of the gojs.net website, and is not needed to run the sample -->
-  
+  </script>
+</body>
 </html>
