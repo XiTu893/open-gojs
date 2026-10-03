@@ -325,6 +325,8 @@ export declare class Diagram {
     private _updateBindingsForObject;
     _handlePartPropertyChanged(part: Part, obj: GraphObject, propname: string, value?: any): void;
     private _onModelChanged;
+    /** 官方 Diagram.Ib(t) 的护栏版：Diagram.layout + 全体 Group.layout 失效 */
+    private _invalidateLayoutsFromChanges;
     private _rebuildTreeLinks;
     /**
      * 官方 `Diagram.raiseChangedEvent(change, propertyName, object, oldValue, newValue, oldParam?, newParam?)`。

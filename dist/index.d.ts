@@ -3172,7 +3172,10 @@ declare class Part extends Panel {
     private _selectionChanged;
     private _adornmentsPending;
     constructor(type?: any, init?: any);
-    /** 官方 Part.g()：部件级失效向 Diagram 冒泡（图片加载/文本变更 → 重排） */
+    /** 官方 Part.g()：部件级失效只触发重排（measure/arrange/render），**不**失效布局 —— 官方
+     * GraphObject.Ef→os 只置测量脏位；布局失效只走 Diagram.Ib（模型/绑定变更，带 isOngoing 护栏）。
+     * 早先这里冒泡 `d._layoutInvalid=true`，配合 Diagram._measureArrangeAll 尾部的
+     * _invalidateLinkRoutes 形成「布局→路线失效→布局」每帧死循环（gantt 样例 bar y=0 死循环元凶之一）。 */
     _invalidateMeasure(): void;
     get visible(): boolean;
     set visible(val: boolean);
@@ -6182,6 +6185,8 @@ declare class Diagram {
     private _updateBindingsForObject;
     _handlePartPropertyChanged(part: Part, obj: GraphObject, propname: string, value?: any): void;
     private _onModelChanged;
+    /** 官方 Diagram.Ib(t) 的护栏版：Diagram.layout + 全体 Group.layout 失效 */
+    private _invalidateLayoutsFromChanges;
     private _rebuildTreeLinks;
     /**
      * 官方 `Diagram.raiseChangedEvent(change, propertyName, object, oldValue, newValue, oldParam?, newParam?)`。
@@ -7111,6 +7116,13 @@ declare class Layout {
     private _panelLocalPoint;
     /**
      * Invalidate this layout, causing it to be re-performed.
+     *
+     * 官方 `Layout.invalidateLayout()` 三重护栏：
+     * 1) 已无效 → 直接返回（幂等）；
+     * 2) undo/redo 期间返回；
+     * 3) 动画 tick 期间返回（官方 `i.isTicking || (...)`）——否则动画回写 location 每帧都会重排。
+     * 之后才按 `(isOngoing && diagram 已完成首排) || (isInitial && 未完成首排)` 置无效
+     * （官方 `t.ga` = Diagram 已完成一次 update/首排；此处用 `_hasPerformedInitialLayout` 近似）。
      */
     invalidateLayout(): void;
     /**

@@ -75,7 +75,10 @@ export declare class Part extends Panel {
     private _selectionChanged;
     private _adornmentsPending;
     constructor(type?: any, init?: any);
-    /** 官方 Part.g()：部件级失效向 Diagram 冒泡（图片加载/文本变更 → 重排） */
+    /** 官方 Part.g()：部件级失效只触发重排（measure/arrange/render），**不**失效布局 —— 官方
+     * GraphObject.Ef→os 只置测量脏位；布局失效只走 Diagram.Ib（模型/绑定变更，带 isOngoing 护栏）。
+     * 早先这里冒泡 `d._layoutInvalid=true`，配合 Diagram._measureArrangeAll 尾部的
+     * _invalidateLinkRoutes 形成「布局→路线失效→布局」每帧死循环（gantt 样例 bar y=0 死循环元凶之一）。 */
     _invalidateMeasure(): void;
     get visible(): boolean;
     set visible(val: boolean);

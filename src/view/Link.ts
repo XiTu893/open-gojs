@@ -512,12 +512,40 @@ export class Link extends Part {
 
   /** Compute the route points for this link */
   computePoints(): boolean {
-    const from = this._fromNode;
-    const to = this._toNode;
+    if (this._diagram === null || this._diagram === undefined) return false;
+    let from = this._fromNode;
+    let to = this._toNode;
     if (!from || !to) return false;
 
-    const fromPort = (from as any).findPort ? (from as any).findPort(this._fromPortId) : from;
-    const toPort = (to as any).findPort ? (to as any).findPort(this._toPortId) : to;
+    let fromPort: GraphObject | null = (from as any).findPort ? (from as any).findPort(this._fromPortId) : from;
+    let toPort: GraphObject | null = (to as any).findPort ? (to as any).findPort(this._toPortId) : to;
+
+    // 官方：节点不可见时 findVisibleNode 上移并改用其默认端口；
+    // 随后 findVisiblePort 沿 panel 链跳过不可见/未测量端口（gantt 隐藏
+    // TreeExpanderButton 回落到节点本身，避免 NaN 路由点）。
+    if (fromPort !== null && !from.isVisible()) {
+      const m = from.findVisibleNode();
+      if (m !== null && m !== from) {
+        from = m;
+        fromPort = m.port;
+      } else {
+        from = m;
+      }
+    }
+    if (toPort !== null && !to.isVisible()) {
+      const m = to.findVisibleNode();
+      if (m !== null && m !== to) {
+        to = m;
+        toPort = m.port;
+      } else {
+        to = m;
+      }
+    }
+    if (from === null || to === null || !(from.location && from.location.isReal()) ||
+        fromPort === null || toPort === null) return false;
+    fromPort = from.findVisiblePort(fromPort);
+    toPort = to.findVisiblePort(toPort);
+    if (fromPort === null || toPort === null) return false;
 
     if (from === to) {
       // 官方同端口（c）走 else 分支自链接逻辑；本项目保留同节点自链接快路径（偏差同前）。
@@ -1756,6 +1784,9 @@ export class Link extends Part {
   invalidateRoute(): void {
     if (this._suspendsRouting) return;
     if (this.path === null) return;
+    // 已失效则幂等返回（对齐官方 invalidateGeometry 的 `if(!isGeometryValid)` 护栏）——
+    // 避免同一布局趟内重复触发 _invalidateMeasure/requestUpdate。
+    if (!this._isRouteValid && !this._isGeometryValid) return;
     const d: any = this.diagram;
     if (d !== null && d !== undefined) {
       const um = d.undoManager;

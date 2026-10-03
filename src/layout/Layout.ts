@@ -438,12 +438,30 @@ export class Layout {
 
   /**
    * Invalidate this layout, causing it to be re-performed.
+   *
+   * 官方 `Layout.invalidateLayout()` 三重护栏：
+   * 1) 已无效 → 直接返回（幂等）；
+   * 2) undo/redo 期间返回；
+   * 3) 动画 tick 期间返回（官方 `i.isTicking || (...)`）——否则动画回写 location 每帧都会重排。
+   * 之后才按 `(isOngoing && diagram 已完成首排) || (isInitial && 未完成首排)` 置无效
+   * （官方 `t.ga` = Diagram 已完成一次 update/首排；此处用 `_hasPerformedInitialLayout` 近似）。
    */
 invalidateLayout(): void {
-    this._isValidLayout = false;
-    if (this._diagram) {
-      this._diagram._layoutInvalid = true;
-      this._diagram.requestUpdate();
+    if (!this._isValidLayout) return;
+    const d: any = this._diagram;
+    if (d) {
+      if (d.undoManager && d.undoManager.isUndoingRedoing) return;
+      const am = d.animationManager;
+      if (am && am.isTicking) return;
+      if (am && am.defaultAnimation && am.defaultAnimation.isAnimating) am.stopAnimation();
+      const done = !!d._hasPerformedInitialLayout;
+      if ((this._isOngoing && done) || (this._isInitial && !done)) {
+        this._isValidLayout = false;
+        d._layoutInvalid = true;
+        if (typeof d.requestUpdate === 'function') d.requestUpdate();
+      }
+    } else {
+      this._isValidLayout = false;
     }
     if (this._group) {
       (this._group as any)._layoutInvalid = true;

@@ -278,11 +278,15 @@ export class Node extends Part {
       return null;
     }
     if (model instanceof GraphLinksModel) {
-      const linksInto = this.findLinksInto();
-      const it = linksInto.iterator;
+      // 官方 findTreeParentNode：遍历全部连接链，跳过非树链，
+      // 按 diagram.isTreePathToChildren（默认 true）取父端，o!==this 即返回。
+      const pathToChildren = diagram.isTreePathToChildren !== false;
+      const it = this.linksConnected;
       while (it.next()) {
         const link = it.value;
-        if (link.fromNode) return link.fromNode;
+        if (!link.isTreeLink) continue;
+        const other = pathToChildren ? link.fromNode : link.toNode;
+        if (other !== this) return other;
       }
       return null;
     }
@@ -311,14 +315,17 @@ export class Node extends Part {
       return result;
     }
     if (model instanceof GraphLinksModel) {
-      const linksOutOf = this.findLinksOutOf();
+      // 官方 findTreeChildrenNodes：只认 isTreeLink，按方向取子端并去重。
+      const pathToChildren = diagram.isTreePathToChildren !== false;
       const seen = new Set<Node>();
-      const it = linksOutOf.iterator;
+      const it = this.linksConnected;
       while (it.next()) {
         const link = it.value;
-        if (link.toNode && !seen.has(link.toNode)) {
-          seen.add(link.toNode);
-          result.add(link.toNode);
+        if (!link.isTreeLink) continue;
+        const child = pathToChildren ? link.toNode : link.fromNode;
+        if (child !== null && child !== undefined && child !== this && !seen.has(child)) {
+          seen.add(child);
+          result.add(child);
         }
       }
       return result;
@@ -327,9 +334,17 @@ export class Node extends Part {
   }
 
   findTreeParentLink(): any | null {
-    const linksInto = this.findLinksInto();
-    const it = linksInto.iterator;
-    if (it.next()) return it.value;
+    // 官方 findTreeParentLink：第一棵 isTreeLink 且对端不是本节点的连接链
+    // （pathToChildren=true 时即首条 fromNode!==this 的入向树链）。
+    const diagram = this._diagram;
+    const pathToChildren = diagram ? diagram.isTreePathToChildren !== false : true;
+    const it = this.linksConnected;
+    while (it.next()) {
+      const link = it.value;
+      if (!link.isTreeLink) continue;
+      const otherEnd = pathToChildren ? link.fromNode : link.toNode;
+      if (otherEnd !== this) return link;
+    }
     return null;
   }
 
@@ -559,11 +574,13 @@ export class Node extends Part {
       if (toPort && typeof toPort.invalidateConnectedLinksCache === 'function') {
         toPort.invalidateConnectedLinksCache();
       }
+      // 官方 Node.invalidateConnectedLinks：逐链 `ne(fromPort)/ne(toPort)/oi()` ——
+      // 只清端口 knot 缓存 + `link.invalidateRoute()`（oi），**不同步重算路线**。
+      // 早先这里紧跟 `updateRoute()`，动画回写 location 时会把不可见树链也同步算出
+      // 2 点路线（gantt 的 2>21、32>324 pts=2 vs 官方 0 的成因）；不可见链官方
+      // 永不重算（渲染跳过 → 永不触发懒计算）。
       if (typeof link.invalidateRoute === 'function') {
         link.invalidateRoute();
-        if (typeof link.updateRoute === 'function') link.updateRoute();
-      } else if (typeof link.computePoints === 'function') {
-        link.computePoints();
       }
     }
   }

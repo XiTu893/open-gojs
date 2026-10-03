@@ -99,13 +99,15 @@ export class Part extends Panel {
     }
   }
 
-  /** 官方 Part.g()：部件级失效向 Diagram 冒泡（图片加载/文本变更 → 重排） */
+  /** 官方 Part.g()：部件级失效只触发重排（measure/arrange/render），**不**失效布局 —— 官方
+   * GraphObject.Ef→os 只置测量脏位；布局失效只走 Diagram.Ib（模型/绑定变更，带 isOngoing 护栏）。
+   * 早先这里冒泡 `d._layoutInvalid=true`，配合 Diagram._measureArrangeAll 尾部的
+   * _invalidateLinkRoutes 形成「布局→路线失效→布局」每帧死循环（gantt 样例 bar y=0 死循环元凶之一）。 */
   _invalidateMeasure(): void {
     super._invalidateMeasure();
     const d = this._diagram;
-    if (d) {
-      d._layoutInvalid = true;
-      if (typeof d.requestUpdate === 'function') d.requestUpdate();
+    if (d && typeof d.requestUpdate === 'function') {
+      d.requestUpdate();
     }
   }
 
@@ -114,15 +116,6 @@ export class Part extends Panel {
     if (this._visible === val) return;
     this._visible = val;
     this._invalidateMeasure();
-    if (this._diagram && this._isLayoutPositioned) {
-      const layout = this._diagram.layout;
-      if (layout && layout.isOngoing) {
-        layout.invalidateLayout();
-      }
-      if (this._containingGroup && this._containingGroup.layout && this._containingGroup.layout.isOngoing) {
-        this._containingGroup.layout.invalidateLayout();
-      }
-    }
   }
 
   // ============ Properties ============
@@ -186,15 +179,10 @@ export class Part extends Panel {
       }
       this._syncGuard = false;
     }
-    if (this._diagram && this._isLayoutPositioned) {
-      const layout = this._diagram.layout;
-      if (layout && layout.isOngoing) {
-        layout.invalidateLayout();
-      }
-    }
-    if (this._containingGroup && this._containingGroup.layout && this._containingGroup.layout.isOngoing) {
-      this._containingGroup.layout.invalidateLayout();
-    }
+    // 官方 Part.location setter 只有 t4（同步 position）+ raiseChanged，**没有**布局失效 ——
+    // 早先在这里 invalidateLayout()（isOngoing 默认 true）让 _performLayout 的动画回写
+    // （location=旧值）触发重排 → 重排又回写 → gantt 死循环元凶之二。
+    // 官方布局失效唯一入口是 Diagram.Ib（模型/绑定变更处，本项目在 _onModelChanged 里实现）。
     // 官方 Part.location：Node 位置变化 → invalidateConnectedLinks
     // （清端口 side-spot knot 并重算相连连线；undo/redo 期间跳过）
     if (typeof (this as any).invalidateConnectedLinks === 'function') {

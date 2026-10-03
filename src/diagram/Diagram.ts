@@ -1845,6 +1845,11 @@ export class Diagram {
           }
         }
       }
+      // 官方 Diagram.Ib(false)：模型/绑定/数据属性变更 → 护栏式失效布局
+      // （isOngoing/isInitial + undo/动画 tick 护栏在 Layout.invalidateLayout 内），
+      // 并同步各 Group 布局（官方 Ib→oD 遍历）。早先靠 Part._invalidateMeasure
+      // 冒泡实现同样效果，但那会让 link 路线失效也触发重排（gantt 死循环元凶之一）。
+      this._invalidateLayoutsFromChanges();
       if (needsLayout) {
         this._layoutInvalid = true;
         this.requestUpdate();
@@ -1852,6 +1857,17 @@ export class Diagram {
     }
 
     this._raiseChangedEvent(e);
+  }
+
+  /** 官方 Diagram.Ib(t) 的护栏版：Diagram.layout + 全体 Group.layout 失效 */
+  private _invalidateLayoutsFromChanges(): void {
+    const dl: any = this._layout;
+    if (dl && typeof dl.invalidateLayout === 'function') dl.invalidateLayout();
+    const groups = this._collectGroups();
+    for (const g of groups) {
+      const gl: any = g.layout;
+      if (gl && typeof gl.invalidateLayout === 'function') gl.invalidateLayout();
+    }
   }
 
   private _rebuildTreeLinks(): void {
@@ -2027,7 +2043,9 @@ export class Diagram {
     // 算出的路线被标记 _isRouteValid=true 后 updateRoute() 一直短路，
     // 于是 link 永远拿着那条「陈旧路线」（实测 basic：端口最终在 x=0 / 78.16，
     // 而路线长度仍停在第一次的 3.226）。这里统一失效一次再排链接。
-    this._invalidateLinkRoutes();
+    // 只在 measure=true（布局期/部件重新测量）时做：渲染期（_updateGeometry→measure=false）
+    // 节点位置不变、端口不动，若也失效会导致「失效→requestUpdate→再失效」的每帧空转。
+    if (measure) this._invalidateLinkRoutes();
     pass(2);
   }
 
@@ -2149,7 +2167,11 @@ export class Diagram {
         }
       }
       if (hasChanges) {
-        this._animationManager.startAnimation(anim);
+        // 官方 iC 尾部：`Li=!1; t.start()` —— 走 Animation.start()（先置 isRunning 再注册+启动 tick）。
+        // 早先调 animationManager.startAnimation(anim) 只注册不置 isRunning，
+        // rAF tick 里 `anim.isRunning===false` 被过滤 → 动画永不执行 →
+        // 节点被回写到旧位置后永远回不到新位置（gantt bar y=0 的直接成因）。
+        anim.start();
       }
     }
 
