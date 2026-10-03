@@ -414,6 +414,29 @@ export class Panel extends GraphObject {
     return this._elements.length;
   }
 
+  /**
+   * 官方 `Panel.Rf`（`getNearestIntersectionPoint`）：Panel 作 link 端口时**不能**用
+   * GraphObject 基类的矩形求交，必须遍历可见子元素按各自几何求交、取离目标点 q
+   * 最近（最靠外）的那个；否则圆形节点的 link 端点会贴在外接正方形上
+   * （arrowheads 样例 Center 大圆上的起点偏差即此）。官方对有 background 的 Panel
+   * 按自身 naturalBounds 矩形求交（等价基类实现）。
+   */
+  getNearestIntersectionPoint(p: Point, q: Point, result: Point): boolean {
+    if (this.background !== null) return super.getNearestIntersectionPoint(p, q, result);
+    result.set(p);
+    let best = (q.x - p.x) * (q.x - p.x) + (q.y - p.y) * (q.y - p.y);
+    let found = false;
+    const tmp = new Point();
+    for (const elem of this._elements) {
+      if (!elem.visible) continue;
+      if (!elem.getNearestIntersectionPoint(p, q, tmp)) continue;
+      found = true;
+      const d = (tmp.x - q.x) * (tmp.x - q.x) + (tmp.y - q.y) * (tmp.y - q.y);
+      if (d < best) { best = d; result.set(tmp); }
+    }
+    return found;
+  }
+
   // ============ Public methods ============
 
   add(...elements: GraphObject[]): Panel {

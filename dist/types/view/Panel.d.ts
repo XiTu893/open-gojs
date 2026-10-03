@@ -140,6 +140,14 @@ export declare class Panel extends GraphObject {
     set viewboxStretch(val: EnumValue);
     get elements(): Iterator<GraphObject>;
     get elementCount(): number;
+    /**
+     * 官方 `Panel.Rf`（`getNearestIntersectionPoint`）：Panel 作 link 端口时**不能**用
+     * GraphObject 基类的矩形求交，必须遍历可见子元素按各自几何求交、取离目标点 q
+     * 最近（最靠外）的那个；否则圆形节点的 link 端点会贴在外接正方形上
+     * （arrowheads 样例 Center 大圆上的起点偏差即此）。官方对有 background 的 Panel
+     * 按自身 naturalBounds 矩形求交（等价基类实现）。
+     */
+    getNearestIntersectionPoint(p: Point, q: Point, result: Point): boolean;
     add(...elements: GraphObject[]): Panel;
     /** Propagate the _part reference to a child element and its descendants */
     private _propagatePart;

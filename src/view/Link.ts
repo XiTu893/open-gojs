@@ -1257,16 +1257,18 @@ export class Link extends Part {
       out.y = p.y;
       return out;
     }
-    const bounds = port.getDocumentBounds();
-    if (bounds.containsPoint(p)) {
-      out.x = p.x;
-      out.y = p.y;
-      return out;
+    // 官方 `getLinkPointFromPoint` 尾部：focus/p 逆变换到 port 局部坐标后调
+    // `port.Rf(...)`（= getNearestIntersectionPoint），结果再乘回矩阵。本项目
+    // GraphObject 没有独立文档矩阵（旋转经 getDocumentBounds 体现），直接按
+    // 文档坐标求交；参数方向按本项目实现族的 (中心 focus, 目标 p) 语义。
+    // 官方 Rf 失败时 result=focus；这里保留矩形求交回退，避免端点塌回中心。
+    if (!port.getNearestIntersectionPoint(focus, p, out)) {
+      const bounds = port.getDocumentBounds();
+      const origin = bounds.containsPoint(focus) ? focus : bounds.center;
+      const hit = this._getEdgeIntersection(bounds, origin, p);
+      out.x = hit.x;
+      out.y = hit.y;
     }
-    const origin = bounds.containsPoint(focus) ? focus : bounds.center;
-    const hit = this._getEdgeIntersection(bounds, origin, p);
-    out.x = hit.x;
-    out.y = hit.y;
     return out;
   }
 

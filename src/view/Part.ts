@@ -505,7 +505,14 @@ export class Part extends Panel {
       const off = this._locationOffset();
       this._location = new Point(pos.x + off.x, pos.y + off.y);
     } else if (locReal && !posReal) {
-      this.position = loc; // setter derives position from location offset
+      // 官方 ensureBounds 的 bF 分支（pos=NaN、loc 实）：kF = position 由
+      // location − locationOffset 推出，**直接写入**。
+      // 早先这里写 `this.position = loc` 指望 setter 按 spot 派生——但 setter
+      // （官方 cN 同样）从不按 spot 派生 position，反而触发 position→location
+      // 反推，把 location 覆盖成 loc+off：flowchart 全部节点停在 loc 原值
+      // （少了半尺寸），且与 location 形成 kF 自洽环固化（实测 -1 节点
+      // pos=-237,41 / loc=-203.5,60.6 即此）。
+      this.syncPositionFromLocation();
     }
     this._actualBounds.x = this._position.x;
     this._actualBounds.y = this._position.y;

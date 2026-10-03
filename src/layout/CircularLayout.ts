@@ -151,41 +151,19 @@ get aspectRatio(): number { return this._aspectRatio; }
     // 这里不设的话它们拿到 null，径向旋转与 link.curviness 全部失效。
     this.network = net;
 
-    // Find connected components（破坏性拆分：顶点/边会被搬进子网络）
-    const allVertexes = net.vertexes.toArray();
-    const allEdges = net.edges.toArray();
-    const subNetworks = net.splitIntoSubNetworks();
-
+    // 官方 CircularLayout.doLayout **不拆连通分量**：`splitIntoSubNetworks` 只被
+    // ForceDirectedLayout 使用，官方直接把 network.vertexes 全部放进同一个环
+    // （H4 排序+算半径 → Iw/Ow/Ew 排布）。此前按分量拆分再横向排开是自造逻辑：
+    // arrowheads 样例（Center 节点 isLayoutPositioned:false 被 canLayout 排除、
+    // 40 条 link 端点解析为 null 不建边）会得到 40 个孤立顶点 → 40 个单点分量 →
+    // 被排成一条水平直线；官方则是一个 40 点的环（半径按 Σ(直径+spacing)/2π
+    // 从 100 生长到 257.83）。
     const origin = this.arrangementOrigin;
-    let offsetX = 0;
-    let offsetY = 0;
+    this._layoutComponent(net, origin.x, origin.y);
 
-    const it = subNetworks.iterator;
-    while (it.next()) {
-      const subNet = it.value;
-      this._layoutComponent(subNet, origin.x + offsetX, origin.y + offsetY);
-
-      // Compute the bounding box of this component to offset the next one
-      const vertexes: LayoutVertex[] = [];
-      const vit = subNet.vertexes.iterator;
-      while (vit.next()) {
-        vertexes.push(vit.value);
-      }
-
-      if (vertexes.length > 0) {
-        let maxX = -Infinity;
-        for (const v of vertexes) {
-          maxX = Math.max(maxX, v.x + v.width);
-        }
-        offsetX = maxX + this._spacing * 2;
-      }
-    }
-
-    // splitIntoSubNetworks 会把顶点搬进子网络（主网络 vertexes 变空），
-    // commitNodes/commitLinks 因此要遍历所有子网络。
-    this._lastSubNetworks = subNetworks.count > 0 ? subNetworks : null;
-    // 但官方语义是「this.network 始终持有全部顶点/边」，样例覆写依赖这一点。
-    net.reattach(allVertexes, allEdges);
+    // 本方法不再破坏性拆分：this.network 自始至终持有全部顶点/边（官方语义），
+    // 样例覆写（friendWheel 等）依赖这一点。
+    this._lastSubNetworks = null;
 
     // 官方 CircularLayout.doLayout 的收尾就是这两步：`updateParts()` → commitNodes →
     // commitLinks。样例覆写 commitNodes/commitLinks（friendWheel 用前者做径向旋转、
@@ -232,6 +210,22 @@ get aspectRatio(): number { return this._aspectRatio; }
       else hubVertexes.push(v);
     }
     const ring = ringVertexes.length >= 2 ? ringVertexes : vertexes;
+
+    // 官方 sorting（H4 里先 v4(t) 排序再算直径和/半径，所以必须放在弧长计算之前，
+    // 否则 arcCum 会按旧顺序累加、与重排后的 ring 错位）：
+    // Forwards=保持给定顺序，Reverse=反序，Asc/Descending 按 comparer 排序，
+    // Optimized=$4+J4（最大基数优先取点 + 最小化连线交叉的插入排序，官方 v4 case24）。
+    if (this._sorting === CircularSortingReverse) {
+      ring.reverse();
+    } else if (this._sorting === CircularSortingAscending || this._sorting === CircularSortingDescending) {
+      const cmp = this._comparer || LayoutVertex.smartComparer;
+      ring.sort((a, b) => cmp(a.node ? a.node.data : a, b.node ? b.node.data : b));
+      if (this._sorting === CircularSortingDescending) ring.reverse();
+    } else if (this._sorting === CircularSortingOptimized) {
+      const ordered = this._optimizedOrder(ring);
+      ring.length = 0;
+      for (const v of ordered) ring.push(v);
+    }
 
     // 官方 UR（ConstantDistance）语义：radius 是「最小半径」——
     // 若按该半径摆放后首尾节点仍重叠（弧长不足一整圈），官方会不断增大半径后重排。
@@ -290,18 +284,6 @@ get aspectRatio(): number { return this._aspectRatio; }
         arcCum.push(acc);
         acc += this._effectiveDiameter(v) + this._spacing;
       }
-    }
-
-    // 官方 sorting：Forwards=保持给定顺序，Reverse=反序，
-    // Ascending/Descending 按 comparer 排序，Optimized=按减少连线交叉的方式排序。
-    // 官方对「星形」(所有节点都只连中心) 和简单环这两种最常见情况给出的环顺序是
-    // **给定顺序的逆序**，我们照此对齐，否则整圈镜像（arrowheads 样例箭头方向相反）。
-    if (this._sorting === CircularSortingReverse || this._sorting === CircularSortingOptimized) {
-      ring.reverse();
-    } else if (this._sorting === CircularSortingAscending || this._sorting === CircularSortingDescending) {
-      const cmp = this._comparer || LayoutVertex.smartComparer;
-      ring.sort((a, b) => cmp(a.node ? a.node.data : a, b.node ? b.node.data : b));
-      if (this._sorting === CircularSortingDescending) ring.reverse();
     }
 
     // Position each vertex
@@ -373,6 +355,198 @@ get aspectRatio(): number { return this._aspectRatio; }
     const perGap = this._arrangement === CircularArrangementPacked ? h * 1.6 : h;
     const gaps = this._sweepAngle >= 360 ? d : d - 1;
     return (c + gaps * perGap) / (2 * Math.PI);
+  }
+
+  // ============ 官方 CircularLayout sorting=Optimized：$4 + J4 + Z4（v4 case 24） ============
+
+  /** 官方 `v4` case 24：`J4($4(t))`。 */
+  private _optimizedOrder(t: LayoutVertex[]): LayoutVertex[] {
+    const picks = this._mcs4(t);
+    const ordered: LayoutVertex[] = [];
+    for (const i of picks) ordered.push(t[i]);
+    return this._j4(ordered);
+  }
+
+  /**
+   * 官方 `$4(t)`：最大基数贪心取点，返回选中的**下标**序列。
+   * 首个取 edgesCount 最大者；此后取「已选中顶点的邻居计数」最大者（并列取下标最小者）。
+   * 选中后标记 -1（不再参与选择），并给尚未选中的邻居计数 +1。
+   * 无边网络所有计数恒 0、-1 挡住已选者 → 严格大于比较下退化为**原顺序**
+   * （arrowheads 样例 40 个孤立顶点即此情形，官方实测也是原序）。
+   */
+  private _mcs4(t: LayoutVertex[]): number[] {
+    const n = t.length;
+    const counts: number[] = new Array(n).fill(0);
+    const out: number[] = [];
+    for (let s = 0; s < n; s++) {
+      let best = -1;
+      let bestVal = -1;
+      if (s === 0) {
+        for (let c = 0; c < n; c++) {
+          const u = t[c].edgesCount;
+          if (u > bestVal) { bestVal = u; best = c; }
+        }
+      } else {
+        for (let c = 0; c < n; c++) {
+          const f = counts[c];
+          if (f > bestVal) { bestVal = f; best = c; }
+        }
+      }
+      if (best < 0) break;
+      out.push(best);
+      counts[best] = -1;
+      const v = t[best];
+      const bump = (other: LayoutVertex | null): void => {
+        if (!other) return;
+        const l = t.indexOf(other);
+        if (l >= 0 && counts[l] >= 0) counts[l]++;
+      };
+      let it = v.sourceEdges.iterator;
+      while (it.next()) bump(it.value.fromVertex);
+      it = v.destinationEdges.iterator;
+      while (it.next()) bump(it.value.toVertex);
+    }
+    return out;
+  }
+
+  /**
+   * 官方 `J4(t)`：按「插入后交叉数最小」把顶点排成链（t 是 $4 输出的顶点序，以下标操作）。
+   * 度=0 的顶点直接按原序入结果；度=1 的顶点挂链后补插；度≥2 的顶点在链上按候选位置
+   * 的 Z4 交叉计数 + 圆周距离平局裁决胜出后插入。无边网络 → 全部度=0 → 恒等输出。
+   */
+  private _j4(t: LayoutVertex[]): LayoutVertex[] {
+    const idxOf = (v: LayoutVertex | null): number => (v ? t.indexOf(v) : -1);
+    const nbr: number[][] = [];
+    for (let f = 0; f < t.length; f++) {
+      const adj: number[] = [];
+      const push = (other: LayoutVertex | null): void => {
+        const d = idxOf(other);
+        if (d >= 0 && d !== f && adj.indexOf(d) < 0) adj.push(d);
+      };
+      let it = t[f].destinationEdges.iterator;
+      while (it.next()) push(it.value.toVertex);
+      it = t[f].sourceEdges.iterator;
+      while (it.next()) push(it.value.fromVertex);
+      nbr.push(adj);
+    }
+    const e: number[] = new Array(t.length).fill(0); // 顶点在链中的位置
+    const s: number[] = []; // 链（顶点下标）
+    const n: number[] = []; // 已记录链边的两端（顶点下标）
+    const o: number[] = [];
+    const r: number[] = []; // 度=1 的顶点（下标）
+    const l: LayoutVertex[] = []; // 输出
+    let h = 0;
+    for (let f = 0; f < t.length; f++) {
+      const u = nbr[f].length;
+      if (u === 1) { r.push(f); continue; }
+      if (u === 0) { l.push(t[f]); continue; }
+      if (h === 0) { s.push(f); h++; continue; }
+      let dBest = Infinity;
+      let mBest = Infinity;
+      let g = -1;
+      const p: number[] = [];
+      for (let y = 0; y < s.length; y++) {
+        if (nbr[s[y]].indexOf(s[(y + 1) % s.length]) < 0) p.push((y + 1) % s.length);
+      }
+      if (p.length === 0) {
+        for (let y = 0; y < s.length; y++) p.push(y);
+      }
+      for (let y = 0; y < p.length; y++) {
+        const x = p[y];
+        const b = this._z4(nbr[f], n, o, e, x, s);
+        let S = 0;
+        for (let k = 0; k < nbr[f].length; k++) {
+          const P = nbr[f][k];
+          const A = s.indexOf(P);
+          if (A >= 0) {
+            const N = Math.abs(x - (A >= x ? A + 1 : A));
+            S += N < s.length + 1 - N ? N : s.length + 1 - N;
+          }
+        }
+        for (let k = 0; k < n.length; k++) {
+          let P = e[n[k]];
+          let A = e[o[k]];
+          if (P >= x) P++;
+          if (A >= x) A++;
+          if (P > A) { const tmp = A; A = P; P = tmp; }
+          if ((A - P < (s.length + 2) / 2) === (P < x && x <= A)) S++;
+        }
+        if (b < dBest || (b === dBest && S < mBest)) { dBest = b; mBest = S; g = x; }
+      }
+      s.splice(g, 0, f);
+      for (let y = 0; y < s.length; y++) e[s[y]] = y;
+      for (let y = 0; y < nbr[f].length; y++) {
+        const x = nbr[f][y];
+        if (s.indexOf(x) >= 0) { n.push(f); o.push(x); }
+      }
+      h++;
+    }
+    // 官方：度=1 顶点按其唯一邻居两侧的支路方向求和决定插在邻居前还是后，
+    // 邻居不在链上的先压队尾，直到全部入链。
+    const c = s.length;
+    for (; ;) {
+      let a = true;
+      for (let f = 0; f < r.length; f++) {
+        const u = r[f];
+        const dv = nbr[u][0];
+        const m = s.indexOf(dv);
+        if (m >= 0) {
+          let g = 0;
+          for (let p2 = 0; p2 < nbr[dv].length; p2++) {
+            const y = nbr[dv][p2];
+            const x = s.indexOf(y);
+            if (x < 0 || x === m) continue;
+            const b = x > m ? x - m : m - x;
+            const S = c - b;
+            g += (x < m) !== (b > S) ? 1 : -1;
+          }
+          s.splice(g < 0 ? m : m + 1, 0, u);
+          r.splice(f, 1);
+          f--;
+        } else {
+          a = false;
+        }
+      }
+      if (a) break;
+      s.push(r[0]);
+      r.splice(0, 1);
+    }
+    for (let f = 0; f < s.length; f++) l.push(t[s[f]]);
+    return l;
+  }
+
+  /**
+   * 官方 `Z4(t, i, e, s, n, o)`：候选顶点插入链位置 n 时与**已成链的边**产生的交叉数。
+   * t=候选的邻接下标；i/o=已记录边的两端（顶点下标）；s=位置数组（顶点下标→链位置）；
+   * n=候选链位置；o=链（顶点下标数组）。跨过候选位置的边看「链上邻点在区间外」，
+   * 不跨的边看「链上邻点在区间内」，逐个累加。
+   */
+  private _z4(t: number[], i: number[], e: number[], s: number[], n: number, o: number[]): number {
+    let r = 0;
+    for (let l = 0; l < i.length; l++) {
+      const h = i[l];
+      const a = e[l];
+      const c = s[h];
+      const f = s[a];
+      const u = c < f ? c : f;
+      const d = c < f ? f : c;
+      if (u < n && n <= d) {
+        for (let m = 0; m < t.length; m++) {
+          const g = t[m];
+          if (o.indexOf(g) < 0) continue;
+          const pg = s[g];
+          if (!(u < pg && pg < d) && u !== pg && d !== pg) r++;
+        }
+      } else {
+        for (let m = 0; m < t.length; m++) {
+          const g = t[m];
+          if (o.indexOf(g) < 0) continue;
+          const pg = s[g];
+          if (u < pg && pg < d && u !== pg && d !== pg) r++;
+        }
+      }
+    }
+    return r;
   }
 
   // ============ 官方 CircularLayout.commitNodes/commitLinks（阶段 7） ============

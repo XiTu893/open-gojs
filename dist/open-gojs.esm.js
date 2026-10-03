@@ -21944,9 +21944,48 @@ var Panel = /** @class */ (function (_super) {
         enumerable: false,
         configurable: true
     });
+    /**
+     * 官方 `Panel.Rf`（`getNearestIntersectionPoint`）：Panel 作 link 端口时**不能**用
+     * GraphObject 基类的矩形求交，必须遍历可见子元素按各自几何求交、取离目标点 q
+     * 最近（最靠外）的那个；否则圆形节点的 link 端点会贴在外接正方形上
+     * （arrowheads 样例 Center 大圆上的起点偏差即此）。官方对有 background 的 Panel
+     * 按自身 naturalBounds 矩形求交（等价基类实现）。
+     */
+    Panel.prototype.getNearestIntersectionPoint = function (p, q, result) {
+        var e_4, _a;
+        if (this.background !== null)
+            return _super.prototype.getNearestIntersectionPoint.call(this, p, q, result);
+        result.set(p);
+        var best = (q.x - p.x) * (q.x - p.x) + (q.y - p.y) * (q.y - p.y);
+        var found = false;
+        var tmp = new Point();
+        try {
+            for (var _b = __values(this._elements), _c = _b.next(); !_c.done; _c = _b.next()) {
+                var elem = _c.value;
+                if (!elem.visible)
+                    continue;
+                if (!elem.getNearestIntersectionPoint(p, q, tmp))
+                    continue;
+                found = true;
+                var d = (tmp.x - q.x) * (tmp.x - q.x) + (tmp.y - q.y) * (tmp.y - q.y);
+                if (d < best) {
+                    best = d;
+                    result.set(tmp);
+                }
+            }
+        }
+        catch (e_4_1) { e_4 = { error: e_4_1 }; }
+        finally {
+            try {
+                if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
+            }
+            finally { if (e_4) throw e_4.error; }
+        }
+        return found;
+    };
     // ============ Public methods ============
     Panel.prototype.add = function () {
-        var e_4, _a;
+        var e_5, _a;
         var elements = [];
         for (var _i = 0; _i < arguments.length; _i++) {
             elements[_i] = arguments[_i];
@@ -21964,12 +22003,12 @@ var Panel = /** @class */ (function (_super) {
                 this._propagatePart(element);
             }
         }
-        catch (e_4_1) { e_4 = { error: e_4_1 }; }
+        catch (e_5_1) { e_5 = { error: e_5_1 }; }
         finally {
             try {
                 if (elements_1_1 && !elements_1_1.done && (_a = elements_1.return)) _a.call(elements_1);
             }
-            finally { if (e_4) throw e_4.error; }
+            finally { if (e_5) throw e_5.error; }
         }
         return this;
     };
@@ -21986,7 +22025,7 @@ var Panel = /** @class */ (function (_super) {
     };
     /** Recursively set _part on an element and its children */
     Panel.prototype._setPartRecursive = function (element, part) {
-        var e_5, _a;
+        var e_6, _a;
         element._part = part;
         if (element instanceof Panel) {
             try {
@@ -21995,12 +22034,12 @@ var Panel = /** @class */ (function (_super) {
                     this._setPartRecursive(child, part);
                 }
             }
-            catch (e_5_1) { e_5 = { error: e_5_1 }; }
+            catch (e_6_1) { e_6 = { error: e_6_1 }; }
             finally {
                 try {
                     if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
                 }
-                finally { if (e_5) throw e_5.error; }
+                finally { if (e_6) throw e_6.error; }
             }
         }
     };
@@ -22034,7 +22073,7 @@ var Panel = /** @class */ (function (_super) {
         return this._elements[index];
     };
     Panel.prototype.findObject = function (name) {
-        var e_6, _a;
+        var e_7, _a;
         if (this.name === name)
             return this;
         try {
@@ -22049,12 +22088,12 @@ var Panel = /** @class */ (function (_super) {
                 }
             }
         }
-        catch (e_6_1) { e_6 = { error: e_6_1 }; }
+        catch (e_7_1) { e_7 = { error: e_7_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_6) throw e_6.error; }
+            finally { if (e_7) throw e_7.error; }
         }
         return null;
     };
@@ -22155,7 +22194,7 @@ var Panel = /** @class */ (function (_super) {
      * 返回第一个让 func 返回真值的对象；没有则返回 null。
      */
     Panel.prototype.findInVisualTree = function (func) {
-        var e_7, _a;
+        var e_8, _a;
         if (func(this))
             return this;
         if (this instanceof Panel) {
@@ -22169,19 +22208,19 @@ var Panel = /** @class */ (function (_super) {
                         return found;
                 }
             }
-            catch (e_7_1) { e_7 = { error: e_7_1 }; }
+            catch (e_8_1) { e_8 = { error: e_8_1 }; }
             finally {
                 try {
                     if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
                 }
-                finally { if (e_7) throw e_7.error; }
+                finally { if (e_8) throw e_8.error; }
             }
         }
         return null;
     };
     /** 官方 `Panel.walkVisualTreeFrom(obj, func)`：func(root, obj) 先于子树被调用 */
     Panel.prototype.walkVisualTreeFrom = function (obj, func) {
-        var e_8, _a;
+        var e_9, _a;
         func(this, obj);
         if (obj instanceof Panel) {
             try {
@@ -22190,12 +22229,12 @@ var Panel = /** @class */ (function (_super) {
                     this.walkVisualTreeFrom(child, func);
                 }
             }
-            catch (e_8_1) { e_8 = { error: e_8_1 }; }
+            catch (e_9_1) { e_9 = { error: e_9_1 }; }
             finally {
                 try {
                     if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
                 }
-                finally { if (e_8) throw e_8.error; }
+                finally { if (e_9) throw e_9.error; }
             }
         }
     };
@@ -22289,7 +22328,7 @@ var Panel = /** @class */ (function (_super) {
         return getFigureGeometry(shape.figure, w, h) || null;
     };
     Panel.prototype.findItemPanelForData = function (data) {
-        var e_9, _a;
+        var e_10, _a;
         try {
             for (var _b = __values(this._elements), _c = _b.next(); !_c.done; _c = _b.next()) {
                 var elem = _c.value;
@@ -22298,12 +22337,12 @@ var Panel = /** @class */ (function (_super) {
                 }
             }
         }
-        catch (e_9_1) { e_9 = { error: e_9_1 }; }
+        catch (e_10_1) { e_10 = { error: e_10_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_9) throw e_9.error; }
+            finally { if (e_10) throw e_10.error; }
         }
         return null;
     };
@@ -22335,7 +22374,7 @@ var Panel = /** @class */ (function (_super) {
         return this;
     };
     Panel.prototype._applyRowColumnOptions = function (def, isRow, options) {
-        var e_10, _a;
+        var e_11, _a;
         if (options === undefined || options === null || !def)
             return;
         if (typeof options === 'number') {
@@ -22369,12 +22408,12 @@ var Panel = /** @class */ (function (_super) {
                     def[key] = rec[key];
             }
         }
-        catch (e_10_1) { e_10 = { error: e_10_1 }; }
+        catch (e_11_1) { e_11 = { error: e_11_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_10) throw e_10.error; }
+            finally { if (e_11) throw e_11.error; }
         }
     };
     Panel.prototype.getRowDefinition = function (index) {
@@ -22447,7 +22486,7 @@ var Panel = /** @class */ (function (_super) {
         this._invalidateMeasure();
     };
     Panel.prototype.updateTargetBindings = function (propname) {
-        var e_11, _a, e_12, _b;
+        var e_12, _a, e_13, _b;
         try {
             for (var _c = __values(this._elements), _d = _c.next(); !_d.done; _d = _c.next()) {
                 var elem = _d.value;
@@ -22457,7 +22496,7 @@ var Panel = /** @class */ (function (_super) {
                 var bindings = elem._bindings;
                 if (bindings && bindings.length > 0) {
                     try {
-                        for (var bindings_1 = (e_12 = void 0, __values(bindings)), bindings_1_1 = bindings_1.next(); !bindings_1_1.done; bindings_1_1 = bindings_1.next()) {
+                        for (var bindings_1 = (e_13 = void 0, __values(bindings)), bindings_1_1 = bindings_1.next(); !bindings_1_1.done; bindings_1_1 = bindings_1.next()) {
                             var binding = bindings_1_1.value;
                             // 官方：theme 绑定不依赖 data（无数据部件也要应用）
                             if (!data && !binding.isToTheme)
@@ -22478,12 +22517,12 @@ var Panel = /** @class */ (function (_super) {
                             }
                         }
                     }
-                    catch (e_12_1) { e_12 = { error: e_12_1 }; }
+                    catch (e_13_1) { e_13 = { error: e_13_1 }; }
                     finally {
                         try {
                             if (bindings_1_1 && !bindings_1_1.done && (_b = bindings_1.return)) _b.call(bindings_1);
                         }
-                        finally { if (e_12) throw e_12.error; }
+                        finally { if (e_13) throw e_13.error; }
                     }
                 }
                 if (elem instanceof Panel) {
@@ -22505,12 +22544,12 @@ var Panel = /** @class */ (function (_super) {
                 }
             }
         }
-        catch (e_11_1) { e_11 = { error: e_11_1 }; }
+        catch (e_12_1) { e_12 = { error: e_12_1 }; }
         finally {
             try {
                 if (_d && !_d.done && (_a = _c.return)) _a.call(_c);
             }
-            finally { if (e_11) throw e_11.error; }
+            finally { if (e_12) throw e_12.error; }
         }
     };
     Panel.prototype.copy = function () {
@@ -22521,7 +22560,7 @@ var Panel = /** @class */ (function (_super) {
     };
     /** Copy Panel-specific properties to another Panel */
     Panel.prototype._copyPanelPropertiesTo = function (copy) {
-        var e_13, _a, e_14, _b, e_15, _c;
+        var e_14, _a, e_15, _b, e_16, _c;
         copy._data = this._data;
         copy._padding = this._padding.copy();
         copy._defaultAlignment = this._defaultAlignment.copy();
@@ -22567,12 +22606,12 @@ var Panel = /** @class */ (function (_super) {
                 }
             }
         }
-        catch (e_13_1) { e_13 = { error: e_13_1 }; }
+        catch (e_14_1) { e_14 = { error: e_14_1 }; }
         finally {
             try {
                 if (_e && !_e.done && (_a = _d.return)) _a.call(_d);
             }
-            finally { if (e_13) throw e_13.error; }
+            finally { if (e_14) throw e_14.error; }
         }
         try {
             // Copy row/column definitions
@@ -22581,12 +22620,12 @@ var Panel = /** @class */ (function (_super) {
                 copy._rowDefinitions.push(def.copy());
             }
         }
-        catch (e_14_1) { e_14 = { error: e_14_1 }; }
+        catch (e_15_1) { e_15 = { error: e_15_1 }; }
         finally {
             try {
                 if (_g && !_g.done && (_b = _f.return)) _b.call(_f);
             }
-            finally { if (e_14) throw e_14.error; }
+            finally { if (e_15) throw e_15.error; }
         }
         try {
             for (var _h = __values(this._columnDefinitions), _j = _h.next(); !_j.done; _j = _h.next()) {
@@ -22594,17 +22633,17 @@ var Panel = /** @class */ (function (_super) {
                 copy._columnDefinitions.push(def.copy());
             }
         }
-        catch (e_15_1) { e_15 = { error: e_15_1 }; }
+        catch (e_16_1) { e_16 = { error: e_16_1 }; }
         finally {
             try {
                 if (_j && !_j.done && (_c = _h.return)) _c.call(_h);
             }
-            finally { if (e_15) throw e_15.error; }
+            finally { if (e_16) throw e_16.error; }
         }
     };
     // ============ Override _measure and _arrange ============
     Panel.prototype._measure = function (widthConstraint, heightConstraint, minW, minH) {
-        var e_16, _a;
+        var e_17, _a;
         var pad = this._padding;
         var mar = this._margin;
         var minS = this._minSize;
@@ -22725,12 +22764,12 @@ var Panel = /** @class */ (function (_super) {
                     maxH = Math.max(maxH, mb.height + m.top + m.bottom);
                 }
             }
-            catch (e_16_1) { e_16 = { error: e_16_1 }; }
+            catch (e_17_1) { e_17 = { error: e_17_1 }; }
             finally {
                 try {
                     if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
                 }
-                finally { if (e_16) throw e_16.error; }
+                finally { if (e_17) throw e_17.error; }
             }
             union.setTo(0, 0, maxW, maxH);
         }
@@ -22764,7 +22803,7 @@ var Panel = /** @class */ (function (_super) {
         u.setTo(nx, ny, nr - nx, nb - ny);
     };
     Panel.prototype._arrange = function (bounds) {
-        var e_17, _a;
+        var e_18, _a;
         this._actualBounds = bounds.copy();
         if (this._type === PanelLink) {
             this._arrangeLink(bounds);
@@ -22816,12 +22855,12 @@ var Panel = /** @class */ (function (_super) {
                     elem._arrange(new Rect(innerX, innerY, innerW, innerH));
                 }
             }
-            catch (e_17_1) { e_17 = { error: e_17_1 }; }
+            catch (e_18_1) { e_18 = { error: e_18_1 }; }
             finally {
                 try {
                     if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
                 }
-                finally { if (e_17) throw e_17.error; }
+                finally { if (e_18) throw e_18.error; }
             }
         }
     };
@@ -22832,7 +22871,7 @@ var Panel = /** @class */ (function (_super) {
      * or the first visible element if none has isPanelMain.
      */
     Panel.prototype._findMainAndOthers = function () {
-        var e_18, _a;
+        var e_19, _a;
         var main = this.findMainElement();
         var others = [];
         try {
@@ -22842,12 +22881,12 @@ var Panel = /** @class */ (function (_super) {
                     others.push(elem);
             }
         }
-        catch (e_18_1) { e_18 = { error: e_18_1 }; }
+        catch (e_19_1) { e_19 = { error: e_19_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_18) throw e_18.error; }
+            finally { if (e_19) throw e_19.error; }
         }
         return { main: main, others: others };
     };
@@ -22877,7 +22916,7 @@ var Panel = /** @class */ (function (_super) {
     };
     /** 官方 PanelLayoutAuto.measure */
     Panel.prototype._measureAuto = function (availW, availH) {
-        var e_19, _a;
+        var e_20, _a;
         var els = this._elements;
         if (els.length === 0)
             return;
@@ -22923,12 +22962,12 @@ var Panel = /** @class */ (function (_super) {
                 maxTh = Math.max(maxTh, x);
             }
         }
-        catch (e_19_1) { e_19 = { error: e_19_1 }; }
+        catch (e_20_1) { e_20 = { error: e_20_1 }; }
         finally {
             try {
                 if (els_1_1 && !els_1_1.done && (_a = els_1.return)) _a.call(els_1);
             }
-            finally { if (e_19) throw e_19.error; }
+            finally { if (e_20) throw e_20.error; }
         }
         var union = this._unionRect;
         if (els.length === 1) {
@@ -22970,7 +23009,7 @@ var Panel = /** @class */ (function (_super) {
     };
     /** 官方 PanelLayoutAuto.arrange */
     Panel.prototype._arrangeAuto = function (innerX, innerY, innerW, innerH) {
-        var e_20, _a;
+        var e_21, _a;
         var els = this._elements;
         if (els.length === 0)
             return;
@@ -23004,17 +23043,17 @@ var Panel = /** @class */ (function (_super) {
                 el._arrange(new Rect(x, yy, eMb.width, eMb.height));
             }
         }
-        catch (e_20_1) { e_20 = { error: e_20_1 }; }
+        catch (e_21_1) { e_21 = { error: e_21_1 }; }
         finally {
             try {
                 if (els_2_1 && !els_2_1.done && (_a = els_2.return)) _a.call(els_2);
             }
-            finally { if (e_20) throw e_20.error; }
+            finally { if (e_21) throw e_21.error; }
         }
     };
     // ============ PanelVertical measure/arrange ============
     Panel.prototype._measureVertical = function (availW, availH) {
-        var e_21, _a, e_22, _b;
+        var e_22, _a, e_23, _b;
         this._padding;
         var totalH = 0;
         var maxW = 0;
@@ -23038,12 +23077,12 @@ var Panel = /** @class */ (function (_super) {
                 maxW = Math.max(maxW, mb.width + m.left + m.right);
             }
         }
-        catch (e_21_1) { e_21 = { error: e_21_1 }; }
+        catch (e_22_1) { e_22 = { error: e_22_1 }; }
         finally {
             try {
                 if (_d && !_d.done && (_a = _c.return)) _a.call(_c);
             }
-            finally { if (e_21) throw e_21.error; }
+            finally { if (e_22) throw e_22.error; }
         }
         // 官方：i = desiredSize.width ? min(ds, maxSize) : (内容宽非0 ? min(内容宽, maxSize) : 原 availW)
         var contentW = availW;
@@ -23066,17 +23105,17 @@ var Panel = /** @class */ (function (_super) {
                 maxW = Math.max(maxW, mb.width + m.left + m.right);
             }
         }
-        catch (e_22_1) { e_22 = { error: e_22_1 }; }
+        catch (e_23_1) { e_23 = { error: e_23_1 }; }
         finally {
             try {
                 if (fillElems_1_1 && !fillElems_1_1.done && (_b = fillElems_1.return)) _b.call(fillElems_1);
             }
-            finally { if (e_22) throw e_22.error; }
+            finally { if (e_23) throw e_23.error; }
         }
         this._unionRect.setTo(0, 0, maxW, totalH);
     };
     Panel.prototype._arrangeVertical = function (innerX, innerY, innerW, innerH) {
-        var e_23, _a;
+        var e_24, _a;
         var y = innerY;
         try {
             for (var _b = __values(this._elements), _c = _b.next(); !_c.done; _c = _b.next()) {
@@ -23092,17 +23131,17 @@ var Panel = /** @class */ (function (_super) {
                 y += mb.height + m.top + m.bottom;
             }
         }
-        catch (e_23_1) { e_23 = { error: e_23_1 }; }
+        catch (e_24_1) { e_24 = { error: e_24_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_23) throw e_23.error; }
+            finally { if (e_24) throw e_24.error; }
         }
     };
     // ============ PanelHorizontal measure/arrange ============
     Panel.prototype._measureHorizontal = function (availW, availH) {
-        var e_24, _a;
+        var e_25, _a;
         var totalW = 0;
         var maxH = 0;
         try {
@@ -23122,17 +23161,17 @@ var Panel = /** @class */ (function (_super) {
                 maxH = Math.max(maxH, mb.height + m.top + m.bottom);
             }
         }
-        catch (e_24_1) { e_24 = { error: e_24_1 }; }
+        catch (e_25_1) { e_25 = { error: e_25_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_24) throw e_24.error; }
+            finally { if (e_25) throw e_25.error; }
         }
         this._unionRect.setTo(0, 0, totalW, maxH);
     };
     Panel.prototype._arrangeHorizontal = function (innerX, innerY, innerW, innerH) {
-        var e_25, _a;
+        var e_26, _a;
         var x = innerX;
         try {
             for (var _b = __values(this._elements), _c = _b.next(); !_c.done; _c = _b.next()) {
@@ -23147,18 +23186,18 @@ var Panel = /** @class */ (function (_super) {
                 x += mb.width + m.left + m.right;
             }
         }
-        catch (e_25_1) { e_25 = { error: e_25_1 }; }
+        catch (e_26_1) { e_26 = { error: e_26_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_25) throw e_25.error; }
+            finally { if (e_26) throw e_26.error; }
         }
     };
     // ============ PanelSpot measure/arrange ============
     /** 官方 PanelLayoutSpot.measure（两遍） */
     Panel.prototype._measureSpot = function (availW, availH) {
-        var e_26, _a, e_27, _b;
+        var e_27, _a, e_28, _b;
         var els = this._elements;
         if (els.length === 0)
             return;
@@ -23231,12 +23270,12 @@ var Panel = /** @class */ (function (_super) {
                 }
             }
         }
-        catch (e_26_1) { e_26 = { error: e_26_1 }; }
+        catch (e_27_1) { e_27 = { error: e_27_1 }; }
         finally {
             try {
                 if (els_3_1 && !els_3_1.done && (_a = els_3.return)) _a.call(els_3);
             }
-            finally { if (e_26) throw e_26.error; }
+            finally { if (e_27) throw e_27.error; }
         }
         if (!hasOther)
             union.setTo(sBoxX, sBoxY, sBoxW, sBoxH);
@@ -23282,18 +23321,18 @@ var Panel = /** @class */ (function (_super) {
                 this._unionInto(X, Y, y, x);
             }
         }
-        catch (e_27_1) { e_27 = { error: e_27_1 }; }
+        catch (e_28_1) { e_28 = { error: e_28_1 }; }
         finally {
             try {
                 if (els_4_1 && !els_4_1.done && (_b = els_4.return)) _b.call(els_4);
             }
-            finally { if (e_27) throw e_27.error; }
+            finally { if (e_28) throw e_28.error; }
         }
         this._unionInto(sBoxX, sBoxY, sBoxW, sBoxH);
     };
     /** 官方 PanelLayoutSpot.arrange */
     Panel.prototype._arrangeSpot = function (innerX, innerY, innerW, innerH) {
-        var e_28, _a;
+        var e_29, _a;
         var els = this._elements;
         if (els.length === 0)
             return;
@@ -23326,12 +23365,12 @@ var Panel = /** @class */ (function (_super) {
                 el._arrange(new Rect(pad.left + f, pad.top + uu, eMb.width, eMb.height));
             }
         }
-        catch (e_28_1) { e_28 = { error: e_28_1 }; }
+        catch (e_29_1) { e_29 = { error: e_29_1 }; }
         finally {
             try {
                 if (els_5_1 && !els_5_1.done && (_a = els_5.return)) _a.call(els_5);
             }
-            finally { if (e_28) throw e_28.error; }
+            finally { if (e_29) throw e_29.error; }
         }
     };
     // ============ PanelTable measure/arrange (官方 PanelLayoutTable 移植) ============
@@ -23339,7 +23378,7 @@ var Panel = /** @class */ (function (_super) {
         return obj instanceof Panel && (obj.type === PanelTableRow || obj.type === PanelTableColumn);
     };
     Panel.prototype._measureTable = function (availW, availH, minW, minH) {
-        var e_29, _a, e_30, _b, e_31, _c, e_32, _d, e_33, _e, e_34, _f, e_35, _g, e_36, _h, e_37, _j, e_38, _k;
+        var e_30, _a, e_31, _b, e_32, _c, e_33, _d, e_34, _e, e_35, _f, e_36, _g, e_37, _h, e_38, _j, e_39, _k;
         var elements = this._elements;
         // 官方 measure：hoist TableRow/TableColumn 子元素到扁平单元格列表
         var flat = [];
@@ -23350,7 +23389,7 @@ var Panel = /** @class */ (function (_super) {
                 if (this._isRowColPanel(E) && E.visible) {
                     hoisted.push(E);
                     try {
-                        for (var _l = (e_30 = void 0, __values(E._elements)), _m = _l.next(); !_m.done; _m = _l.next()) {
+                        for (var _l = (e_31 = void 0, __values(E._elements)), _m = _l.next(); !_m.done; _m = _l.next()) {
                             var et = _m.value;
                             if (E.type === PanelTableRow)
                                 et.row = E.row;
@@ -23359,12 +23398,12 @@ var Panel = /** @class */ (function (_super) {
                             flat.push(et);
                         }
                     }
-                    catch (e_30_1) { e_30 = { error: e_30_1 }; }
+                    catch (e_31_1) { e_31 = { error: e_31_1 }; }
                     finally {
                         try {
                             if (_m && !_m.done && (_b = _l.return)) _b.call(_l);
                         }
-                        finally { if (e_30) throw e_30.error; }
+                        finally { if (e_31) throw e_31.error; }
                     }
                 }
                 else {
@@ -23372,12 +23411,12 @@ var Panel = /** @class */ (function (_super) {
                 }
             }
         }
-        catch (e_29_1) { e_29 = { error: e_29_1 }; }
+        catch (e_30_1) { e_30 = { error: e_30_1 }; }
         finally {
             try {
                 if (elements_2_1 && !elements_2_1.done && (_a = elements_2.return)) _a.call(elements_2);
             }
-            finally { if (e_29) throw e_29.error; }
+            finally { if (e_30) throw e_30.error; }
         }
         if (flat.length === 0) {
             this.getRowDefinition(0);
@@ -23399,12 +23438,12 @@ var Panel = /** @class */ (function (_super) {
                 cells[r][c].push(E);
             }
         }
-        catch (e_31_1) { e_31 = { error: e_31_1 }; }
+        catch (e_32_1) { e_32 = { error: e_32_1 }; }
         finally {
             try {
                 if (flat_1_1 && !flat_1_1.done && (_c = flat_1.return)) _c.call(flat_1);
             }
-            finally { if (e_31) throw e_31.error; }
+            finally { if (e_32) throw e_32.error; }
         }
         var spanElems = []; // 官方 u
         var singleElems = []; // 官方 d
@@ -23421,12 +23460,12 @@ var Panel = /** @class */ (function (_super) {
                 def.measured = 0;
             }
         }
-        catch (e_32_1) { e_32 = { error: e_32_1 }; }
+        catch (e_33_1) { e_33 = { error: e_33_1 }; }
         finally {
             try {
                 if (_p && !_p.done && (_d = _o.return)) _d.call(_o);
             }
-            finally { if (e_32) throw e_32.error; }
+            finally { if (e_33) throw e_33.error; }
         }
         try {
             for (var _q = __values(this._columnDefinitions), _r = _q.next(); !_r.done; _r = _q.next()) {
@@ -23435,12 +23474,12 @@ var Panel = /** @class */ (function (_super) {
                 def.measured = 0;
             }
         }
-        catch (e_33_1) { e_33 = { error: e_33_1 }; }
+        catch (e_34_1) { e_34 = { error: e_34_1 }; }
         finally {
             try {
                 if (_r && !_r.done && (_e = _q.return)) _e.call(_q);
             }
-            finally { if (e_33) throw e_33.error; }
+            finally { if (e_34) throw e_34.error; }
         }
         var topIndex = Math.min(this.topIndex, cells.length - 1);
         var leftIndex = Math.min(this.leftIndex, cells.reduce(function (mx, row) { return Math.max(mx, row ? row.length : 0); }, 0) - 1);
@@ -23464,7 +23503,7 @@ var Panel = /** @class */ (function (_super) {
                     colDefTouched[W] = true;
                 }
                 try {
-                    for (var list_1 = (e_34 = void 0, __values(list)), list_1_1 = list_1.next(); !list_1_1.done; list_1_1 = list_1.next()) {
+                    for (var list_1 = (e_35 = void 0, __values(list)), list_1_1 = list_1.next(); !list_1_1.done; list_1_1 = list_1.next()) {
                         var nt = list_1_1.value;
                         if (!nt.visible)
                             continue;
@@ -23519,12 +23558,12 @@ var Panel = /** @class */ (function (_super) {
                         }
                     }
                 }
-                catch (e_34_1) { e_34 = { error: e_34_1 }; }
+                catch (e_35_1) { e_35 = { error: e_35_1 }; }
                 finally {
                     try {
                         if (list_1_1 && !list_1_1.done && (_f = list_1.return)) _f.call(list_1);
                     }
-                    finally { if (e_34) throw e_34.error; }
+                    finally { if (e_35) throw e_35.error; }
                 }
             }
         }
@@ -23577,12 +23616,12 @@ var Panel = /** @class */ (function (_super) {
                 }
             }
         }
-        catch (e_35_1) { e_35 = { error: e_35_1 }; }
+        catch (e_36_1) { e_36 = { error: e_36_1 }; }
         finally {
             try {
                 if (singleElems_1_1 && !singleElems_1_1.done && (_g = singleElems_1.return)) _g.call(singleElems_1);
             }
-            finally { if (e_35) throw e_35.error; }
+            finally { if (e_36) throw e_36.error; }
         }
         var O = 0;
         for (var i = 0; i < colFillMark.length; i++) {
@@ -23665,12 +23704,12 @@ var Panel = /** @class */ (function (_super) {
                     R = Math.max(R - growW, 0);
             }
         }
-        catch (e_36_1) { e_36 = { error: e_36_1 }; }
+        catch (e_37_1) { e_37 = { error: e_37_1 }; }
         finally {
             try {
                 if (singleElems_2_1 && !singleElems_2_1.done && (_h = singleElems_2.return)) _h.call(singleElems_2);
             }
-            finally { if (e_36) throw e_36.error; }
+            finally { if (e_37) throw e_37.error; }
         }
         // ============ 跨行/列元素通道 ============
         if (spanElems.length > 0) {
@@ -23856,12 +23895,12 @@ var Panel = /** @class */ (function (_super) {
                     }
                 }
             }
-            catch (e_37_1) { e_37 = { error: e_37_1 }; }
+            catch (e_38_1) { e_38 = { error: e_38_1 }; }
             finally {
                 try {
                     if (spanElems_1_1 && !spanElems_1_1.done && (_j = spanElems_1.return)) _j.call(spanElems_1);
                 }
-                finally { if (e_37) throw e_37.error; }
+                finally { if (e_38) throw e_38.error; }
             }
         }
         // ============ 最终列/行缩放与位置 ============
@@ -23974,19 +24013,19 @@ var Panel = /** @class */ (function (_super) {
                 E._naturalBounds = new Rect(0, 0, w, h);
             }
         }
-        catch (e_38_1) { e_38 = { error: e_38_1 }; }
+        catch (e_39_1) { e_39 = { error: e_39_1 }; }
         finally {
             try {
                 if (hoisted_1_1 && !hoisted_1_1.done && (_k = hoisted_1.return)) _k.call(hoisted_1);
             }
-            finally { if (e_38) throw e_38.error; }
+            finally { if (e_39) throw e_39.error; }
         }
         // 官方：单元格缓存 t.Gh 供 arrange 使用；n 内容尺寸 → union
         this._lastCells = cells;
         this._unionRect.setTo(0, 0, offX, offY);
     };
     Panel.prototype._arrangeTable = function (innerX, innerY, innerW, innerH) {
-        var e_39, _a, e_40, _b;
+        var e_40, _a, e_41, _b;
         var cells = this._lastCells;
         if (!cells)
             return;
@@ -24063,12 +24102,12 @@ var Panel = /** @class */ (function (_super) {
                 M._naturalBounds = new Rect(0, 0, mb.width, mb.height);
             }
         }
-        catch (e_39_1) { e_39 = { error: e_39_1 }; }
+        catch (e_40_1) { e_40 = { error: e_40_1 }; }
         finally {
             try {
                 if (_d && !_d.done && (_a = _c.return)) _a.call(_c);
             }
-            finally { if (e_39) throw e_39.error; }
+            finally { if (e_40) throw e_40.error; }
         }
         // ============ 第二遍：单元格内元素对齐排布 ============
         for (var N = 0; N < c; N++) {
@@ -24088,7 +24127,7 @@ var Panel = /** @class */ (function (_super) {
                 if (T.actual !== 0)
                     h += T.computeEffectiveSpacingTop(Math.max(firstColIdx, yIdx));
                 try {
-                    for (var list_2 = (e_40 = void 0, __values(list)), list_2_1 = list_2.next(); !list_2_1.done; list_2_1 = list_2.next()) {
+                    for (var list_2 = (e_41 = void 0, __values(list)), list_2_1 = list_2.next(); !list_2_1.done; list_2_1 = list_2.next()) {
                         var R = list_2_1.value;
                         var I = R.measuredBounds;
                         var spanW = 0;
@@ -24180,12 +24219,12 @@ var Panel = /** @class */ (function (_super) {
                         }
                     }
                 }
-                catch (e_40_1) { e_40 = { error: e_40_1 }; }
+                catch (e_41_1) { e_41 = { error: e_41_1 }; }
                 finally {
                     try {
                         if (list_2_1 && !list_2_1.done && (_b = list_2.return)) _b.call(list_2);
                     }
-                    finally { if (e_40) throw e_40.error; }
+                    finally { if (e_41) throw e_41.error; }
                 }
             }
         }
@@ -24193,7 +24232,7 @@ var Panel = /** @class */ (function (_super) {
     // ============ PanelPosition measure/arrange ============
     /** 官方 PanelLayoutPosition.measure：union 隐含 (0,0)（初始 union 为空点） */
     Panel.prototype._measurePosition = function (availW, availH) {
-        var e_41, _a;
+        var e_42, _a;
         try {
             for (var _b = __values(this._elements), _c = _b.next(); !_c.done; _c = _b.next()) {
                 var elem = _c.value;
@@ -24220,17 +24259,17 @@ var Panel = /** @class */ (function (_super) {
                 this._unionInto(px, py, boxW, boxH);
             }
         }
-        catch (e_41_1) { e_41 = { error: e_41_1 }; }
+        catch (e_42_1) { e_42 = { error: e_42_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_41) throw e_41.error; }
+            finally { if (e_42) throw e_42.error; }
         }
     };
     /** 官方 PanelLayoutPosition.arrange：pos - (union - pad) + margin */
     Panel.prototype._arrangePosition = function (innerX, innerY, innerW, innerH) {
-        var e_42, _a;
+        var e_43, _a;
         try {
             for (var _b = __values(this._elements), _c = _b.next(); !_c.done; _c = _b.next()) {
                 var elem = _c.value;
@@ -24247,12 +24286,12 @@ var Panel = /** @class */ (function (_super) {
                 elem._arrange(new Rect(innerX + px - this._originX + m.left, innerY + py - this._originY + m.top, mb.width, mb.height));
             }
         }
-        catch (e_42_1) { e_42 = { error: e_42_1 }; }
+        catch (e_43_1) { e_43 = { error: e_43_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_42) throw e_42.error; }
+            finally { if (e_43) throw e_43.error; }
         }
     };
     // ============ PanelViewbox measure/arrange ============
@@ -24326,7 +24365,7 @@ var Panel = /** @class */ (function (_super) {
         }
     };
     Panel.prototype._arrangeGraduated = function (innerX, innerY, innerW, innerH) {
-        var e_43, _a;
+        var e_44, _a;
         var _b = this._findMainAndOthers(), main = _b.main, others = _b.others;
         if (main !== null) {
             var m = main.margin;
@@ -24343,18 +24382,18 @@ var Panel = /** @class */ (function (_super) {
                 elem._arrange(new Rect(pos.x - focusPos.x, pos.y - focusPos.y, mb.width, mb.height));
             }
         }
-        catch (e_43_1) { e_43 = { error: e_43_1 }; }
+        catch (e_44_1) { e_44 = { error: e_44_1 }; }
         finally {
             try {
                 if (others_1_1 && !others_1_1.done && (_a = others_1.return)) _a.call(others_1);
             }
-            finally { if (e_43) throw e_43.error; }
+            finally { if (e_44) throw e_44.error; }
         }
     };
     // ============ PanelLink measure/arrange ============
     /** 取 link 里「画线」的主图元：优先 isPanelMain，否则第一个同时有 fill/stroke 的 Shape */
     Panel.prototype._findLinkMainElement = function () {
-        var e_44, _a;
+        var e_45, _a;
         var fallback = null;
         try {
             for (var _b = __values(this._elements), _c = _b.next(); !_c.done; _c = _b.next()) {
@@ -24367,12 +24406,12 @@ var Panel = /** @class */ (function (_super) {
                     fallback = elem;
             }
         }
-        catch (e_44_1) { e_44 = { error: e_44_1 }; }
+        catch (e_45_1) { e_45 = { error: e_45_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_44) throw e_44.error; }
+            finally { if (e_45) throw e_45.error; }
         }
         return fallback;
     };
@@ -24388,7 +24427,7 @@ var Panel = /** @class */ (function (_super) {
      *   路线中点；否则 → 点列线段插值。锚点均为 route-local（doc − routeBounds 原点）。
      */
     Panel.prototype._measureLink = function (_availW, _availH) {
-        var e_45, _a, e_46, _b;
+        var e_46, _a, e_47, _b;
         var panel = this;
         var host = typeof panel.updateRoute === 'function'
             ? panel
@@ -24421,12 +24460,12 @@ var Panel = /** @class */ (function (_super) {
                             e._geometry = geo;
                     }
                 }
-                catch (e_45_1) { e_45 = { error: e_45_1 }; }
+                catch (e_46_1) { e_46 = { error: e_46_1 }; }
                 finally {
                     try {
                         if (_f && !_f.done && (_a = _e.return)) _a.call(_e);
                     }
-                    finally { if (e_45) throw e_45.error; }
+                    finally { if (e_46) throw e_46.error; }
                 }
             }
         }
@@ -24599,12 +24638,12 @@ var Panel = /** @class */ (function (_super) {
                 d.unionRect(z);
             }
         }
-        catch (e_46_1) { e_46 = { error: e_46_1 }; }
+        catch (e_47_1) { e_47 = { error: e_47_1 }; }
         finally {
             try {
                 if (els_6_1 && !els_6_1.done && (_b = els_6.return)) _b.call(els_6);
             }
-            finally { if (e_46) throw e_46.error; }
+            finally { if (e_47) throw e_47.error; }
         }
         // 官方 labelNodes：只测量，不并入 union
         try {
@@ -24650,7 +24689,7 @@ var Panel = /** @class */ (function (_super) {
     };
     /** 官方 `GraphObject.po(x,y,w,h)`：设 measuredBounds；scale/angle 非恒等时取变换后的轴对齐包围盒 */
     Panel.prototype._linkPo = function (shape, x, y, w, h) {
-        var e_47, _a;
+        var e_48, _a;
         var sc = shape.scale;
         var ang = shape.angle;
         if (sc === 1 && (isNaN(ang) || ang === 0)) {
@@ -24678,12 +24717,12 @@ var Panel = /** @class */ (function (_super) {
                     maxY = p.y;
             }
         }
-        catch (e_47_1) { e_47 = { error: e_47_1 }; }
+        catch (e_48_1) { e_48 = { error: e_48_1 }; }
         finally {
             try {
                 if (corners_1_1 && !corners_1_1.done && (_a = corners_1.return)) _a.call(corners_1);
             }
-            finally { if (e_47) throw e_47.error; }
+            finally { if (e_48) throw e_48.error; }
         }
         shape._measuredBounds = new Rect(minX, minY, maxX - minX, maxY - minY);
     };
@@ -24729,7 +24768,7 @@ var Panel = /** @class */ (function (_super) {
      * 收尾把 `t.location` 同步为 position + WD 偏移。
      */
     Panel.prototype._arrangeLink = function (_bounds) {
-        var e_48, _a, e_49, _b;
+        var e_49, _a, e_50, _b;
         var panel = this;
         var qf = this._linkQfRects;
         var or = this._linkOrRect;
@@ -24754,12 +24793,12 @@ var Panel = /** @class */ (function (_super) {
                     m._arrange(new Rect(r.x - or.x, r.y - or.y, r.width, r.height));
                 }
             }
-            catch (e_48_1) { e_48 = { error: e_48_1 }; }
+            catch (e_49_1) { e_49 = { error: e_49_1 }; }
             finally {
                 try {
                     if (_d && !_d.done && (_a = _c.return)) _a.call(_c);
                 }
-                finally { if (e_48) throw e_48.error; }
+                finally { if (e_49) throw e_49.error; }
             }
         }
         else {
@@ -24770,12 +24809,12 @@ var Panel = /** @class */ (function (_super) {
                     m._arrange(new Rect(0, 0, mb.width, mb.height));
                 }
             }
-            catch (e_49_1) { e_49 = { error: e_49_1 }; }
+            catch (e_50_1) { e_50 = { error: e_50_1 }; }
             finally {
                 try {
                     if (_f && !_f.done && (_b = _e.return)) _b.call(_e);
                 }
-                finally { if (e_49) throw e_49.error; }
+                finally { if (e_50) throw e_50.error; }
             }
         }
         // 官方：t.location.e(t.position.x + WD.x, t.position.y + WD.y)
@@ -25665,7 +25704,14 @@ var Part = /** @class */ (function (_super) {
             this._location = new Point(pos.x + off.x, pos.y + off.y);
         }
         else if (locReal && !posReal) {
-            this.position = loc; // setter derives position from location offset
+            // 官方 ensureBounds 的 bF 分支（pos=NaN、loc 实）：kF = position 由
+            // location − locationOffset 推出，**直接写入**。
+            // 早先这里写 `this.position = loc` 指望 setter 按 spot 派生——但 setter
+            // （官方 cN 同样）从不按 spot 派生 position，反而触发 position→location
+            // 反推，把 location 覆盖成 loc+off：flowchart 全部节点停在 loc 原值
+            // （少了半尺寸），且与 location 形成 kF 自洽环固化（实测 -1 节点
+            // pos=-237,41 / loc=-203.5,60.6 即此）。
+            this.syncPositionFromLocation();
         }
         this._actualBounds.x = this._position.x;
         this._actualBounds.y = this._position.y;
@@ -28251,16 +28297,18 @@ var Link = /** @class */ (function (_super) {
             out.y = p.y;
             return out;
         }
-        var bounds = port.getDocumentBounds();
-        if (bounds.containsPoint(p)) {
-            out.x = p.x;
-            out.y = p.y;
-            return out;
+        // 官方 `getLinkPointFromPoint` 尾部：focus/p 逆变换到 port 局部坐标后调
+        // `port.Rf(...)`（= getNearestIntersectionPoint），结果再乘回矩阵。本项目
+        // GraphObject 没有独立文档矩阵（旋转经 getDocumentBounds 体现），直接按
+        // 文档坐标求交；参数方向按本项目实现族的 (中心 focus, 目标 p) 语义。
+        // 官方 Rf 失败时 result=focus；这里保留矩形求交回退，避免端点塌回中心。
+        if (!port.getNearestIntersectionPoint(focus, p, out)) {
+            var bounds = port.getDocumentBounds();
+            var origin_1 = bounds.containsPoint(focus) ? focus : bounds.center;
+            var hit = this._getEdgeIntersection(bounds, origin_1, p);
+            out.x = hit.x;
+            out.y = hit.y;
         }
-        var origin = bounds.containsPoint(focus) ? focus : bounds.center;
-        var hit = this._getEdgeIntersection(bounds, origin, p);
-        out.x = hit.x;
-        out.y = hit.y;
         return out;
     };
     /** 官方 `Link.getLinkPoint(node, port, spot, from, ortho, othernode, otherport, result?)` */
@@ -52135,7 +52183,6 @@ var CircularLayout = /** @class */ (function (_super) {
         return copy;
     };
     CircularLayout.prototype.doLayout = function (coll) {
-        var e_2, _a;
         var parts = this.collectParts(coll);
         if (parts.count === 0)
             return;
@@ -52147,46 +52194,18 @@ var CircularLayout = /** @class */ (function (_super) {
         // 样例（friendWheel 的 WheelLayout 等）在覆写里遍历 this.network.vertexes/edges，
         // 这里不设的话它们拿到 null，径向旋转与 link.curviness 全部失效。
         this.network = net;
-        // Find connected components（破坏性拆分：顶点/边会被搬进子网络）
-        var allVertexes = net.vertexes.toArray();
-        var allEdges = net.edges.toArray();
-        var subNetworks = net.splitIntoSubNetworks();
+        // 官方 CircularLayout.doLayout **不拆连通分量**：`splitIntoSubNetworks` 只被
+        // ForceDirectedLayout 使用，官方直接把 network.vertexes 全部放进同一个环
+        // （H4 排序+算半径 → Iw/Ow/Ew 排布）。此前按分量拆分再横向排开是自造逻辑：
+        // arrowheads 样例（Center 节点 isLayoutPositioned:false 被 canLayout 排除、
+        // 40 条 link 端点解析为 null 不建边）会得到 40 个孤立顶点 → 40 个单点分量 →
+        // 被排成一条水平直线；官方则是一个 40 点的环（半径按 Σ(直径+spacing)/2π
+        // 从 100 生长到 257.83）。
         var origin = this.arrangementOrigin;
-        var offsetX = 0;
-        var offsetY = 0;
-        var it = subNetworks.iterator;
-        while (it.next()) {
-            var subNet = it.value;
-            this._layoutComponent(subNet, origin.x + offsetX, origin.y + offsetY);
-            // Compute the bounding box of this component to offset the next one
-            var vertexes = [];
-            var vit = subNet.vertexes.iterator;
-            while (vit.next()) {
-                vertexes.push(vit.value);
-            }
-            if (vertexes.length > 0) {
-                var maxX = -Infinity;
-                try {
-                    for (var vertexes_1 = (e_2 = void 0, __values(vertexes)), vertexes_1_1 = vertexes_1.next(); !vertexes_1_1.done; vertexes_1_1 = vertexes_1.next()) {
-                        var v = vertexes_1_1.value;
-                        maxX = Math.max(maxX, v.x + v.width);
-                    }
-                }
-                catch (e_2_1) { e_2 = { error: e_2_1 }; }
-                finally {
-                    try {
-                        if (vertexes_1_1 && !vertexes_1_1.done && (_a = vertexes_1.return)) _a.call(vertexes_1);
-                    }
-                    finally { if (e_2) throw e_2.error; }
-                }
-                offsetX = maxX + this._spacing * 2;
-            }
-        }
-        // splitIntoSubNetworks 会把顶点搬进子网络（主网络 vertexes 变空），
-        // commitNodes/commitLinks 因此要遍历所有子网络。
-        this._lastSubNetworks = subNetworks.count > 0 ? subNetworks : null;
-        // 但官方语义是「this.network 始终持有全部顶点/边」，样例覆写依赖这一点。
-        net.reattach(allVertexes, allEdges);
+        this._layoutComponent(net, origin.x, origin.y);
+        // 本方法不再破坏性拆分：this.network 自始至终持有全部顶点/边（官方语义），
+        // 样例覆写（friendWheel 等）依赖这一点。
+        this._lastSubNetworks = null;
         // 官方 CircularLayout.doLayout 的收尾就是这两步：`updateParts()` → commitNodes →
         // commitLinks。样例覆写 commitNodes/commitLinks（friendWheel 用前者做径向旋转、
         // 后者给 link.curviness 赋值）必须能跑在官方流程上，否则径向文字和贝塞尔连线都做不出来。
@@ -52199,7 +52218,7 @@ var CircularLayout = /** @class */ (function (_super) {
      * Layout a single connected component in a circle.
      */
     CircularLayout.prototype._layoutComponent = function (net, centerX, centerY) {
-        var e_3, _a, e_4, _b, e_5, _c, e_6, _d;
+        var e_2, _a, e_3, _b, e_4, _c, e_5, _d, e_6, _e;
         var vertexes = [];
         var vit = net.vertexes.iterator;
         while (vit.next()) {
@@ -52223,8 +52242,8 @@ var CircularLayout = /** @class */ (function (_super) {
         var ringVertexes = [];
         var hubVertexes = [];
         try {
-            for (var vertexes_2 = __values(vertexes), vertexes_2_1 = vertexes_2.next(); !vertexes_2_1.done; vertexes_2_1 = vertexes_2.next()) {
-                var v = vertexes_2_1.value;
+            for (var vertexes_1 = __values(vertexes), vertexes_1_1 = vertexes_1.next(); !vertexes_1_1.done; vertexes_1_1 = vertexes_1.next()) {
+                var v = vertexes_1_1.value;
                 var positioned = !v.node || v.node.isLayoutPositioned !== false;
                 if (positioned)
                     ringVertexes.push(v);
@@ -52232,14 +52251,44 @@ var CircularLayout = /** @class */ (function (_super) {
                     hubVertexes.push(v);
             }
         }
-        catch (e_3_1) { e_3 = { error: e_3_1 }; }
+        catch (e_2_1) { e_2 = { error: e_2_1 }; }
         finally {
             try {
-                if (vertexes_2_1 && !vertexes_2_1.done && (_a = vertexes_2.return)) _a.call(vertexes_2);
+                if (vertexes_1_1 && !vertexes_1_1.done && (_a = vertexes_1.return)) _a.call(vertexes_1);
             }
-            finally { if (e_3) throw e_3.error; }
+            finally { if (e_2) throw e_2.error; }
         }
         var ring = ringVertexes.length >= 2 ? ringVertexes : vertexes;
+        // 官方 sorting（H4 里先 v4(t) 排序再算直径和/半径，所以必须放在弧长计算之前，
+        // 否则 arcCum 会按旧顺序累加、与重排后的 ring 错位）：
+        // Forwards=保持给定顺序，Reverse=反序，Asc/Descending 按 comparer 排序，
+        // Optimized=$4+J4（最大基数优先取点 + 最小化连线交叉的插入排序，官方 v4 case24）。
+        if (this._sorting === CircularSortingReverse) {
+            ring.reverse();
+        }
+        else if (this._sorting === CircularSortingAscending || this._sorting === CircularSortingDescending) {
+            var cmp_1 = this._comparer || LayoutVertex.smartComparer;
+            ring.sort(function (a, b) { return cmp_1(a.node ? a.node.data : a, b.node ? b.node.data : b); });
+            if (this._sorting === CircularSortingDescending)
+                ring.reverse();
+        }
+        else if (this._sorting === CircularSortingOptimized) {
+            var ordered = this._optimizedOrder(ring);
+            ring.length = 0;
+            try {
+                for (var ordered_1 = __values(ordered), ordered_1_1 = ordered_1.next(); !ordered_1_1.done; ordered_1_1 = ordered_1.next()) {
+                    var v = ordered_1_1.value;
+                    ring.push(v);
+                }
+            }
+            catch (e_3_1) { e_3 = { error: e_3_1 }; }
+            finally {
+                try {
+                    if (ordered_1_1 && !ordered_1_1.done && (_b = ordered_1.return)) _b.call(ordered_1);
+                }
+                finally { if (e_3) throw e_3.error; }
+            }
+        }
         // 官方 UR（ConstantDistance）语义：radius 是「最小半径」——
         // 若按该半径摆放后首尾节点仍重叠（弧长不足一整圈），官方会不断增大半径后重排。
         // 官方：radius 只是「最小半径」。ConstantSpacing/ConstantDistance 下如果给定半径
@@ -52262,7 +52311,7 @@ var CircularLayout = /** @class */ (function (_super) {
             catch (e_4_1) { e_4 = { error: e_4_1 }; }
             finally {
                 try {
-                    if (ring_1_1 && !ring_1_1.done && (_b = ring_1.return)) _b.call(ring_1);
+                    if (ring_1_1 && !ring_1_1.done && (_c = ring_1.return)) _c.call(ring_1);
                 }
                 finally { if (e_4) throw e_4.error; }
             }
@@ -52285,7 +52334,7 @@ var CircularLayout = /** @class */ (function (_super) {
         catch (e_5_1) { e_5 = { error: e_5_1 }; }
         finally {
             try {
-                if (hubVertexes_1_1 && !hubVertexes_1_1.done && (_c = hubVertexes_1.return)) _c.call(hubVertexes_1);
+                if (hubVertexes_1_1 && !hubVertexes_1_1.done && (_d = hubVertexes_1.return)) _d.call(hubVertexes_1);
             }
             finally { if (e_5) throw e_5.error; }
         }
@@ -52318,23 +52367,10 @@ var CircularLayout = /** @class */ (function (_super) {
             catch (e_6_1) { e_6 = { error: e_6_1 }; }
             finally {
                 try {
-                    if (ring_2_1 && !ring_2_1.done && (_d = ring_2.return)) _d.call(ring_2);
+                    if (ring_2_1 && !ring_2_1.done && (_e = ring_2.return)) _e.call(ring_2);
                 }
                 finally { if (e_6) throw e_6.error; }
             }
-        }
-        // 官方 sorting：Forwards=保持给定顺序，Reverse=反序，
-        // Ascending/Descending 按 comparer 排序，Optimized=按减少连线交叉的方式排序。
-        // 官方对「星形」(所有节点都只连中心) 和简单环这两种最常见情况给出的环顺序是
-        // **给定顺序的逆序**，我们照此对齐，否则整圈镜像（arrowheads 样例箭头方向相反）。
-        if (this._sorting === CircularSortingReverse || this._sorting === CircularSortingOptimized) {
-            ring.reverse();
-        }
-        else if (this._sorting === CircularSortingAscending || this._sorting === CircularSortingDescending) {
-            var cmp_1 = this._comparer || LayoutVertex.smartComparer;
-            ring.sort(function (a, b) { return cmp_1(a.node ? a.node.data : a, b.node ? b.node.data : b); });
-            if (this._sorting === CircularSortingDescending)
-                ring.reverse();
         }
         // Position each vertex
         for (var i = 0; i < ring.length; i++) {
@@ -52398,15 +52434,15 @@ var CircularLayout = /** @class */ (function (_super) {
             return 50;
         var c = 0;
         try {
-            for (var vertexes_3 = __values(vertexes), vertexes_3_1 = vertexes_3.next(); !vertexes_3_1.done; vertexes_3_1 = vertexes_3.next()) {
-                var v = vertexes_3_1.value;
+            for (var vertexes_2 = __values(vertexes), vertexes_2_1 = vertexes_2.next(); !vertexes_2_1.done; vertexes_2_1 = vertexes_2.next()) {
+                var v = vertexes_2_1.value;
                 c += this._effectiveDiameter(v);
             }
         }
         catch (e_7_1) { e_7 = { error: e_7_1 }; }
         finally {
             try {
-                if (vertexes_3_1 && !vertexes_3_1.done && (_a = vertexes_3.return)) _a.call(vertexes_3);
+                if (vertexes_2_1 && !vertexes_2_1.done && (_a = vertexes_2.return)) _a.call(vertexes_2);
             }
             finally { if (e_7) throw e_7.error; }
         }
@@ -52415,9 +52451,263 @@ var CircularLayout = /** @class */ (function (_super) {
         var gaps = this._sweepAngle >= 360 ? d : d - 1;
         return (c + gaps * perGap) / (2 * Math.PI);
     };
+    // ============ 官方 CircularLayout sorting=Optimized：$4 + J4 + Z4（v4 case 24） ============
+    /** 官方 `v4` case 24：`J4($4(t))`。 */
+    CircularLayout.prototype._optimizedOrder = function (t) {
+        var e_8, _a;
+        var picks = this._mcs4(t);
+        var ordered = [];
+        try {
+            for (var picks_1 = __values(picks), picks_1_1 = picks_1.next(); !picks_1_1.done; picks_1_1 = picks_1.next()) {
+                var i = picks_1_1.value;
+                ordered.push(t[i]);
+            }
+        }
+        catch (e_8_1) { e_8 = { error: e_8_1 }; }
+        finally {
+            try {
+                if (picks_1_1 && !picks_1_1.done && (_a = picks_1.return)) _a.call(picks_1);
+            }
+            finally { if (e_8) throw e_8.error; }
+        }
+        return this._j4(ordered);
+    };
+    /**
+     * 官方 `$4(t)`：最大基数贪心取点，返回选中的**下标**序列。
+     * 首个取 edgesCount 最大者；此后取「已选中顶点的邻居计数」最大者（并列取下标最小者）。
+     * 选中后标记 -1（不再参与选择），并给尚未选中的邻居计数 +1。
+     * 无边网络所有计数恒 0、-1 挡住已选者 → 严格大于比较下退化为**原顺序**
+     * （arrowheads 样例 40 个孤立顶点即此情形，官方实测也是原序）。
+     */
+    CircularLayout.prototype._mcs4 = function (t) {
+        var n = t.length;
+        var counts = new Array(n).fill(0);
+        var out = [];
+        for (var s = 0; s < n; s++) {
+            var best = -1;
+            var bestVal = -1;
+            if (s === 0) {
+                for (var c = 0; c < n; c++) {
+                    var u = t[c].edgesCount;
+                    if (u > bestVal) {
+                        bestVal = u;
+                        best = c;
+                    }
+                }
+            }
+            else {
+                for (var c = 0; c < n; c++) {
+                    var f = counts[c];
+                    if (f > bestVal) {
+                        bestVal = f;
+                        best = c;
+                    }
+                }
+            }
+            if (best < 0)
+                break;
+            out.push(best);
+            counts[best] = -1;
+            var v = t[best];
+            var bump = function (other) {
+                if (!other)
+                    return;
+                var l = t.indexOf(other);
+                if (l >= 0 && counts[l] >= 0)
+                    counts[l]++;
+            };
+            var it = v.sourceEdges.iterator;
+            while (it.next())
+                bump(it.value.fromVertex);
+            it = v.destinationEdges.iterator;
+            while (it.next())
+                bump(it.value.toVertex);
+        }
+        return out;
+    };
+    /**
+     * 官方 `J4(t)`：按「插入后交叉数最小」把顶点排成链（t 是 $4 输出的顶点序，以下标操作）。
+     * 度=0 的顶点直接按原序入结果；度=1 的顶点挂链后补插；度≥2 的顶点在链上按候选位置
+     * 的 Z4 交叉计数 + 圆周距离平局裁决胜出后插入。无边网络 → 全部度=0 → 恒等输出。
+     */
+    CircularLayout.prototype._j4 = function (t) {
+        var idxOf = function (v) { return (v ? t.indexOf(v) : -1); };
+        var nbr = [];
+        var _loop_1 = function (f) {
+            var adj = [];
+            var push = function (other) {
+                var d = idxOf(other);
+                if (d >= 0 && d !== f && adj.indexOf(d) < 0)
+                    adj.push(d);
+            };
+            var it = t[f].destinationEdges.iterator;
+            while (it.next())
+                push(it.value.toVertex);
+            it = t[f].sourceEdges.iterator;
+            while (it.next())
+                push(it.value.fromVertex);
+            nbr.push(adj);
+        };
+        for (var f = 0; f < t.length; f++) {
+            _loop_1(f);
+        }
+        var e = new Array(t.length).fill(0); // 顶点在链中的位置
+        var s = []; // 链（顶点下标）
+        var n = []; // 已记录链边的两端（顶点下标）
+        var o = [];
+        var r = []; // 度=1 的顶点（下标）
+        var l = []; // 输出
+        var h = 0;
+        for (var f = 0; f < t.length; f++) {
+            var u = nbr[f].length;
+            if (u === 1) {
+                r.push(f);
+                continue;
+            }
+            if (u === 0) {
+                l.push(t[f]);
+                continue;
+            }
+            if (h === 0) {
+                s.push(f);
+                h++;
+                continue;
+            }
+            var dBest = Infinity;
+            var mBest = Infinity;
+            var g = -1;
+            var p = [];
+            for (var y = 0; y < s.length; y++) {
+                if (nbr[s[y]].indexOf(s[(y + 1) % s.length]) < 0)
+                    p.push((y + 1) % s.length);
+            }
+            if (p.length === 0) {
+                for (var y = 0; y < s.length; y++)
+                    p.push(y);
+            }
+            for (var y = 0; y < p.length; y++) {
+                var x = p[y];
+                var b = this._z4(nbr[f], n, o, e, x, s);
+                var S = 0;
+                for (var k = 0; k < nbr[f].length; k++) {
+                    var P = nbr[f][k];
+                    var A = s.indexOf(P);
+                    if (A >= 0) {
+                        var N = Math.abs(x - (A >= x ? A + 1 : A));
+                        S += N < s.length + 1 - N ? N : s.length + 1 - N;
+                    }
+                }
+                for (var k = 0; k < n.length; k++) {
+                    var P = e[n[k]];
+                    var A = e[o[k]];
+                    if (P >= x)
+                        P++;
+                    if (A >= x)
+                        A++;
+                    if (P > A) {
+                        var tmp = A;
+                        A = P;
+                        P = tmp;
+                    }
+                    if ((A - P < (s.length + 2) / 2) === (P < x && x <= A))
+                        S++;
+                }
+                if (b < dBest || (b === dBest && S < mBest)) {
+                    dBest = b;
+                    mBest = S;
+                    g = x;
+                }
+            }
+            s.splice(g, 0, f);
+            for (var y = 0; y < s.length; y++)
+                e[s[y]] = y;
+            for (var y = 0; y < nbr[f].length; y++) {
+                var x = nbr[f][y];
+                if (s.indexOf(x) >= 0) {
+                    n.push(f);
+                    o.push(x);
+                }
+            }
+            h++;
+        }
+        // 官方：度=1 顶点按其唯一邻居两侧的支路方向求和决定插在邻居前还是后，
+        // 邻居不在链上的先压队尾，直到全部入链。
+        var c = s.length;
+        for (;;) {
+            var a = true;
+            for (var f = 0; f < r.length; f++) {
+                var u = r[f];
+                var dv = nbr[u][0];
+                var m = s.indexOf(dv);
+                if (m >= 0) {
+                    var g = 0;
+                    for (var p2 = 0; p2 < nbr[dv].length; p2++) {
+                        var y = nbr[dv][p2];
+                        var x = s.indexOf(y);
+                        if (x < 0 || x === m)
+                            continue;
+                        var b = x > m ? x - m : m - x;
+                        var S = c - b;
+                        g += (x < m) !== (b > S) ? 1 : -1;
+                    }
+                    s.splice(g < 0 ? m : m + 1, 0, u);
+                    r.splice(f, 1);
+                    f--;
+                }
+                else {
+                    a = false;
+                }
+            }
+            if (a)
+                break;
+            s.push(r[0]);
+            r.splice(0, 1);
+        }
+        for (var f = 0; f < s.length; f++)
+            l.push(t[s[f]]);
+        return l;
+    };
+    /**
+     * 官方 `Z4(t, i, e, s, n, o)`：候选顶点插入链位置 n 时与**已成链的边**产生的交叉数。
+     * t=候选的邻接下标；i/o=已记录边的两端（顶点下标）；s=位置数组（顶点下标→链位置）；
+     * n=候选链位置；o=链（顶点下标数组）。跨过候选位置的边看「链上邻点在区间外」，
+     * 不跨的边看「链上邻点在区间内」，逐个累加。
+     */
+    CircularLayout.prototype._z4 = function (t, i, e, s, n, o) {
+        var r = 0;
+        for (var l = 0; l < i.length; l++) {
+            var h = i[l];
+            var a = e[l];
+            var c = s[h];
+            var f = s[a];
+            var u = c < f ? c : f;
+            var d = c < f ? f : c;
+            if (u < n && n <= d) {
+                for (var m = 0; m < t.length; m++) {
+                    var g = t[m];
+                    if (o.indexOf(g) < 0)
+                        continue;
+                    var pg = s[g];
+                    if (!(u < pg && pg < d) && u !== pg && d !== pg)
+                        r++;
+                }
+            }
+            else {
+                for (var m = 0; m < t.length; m++) {
+                    var g = t[m];
+                    if (o.indexOf(g) < 0)
+                        continue;
+                    var pg = s[g];
+                    if (u < pg && pg < d && u !== pg && d !== pg)
+                        r++;
+                }
+            }
+        }
+        return r;
+    };
     // ============ 官方 CircularLayout.commitNodes/commitLinks（阶段 7） ============
     CircularLayout.prototype.commitNodes = function () {
-        var e_8, _a;
+        var e_9, _a;
         // 官方：e = this.actualCenter（非拷贝），非 isOffset 时 e.x/y = arrangementOrigin + actual 半径，
         // 随后 vertex 坐标加上 e。官方在 isOffset 时改用 new Point(0,0)。
         var e = this._actualCenter;
@@ -52436,12 +52726,12 @@ var CircularLayout = /** @class */ (function (_super) {
                 }
             }
         }
-        catch (e_8_1) { e_8 = { error: e_8_1 }; }
+        catch (e_9_1) { e_9 = { error: e_9_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_8) throw e_8.error; }
+            finally { if (e_9) throw e_9.error; }
         }
     };
     /** 提交时要遍历的网络：有子网络就遍历子网络，否则遍历主网络 */
@@ -52458,7 +52748,7 @@ var CircularLayout = /** @class */ (function (_super) {
         return out;
     };
     CircularLayout.prototype.commitLinks = function () {
-        var e_9, _a;
+        var e_10, _a;
         try {
             for (var _b = __values(this._commitNetworks()), _c = _b.next(); !_c.done; _c = _b.next()) {
                 var net = _c.value;
@@ -52470,12 +52760,12 @@ var CircularLayout = /** @class */ (function (_super) {
                 }
             }
         }
-        catch (e_9_1) { e_9 = { error: e_9_1 }; }
+        catch (e_10_1) { e_10 = { error: e_10_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_9) throw e_9.error; }
+            finally { if (e_10) throw e_10.error; }
         }
     };
     CircularLayout.className = "CircularLayout";
