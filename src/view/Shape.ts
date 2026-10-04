@@ -674,10 +674,12 @@ export class Shape extends GraphObject {
     if (st === StretchNone) {
       e = 0;
       s = 0;
-    } else if (st === StretchVertical) {
+    } else if (st === StretchHorizontal) {
+      // 官方 case5：宽随约束，高取自然；清掉长高的 min
       aW = Math.max(t - strokeW, 0);
       s = 0;
-    } else if (st === StretchHorizontal) {
+    } else if (st === StretchVertical) {
+      // 官方 case4：高随约束，宽取自然；清掉长宽的 min
       e = 0;
       aH = Math.max(i - strokeW, 0);
     } else {

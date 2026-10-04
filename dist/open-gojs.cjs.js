@@ -19643,11 +19643,13 @@ var Shape = /** @class */ (function (_super) {
             e = 0;
             s = 0;
         }
-        else if (st === StretchVertical) {
+        else if (st === StretchHorizontal) {
+            // 官方 case5：宽随约束，高取自然；清掉长高的 min
             aW = Math.max(t - strokeW, 0);
             s = 0;
         }
-        else if (st === StretchHorizontal) {
+        else if (st === StretchVertical) {
+            // 官方 case4：高随约束，宽取自然；清掉长宽的 min
             e = 0;
             aH = Math.max(i - strokeW, 0);
         }
@@ -20692,76 +20694,80 @@ var TextBlock = /** @class */ (function (_super) {
             lineHeight: lineHeight,
         };
     };
+    /**
+     * 官方 TextBlock.XN/hF/cg 换行算法逐条复刻：
+     * - token（cg）= 一段非分隔字符 + 其后的分隔字符；分隔字符集是 `[ \u200B\xAD]`
+     *   （官方 TextBlock.q3，**不是** \s——Tab 不参与断词）。
+     * - 每个段落先整段 trim（formatting===Trim），每行压入前再 trim，
+     *   因此产生断行的那个分隔空格**不会**留在下一行行首（我们旧实现
+     *   把空格拆成独立 token，断行后下一行以空格开头，导致行宽多算一个
+     *   空格 → 比官方提前断行、行首多一个空格）。
+     * - 只有单个 token 自身超过宽度时才按字符切分（官方内层 while），
+     *   切剩的尾巴还会继续拼接后续 token。
+     */
     TextBlock.prototype._wrapText = function (ctx, text, maxWidth) {
-        var e_2, _a, e_3, _b, e_4, _c;
+        var e_2, _a;
+        var _this = this;
         var lines = [];
+        var trim = this._formatting === TextFormatTrim;
+        var isSep = function (ch) { return ch === ' ' || ch === '\u200B' || ch === '\xAD'; };
+        var cg = function (t) {
+            if (_this._wrap === WrapBreakAll)
+                return t.substring(0, 1);
+            var n = t.length;
+            var e = 0;
+            for (; e < n && !isSep(t.charAt(e)); e++)
+                ;
+            for (; e < n && isSep(t.charAt(e)); e++)
+                ;
+            return e >= t.length ? t : t.substring(0, e);
+        };
+        var W = function (s) { return ctx.measureText(s).width; };
         var paragraphs = text.split('\n');
         try {
             for (var paragraphs_1 = __values(paragraphs), paragraphs_1_1 = paragraphs_1.next(); !paragraphs_1_1.done; paragraphs_1_1 = paragraphs_1.next()) {
                 var paragraph = paragraphs_1_1.value;
-                if (paragraph === '') {
+                var f = trim ? paragraph.trim() : paragraph;
+                if (f === '') {
                     lines.push('');
                     continue;
                 }
-                var words = paragraph.split(/(\s+)/);
-                var currentLine = '';
-                try {
-                    for (var words_1 = (e_3 = void 0, __values(words)), words_1_1 = words_1.next(); !words_1_1.done; words_1_1 = words_1.next()) {
-                        var word = words_1_1.value;
-                        var testLine = currentLine + word;
-                        var metrics = ctx.measureText(testLine);
-                        if (metrics.width > maxWidth && currentLine !== '') {
-                            lines.push(currentLine.replace(/\s+$/, ''));
-                            currentLine = word;
+                while (f.length > 0) {
+                    var d = cg(f);
+                    f = f.substring(d.length);
+                    // 单个 token 超宽：按字符切行（官方内层 while）
+                    while (W(d) > maxWidth) {
+                        var q = 1;
+                        var o_1 = W(d.substring(0, q));
+                        while (o_1 <= maxWidth) {
+                            q++;
+                            o_1 = W(d.substring(0, q));
                         }
-                        else {
-                            currentLine = testLine;
-                        }
+                        q--;
+                        if (q < 1)
+                            q = 1;
+                        var head = d.substring(0, q);
+                        if (head !== '')
+                            lines.push(head);
+                        d = d.substring(q);
                     }
-                }
-                catch (e_3_1) { e_3 = { error: e_3_1 }; }
-                finally {
-                    try {
-                        if (words_1_1 && !words_1_1.done && (_b = words_1.return)) _b.call(words_1);
+                    // 拼接后续 token 直到超宽
+                    var m = cg(f);
+                    var o = W(d + m);
+                    while (m.length > 0 && o <= maxWidth) {
+                        d += m;
+                        f = f.substring(m.length);
+                        m = cg(f);
+                        var p = trim ? (d + m).trim() : d + m;
+                        o = W(p);
                     }
-                    finally { if (e_3) throw e_3.error; }
-                }
-                if (currentLine) {
-                    lines.push(currentLine.replace(/\s+$/, ''));
-                }
-                // 官方：单词本身比可用宽度还长时按字符断行，
-                // 否则像 absolute.html 里 50px 宽的 "lightblue" 会整词溢出被裁掉，
-                // 而官方会排成 "lightblu" / "e" 两行。
-                for (var li = 0; li < lines.length; li++) {
-                    var ln = lines[li];
-                    if (ln === '' || ctx.measureText(ln).width <= maxWidth)
+                    if (trim)
+                        d = d.trim();
+                    if (d === '')
                         continue;
-                    var pieces = [];
-                    var piece = '';
-                    try {
-                        for (var ln_1 = (e_4 = void 0, __values(ln)), ln_1_1 = ln_1.next(); !ln_1_1.done; ln_1_1 = ln_1.next()) {
-                            var ch = ln_1_1.value;
-                            var cand = piece + ch;
-                            if (piece !== '' && ctx.measureText(cand).width > maxWidth) {
-                                pieces.push(piece);
-                                piece = ch;
-                            }
-                            else {
-                                piece = cand;
-                            }
-                        }
-                    }
-                    catch (e_4_1) { e_4 = { error: e_4_1 }; }
-                    finally {
-                        try {
-                            if (ln_1_1 && !ln_1_1.done && (_c = ln_1.return)) _c.call(ln_1);
-                        }
-                        finally { if (e_4) throw e_4.error; }
-                    }
-                    if (piece !== '')
-                        pieces.push(piece);
-                    lines.splice.apply(lines, __spreadArray([li, 1], __read(pieces), false));
-                    li += pieces.length - 1;
+                    if (d.charAt(d.length - 1) === '\xAD')
+                        d = d.substring(0, d.length - 1) + '\u2010';
+                    lines.push(d);
                 }
             }
         }
@@ -23059,8 +23065,9 @@ var Panel = /** @class */ (function (_super) {
         this._padding;
         var totalH = 0;
         var maxW = 0;
-        // 官方 PanelLayoutVertical.measure 两阶段：先 measure {None, Vertical} stretch 子元素
-        // 得到内容宽 maxW；然后 Fill/Horizontal stretch 子元素按内容宽 measure（不扩展面板）。
+        // 官方 PanelLayoutVertical.measure 两阶段：第一遍只量 {None, Vertical} stretch 子元素
+        // （只有它们决定面板内容宽），得到内容宽 maxW；第二遍把其余子元素（Fill/Horizontal/
+        // Uniform 等随面板宽的）按内容宽量测（不扩展面板）。
         var fillElems = [];
         try {
             for (var _c = __values(this._elements), _d = _c.next(); !_d.done; _d = _c.next()) {
@@ -23068,7 +23075,7 @@ var Panel = /** @class */ (function (_super) {
                 if (!elem.visible)
                     continue;
                 var st = elem._getStretch(false);
-                if (st === StretchFill || st === StretchHorizontal) {
+                if (st !== StretchNone && st !== StretchVertical) {
                     fillElems.push(elem);
                     continue;
                 }
@@ -23143,19 +23150,25 @@ var Panel = /** @class */ (function (_super) {
     };
     // ============ PanelHorizontal measure/arrange ============
     Panel.prototype._measureHorizontal = function (availW, availH) {
-        var e_25, _a;
+        var e_25, _a, e_26, _b;
         var totalW = 0;
         var maxH = 0;
+        // 官方 PanelLayoutHorizontal.measure 两阶段：第一遍只量 {None, Horizontal} stretch 子元素
+        // （决定内容高与宽累加），第二遍把其余（Fill/Vertical/Uniform 随面板高的）按内容高量测。
+        // 宽一律按 `width = Infinity` 测量（`u.yt(1/0, i, 0, r)`），子元素自己按
+        // desiredSize/maxSize 决定宽度（以前这里传 availW-totalW，累加超宽后会变负数，
+        // 喂给 TextBlock 就是负宽 → `new Rect(0,0,-18.52,81.05)` 抛错，实测 regrouping）。
+        var fillElems = [];
         try {
-            for (var _b = __values(this._elements), _c = _b.next(); !_c.done; _c = _b.next()) {
-                var elem = _c.value;
+            for (var _c = __values(this._elements), _d = _c.next(); !_d.done; _d = _c.next()) {
+                var elem = _d.value;
                 if (!elem.visible)
                     continue;
-                // 官方 PanelLayoutHorizontal.measure：一律按 `width = Infinity` 测量
-                // （`u.ct(1/0, i, 0, r)`），子元素自己按 desiredSize/maxSize 决定宽度。
-                // 以前这里传的是 `availW - totalW`，累加超过可用宽度后会变成**负数**，
-                // 传到 TextBlock 就是 `Math.min(naturalWidth, 负数)` = 负数 →
-                // `new Rect(0, 0, -18.52, 81.05)` 抛错（实测 regrouping）。
+                var st = elem._getStretch(false);
+                if (st !== StretchNone && st !== StretchHorizontal) {
+                    fillElems.push(elem);
+                    continue;
+                }
                 elem._measure(Infinity, availH);
                 var mb = elem.measuredBounds;
                 var m = elem.margin;
@@ -23166,14 +23179,40 @@ var Panel = /** @class */ (function (_super) {
         catch (e_25_1) { e_25 = { error: e_25_1 }; }
         finally {
             try {
-                if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
+                if (_d && !_d.done && (_a = _c.return)) _a.call(_c);
             }
             finally { if (e_25) throw e_25.error; }
+        }
+        var contentH = availH;
+        if (!isNaN(this._desiredSize.height)) {
+            contentH = Math.min(this._desiredSize.height, this._maxSize.height);
+        }
+        else if (maxH !== 0) {
+            contentH = Math.min(maxH, this._maxSize.height);
+        }
+        try {
+            for (var fillElems_2 = __values(fillElems), fillElems_2_1 = fillElems_2.next(); !fillElems_2_1.done; fillElems_2_1 = fillElems_2.next()) {
+                var elem = fillElems_2_1.value;
+                if (!elem.visible)
+                    continue;
+                elem._measure(Infinity, contentH);
+                var mb = elem.measuredBounds;
+                var m = elem.margin;
+                totalW += mb.width + m.left + m.right;
+                maxH = Math.max(maxH, mb.height + m.top + m.bottom);
+            }
+        }
+        catch (e_26_1) { e_26 = { error: e_26_1 }; }
+        finally {
+            try {
+                if (fillElems_2_1 && !fillElems_2_1.done && (_b = fillElems_2.return)) _b.call(fillElems_2);
+            }
+            finally { if (e_26) throw e_26.error; }
         }
         this._unionRect.setTo(0, 0, totalW, maxH);
     };
     Panel.prototype._arrangeHorizontal = function (innerX, innerY, innerW, innerH) {
-        var e_26, _a;
+        var e_27, _a;
         var x = innerX;
         try {
             for (var _b = __values(this._elements), _c = _b.next(); !_c.done; _c = _b.next()) {
@@ -23188,18 +23227,18 @@ var Panel = /** @class */ (function (_super) {
                 x += mb.width + m.left + m.right;
             }
         }
-        catch (e_26_1) { e_26 = { error: e_26_1 }; }
+        catch (e_27_1) { e_27 = { error: e_27_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_26) throw e_26.error; }
+            finally { if (e_27) throw e_27.error; }
         }
     };
     // ============ PanelSpot measure/arrange ============
     /** 官方 PanelLayoutSpot.measure（两遍） */
     Panel.prototype._measureSpot = function (availW, availH) {
-        var e_27, _a, e_28, _b;
+        var e_28, _a, e_29, _b;
         var els = this._elements;
         if (els.length === 0)
             return;
@@ -23272,12 +23311,12 @@ var Panel = /** @class */ (function (_super) {
                 }
             }
         }
-        catch (e_27_1) { e_27 = { error: e_27_1 }; }
+        catch (e_28_1) { e_28 = { error: e_28_1 }; }
         finally {
             try {
                 if (els_3_1 && !els_3_1.done && (_a = els_3.return)) _a.call(els_3);
             }
-            finally { if (e_27) throw e_27.error; }
+            finally { if (e_28) throw e_28.error; }
         }
         if (!hasOther)
             union.setTo(sBoxX, sBoxY, sBoxW, sBoxH);
@@ -23323,18 +23362,18 @@ var Panel = /** @class */ (function (_super) {
                 this._unionInto(X, Y, y, x);
             }
         }
-        catch (e_28_1) { e_28 = { error: e_28_1 }; }
+        catch (e_29_1) { e_29 = { error: e_29_1 }; }
         finally {
             try {
                 if (els_4_1 && !els_4_1.done && (_b = els_4.return)) _b.call(els_4);
             }
-            finally { if (e_28) throw e_28.error; }
+            finally { if (e_29) throw e_29.error; }
         }
         this._unionInto(sBoxX, sBoxY, sBoxW, sBoxH);
     };
     /** 官方 PanelLayoutSpot.arrange */
     Panel.prototype._arrangeSpot = function (innerX, innerY, innerW, innerH) {
-        var e_29, _a;
+        var e_30, _a;
         var els = this._elements;
         if (els.length === 0)
             return;
@@ -23367,12 +23406,12 @@ var Panel = /** @class */ (function (_super) {
                 el._arrange(new Rect(pad.left + f, pad.top + uu, eMb.width, eMb.height));
             }
         }
-        catch (e_29_1) { e_29 = { error: e_29_1 }; }
+        catch (e_30_1) { e_30 = { error: e_30_1 }; }
         finally {
             try {
                 if (els_5_1 && !els_5_1.done && (_a = els_5.return)) _a.call(els_5);
             }
-            finally { if (e_29) throw e_29.error; }
+            finally { if (e_30) throw e_30.error; }
         }
     };
     // ============ PanelTable measure/arrange (官方 PanelLayoutTable 移植) ============
@@ -23380,7 +23419,7 @@ var Panel = /** @class */ (function (_super) {
         return obj instanceof Panel && (obj.type === PanelTableRow || obj.type === PanelTableColumn);
     };
     Panel.prototype._measureTable = function (availW, availH, minW, minH) {
-        var e_30, _a, e_31, _b, e_32, _c, e_33, _d, e_34, _e, e_35, _f, e_36, _g, e_37, _h, e_38, _j, e_39, _k;
+        var e_31, _a, e_32, _b, e_33, _c, e_34, _d, e_35, _e, e_36, _f, e_37, _g, e_38, _h, e_39, _j, e_40, _k;
         var elements = this._elements;
         // 官方 measure：hoist TableRow/TableColumn 子元素到扁平单元格列表
         var flat = [];
@@ -23391,7 +23430,7 @@ var Panel = /** @class */ (function (_super) {
                 if (this._isRowColPanel(E) && E.visible) {
                     hoisted.push(E);
                     try {
-                        for (var _l = (e_31 = void 0, __values(E._elements)), _m = _l.next(); !_m.done; _m = _l.next()) {
+                        for (var _l = (e_32 = void 0, __values(E._elements)), _m = _l.next(); !_m.done; _m = _l.next()) {
                             var et = _m.value;
                             if (E.type === PanelTableRow)
                                 et.row = E.row;
@@ -23400,12 +23439,12 @@ var Panel = /** @class */ (function (_super) {
                             flat.push(et);
                         }
                     }
-                    catch (e_31_1) { e_31 = { error: e_31_1 }; }
+                    catch (e_32_1) { e_32 = { error: e_32_1 }; }
                     finally {
                         try {
                             if (_m && !_m.done && (_b = _l.return)) _b.call(_l);
                         }
-                        finally { if (e_31) throw e_31.error; }
+                        finally { if (e_32) throw e_32.error; }
                     }
                 }
                 else {
@@ -23413,12 +23452,12 @@ var Panel = /** @class */ (function (_super) {
                 }
             }
         }
-        catch (e_30_1) { e_30 = { error: e_30_1 }; }
+        catch (e_31_1) { e_31 = { error: e_31_1 }; }
         finally {
             try {
                 if (elements_2_1 && !elements_2_1.done && (_a = elements_2.return)) _a.call(elements_2);
             }
-            finally { if (e_30) throw e_30.error; }
+            finally { if (e_31) throw e_31.error; }
         }
         if (flat.length === 0) {
             this.getRowDefinition(0);
@@ -23440,12 +23479,12 @@ var Panel = /** @class */ (function (_super) {
                 cells[r][c].push(E);
             }
         }
-        catch (e_32_1) { e_32 = { error: e_32_1 }; }
+        catch (e_33_1) { e_33 = { error: e_33_1 }; }
         finally {
             try {
                 if (flat_1_1 && !flat_1_1.done && (_c = flat_1.return)) _c.call(flat_1);
             }
-            finally { if (e_32) throw e_32.error; }
+            finally { if (e_33) throw e_33.error; }
         }
         var spanElems = []; // 官方 u
         var singleElems = []; // 官方 d
@@ -23462,12 +23501,12 @@ var Panel = /** @class */ (function (_super) {
                 def.measured = 0;
             }
         }
-        catch (e_33_1) { e_33 = { error: e_33_1 }; }
+        catch (e_34_1) { e_34 = { error: e_34_1 }; }
         finally {
             try {
                 if (_p && !_p.done && (_d = _o.return)) _d.call(_o);
             }
-            finally { if (e_33) throw e_33.error; }
+            finally { if (e_34) throw e_34.error; }
         }
         try {
             for (var _q = __values(this._columnDefinitions), _r = _q.next(); !_r.done; _r = _q.next()) {
@@ -23476,12 +23515,12 @@ var Panel = /** @class */ (function (_super) {
                 def.measured = 0;
             }
         }
-        catch (e_34_1) { e_34 = { error: e_34_1 }; }
+        catch (e_35_1) { e_35 = { error: e_35_1 }; }
         finally {
             try {
                 if (_r && !_r.done && (_e = _q.return)) _e.call(_q);
             }
-            finally { if (e_34) throw e_34.error; }
+            finally { if (e_35) throw e_35.error; }
         }
         var topIndex = Math.min(this.topIndex, cells.length - 1);
         var leftIndex = Math.min(this.leftIndex, cells.reduce(function (mx, row) { return Math.max(mx, row ? row.length : 0); }, 0) - 1);
@@ -23505,7 +23544,7 @@ var Panel = /** @class */ (function (_super) {
                     colDefTouched[W] = true;
                 }
                 try {
-                    for (var list_1 = (e_35 = void 0, __values(list)), list_1_1 = list_1.next(); !list_1_1.done; list_1_1 = list_1.next()) {
+                    for (var list_1 = (e_36 = void 0, __values(list)), list_1_1 = list_1.next(); !list_1_1.done; list_1_1 = list_1.next()) {
                         var nt = list_1_1.value;
                         if (!nt.visible)
                             continue;
@@ -23560,12 +23599,12 @@ var Panel = /** @class */ (function (_super) {
                         }
                     }
                 }
-                catch (e_35_1) { e_35 = { error: e_35_1 }; }
+                catch (e_36_1) { e_36 = { error: e_36_1 }; }
                 finally {
                     try {
                         if (list_1_1 && !list_1_1.done && (_f = list_1.return)) _f.call(list_1);
                     }
-                    finally { if (e_35) throw e_35.error; }
+                    finally { if (e_36) throw e_36.error; }
                 }
             }
         }
@@ -23618,12 +23657,12 @@ var Panel = /** @class */ (function (_super) {
                 }
             }
         }
-        catch (e_36_1) { e_36 = { error: e_36_1 }; }
+        catch (e_37_1) { e_37 = { error: e_37_1 }; }
         finally {
             try {
                 if (singleElems_1_1 && !singleElems_1_1.done && (_g = singleElems_1.return)) _g.call(singleElems_1);
             }
-            finally { if (e_36) throw e_36.error; }
+            finally { if (e_37) throw e_37.error; }
         }
         var O = 0;
         for (var i = 0; i < colFillMark.length; i++) {
@@ -23706,12 +23745,12 @@ var Panel = /** @class */ (function (_super) {
                     R = Math.max(R - growW, 0);
             }
         }
-        catch (e_37_1) { e_37 = { error: e_37_1 }; }
+        catch (e_38_1) { e_38 = { error: e_38_1 }; }
         finally {
             try {
                 if (singleElems_2_1 && !singleElems_2_1.done && (_h = singleElems_2.return)) _h.call(singleElems_2);
             }
-            finally { if (e_37) throw e_37.error; }
+            finally { if (e_38) throw e_38.error; }
         }
         // ============ 跨行/列元素通道 ============
         if (spanElems.length > 0) {
@@ -23897,12 +23936,12 @@ var Panel = /** @class */ (function (_super) {
                     }
                 }
             }
-            catch (e_38_1) { e_38 = { error: e_38_1 }; }
+            catch (e_39_1) { e_39 = { error: e_39_1 }; }
             finally {
                 try {
                     if (spanElems_1_1 && !spanElems_1_1.done && (_j = spanElems_1.return)) _j.call(spanElems_1);
                 }
-                finally { if (e_38) throw e_38.error; }
+                finally { if (e_39) throw e_39.error; }
             }
         }
         // ============ 最终列/行缩放与位置 ============
@@ -24015,19 +24054,19 @@ var Panel = /** @class */ (function (_super) {
                 E._naturalBounds = new Rect(0, 0, w, h);
             }
         }
-        catch (e_39_1) { e_39 = { error: e_39_1 }; }
+        catch (e_40_1) { e_40 = { error: e_40_1 }; }
         finally {
             try {
                 if (hoisted_1_1 && !hoisted_1_1.done && (_k = hoisted_1.return)) _k.call(hoisted_1);
             }
-            finally { if (e_39) throw e_39.error; }
+            finally { if (e_40) throw e_40.error; }
         }
         // 官方：单元格缓存 t.Gh 供 arrange 使用；n 内容尺寸 → union
         this._lastCells = cells;
         this._unionRect.setTo(0, 0, offX, offY);
     };
     Panel.prototype._arrangeTable = function (innerX, innerY, innerW, innerH) {
-        var e_40, _a, e_41, _b;
+        var e_41, _a, e_42, _b;
         var cells = this._lastCells;
         if (!cells)
             return;
@@ -24104,12 +24143,12 @@ var Panel = /** @class */ (function (_super) {
                 M._naturalBounds = new Rect(0, 0, mb.width, mb.height);
             }
         }
-        catch (e_40_1) { e_40 = { error: e_40_1 }; }
+        catch (e_41_1) { e_41 = { error: e_41_1 }; }
         finally {
             try {
                 if (_d && !_d.done && (_a = _c.return)) _a.call(_c);
             }
-            finally { if (e_40) throw e_40.error; }
+            finally { if (e_41) throw e_41.error; }
         }
         // ============ 第二遍：单元格内元素对齐排布 ============
         for (var N = 0; N < c; N++) {
@@ -24129,7 +24168,7 @@ var Panel = /** @class */ (function (_super) {
                 if (T.actual !== 0)
                     h += T.computeEffectiveSpacingTop(Math.max(firstColIdx, yIdx));
                 try {
-                    for (var list_2 = (e_41 = void 0, __values(list)), list_2_1 = list_2.next(); !list_2_1.done; list_2_1 = list_2.next()) {
+                    for (var list_2 = (e_42 = void 0, __values(list)), list_2_1 = list_2.next(); !list_2_1.done; list_2_1 = list_2.next()) {
                         var R = list_2_1.value;
                         var I = R.measuredBounds;
                         var spanW = 0;
@@ -24221,12 +24260,12 @@ var Panel = /** @class */ (function (_super) {
                         }
                     }
                 }
-                catch (e_41_1) { e_41 = { error: e_41_1 }; }
+                catch (e_42_1) { e_42 = { error: e_42_1 }; }
                 finally {
                     try {
                         if (list_2_1 && !list_2_1.done && (_b = list_2.return)) _b.call(list_2);
                     }
-                    finally { if (e_41) throw e_41.error; }
+                    finally { if (e_42) throw e_42.error; }
                 }
             }
         }
@@ -24234,7 +24273,7 @@ var Panel = /** @class */ (function (_super) {
     // ============ PanelPosition measure/arrange ============
     /** 官方 PanelLayoutPosition.measure：union 隐含 (0,0)（初始 union 为空点） */
     Panel.prototype._measurePosition = function (availW, availH) {
-        var e_42, _a;
+        var e_43, _a;
         try {
             for (var _b = __values(this._elements), _c = _b.next(); !_c.done; _c = _b.next()) {
                 var elem = _c.value;
@@ -24261,17 +24300,17 @@ var Panel = /** @class */ (function (_super) {
                 this._unionInto(px, py, boxW, boxH);
             }
         }
-        catch (e_42_1) { e_42 = { error: e_42_1 }; }
+        catch (e_43_1) { e_43 = { error: e_43_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_42) throw e_42.error; }
+            finally { if (e_43) throw e_43.error; }
         }
     };
     /** 官方 PanelLayoutPosition.arrange：pos - (union - pad) + margin */
     Panel.prototype._arrangePosition = function (innerX, innerY, innerW, innerH) {
-        var e_43, _a;
+        var e_44, _a;
         try {
             for (var _b = __values(this._elements), _c = _b.next(); !_c.done; _c = _b.next()) {
                 var elem = _c.value;
@@ -24288,12 +24327,12 @@ var Panel = /** @class */ (function (_super) {
                 elem._arrange(new Rect(innerX + px - this._originX + m.left, innerY + py - this._originY + m.top, mb.width, mb.height));
             }
         }
-        catch (e_43_1) { e_43 = { error: e_43_1 }; }
+        catch (e_44_1) { e_44 = { error: e_44_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_43) throw e_43.error; }
+            finally { if (e_44) throw e_44.error; }
         }
     };
     // ============ PanelViewbox measure/arrange ============
@@ -24367,7 +24406,7 @@ var Panel = /** @class */ (function (_super) {
         }
     };
     Panel.prototype._arrangeGraduated = function (innerX, innerY, innerW, innerH) {
-        var e_44, _a;
+        var e_45, _a;
         var _b = this._findMainAndOthers(), main = _b.main, others = _b.others;
         if (main !== null) {
             var m = main.margin;
@@ -24384,18 +24423,18 @@ var Panel = /** @class */ (function (_super) {
                 elem._arrange(new Rect(pos.x - focusPos.x, pos.y - focusPos.y, mb.width, mb.height));
             }
         }
-        catch (e_44_1) { e_44 = { error: e_44_1 }; }
+        catch (e_45_1) { e_45 = { error: e_45_1 }; }
         finally {
             try {
                 if (others_1_1 && !others_1_1.done && (_a = others_1.return)) _a.call(others_1);
             }
-            finally { if (e_44) throw e_44.error; }
+            finally { if (e_45) throw e_45.error; }
         }
     };
     // ============ PanelLink measure/arrange ============
     /** 取 link 里「画线」的主图元：优先 isPanelMain，否则第一个同时有 fill/stroke 的 Shape */
     Panel.prototype._findLinkMainElement = function () {
-        var e_45, _a;
+        var e_46, _a;
         var fallback = null;
         try {
             for (var _b = __values(this._elements), _c = _b.next(); !_c.done; _c = _b.next()) {
@@ -24408,12 +24447,12 @@ var Panel = /** @class */ (function (_super) {
                     fallback = elem;
             }
         }
-        catch (e_45_1) { e_45 = { error: e_45_1 }; }
+        catch (e_46_1) { e_46 = { error: e_46_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_45) throw e_45.error; }
+            finally { if (e_46) throw e_46.error; }
         }
         return fallback;
     };
@@ -24429,7 +24468,7 @@ var Panel = /** @class */ (function (_super) {
      *   路线中点；否则 → 点列线段插值。锚点均为 route-local（doc − routeBounds 原点）。
      */
     Panel.prototype._measureLink = function (_availW, _availH) {
-        var e_46, _a, e_47, _b;
+        var e_47, _a, e_48, _b;
         var panel = this;
         var host = typeof panel.updateRoute === 'function'
             ? panel
@@ -24462,12 +24501,12 @@ var Panel = /** @class */ (function (_super) {
                             e._geometry = geo;
                     }
                 }
-                catch (e_46_1) { e_46 = { error: e_46_1 }; }
+                catch (e_47_1) { e_47 = { error: e_47_1 }; }
                 finally {
                     try {
                         if (_f && !_f.done && (_a = _e.return)) _a.call(_e);
                     }
-                    finally { if (e_46) throw e_46.error; }
+                    finally { if (e_47) throw e_47.error; }
                 }
             }
         }
@@ -24640,12 +24679,12 @@ var Panel = /** @class */ (function (_super) {
                 d.unionRect(z);
             }
         }
-        catch (e_47_1) { e_47 = { error: e_47_1 }; }
+        catch (e_48_1) { e_48 = { error: e_48_1 }; }
         finally {
             try {
                 if (els_6_1 && !els_6_1.done && (_b = els_6.return)) _b.call(els_6);
             }
-            finally { if (e_47) throw e_47.error; }
+            finally { if (e_48) throw e_48.error; }
         }
         // 官方 labelNodes：只测量，不并入 union
         try {
@@ -24691,7 +24730,7 @@ var Panel = /** @class */ (function (_super) {
     };
     /** 官方 `GraphObject.po(x,y,w,h)`：设 measuredBounds；scale/angle 非恒等时取变换后的轴对齐包围盒 */
     Panel.prototype._linkPo = function (shape, x, y, w, h) {
-        var e_48, _a;
+        var e_49, _a;
         var sc = shape.scale;
         var ang = shape.angle;
         if (sc === 1 && (isNaN(ang) || ang === 0)) {
@@ -24719,12 +24758,12 @@ var Panel = /** @class */ (function (_super) {
                     maxY = p.y;
             }
         }
-        catch (e_48_1) { e_48 = { error: e_48_1 }; }
+        catch (e_49_1) { e_49 = { error: e_49_1 }; }
         finally {
             try {
                 if (corners_1_1 && !corners_1_1.done && (_a = corners_1.return)) _a.call(corners_1);
             }
-            finally { if (e_48) throw e_48.error; }
+            finally { if (e_49) throw e_49.error; }
         }
         shape._measuredBounds = new Rect(minX, minY, maxX - minX, maxY - minY);
     };
@@ -24770,7 +24809,7 @@ var Panel = /** @class */ (function (_super) {
      * 收尾把 `t.location` 同步为 position + WD 偏移。
      */
     Panel.prototype._arrangeLink = function (_bounds) {
-        var e_49, _a, e_50, _b;
+        var e_50, _a, e_51, _b;
         var panel = this;
         var qf = this._linkQfRects;
         var or = this._linkOrRect;
@@ -24795,12 +24834,12 @@ var Panel = /** @class */ (function (_super) {
                     m._arrange(new Rect(r.x - or.x, r.y - or.y, r.width, r.height));
                 }
             }
-            catch (e_49_1) { e_49 = { error: e_49_1 }; }
+            catch (e_50_1) { e_50 = { error: e_50_1 }; }
             finally {
                 try {
                     if (_d && !_d.done && (_a = _c.return)) _a.call(_c);
                 }
-                finally { if (e_49) throw e_49.error; }
+                finally { if (e_50) throw e_50.error; }
             }
         }
         else {
@@ -24811,12 +24850,12 @@ var Panel = /** @class */ (function (_super) {
                     m._arrange(new Rect(0, 0, mb.width, mb.height));
                 }
             }
-            catch (e_50_1) { e_50 = { error: e_50_1 }; }
+            catch (e_51_1) { e_51 = { error: e_51_1 }; }
             finally {
                 try {
                     if (_f && !_f.done && (_b = _e.return)) _b.call(_e);
                 }
-                finally { if (e_50) throw e_50.error; }
+                finally { if (e_51) throw e_51.error; }
             }
         }
         // 官方：t.location.e(t.position.x + WD.x, t.position.y + WD.y)
@@ -34581,7 +34620,7 @@ var CanvasRenderer = /** @class */ (function () {
         }
         ctx.restore();
     };
-    /** Render a TextBlock */
+    /** Render a TextBlock —— 官方 TextBlock.draw + aF 管线逐条复刻 */
     CanvasRenderer.prototype.renderTextBlock = function (tb, offsetX, offsetY) {
         if (!tb.visible || !tb.text)
             return;
@@ -34595,44 +34634,115 @@ var CanvasRenderer = /** @class */ (function () {
         var tbH = ab.height;
         ctx.save();
         ctx.font = tb.font;
-        // 对齐换算成锚点 x（fillText 的 x 语义是文本左边缘）。
-        // 若保留 ctx.textAlign='center' 却把 x 传成文本框左边缘，文本会以左边缘为中心绘制，
-        // 一半溢出到框外并被下面的 clip 裁掉（多行居中文本会左右各缺一段）。
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'top';
-        // Set text color
+        var cs = ctx;
+        var anyTb = tb;
+        if (anyTb.letterSpacing !== undefined)
+            cs.letterSpacing = anyTb.letterSpacing;
+        if (anyTb.wordSpacing !== undefined)
+            cs.wordSpacing = anyTb.wordSpacing;
+        // 官方：ctx.textAlign = this.textAlign（start/end 按 RTL 展开；此处 LTR）
+        var align = tb.textAlign;
+        if (align === 'start')
+            align = 'left';
+        else if (align === 'end')
+            align = 'right';
+        else if (align !== 'center' && align !== 'right' && align !== 'left')
+            align = 'left';
+        ctx.textAlign = align;
+        // 官方从不设置 textBaseline → canvas 默认 alphabetic；
+        // 行基线 = 行顶 + 0.75 * lineHeight（官方 aF 里的 u = o * 0.75）。
+        ctx.textBaseline = 'alphabetic';
         if (tb.stroke) {
             ctx.fillStyle = this._applyBrush(ctx, tb.stroke, new Rect(tbX, tbY, tbW, tbH));
         }
         else {
             ctx.fillStyle = 'black';
         }
-        // Apply clipping for text overflow
+        // 官方 GraphObject 通用渲染路径对 overflow===Clip（TextBlock 默认）裁剪到 actualBounds
         if (tbW > 0 && tbH > 0) {
             ctx.beginPath();
             ctx.rect(tbX, tbY, tbW, tbH);
             ctx.clip();
         }
-        var fontSize = this._getFontSize(tb.font);
-        var lineHeight = fontSize * 1.2;
-        // 官方 TextBlock 语义：textAlign 决定文本在自身 actualBounds 内的水平位置
-        var alignX = function (textWidth) {
-            var a = tb.textAlign;
-            if (a === 'center')
-                return tbX + (tbW - textWidth) / 2;
-            if (a === 'right' || a === 'end')
-                return tbX + tbW - textWidth;
-            return tbX;
+        // 行数据取 measure 缓存（官方 qn/Ci/He），保证绘制与量测是同一批行、同一批宽度
+        var cachedLines = null;
+        var widths = null;
+        try {
+            var m = tb.getMetrics();
+            if (m[6] === tb.text && Array.isArray(m[5])) {
+                cachedLines = m[5];
+                widths = Array.isArray(m[4]) ? m[4] : null;
+            }
+        }
+        catch (_a) {
+            // fall through to live wrap
+        }
+        var lines = cachedLines !== null
+            ? cachedLines
+            : tb._wrapText(ctx, tb.text, tbW > 0 ? tbW : Infinity);
+        if (cachedLines === null)
+            widths = null;
+        var lineHeight = tb.lineHeight;
+        var spacingAbove = tb.spacingAbove;
+        var spacingBelow = tb.spacingBelow;
+        var lineCount = lines.length;
+        var naturalHeight = (spacingAbove + lineHeight + spacingBelow) * lineCount;
+        var u = 0;
+        if (tbH > naturalHeight) {
+            // 我们的 TextBlock.verticalAlignment 是枚举（Top/Center/Bottom），换算成官方 Spot 的 y 分量
+            var va = tb.verticalAlignment;
+            var vy = va === VerticalCenter ? 0.5 : va === VerticalBottom ? 1 : 0;
+            u = vy * tbH - vy * naturalHeight;
+        }
+        var underlineStroke = typeof tb.stroke === 'string' ? tb.stroke : 'black';
+        var thickness = Math.floor(lineHeight / 20) || 1;
+        var drawLine = function (text, i) {
+            // 官方 aF：left → f=0；center → f=n/2；right → f=n（n=文本框宽）
+            var f;
+            if (align === 'center')
+                f = tbW / 2;
+            else if (align === 'right')
+                f = tbW;
+            else
+                f = 0;
+            ctx.fillText(text, tbX + f, tbY + u + lineHeight * 0.75);
+            var lw = widths ? Math.min(widths[i], tbW) : ctx.measureText(text).width;
+            if (align === 'right')
+                f -= lw;
+            else if (align === 'center')
+                f -= lw / 2;
+            if (tb.isUnderline) {
+                var uy = tbY + u + lineHeight * 0.8;
+                ctx.beginPath();
+                ctx.lineWidth = thickness;
+                ctx.strokeStyle = underlineStroke;
+                ctx.moveTo(tbX + f, uy);
+                ctx.lineTo(tbX + f + lw, uy);
+                ctx.stroke();
+            }
+            if (tb.isStrikethrough) {
+                var sy = (tbY + u + lineHeight - lineHeight / 2.2) | 0;
+                if (thickness % 2 !== 0)
+                    sy += 0.5;
+                ctx.beginPath();
+                ctx.lineWidth = thickness;
+                ctx.strokeStyle = underlineStroke;
+                ctx.moveTo(tbX + f, sy);
+                ctx.lineTo(tbX + f + lw, sy);
+                ctx.stroke();
+            }
         };
-        if (!tb.isMultiline || tb._wrap === StretchNone) {
-            // Single line
-            ctx.fillText(tb.text, alignX(ctx.measureText(tb.text).width), tbY);
+        // 官方 draw：单行走 qn 分支（u += spacingAbove 一次）；
+        // 多行循环里每行先 u += spacingAbove，画完再 u += lineHeight + spacingBelow。
+        if (lineCount === 1) {
+            u += spacingAbove;
+            drawLine(lines[0], 0);
         }
         else {
-            // Multiline: split by \n and wrap
-            var lines = this._wrapText(ctx, tb.text, tbW > 0 ? tbW : Infinity);
-            for (var i = 0; i < lines.length; i++) {
-                ctx.fillText(lines[i], alignX(ctx.measureText(lines[i]).width), tbY + i * lineHeight);
+            for (var i = 0; i < lineCount; i++) {
+                u += spacingAbove;
+                drawLine(lines[i], i);
+                u += lineHeight + spacingBelow;
             }
         }
         ctx.restore();
@@ -35402,76 +35512,6 @@ var CanvasRenderer = /** @class */ (function () {
             }
         }
         return 'black';
-    };
-    // ============ Text helpers ============
-    /** Extract font size from a CSS font string */
-    CanvasRenderer.prototype._getFontSize = function (font) {
-        var px = font.match(/(\d+(?:\.\d+)?)px/);
-        if (px) {
-            return parseFloat(px[1]);
-        }
-        var pt = font.match(/(\d+(?:\.\d+)?)pt\b/);
-        if (pt) {
-            return parseFloat(pt[1]) * 4 / 3;
-        }
-        var em = font.match(/(\d+(?:\.\d+)?)em\b/);
-        if (em) {
-            return parseFloat(em[1]) * 16;
-        }
-        var pct = font.match(/(\d+(?:\.\d+)?)%/);
-        if (pct) {
-            return parseFloat(pct[1]) * 0.16;
-        }
-        return 10;
-    };
-    /** Wrap text into lines respecting maxWidth */
-    CanvasRenderer.prototype._wrapText = function (ctx, text, maxWidth) {
-        var e_22, _a, e_23, _b;
-        var lines = [];
-        var paragraphs = text.split('\n');
-        try {
-            for (var paragraphs_1 = __values(paragraphs), paragraphs_1_1 = paragraphs_1.next(); !paragraphs_1_1.done; paragraphs_1_1 = paragraphs_1.next()) {
-                var paragraph = paragraphs_1_1.value;
-                if (paragraph === '') {
-                    lines.push('');
-                    continue;
-                }
-                var words = paragraph.split(/(\s+)/);
-                var currentLine = '';
-                try {
-                    for (var words_1 = (e_23 = void 0, __values(words)), words_1_1 = words_1.next(); !words_1_1.done; words_1_1 = words_1.next()) {
-                        var word = words_1_1.value;
-                        var testLine = currentLine + word;
-                        var metrics = ctx.measureText(testLine);
-                        if (metrics.width > maxWidth && currentLine !== '') {
-                            lines.push(currentLine.replace(/\s+$/, ''));
-                            currentLine = word;
-                        }
-                        else {
-                            currentLine = testLine;
-                        }
-                    }
-                }
-                catch (e_23_1) { e_23 = { error: e_23_1 }; }
-                finally {
-                    try {
-                        if (words_1_1 && !words_1_1.done && (_b = words_1.return)) _b.call(words_1);
-                    }
-                    finally { if (e_23) throw e_23.error; }
-                }
-                if (currentLine) {
-                    lines.push(currentLine.replace(/\s+$/, ''));
-                }
-            }
-        }
-        catch (e_22_1) { e_22 = { error: e_22_1 }; }
-        finally {
-            try {
-                if (paragraphs_1_1 && !paragraphs_1_1.done && (_a = paragraphs_1.return)) _a.call(paragraphs_1);
-            }
-            finally { if (e_22) throw e_22.error; }
-        }
-        return lines.length > 0 ? lines : [''];
     };
     // ============ Viewport helpers ============
     /** Update viewportBounds from current canvas size, scale, and position */
@@ -44437,10 +44477,13 @@ var Diagram = /** @class */ (function () {
             var f = this._initialDocumentSpot.isSpot() && this._initialViewportSpot.isSpot();
             l = h.isDefault() && !f ? Spot.Center : h;
         }
-        // H2 的夹取走**带滚动条预留**的 viewportBounds（arrow_unit 上实测官方 St=3509，
-        // 才让 `i > documentBounds.height` 不成立、position.y 稳在 4 而不是 0.5）
-        var vb = this.viewportBounds;
-        this._clampViewportPosition(db, vb.width, vb.height, l);
+        // 官方 tn(true) 里 H2 的实参 = Pt/it, St/it（原始 viewSize/scale）。
+        // 给 CDN 4.0.5 flowchart 打桩实测：tn(true) 时 St 还没做滚动条预留（=810）、
+        // H2 收 e=682,i=810,n=true → align 得 position.y=-42.468；此后滚动条预留
+        // 才生效（viewportBounds 变 682×799），但后续 H2 调用 n=false 且 s=Default，
+        // 不再 align，position 不回写。早先这里传 viewportBounds(799) 会让首次
+        // align 矮 5.5px——正是 flowchart 像素残差 3% 的主体。
+        this._clampViewportPosition(db, vs.width / this._scale, vs.height / this._scale, l);
     };
     /** 官方 Z2(n=true/scrollMode)：夹取 position；视口宽于文档时按对齐 spot 摆放 */
     Diagram.prototype._clampViewportPosition = function (t, i, e, alignSpot) {

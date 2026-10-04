@@ -4832,7 +4832,7 @@ declare class CanvasRenderer {
     renderPanel(panel: Panel, offsetX: number, offsetY: number): void;
     /** Render a Shape */
     renderShape(shape: Shape, offsetX: number, offsetY: number, paintBox?: Rect | null): void;
-    /** Render a TextBlock */
+    /** Render a TextBlock —— 官方 TextBlock.draw + aF 管线逐条复刻 */
     renderTextBlock(tb: TextBlock, offsetX: number, offsetY: number): void;
     /** Render a Picture (stub - image loading not yet implemented) */
     renderPicture(pic: Picture, offsetX: number, offsetY: number): void;
@@ -4874,10 +4874,6 @@ declare class CanvasRenderer {
     private _drawArcSegment;
     /** Resolve a BrushLike to a fill style string or CanvasGradient */
     _applyBrush(ctx: CanvasRenderingContext2D, brush: BrushLike, bounds: Rect): string | CanvasGradient;
-    /** Extract font size from a CSS font string */
-    private _getFontSize;
-    /** Wrap text into lines respecting maxWidth */
-    private _wrapText;
     /** Update viewportBounds from current canvas size, scale, and position */
     private _updateViewportBounds;
     /** Convert a point from document coordinates to view (canvas pixel) coordinates */
@@ -6760,6 +6756,17 @@ declare class TextBlock extends GraphObject {
         lineWidths: number[];
         lineHeight: number;
     };
+    /**
+     * 官方 TextBlock.XN/hF/cg 换行算法逐条复刻：
+     * - token（cg）= 一段非分隔字符 + 其后的分隔字符；分隔字符集是 `[ \u200B\xAD]`
+     *   （官方 TextBlock.q3，**不是** \s——Tab 不参与断词）。
+     * - 每个段落先整段 trim（formatting===Trim），每行压入前再 trim，
+     *   因此产生断行的那个分隔空格**不会**留在下一行行首（我们旧实现
+     *   把空格拆成独立 token，断行后下一行以空格开头，导致行宽多算一个
+     *   空格 → 比官方提前断行、行首多一个空格）。
+     * - 只有单个 token 自身超过宽度时才按字符切分（官方内层 while），
+     *   切剩的尾巴还会继续拼接后续 token。
+     */
     private _wrapText;
     private static _getFontSize;
     private static _tempCanvas;

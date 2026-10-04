@@ -1266,14 +1266,15 @@ export class Panel extends GraphObject {
     const pad = this._padding;
     let totalH = 0;
     let maxW = 0;
-    // 官方 PanelLayoutVertical.measure 两阶段：先 measure {None, Vertical} stretch 子元素
-    // 得到内容宽 maxW；然后 Fill/Horizontal stretch 子元素按内容宽 measure（不扩展面板）。
+    // 官方 PanelLayoutVertical.measure 两阶段：第一遍只量 {None, Vertical} stretch 子元素
+    // （只有它们决定面板内容宽），得到内容宽 maxW；第二遍把其余子元素（Fill/Horizontal/
+    // Uniform 等随面板宽的）按内容宽量测（不扩展面板）。
     const fillElems: GraphObject[] = [];
 
     for (const elem of this._elements) {
       if (!elem.visible) continue;
       const st = elem._getStretch(false);
-      if (st === StretchFill || st === StretchHorizontal) {
+      if (st !== StretchNone && st !== StretchVertical) {
         fillElems.push(elem);
         continue;
       }
@@ -1330,15 +1331,37 @@ export class Panel extends GraphObject {
   private _measureHorizontal(availW: number, availH: number): void {
     let totalW = 0;
     let maxH = 0;
+    // 官方 PanelLayoutHorizontal.measure 两阶段：第一遍只量 {None, Horizontal} stretch 子元素
+    // （决定内容高与宽累加），第二遍把其余（Fill/Vertical/Uniform 随面板高的）按内容高量测。
+    // 宽一律按 `width = Infinity` 测量（`u.yt(1/0, i, 0, r)`），子元素自己按
+    // desiredSize/maxSize 决定宽度（以前这里传 availW-totalW，累加超宽后会变负数，
+    // 喂给 TextBlock 就是负宽 → `new Rect(0,0,-18.52,81.05)` 抛错，实测 regrouping）。
+    const fillElems: GraphObject[] = [];
 
     for (const elem of this._elements) {
       if (!elem.visible) continue;
-      // 官方 PanelLayoutHorizontal.measure：一律按 `width = Infinity` 测量
-      // （`u.ct(1/0, i, 0, r)`），子元素自己按 desiredSize/maxSize 决定宽度。
-      // 以前这里传的是 `availW - totalW`，累加超过可用宽度后会变成**负数**，
-      // 传到 TextBlock 就是 `Math.min(naturalWidth, 负数)` = 负数 →
-      // `new Rect(0, 0, -18.52, 81.05)` 抛错（实测 regrouping）。
+      const st = elem._getStretch(false);
+      if (st !== StretchNone && st !== StretchHorizontal) {
+        fillElems.push(elem);
+        continue;
+      }
       elem._measure(Infinity, availH);
+      const mb = elem.measuredBounds;
+      const m = elem.margin;
+      totalW += mb.width + m.left + m.right;
+      maxH = Math.max(maxH, mb.height + m.top + m.bottom);
+    }
+
+    let contentH = availH;
+    if (!isNaN(this._desiredSize.height)) {
+      contentH = Math.min(this._desiredSize.height, this._maxSize.height);
+    } else if (maxH !== 0) {
+      contentH = Math.min(maxH, this._maxSize.height);
+    }
+
+    for (const elem of fillElems) {
+      if (!elem.visible) continue;
+      elem._measure(Infinity, contentH);
       const mb = elem.measuredBounds;
       const m = elem.margin;
       totalW += mb.width + m.left + m.right;
