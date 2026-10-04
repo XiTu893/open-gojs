@@ -464,55 +464,73 @@ export class TextBlock extends GraphObject {
     };
   }
 
+  /**
+   * 官方 TextBlock.XN/hF/cg 换行算法逐条复刻：
+   * - token（cg）= 一段非分隔字符 + 其后的分隔字符；分隔字符集是 `[ \u200B\xAD]`
+   *   （官方 TextBlock.q3，**不是** \s——Tab 不参与断词）。
+   * - 每个段落先整段 trim（formatting===Trim），每行压入前再 trim，
+   *   因此产生断行的那个分隔空格**不会**留在下一行行首（我们旧实现
+   *   把空格拆成独立 token，断行后下一行以空格开头，导致行宽多算一个
+   *   空格 → 比官方提前断行、行首多一个空格）。
+   * - 只有单个 token 自身超过宽度时才按字符切分（官方内层 while），
+   *   切剩的尾巴还会继续拼接后续 token。
+   */
   private _wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
     const lines: string[] = [];
-    const paragraphs = text.split('\n');
+    const trim = this._formatting === TextFormatTrim;
+    const isSep = (ch: string): boolean => ch === ' ' || ch === '\u200B' || ch === '\xAD';
+    const cg = (t: string): string => {
+      if (this._wrap === WrapBreakAll) return t.substring(0, 1);
+      const n = t.length;
+      let e = 0;
+      for (; e < n && !isSep(t.charAt(e)); e++);
+      for (; e < n && isSep(t.charAt(e)); e++);
+      return e >= t.length ? t : t.substring(0, e);
+    };
+    const W = (s: string): number => ctx.measureText(s).width;
 
+    const paragraphs = text.split('\n');
     for (const paragraph of paragraphs) {
-      if (paragraph === '') {
+      let f = trim ? paragraph.trim() : paragraph;
+      if (f === '') {
         lines.push('');
         continue;
       }
 
-      const words = paragraph.split(/(\s+)/);
-      let currentLine = '';
+      while (f.length > 0) {
+        let d = cg(f);
+        f = f.substring(d.length);
 
-      for (const word of words) {
-        const testLine = currentLine + word;
-        const metrics = ctx.measureText(testLine);
-
-        if (metrics.width > maxWidth && currentLine !== '') {
-          lines.push(currentLine.replace(/\s+$/, ''));
-          currentLine = word;
-        } else {
-          currentLine = testLine;
-        }
-      }
-
-      if (currentLine) {
-        lines.push(currentLine.replace(/\s+$/, ''));
-      }
-
-      // 官方：单词本身比可用宽度还长时按字符断行，
-      // 否则像 absolute.html 里 50px 宽的 "lightblue" 会整词溢出被裁掉，
-      // 而官方会排成 "lightblu" / "e" 两行。
-      for (let li = 0; li < lines.length; li++) {
-        const ln = lines[li];
-        if (ln === '' || ctx.measureText(ln).width <= maxWidth) continue;
-        const pieces: string[] = [];
-        let piece = '';
-        for (const ch of ln) {
-          const cand = piece + ch;
-          if (piece !== '' && ctx.measureText(cand).width > maxWidth) {
-            pieces.push(piece);
-            piece = ch;
-          } else {
-            piece = cand;
+        // 单个 token 超宽：按字符切行（官方内层 while）
+        while (W(d) > maxWidth) {
+          let q = 1;
+          let o = W(d.substring(0, q));
+          while (o <= maxWidth) {
+            q++;
+            o = W(d.substring(0, q));
           }
+          q--;
+          if (q < 1) q = 1;
+          const head = d.substring(0, q);
+          if (head !== '') lines.push(head);
+          d = d.substring(q);
         }
-        if (piece !== '') pieces.push(piece);
-        lines.splice(li, 1, ...pieces);
-        li += pieces.length - 1;
+
+        // 拼接后续 token 直到超宽
+        let m = cg(f);
+        let o = W(d + m);
+        while (m.length > 0 && o <= maxWidth) {
+          d += m;
+          f = f.substring(m.length);
+          m = cg(f);
+          const p = trim ? (d + m).trim() : d + m;
+          o = W(p);
+        }
+
+        if (trim) d = d.trim();
+        if (d === '') continue;
+        if (d.charAt(d.length - 1) === '\xAD') d = d.substring(0, d.length - 1) + '\u2010';
+        lines.push(d);
       }
     }
 

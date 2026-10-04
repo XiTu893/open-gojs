@@ -52,7 +52,7 @@ export declare class CanvasRenderer {
     renderPanel(panel: Panel, offsetX: number, offsetY: number): void;
     /** Render a Shape */
     renderShape(shape: Shape, offsetX: number, offsetY: number, paintBox?: Rect | null): void;
-    /** Render a TextBlock */
+    /** Render a TextBlock —— 官方 TextBlock.draw + aF 管线逐条复刻 */
     renderTextBlock(tb: TextBlock, offsetX: number, offsetY: number): void;
     /** Render a Picture (stub - image loading not yet implemented) */
     renderPicture(pic: Picture, offsetX: number, offsetY: number): void;
@@ -94,10 +94,6 @@ export declare class CanvasRenderer {
     private _drawArcSegment;
     /** Resolve a BrushLike to a fill style string or CanvasGradient */
     _applyBrush(ctx: CanvasRenderingContext2D, brush: BrushLike, bounds: Rect): string | CanvasGradient;
-    /** Extract font size from a CSS font string */
-    private _getFontSize;
-    /** Wrap text into lines respecting maxWidth */
-    private _wrapText;
     /** Update viewportBounds from current canvas size, scale, and position */
     private _updateViewportBounds;
     /** Convert a point from document coordinates to view (canvas pixel) coordinates */

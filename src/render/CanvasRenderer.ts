@@ -27,6 +27,7 @@ import {
   CurveBezier, CurveNone, CurveJumpOver, CurveJumpGap,
   BrushSolid, BrushLinear, BrushRadial,
   RoutingOrthogonal,
+  VerticalCenter, VerticalBottom,
   ImageStretchNone, ImageStretchFill, ImageStretchUniform, ImageStretchUniformToFill
 } from '../core/EnumValues';
 
@@ -1036,7 +1037,7 @@ export class CanvasRenderer {
     ctx.restore();
   }
 
-  /** Render a TextBlock */
+  /** Render a TextBlock —— 官方 TextBlock.draw + aF 管线逐条复刻 */
   renderTextBlock(tb: TextBlock, offsetX: number, offsetY: number): void {
     if (!tb.visible || !tb.text) return;
 
@@ -1052,45 +1053,106 @@ export class CanvasRenderer {
     ctx.save();
 
     ctx.font = tb.font;
-    // 对齐换算成锚点 x（fillText 的 x 语义是文本左边缘）。
-    // 若保留 ctx.textAlign='center' 却把 x 传成文本框左边缘，文本会以左边缘为中心绘制，
-    // 一半溢出到框外并被下面的 clip 裁掉（多行居中文本会左右各缺一段）。
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'top';
+    const cs = ctx as CanvasRenderingContext2D & { letterSpacing?: string; wordSpacing?: string };
+    const anyTb = tb as any;
+    if (anyTb.letterSpacing !== undefined) cs.letterSpacing = anyTb.letterSpacing;
+    if (anyTb.wordSpacing !== undefined) cs.wordSpacing = anyTb.wordSpacing;
+    // 官方：ctx.textAlign = this.textAlign（start/end 按 RTL 展开；此处 LTR）
+    let align: string = tb.textAlign;
+    if (align === 'start') align = 'left';
+    else if (align === 'end') align = 'right';
+    else if (align !== 'center' && align !== 'right' && align !== 'left') align = 'left';
+    ctx.textAlign = align as CanvasTextAlign;
+    // 官方从不设置 textBaseline → canvas 默认 alphabetic；
+    // 行基线 = 行顶 + 0.75 * lineHeight（官方 aF 里的 u = o * 0.75）。
+    ctx.textBaseline = 'alphabetic';
 
-    // Set text color
     if (tb.stroke) {
       ctx.fillStyle = this._applyBrush(ctx, tb.stroke, new Rect(tbX, tbY, tbW, tbH));
     } else {
       ctx.fillStyle = 'black';
     }
 
-    // Apply clipping for text overflow
+    // 官方 GraphObject 通用渲染路径对 overflow===Clip（TextBlock 默认）裁剪到 actualBounds
     if (tbW > 0 && tbH > 0) {
       ctx.beginPath();
       ctx.rect(tbX, tbY, tbW, tbH);
       ctx.clip();
     }
 
-    const fontSize = this._getFontSize(tb.font);
-    const lineHeight = fontSize * 1.2;
+    // 行数据取 measure 缓存（官方 qn/Ci/He），保证绘制与量测是同一批行、同一批宽度
+    let cachedLines: string[] | null = null;
+    let widths: number[] | null = null;
+    try {
+      const m = tb.getMetrics();
+      if (m[6] === tb.text && Array.isArray(m[5])) {
+        cachedLines = m[5] as string[];
+        widths = Array.isArray(m[4]) ? (m[4] as number[]) : null;
+      }
+    } catch {
+      // fall through to live wrap
+    }
+    const lines: string[] = cachedLines !== null
+      ? cachedLines
+      : (tb as any)._wrapText(ctx, tb.text, tbW > 0 ? tbW : Infinity);
+    if (cachedLines === null) widths = null;
 
-    // 官方 TextBlock 语义：textAlign 决定文本在自身 actualBounds 内的水平位置
-    const alignX = (textWidth: number): number => {
-      const a = tb.textAlign;
-      if (a === 'center') return tbX + (tbW - textWidth) / 2;
-      if (a === 'right' || a === 'end') return tbX + tbW - textWidth;
-      return tbX;
+    const lineHeight = tb.lineHeight;
+    const spacingAbove = tb.spacingAbove;
+    const spacingBelow = tb.spacingBelow;
+    const lineCount = lines.length;
+    const naturalHeight = (spacingAbove + lineHeight + spacingBelow) * lineCount;
+    let u = 0;
+    if (tbH > naturalHeight) {
+      // 我们的 TextBlock.verticalAlignment 是枚举（Top/Center/Bottom），换算成官方 Spot 的 y 分量
+      const va = tb.verticalAlignment;
+      const vy = va === VerticalCenter ? 0.5 : va === VerticalBottom ? 1 : 0;
+      u = vy * tbH - vy * naturalHeight;
+    }
+
+    const underlineStroke = typeof tb.stroke === 'string' ? tb.stroke : 'black';
+    const thickness = Math.floor(lineHeight / 20) || 1;
+    const drawLine = (text: string, i: number): void => {
+      // 官方 aF：left → f=0；center → f=n/2；right → f=n（n=文本框宽）
+      let f: number;
+      if (align === 'center') f = tbW / 2;
+      else if (align === 'right') f = tbW;
+      else f = 0;
+      ctx.fillText(text, tbX + f, tbY + u + lineHeight * 0.75);
+      const lw = widths ? Math.min(widths[i], tbW) : ctx.measureText(text).width;
+      if (align === 'right') f -= lw;
+      else if (align === 'center') f -= lw / 2;
+      if (tb.isUnderline) {
+        const uy = tbY + u + lineHeight * 0.8;
+        ctx.beginPath();
+        ctx.lineWidth = thickness;
+        ctx.strokeStyle = underlineStroke;
+        ctx.moveTo(tbX + f, uy);
+        ctx.lineTo(tbX + f + lw, uy);
+        ctx.stroke();
+      }
+      if (tb.isStrikethrough) {
+        let sy = (tbY + u + lineHeight - lineHeight / 2.2) | 0;
+        if (thickness % 2 !== 0) sy += 0.5;
+        ctx.beginPath();
+        ctx.lineWidth = thickness;
+        ctx.strokeStyle = underlineStroke;
+        ctx.moveTo(tbX + f, sy);
+        ctx.lineTo(tbX + f + lw, sy);
+        ctx.stroke();
+      }
     };
 
-    if (!tb.isMultiline || (tb as any)._wrap === StretchNone) {
-      // Single line
-      ctx.fillText(tb.text, alignX(ctx.measureText(tb.text).width), tbY);
+    // 官方 draw：单行走 qn 分支（u += spacingAbove 一次）；
+    // 多行循环里每行先 u += spacingAbove，画完再 u += lineHeight + spacingBelow。
+    if (lineCount === 1) {
+      u += spacingAbove;
+      drawLine(lines[0], 0);
     } else {
-      // Multiline: split by \n and wrap
-      const lines = this._wrapText(ctx, tb.text, tbW > 0 ? tbW : Infinity);
-      for (let i = 0; i < lines.length; i++) {
-        ctx.fillText(lines[i], alignX(ctx.measureText(lines[i]).width), tbY + i * lineHeight);
+      for (let i = 0; i < lineCount; i++) {
+        u += spacingAbove;
+        drawLine(lines[i], i);
+        u += lineHeight + spacingBelow;
       }
     }
 
@@ -1841,63 +1903,6 @@ export class CanvasRenderer {
     }
 
     return 'black';
-  }
-
-  // ============ Text helpers ============
-
-  /** Extract font size from a CSS font string */
-  private _getFontSize(font: string): number {
-    const px = font.match(/(\d+(?:\.\d+)?)px/);
-    if (px) {
-      return parseFloat(px[1]);
-    }
-    const pt = font.match(/(\d+(?:\.\d+)?)pt\b/);
-    if (pt) {
-      return parseFloat(pt[1]) * 4 / 3;
-    }
-    const em = font.match(/(\d+(?:\.\d+)?)em\b/);
-    if (em) {
-      return parseFloat(em[1]) * 16;
-    }
-    const pct = font.match(/(\d+(?:\.\d+)?)%/);
-    if (pct) {
-      return parseFloat(pct[1]) * 0.16;
-    }
-    return 10;
-  }
-
-  /** Wrap text into lines respecting maxWidth */
-  private _wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
-    const lines: string[] = [];
-    const paragraphs = text.split('\n');
-
-    for (const paragraph of paragraphs) {
-      if (paragraph === '') {
-        lines.push('');
-        continue;
-      }
-
-      const words = paragraph.split(/(\s+)/);
-      let currentLine = '';
-
-      for (const word of words) {
-        const testLine = currentLine + word;
-        const metrics = ctx.measureText(testLine);
-
-        if (metrics.width > maxWidth && currentLine !== '') {
-          lines.push(currentLine.replace(/\s+$/, ''));
-          currentLine = word;
-        } else {
-          currentLine = testLine;
-        }
-      }
-
-      if (currentLine) {
-        lines.push(currentLine.replace(/\s+$/, ''));
-      }
-    }
-
-    return lines.length > 0 ? lines : [''];
   }
 
   // ============ Viewport helpers ============

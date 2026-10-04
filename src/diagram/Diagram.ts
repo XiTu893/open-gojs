@@ -2241,10 +2241,13 @@ export class Diagram {
       const f = this._initialDocumentSpot.isSpot() && this._initialViewportSpot.isSpot();
       l = h.isDefault() && !f ? Spot.Center : h;
     }
-    // H2 的夹取走**带滚动条预留**的 viewportBounds（arrow_unit 上实测官方 St=3509，
-    // 才让 `i > documentBounds.height` 不成立、position.y 稳在 4 而不是 0.5）
-    const vb = this.viewportBounds;
-    this._clampViewportPosition(db, vb.width, vb.height, l);
+    // 官方 tn(true) 里 H2 的实参 = Pt/it, St/it（原始 viewSize/scale）。
+    // 给 CDN 4.0.5 flowchart 打桩实测：tn(true) 时 St 还没做滚动条预留（=810）、
+    // H2 收 e=682,i=810,n=true → align 得 position.y=-42.468；此后滚动条预留
+    // 才生效（viewportBounds 变 682×799），但后续 H2 调用 n=false 且 s=Default，
+    // 不再 align，position 不回写。早先这里传 viewportBounds(799) 会让首次
+    // align 矮 5.5px——正是 flowchart 像素残差 3% 的主体。
+    this._clampViewportPosition(db, vs.width / this._scale, vs.height / this._scale, l);
   }
 
   /** 官方 Z2(n=true/scrollMode)：夹取 position；视口宽于文档时按对齐 spot 摆放 */
