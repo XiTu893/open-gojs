@@ -1840,7 +1840,7 @@ declare class Brush {
     /** 添加色标（官方：Solid 上加色标会自动转为 Linear） */
     addColorStop(offset: number, color: string): this;
     set(props: Record<string, any>): this;
-    /** 复制 */
+    /** 复制（官方 `copy()`：pattern/zp 共享引用） */
     copy(): Brush;
     /** 创建 Canvas 渐变对象 */
     _createCanvasGradient(ctx: CanvasRenderingContext2D, bounds: {
@@ -4990,7 +4990,7 @@ declare class CanvasRenderer {
     /** Draw an arc segment from current point using SVG arc parameterization */
     private _drawArcSegment;
     /** Resolve a BrushLike to a fill style string or CanvasGradient */
-    _applyBrush(ctx: CanvasRenderingContext2D, brush: BrushLike, bounds: Rect): string | CanvasGradient;
+    _applyBrush(ctx: CanvasRenderingContext2D, brush: BrushLike, bounds: Rect): string | CanvasGradient | CanvasPattern;
     /** Update viewportBounds from current canvas size, scale, and position */
     private _updateViewportBounds;
     /** Convert a point from document coordinates to view (canvas pixel) coordinates */
@@ -7193,6 +7193,7 @@ declare class Layout {
     protected _isOngoing: boolean;
     protected _isRealtime: boolean;
     protected _isRouting: boolean;
+    /** 官方 `Tg=!1`：Layout 构造默认无效（首次 _performLayout 才跑） */
     protected _isValidLayout: boolean;
     protected _isViewportSized: boolean;
     /** 官方签名 `(part, lay, rect) => rect` */
@@ -7205,6 +7206,7 @@ declare class Layout {
     get arrangementOrigin(): Point;
     set arrangementOrigin(val: Point);
     get isInitial(): boolean;
+    /** 官方 `set isInitial(t){...; t||(this.Tg=!0)}`：置 false 立即视为已有效 → 跳过初始布局 */
     set isInitial(val: boolean);
     get isOngoing(): boolean;
     set isOngoing(val: boolean);

@@ -29,7 +29,7 @@ export declare class Brush {
     /** 添加色标（官方：Solid 上加色标会自动转为 Linear） */
     addColorStop(offset: number, color: string): this;
     set(props: Record<string, any>): this;
-    /** 复制 */
+    /** 复制（官方 `copy()`：pattern/zp 共享引用） */
     copy(): Brush;
     /** 创建 Canvas 渐变对象 */
     _createCanvasGradient(ctx: CanvasRenderingContext2D, bounds: {

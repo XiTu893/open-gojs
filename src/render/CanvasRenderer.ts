@@ -25,7 +25,7 @@ import {
   PanelTableRow, PanelTableColumn,
   StretchFill, StretchNone, StretchUniform,
   CurveBezier, CurveNone, CurveJumpOver, CurveJumpGap,
-  BrushSolid, BrushLinear, BrushRadial,
+  BrushSolid, BrushLinear, BrushRadial, BrushPattern,
   RoutingOrthogonal,
   VerticalCenter, VerticalBottom,
   ImageStretchNone, ImageStretchFill, ImageStretchUniform, ImageStretchUniformToFill
@@ -1849,7 +1849,7 @@ export class CanvasRenderer {
   }
 
   /** Resolve a BrushLike to a fill style string or CanvasGradient */
-  _applyBrush(ctx: CanvasRenderingContext2D, brush: BrushLike, bounds: Rect): string | CanvasGradient {
+  _applyBrush(ctx: CanvasRenderingContext2D, brush: BrushLike, bounds: Rect): string | CanvasGradient | CanvasPattern {
     if (!brush) {
       return 'transparent';
     }
@@ -1899,6 +1899,19 @@ export class CanvasRenderer {
           gradient.addColorStop(stop.offset, stop.color);
         }
         return gradient;
+      }
+
+      if (brush.type === BrushPattern) {
+        // 官方 makeBrush type===4：`try { createPattern(i.pattern,'repeat') } catch { null }`；
+        // h===null 时保持 ctx.fillStyle 原值（画布默认黑），600ms 后重排等图。
+        const pat = brush.pattern;
+        if (pat) {
+          try {
+            const pattern = ctx.createPattern(pat, 'repeat');
+            if (pattern) return pattern;
+          } catch (e) { /* 图未解码/不可用 → 回退 */ }
+        }
+        return 'black';
       }
     }
 

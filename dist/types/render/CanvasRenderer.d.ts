@@ -93,7 +93,7 @@ export declare class CanvasRenderer {
     /** Draw an arc segment from current point using SVG arc parameterization */
     private _drawArcSegment;
     /** Resolve a BrushLike to a fill style string or CanvasGradient */
-    _applyBrush(ctx: CanvasRenderingContext2D, brush: BrushLike, bounds: Rect): string | CanvasGradient;
+    _applyBrush(ctx: CanvasRenderingContext2D, brush: BrushLike, bounds: Rect): string | CanvasGradient | CanvasPattern;
     /** Update viewportBounds from current canvas size, scale, and position */
     private _updateViewportBounds;
     /** Convert a point from document coordinates to view (canvas pixel) coordinates */

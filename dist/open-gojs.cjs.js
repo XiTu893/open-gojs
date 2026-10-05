@@ -7004,7 +7004,7 @@ var Brush = /** @class */ (function () {
         }
         return this;
     };
-    /** 复制 */
+    /** 复制（官方 `copy()`：pattern/zp 共享引用） */
     Brush.prototype.copy = function () {
         var b = new Brush(this.type);
         b.color = this.color;
@@ -7014,6 +7014,7 @@ var Brush = /** @class */ (function () {
         b.focus = this.focus.copy();
         b.radius = this.radius;
         b._stops = this._stops.map(function (s) { return (__assign({}, s)); });
+        b._pattern = this._pattern;
         return b;
     };
     /** 创建 Canvas 渐变对象 */
@@ -31696,7 +31697,8 @@ var Layout = /** @class */ (function () {
         this._isOngoing = true;
         this._isRealtime = true;
         this._isRouting = true;
-        this._isValidLayout = true;
+        /** 官方 `Tg=!1`：Layout 构造默认无效（首次 _performLayout 才跑） */
+        this._isValidLayout = false;
         this._isViewportSized = false;
         /** 官方签名 `(part, lay, rect) => rect` */
         this._boundsComputation = null;
@@ -31715,7 +31717,12 @@ var Layout = /** @class */ (function () {
     });
     Object.defineProperty(Layout.prototype, "isInitial", {
         get: function () { return this._isInitial; },
-        set: function (val) { this._isInitial = val; },
+        /** 官方 `set isInitial(t){...; t||(this.Tg=!0)}`：置 false 立即视为已有效 → 跳过初始布局 */
+        set: function (val) {
+            this._isInitial = val;
+            if (!val)
+                this._isValidLayout = true;
+        },
         enumerable: false,
         configurable: true
     });
@@ -32053,7 +32060,8 @@ var Layout = /** @class */ (function () {
         copy._isOngoing = this._isOngoing;
         copy._isRealtime = this._isRealtime;
         copy._isRouting = this._isRouting;
-        copy._isValidLayout = this._isValidLayout;
+        // 官方 `t.Rg=!0`：copy 出的布局视为已有效
+        copy._isValidLayout = true;
         copy._isViewportSized = this._isViewportSized;
         copy._boundsComputation = this._boundsComputation;
     };
@@ -36652,6 +36660,20 @@ var CanvasRenderer = /** @class */ (function () {
                     finally { if (e_21) throw e_21.error; }
                 }
                 return gradient;
+            }
+            if (brush.type === BrushPattern) {
+                // 官方 makeBrush type===4：`try { createPattern(i.pattern,'repeat') } catch { null }`；
+                // h===null 时保持 ctx.fillStyle 原值（画布默认黑），600ms 后重排等图。
+                var pat = brush.pattern;
+                if (pat) {
+                    try {
+                        var pattern = ctx.createPattern(pat, 'repeat');
+                        if (pattern)
+                            return pattern;
+                    }
+                    catch (e) { /* 图未解码/不可用 → 回退 */ }
+                }
+                return 'black';
             }
         }
         return 'black';
@@ -42299,10 +42321,11 @@ exports.AnimationState = void 0;
 var AnimationManager = /** @class */ (function () {
     function AnimationManager() {
         this._diagram = null;
-        // 官方 `this.Wi=!1`（isEnabled 默认 false —— 官方默认无布局动画；
-        // 我们此前默认 true，200ms location 回写动画在末帧把避障折线打回基础正交版，
-        // 且动画停后无人再跑 doLinkRouting，industrialMonitor 避障 link 最终态丢失）。
-        this._isEnabled = false;
+        // 官方 `this.Wi=!0`：AnimationManager.isEnabled 默认 true（go-debug 4.0.4 ctor 核对）。
+        // 早先改成 false 想绕过「动画末帧把避障折线打回基础正交版」——但那是错误默认值对齐，
+        // 导致一批样例丢失官方应有的布局动画（leaflet/circuitDesigner 等 +0.2~2.5% 回退）。
+        // 避障末帧问题改在动画收尾处重新触发 _routeInvalidatedLinks 修复。
+        this._isEnabled = true;
         this._duration = 200;
         this._isAnimating = false;
         this._isInitial = true;
@@ -44095,9 +44118,29 @@ var Diagram = /** @class */ (function () {
         }
     };
     Diagram.prototype.layoutDiagram = function (invalidate) {
+        var e_11, _a;
         if (invalidate === void 0) { invalidate = true; }
         if (invalidate) {
             this._layoutInvalid = true;
+            // 官方 `t && C1(!0)`：无条件置所有 layout（顶层+各 Group）isValidLayout=false
+            if (this._layout)
+                this._layout.isValidLayout = false;
+            var gs = this._collectGroups();
+            try {
+                for (var gs_1 = __values(gs), gs_1_1 = gs_1.next(); !gs_1_1.done; gs_1_1 = gs_1.next()) {
+                    var g = gs_1_1.value;
+                    var gl = g.layout;
+                    if (gl)
+                        gl.isValidLayout = false;
+                }
+            }
+            catch (e_11_1) { e_11 = { error: e_11_1 }; }
+            finally {
+                try {
+                    if (gs_1_1 && !gs_1_1.done && (_a = gs_1.return)) _a.call(gs_1);
+                }
+                finally { if (e_11) throw e_11.error; }
+            }
         }
         this._performLayout();
         this._layoutInvalid = false;
@@ -44170,7 +44213,7 @@ var Diagram = /** @class */ (function () {
     };
     // ============ Rebuild Parts ============
     Diagram.prototype.rebuildParts = function () {
-        var e_11, _a, e_12, _b, e_13, _c, e_14, _d, e_15, _e;
+        var e_12, _a, e_13, _b, e_14, _c, e_15, _d, e_16, _e;
         this._clearAllParts();
         var model = this._model;
         if (!model)
@@ -44181,12 +44224,12 @@ var Diagram = /** @class */ (function () {
                 this._addNodeForData(nodeData);
             }
         }
-        catch (e_11_1) { e_11 = { error: e_11_1 }; }
+        catch (e_12_1) { e_12 = { error: e_12_1 }; }
         finally {
             try {
                 if (_g && !_g.done && (_a = _f.return)) _a.call(_f);
             }
-            finally { if (e_11) throw e_11.error; }
+            finally { if (e_12) throw e_12.error; }
         }
         try {
             for (var _h = __values(model.nodeDataArray), _j = _h.next(); !_j.done; _j = _h.next()) {
@@ -44201,12 +44244,12 @@ var Diagram = /** @class */ (function () {
                 }
             }
         }
-        catch (e_12_1) { e_12 = { error: e_12_1 }; }
+        catch (e_13_1) { e_13 = { error: e_13_1 }; }
         finally {
             try {
                 if (_j && !_j.done && (_b = _h.return)) _b.call(_h);
             }
-            finally { if (e_12) throw e_12.error; }
+            finally { if (e_13) throw e_13.error; }
         }
         if (model instanceof GraphLinksModel) {
             var glm = model;
@@ -44216,12 +44259,12 @@ var Diagram = /** @class */ (function () {
                     this._addLinkForData(linkData);
                 }
             }
-            catch (e_13_1) { e_13 = { error: e_13_1 }; }
+            catch (e_14_1) { e_14 = { error: e_14_1 }; }
             finally {
                 try {
                     if (_l && !_l.done && (_c = _k.return)) _c.call(_k);
                 }
-                finally { if (e_13) throw e_13.error; }
+                finally { if (e_14) throw e_14.error; }
             }
         }
         else if (model instanceof TreeModel) {
@@ -44235,12 +44278,12 @@ var Diagram = /** @class */ (function () {
                     }
                 }
             }
-            catch (e_14_1) { e_14 = { error: e_14_1 }; }
+            catch (e_15_1) { e_15 = { error: e_15_1 }; }
             finally {
                 try {
                     if (_o && !_o.done && (_d = _m.return)) _d.call(_m);
                 }
-                finally { if (e_14) throw e_14.error; }
+                finally { if (e_15) throw e_15.error; }
             }
         }
         try {
@@ -44252,12 +44295,12 @@ var Diagram = /** @class */ (function () {
                     node.updateTargetBindings();
             }
         }
-        catch (e_15_1) { e_15 = { error: e_15_1 }; }
+        catch (e_16_1) { e_16 = { error: e_16_1 }; }
         finally {
             try {
                 if (_q && !_q.done && (_e = _p.return)) _e.call(_p);
             }
-            finally { if (e_15) throw e_15.error; }
+            finally { if (e_16) throw e_16.error; }
         }
         try {
             var it = this.links;
@@ -44326,7 +44369,7 @@ var Diagram = /** @class */ (function () {
     };
     // ============ Internal Methods ============
     Diagram.prototype._createDefaultLayers = function () {
-        var e_16, _a;
+        var e_17, _a;
         // 官方 FL()：Grid 最先（网格画在最底层），Grid/Viewport*/Adornment 为 temporary
         var specs = [
             // [name, isTemporary, isViewportAligned, isInDocumentBounds]
@@ -44355,12 +44398,12 @@ var Diagram = /** @class */ (function () {
                 this._layers.push(layer);
             }
         }
-        catch (e_16_1) { e_16 = { error: e_16_1 }; }
+        catch (e_17_1) { e_17 = { error: e_17_1 }; }
         finally {
             try {
                 if (specs_1_1 && !specs_1_1.done && (_a = specs_1.return)) _a.call(specs_1);
             }
-            finally { if (e_16) throw e_16.error; }
+            finally { if (e_17) throw e_17.error; }
         }
         this._createDefaultGrid();
     };
@@ -44496,7 +44539,7 @@ var Diagram = /** @class */ (function () {
         return link;
     };
     Diagram.prototype._clearAllParts = function () {
-        var e_17, _a, e_18, _b, e_19, _c;
+        var e_18, _a, e_19, _b, e_20, _c;
         try {
             // 官方 PartManager.rebuildParts 只移除有 data 的部件；无数据部件（如 diagram.grid 的 Part）保留
             for (var _d = __values(this._layers), _e = _d.next(); !_e.done; _e = _d.next()) {
@@ -44509,26 +44552,26 @@ var Diagram = /** @class */ (function () {
                         toRemove.push(part);
                 }
                 try {
-                    for (var toRemove_1 = (e_18 = void 0, __values(toRemove)), toRemove_1_1 = toRemove_1.next(); !toRemove_1_1.done; toRemove_1_1 = toRemove_1.next()) {
+                    for (var toRemove_1 = (e_19 = void 0, __values(toRemove)), toRemove_1_1 = toRemove_1.next(); !toRemove_1_1.done; toRemove_1_1 = toRemove_1.next()) {
                         var part = toRemove_1_1.value;
                         layer.remove(part);
                     }
                 }
-                catch (e_18_1) { e_18 = { error: e_18_1 }; }
+                catch (e_19_1) { e_19 = { error: e_19_1 }; }
                 finally {
                     try {
                         if (toRemove_1_1 && !toRemove_1_1.done && (_b = toRemove_1.return)) _b.call(toRemove_1);
                     }
-                    finally { if (e_18) throw e_18.error; }
+                    finally { if (e_19) throw e_19.error; }
                 }
             }
         }
-        catch (e_17_1) { e_17 = { error: e_17_1 }; }
+        catch (e_18_1) { e_18 = { error: e_18_1 }; }
         finally {
             try {
                 if (_e && !_e.done && (_a = _d.return)) _a.call(_d);
             }
-            finally { if (e_17) throw e_17.error; }
+            finally { if (e_18) throw e_18.error; }
         }
         var dataKeys = [];
         var pit = this._parts.iterator;
@@ -44546,12 +44589,12 @@ var Diagram = /** @class */ (function () {
                     this._selection.remove(part);
             }
         }
-        catch (e_19_1) { e_19 = { error: e_19_1 }; }
+        catch (e_20_1) { e_20 = { error: e_20_1 }; }
         finally {
             try {
                 if (dataKeys_1_1 && !dataKeys_1_1.done && (_c = dataKeys_1.return)) _c.call(dataKeys_1);
             }
-            finally { if (e_19) throw e_19.error; }
+            finally { if (e_20) throw e_20.error; }
         }
         this._nodeKeyMap.clear();
         this._treeLinkDataByChildKey.clear();
@@ -44608,7 +44651,7 @@ var Diagram = /** @class */ (function () {
     };
     Diagram.prototype._propagatePartToChildren = function (part) {
         var setPart = function (obj) {
-            var e_20, _a;
+            var e_21, _a;
             obj._part = part;
             if (obj instanceof Panel) {
                 try {
@@ -44617,12 +44660,12 @@ var Diagram = /** @class */ (function () {
                         setPart(child);
                     }
                 }
-                catch (e_20_1) { e_20 = { error: e_20_1 }; }
+                catch (e_21_1) { e_21 = { error: e_21_1 }; }
                 finally {
                     try {
                         if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
                     }
-                    finally { if (e_20) throw e_20.error; }
+                    finally { if (e_21) throw e_21.error; }
                 }
             }
         };
@@ -44735,7 +44778,7 @@ var Diagram = /** @class */ (function () {
         }
     };
     Diagram.prototype._removeLinksForNode = function (node) {
-        var e_21, _a, e_22, _b;
+        var e_22, _a, e_23, _b;
         var linksToRemove = [];
         try {
             for (var _c = __values(this._layers), _d = _c.next(); !_d.done; _d = _c.next()) {
@@ -44751,12 +44794,12 @@ var Diagram = /** @class */ (function () {
                 }
             }
         }
-        catch (e_21_1) { e_21 = { error: e_21_1 }; }
+        catch (e_22_1) { e_22 = { error: e_22_1 }; }
         finally {
             try {
                 if (_d && !_d.done && (_a = _c.return)) _a.call(_c);
             }
-            finally { if (e_21) throw e_21.error; }
+            finally { if (e_22) throw e_22.error; }
         }
         try {
             for (var linksToRemove_1 = __values(linksToRemove), linksToRemove_1_1 = linksToRemove_1.next(); !linksToRemove_1_1.done; linksToRemove_1_1 = linksToRemove_1.next()) {
@@ -44771,12 +44814,12 @@ var Diagram = /** @class */ (function () {
                 this.remove(link);
             }
         }
-        catch (e_22_1) { e_22 = { error: e_22_1 }; }
+        catch (e_23_1) { e_23 = { error: e_23_1 }; }
         finally {
             try {
                 if (linksToRemove_1_1 && !linksToRemove_1_1.done && (_b = linksToRemove_1.return)) _b.call(linksToRemove_1);
             }
-            finally { if (e_22) throw e_22.error; }
+            finally { if (e_23) throw e_23.error; }
         }
     };
     Diagram.prototype._removeLinkForData = function (data) {
@@ -44823,7 +44866,7 @@ var Diagram = /** @class */ (function () {
         }
     };
     Diagram.prototype._applyBindingsToObject = function (obj, data, part) {
-        var e_23, _a, e_24, _b;
+        var e_24, _a, e_25, _b;
         var bindings = obj._bindings;
         if (bindings && bindings.length > 0) {
             try {
@@ -44835,12 +44878,12 @@ var Diagram = /** @class */ (function () {
                     }
                 }
             }
-            catch (e_23_1) { e_23 = { error: e_23_1 }; }
+            catch (e_24_1) { e_24 = { error: e_24_1 }; }
             finally {
                 try {
                     if (bindings_1_1 && !bindings_1_1.done && (_a = bindings_1.return)) _a.call(bindings_1);
                 }
-                finally { if (e_23) throw e_23.error; }
+                finally { if (e_24) throw e_24.error; }
             }
         }
         if (obj instanceof Panel) {
@@ -44852,12 +44895,12 @@ var Diagram = /** @class */ (function () {
                     this._applyBindingsToObject(child, childData !== null && childData !== undefined ? childData : data, part);
                 }
             }
-            catch (e_24_1) { e_24 = { error: e_24_1 }; }
+            catch (e_25_1) { e_25 = { error: e_25_1 }; }
             finally {
                 try {
                     if (elements_1_1 && !elements_1_1.done && (_b = elements_1.return)) _b.call(elements_1);
                 }
-                finally { if (e_24) throw e_24.error; }
+                finally { if (e_25) throw e_25.error; }
             }
         }
     };
@@ -44872,7 +44915,7 @@ var Diagram = /** @class */ (function () {
     };
     /** 官方 GraphObject.Zo：只应用 isToTheme 绑定，递归子对象（themeData 源数据沿 panel 链取条目 data，回退 part.data） */
     Diagram.prototype._applyThemeBindingsOnly = function (obj, part) {
-        var e_25, _a, e_26, _b;
+        var e_26, _a, e_27, _b;
         var _c;
         var bindings = obj._bindings;
         if (bindings && bindings.length > 0) {
@@ -44897,12 +44940,12 @@ var Diagram = /** @class */ (function () {
                     }
                 }
             }
-            catch (e_25_1) { e_25 = { error: e_25_1 }; }
+            catch (e_26_1) { e_26 = { error: e_26_1 }; }
             finally {
                 try {
                     if (bindings_2_1 && !bindings_2_1.done && (_a = bindings_2.return)) _a.call(bindings_2);
                 }
-                finally { if (e_25) throw e_25.error; }
+                finally { if (e_26) throw e_26.error; }
             }
         }
         if (obj instanceof Panel) {
@@ -44913,17 +44956,17 @@ var Diagram = /** @class */ (function () {
                     this._applyThemeBindingsOnly(child, part);
                 }
             }
-            catch (e_26_1) { e_26 = { error: e_26_1 }; }
+            catch (e_27_1) { e_27 = { error: e_27_1 }; }
             finally {
                 try {
                     if (elements_2_1 && !elements_2_1.done && (_b = elements_2.return)) _b.call(elements_2);
                 }
-                finally { if (e_26) throw e_26.error; }
+                finally { if (e_27) throw e_27.error; }
             }
         }
     };
     Diagram.prototype._updateBindingsForObject = function (obj, data, propname, part) {
-        var e_27, _a, e_28, _b;
+        var e_28, _a, e_29, _b;
         var bindings = obj._bindings;
         if (bindings && bindings.length > 0) {
             try {
@@ -44943,12 +44986,12 @@ var Diagram = /** @class */ (function () {
                     }
                 }
             }
-            catch (e_27_1) { e_27 = { error: e_27_1 }; }
+            catch (e_28_1) { e_28 = { error: e_28_1 }; }
             finally {
                 try {
                     if (bindings_3_1 && !bindings_3_1.done && (_a = bindings_3.return)) _a.call(bindings_3);
                 }
-                finally { if (e_27) throw e_27.error; }
+                finally { if (e_28) throw e_28.error; }
             }
         }
         if (obj instanceof Panel) {
@@ -44960,17 +45003,17 @@ var Diagram = /** @class */ (function () {
                     this._updateBindingsForObject(child, childData !== null && childData !== undefined ? childData : data, propname, part);
                 }
             }
-            catch (e_28_1) { e_28 = { error: e_28_1 }; }
+            catch (e_29_1) { e_29 = { error: e_29_1 }; }
             finally {
                 try {
                     if (elements_3_1 && !elements_3_1.done && (_b = elements_3.return)) _b.call(elements_3);
                 }
-                finally { if (e_28) throw e_28.error; }
+                finally { if (e_29) throw e_29.error; }
             }
         }
     };
     Diagram.prototype._handlePartPropertyChanged = function (part, obj, propname, value) {
-        var e_29, _a;
+        var e_30, _a;
         var data = part.data;
         if (!data)
             return;
@@ -45004,16 +45047,16 @@ var Diagram = /** @class */ (function () {
                 }
             }
         }
-        catch (e_29_1) { e_29 = { error: e_29_1 }; }
+        catch (e_30_1) { e_30 = { error: e_30_1 }; }
         finally {
             try {
                 if (bindings_4_1 && !bindings_4_1.done && (_a = bindings_4.return)) _a.call(bindings_4);
             }
-            finally { if (e_29) throw e_29.error; }
+            finally { if (e_30) throw e_30.error; }
         }
     };
     Diagram.prototype._onModelChanged = function (e) {
-        var e_30, _a, e_31, _b, e_32, _c, e_33, _d;
+        var e_31, _a, e_32, _b, e_33, _c, e_34, _d;
         if (e.isTransactionChange) {
             this._raiseChangedEvent(e);
             return;
@@ -45077,12 +45120,12 @@ var Diagram = /** @class */ (function () {
                                     this._removeNodeForData(d);
                             }
                         }
-                        catch (e_30_1) { e_30 = { error: e_30_1 }; }
+                        catch (e_31_1) { e_31 = { error: e_31_1 }; }
                         finally {
                             try {
                                 if (oldArr_1_1 && !oldArr_1_1.done && (_a = oldArr_1.return)) _a.call(oldArr_1);
                             }
-                            finally { if (e_30) throw e_30.error; }
+                            finally { if (e_31) throw e_31.error; }
                         }
                         try {
                             for (var newArr_1 = __values(newArr), newArr_1_1 = newArr_1.next(); !newArr_1_1.done; newArr_1_1 = newArr_1.next()) {
@@ -45091,12 +45134,12 @@ var Diagram = /** @class */ (function () {
                                     this._addNodeForData(d);
                             }
                         }
-                        catch (e_31_1) { e_31 = { error: e_31_1 }; }
+                        catch (e_32_1) { e_32 = { error: e_32_1 }; }
                         finally {
                             try {
                                 if (newArr_1_1 && !newArr_1_1.done && (_b = newArr_1.return)) _b.call(newArr_1);
                             }
-                            finally { if (e_31) throw e_31.error; }
+                            finally { if (e_32) throw e_32.error; }
                         }
                         needsLayout = true;
                         this.requestUpdate();
@@ -45111,12 +45154,12 @@ var Diagram = /** @class */ (function () {
                                     this._removeLinkForData(d);
                             }
                         }
-                        catch (e_32_1) { e_32 = { error: e_32_1 }; }
+                        catch (e_33_1) { e_33 = { error: e_33_1 }; }
                         finally {
                             try {
                                 if (oldArr_2_1 && !oldArr_2_1.done && (_c = oldArr_2.return)) _c.call(oldArr_2);
                             }
-                            finally { if (e_32) throw e_32.error; }
+                            finally { if (e_33) throw e_33.error; }
                         }
                         try {
                             for (var newArr_2 = __values(newArr), newArr_2_1 = newArr_2.next(); !newArr_2_1.done; newArr_2_1 = newArr_2.next()) {
@@ -45125,12 +45168,12 @@ var Diagram = /** @class */ (function () {
                                     this._addLinkForData(d);
                             }
                         }
-                        catch (e_33_1) { e_33 = { error: e_33_1 }; }
+                        catch (e_34_1) { e_34 = { error: e_34_1 }; }
                         finally {
                             try {
                                 if (newArr_2_1 && !newArr_2_1.done && (_d = newArr_2.return)) _d.call(newArr_2);
                             }
-                            finally { if (e_33) throw e_33.error; }
+                            finally { if (e_34) throw e_34.error; }
                         }
                         needsLayout = true;
                         this.requestUpdate();
@@ -45196,7 +45239,7 @@ var Diagram = /** @class */ (function () {
     };
     /** 官方 Diagram.Ib(t) 的护栏版：Diagram.layout + 全体 Group.layout 失效 */
     Diagram.prototype._invalidateLayoutsFromChanges = function () {
-        var e_34, _a;
+        var e_35, _a;
         var dl = this._layout;
         if (dl && typeof dl.invalidateLayout === 'function')
             dl.invalidateLayout();
@@ -45209,16 +45252,16 @@ var Diagram = /** @class */ (function () {
                     gl.invalidateLayout();
             }
         }
-        catch (e_34_1) { e_34 = { error: e_34_1 }; }
+        catch (e_35_1) { e_35 = { error: e_35_1 }; }
         finally {
             try {
                 if (groups_1_1 && !groups_1_1.done && (_a = groups_1.return)) _a.call(groups_1);
             }
-            finally { if (e_34) throw e_34.error; }
+            finally { if (e_35) throw e_35.error; }
         }
     };
     Diagram.prototype._rebuildTreeLinks = function () {
-        var e_35, _a, e_36, _b, e_37, _c;
+        var e_36, _a, e_37, _b, e_38, _c;
         var linksToRemove = [];
         try {
             for (var _d = __values(this._layers), _e = _d.next(); !_e.done; _e = _d.next()) {
@@ -45232,12 +45275,12 @@ var Diagram = /** @class */ (function () {
                 }
             }
         }
-        catch (e_35_1) { e_35 = { error: e_35_1 }; }
+        catch (e_36_1) { e_36 = { error: e_36_1 }; }
         finally {
             try {
                 if (_e && !_e.done && (_a = _d.return)) _a.call(_d);
             }
-            finally { if (e_35) throw e_35.error; }
+            finally { if (e_36) throw e_36.error; }
         }
         try {
             for (var linksToRemove_2 = __values(linksToRemove), linksToRemove_2_1 = linksToRemove_2.next(); !linksToRemove_2_1.done; linksToRemove_2_1 = linksToRemove_2.next()) {
@@ -45252,12 +45295,12 @@ var Diagram = /** @class */ (function () {
                 this.remove(link);
             }
         }
-        catch (e_36_1) { e_36 = { error: e_36_1 }; }
+        catch (e_37_1) { e_37 = { error: e_37_1 }; }
         finally {
             try {
                 if (linksToRemove_2_1 && !linksToRemove_2_1.done && (_b = linksToRemove_2.return)) _b.call(linksToRemove_2);
             }
-            finally { if (e_36) throw e_36.error; }
+            finally { if (e_37) throw e_37.error; }
         }
         if (this._model instanceof TreeModel) {
             var tm = this._model;
@@ -45273,12 +45316,12 @@ var Diagram = /** @class */ (function () {
                     }
                 }
             }
-            catch (e_37_1) { e_37 = { error: e_37_1 }; }
+            catch (e_38_1) { e_38 = { error: e_38_1 }; }
             finally {
                 try {
                     if (_g && !_g.done && (_c = _f.return)) _c.call(_f);
                 }
-                finally { if (e_37) throw e_37.error; }
+                finally { if (e_38) throw e_38.error; }
             }
         }
     };
@@ -45295,7 +45338,7 @@ var Diagram = /** @class */ (function () {
         return e;
     };
     Diagram.prototype._raiseChangedEvent = function (e) {
-        var e_38, _a;
+        var e_39, _a;
         // 官方语义：model 非空时 diagram 为空
         if (!e.model)
             e.model = this._model;
@@ -45307,17 +45350,17 @@ var Diagram = /** @class */ (function () {
                 listener(e);
             }
         }
-        catch (e_38_1) { e_38 = { error: e_38_1 }; }
+        catch (e_39_1) { e_39 = { error: e_39_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_38) throw e_38.error; }
+            finally { if (e_39) throw e_39.error; }
         }
     };
     /** 官方 DiagramEvent：监听器收到 `{ diagram, type, subject, subjectData, args }`；官方事件名为 ViewportBoundsChanged */
     Diagram.prototype._raiseDiagramEvent = function (name, subject, subjectData) {
-        var e_39, _a, e_40, _b;
+        var e_40, _a, e_41, _b;
         var rest = [];
         for (var _i = 3; _i < arguments.length; _i++) {
             rest[_i - 3] = arguments[_i];
@@ -45330,27 +45373,27 @@ var Diagram = /** @class */ (function () {
                 if (listeners) {
                     var event_1 = { diagram: this, type: n, subject: subject, subjectData: subjectData, args: rest };
                     try {
-                        for (var listeners_1 = (e_40 = void 0, __values(listeners)), listeners_1_1 = listeners_1.next(); !listeners_1_1.done; listeners_1_1 = listeners_1.next()) {
+                        for (var listeners_1 = (e_41 = void 0, __values(listeners)), listeners_1_1 = listeners_1.next(); !listeners_1_1.done; listeners_1_1 = listeners_1.next()) {
                             var listener = listeners_1_1.value;
                             listener(event_1);
                         }
                     }
-                    catch (e_40_1) { e_40 = { error: e_40_1 }; }
+                    catch (e_41_1) { e_41 = { error: e_41_1 }; }
                     finally {
                         try {
                             if (listeners_1_1 && !listeners_1_1.done && (_b = listeners_1.return)) _b.call(listeners_1);
                         }
-                        finally { if (e_40) throw e_40.error; }
+                        finally { if (e_41) throw e_41.error; }
                     }
                 }
             }
         }
-        catch (e_39_1) { e_39 = { error: e_39_1 }; }
+        catch (e_40_1) { e_40 = { error: e_40_1 }; }
         finally {
             try {
                 if (names_1_1 && !names_1_1.done && (_a = names_1.return)) _a.call(names_1);
             }
-            finally { if (e_39) throw e_39.error; }
+            finally { if (e_40) throw e_40.error; }
         }
     };
     Diagram.prototype.raiseDiagramEvent = function (name, subject, subjectData) {
@@ -45418,7 +45461,7 @@ var Diagram = /** @class */ (function () {
         var _this = this;
         if (measure === void 0) { measure = true; }
         var pass = function (kind) {
-            var e_41, _a;
+            var e_42, _a;
             try {
                 for (var _b = __values(_this._layers), _c = _b.next(); !_c.done; _c = _b.next()) {
                     var layer = _c.value;
@@ -45457,12 +45500,12 @@ var Diagram = /** @class */ (function () {
                     }
                 }
             }
-            catch (e_41_1) { e_41 = { error: e_41_1 }; }
+            catch (e_42_1) { e_42 = { error: e_42_1 }; }
             finally {
                 try {
                     if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
                 }
-                finally { if (e_41) throw e_41.error; }
+                finally { if (e_42) throw e_42.error; }
             }
         };
         pass(0);
@@ -45479,7 +45522,7 @@ var Diagram = /** @class */ (function () {
     };
     /** 官方在节点布局定稿后让所有 link 重算路线 */
     Diagram.prototype._invalidateLinkRoutes = function () {
-        var e_42, _a;
+        var e_43, _a;
         try {
             for (var _b = __values(this._layers), _c = _b.next(); !_c.done; _c = _b.next()) {
                 var layer = _c.value;
@@ -45494,16 +45537,16 @@ var Diagram = /** @class */ (function () {
                 }
             }
         }
-        catch (e_42_1) { e_42 = { error: e_42_1 }; }
+        catch (e_43_1) { e_43 = { error: e_43_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_42) throw e_42.error; }
+            finally { if (e_43) throw e_43.error; }
         }
     };
     Diagram.prototype._collectGroups = function () {
-        var e_43, _a;
+        var e_44, _a;
         var groups = [];
         try {
             for (var _b = __values(this._layers), _c = _b.next(); !_c.done; _c = _b.next()) {
@@ -45518,17 +45561,17 @@ var Diagram = /** @class */ (function () {
                 }
             }
         }
-        catch (e_43_1) { e_43 = { error: e_43_1 }; }
+        catch (e_44_1) { e_44 = { error: e_44_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_43) throw e_43.error; }
+            finally { if (e_44) throw e_44.error; }
         }
         return groups;
     };
     Diagram.prototype._performLayout = function () {
-        var e_44, _a, e_45, _b;
+        var e_45, _a, e_46, _b;
         var _this = this;
         var oldPositions = new Map$1();
         if (this._animationManager.isEnabled) {
@@ -45549,12 +45592,12 @@ var Diagram = /** @class */ (function () {
                     }
                 }
             }
-            catch (e_44_1) { e_44 = { error: e_44_1 }; }
+            catch (e_45_1) { e_45 = { error: e_45_1 }; }
             finally {
                 try {
                     if (_d && !_d.done && (_a = _c.return)) _a.call(_c);
                 }
-                finally { if (e_44) throw e_44.error; }
+                finally { if (e_45) throw e_45.error; }
             }
         }
         // ====== 官方 layoutDiagram(iC) 顺序 ======
@@ -45579,7 +45622,7 @@ var Diagram = /** @class */ (function () {
             return out;
         };
         var visitGroup = function (g) {
-            var e_46, _a;
+            var e_47, _a;
             if (visited.has(g))
                 return;
             visited.add(g);
@@ -45589,12 +45632,12 @@ var Diagram = /** @class */ (function () {
                     visitGroup(sub);
                 }
             }
-            catch (e_46_1) { e_46 = { error: e_46_1 }; }
+            catch (e_47_1) { e_47 = { error: e_47_1 }; }
             finally {
                 try {
                     if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
                 }
-                finally { if (e_46) throw e_46.error; }
+                finally { if (e_47) throw e_47.error; }
             }
             var gl = g.layout;
             if (!gl)
@@ -45618,24 +45661,27 @@ var Diagram = /** @class */ (function () {
                 visitGroup(g);
             }
         }
-        catch (e_45_1) { e_45 = { error: e_45_1 }; }
+        catch (e_46_1) { e_46 = { error: e_46_1 }; }
         finally {
             try {
                 if (allGroups_1_1 && !allGroups_1_1.done && (_b = allGroups_1.return)) _b.call(allGroups_1);
             }
-            finally { if (e_45) throw e_45.error; }
+            finally { if (e_46) throw e_46.error; }
         }
-        // 2) Diagram 基础布局（官方 o.doLayout(this)）
+        // 2) Diagram 基础布局（官方 o.doLayout(this)）——守卫对齐 iC：
+        //    `o.isValidLayout || (cond ? doLayout : defer)`（n===0 恒真 → cond 只看 isValidLayout）
         if (this._layout && typeof this._layout.doLayout === 'function') {
             if (this._layout.diagram !== this) {
                 this._layout.diagram = this;
             }
             var dl = this._layout;
-            var wasOngoing = dl.isOngoing;
-            dl.isOngoing = true;
-            dl.doLayout(this);
-            dl.isValidLayout = true;
-            dl.isOngoing = wasOngoing;
+            if (!dl.isValidLayout) {
+                var wasOngoing = dl.isOngoing;
+                dl.isOngoing = true;
+                dl.doLayout(this);
+                dl.isValidLayout = true;
+                dl.isOngoing = wasOngoing;
+            }
         }
         // 官方 Db(this)：diagram 布局后全体补测重排 + 位置同步（否则 location 保持 NaN）
         this._measureArrangeAll();
@@ -45811,7 +45857,7 @@ var Diagram = /** @class */ (function () {
         this.alignDocument(this._contentAlignment, this._contentAlignment);
     };
     Diagram.prototype._updateGeometry = function () {
-        var e_47, _a;
+        var e_48, _a;
         this._measureArrangeAll(false);
         try {
             for (var _b = __values(this._layers), _c = _b.next(); !_c.done; _c = _b.next()) {
@@ -45834,12 +45880,12 @@ var Diagram = /** @class */ (function () {
                 }
             }
         }
-        catch (e_47_1) { e_47 = { error: e_47_1 }; }
+        catch (e_48_1) { e_48 = { error: e_48_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_47) throw e_47.error; }
+            finally { if (e_48) throw e_48.error; }
         }
     };
     Diagram.prototype._setupResizeObserver = function () {
@@ -46265,7 +46311,7 @@ var Diagram = /** @class */ (function () {
         return this.findPartForData(data);
     };
     Diagram.prototype.findLinkForKey = function (key) {
-        var e_48, _a;
+        var e_49, _a;
         var model = this._model;
         if (!model || typeof model.getLinkDataForKey !== 'function')
             return null;
@@ -46285,12 +46331,12 @@ var Diagram = /** @class */ (function () {
                 }
             }
         }
-        catch (e_48_1) { e_48 = { error: e_48_1 }; }
+        catch (e_49_1) { e_49 = { error: e_49_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_48) throw e_48.error; }
+            finally { if (e_49) throw e_49.error; }
         }
         return null;
     };
@@ -46309,7 +46355,7 @@ var Diagram = /** @class */ (function () {
         return result;
     };
     Diagram.prototype.findPartsIn = function (rect, partial) {
-        var e_49, _a;
+        var e_50, _a;
         if (partial === void 0) { partial = false; }
         var result = new List();
         var layers = this._layers;
@@ -46327,12 +46373,12 @@ var Diagram = /** @class */ (function () {
                 }
             }
         }
-        catch (e_49_1) { e_49 = { error: e_49_1 }; }
+        catch (e_50_1) { e_50 = { error: e_50_1 }; }
         finally {
             try {
                 if (layers_2_1 && !layers_2_1.done && (_a = layers_2.return)) _a.call(layers_2);
             }
-            finally { if (e_49) throw e_49.error; }
+            finally { if (e_50) throw e_50.error; }
         }
         return result;
     };
@@ -46346,7 +46392,7 @@ var Diagram = /** @class */ (function () {
         return result;
     };
     Diagram.prototype.findPartsNear = function (center, dist, partial) {
-        var e_50, _a;
+        var e_51, _a;
         var result = new List();
         var layers = this._layers;
         try {
@@ -46367,12 +46413,12 @@ var Diagram = /** @class */ (function () {
                 }
             }
         }
-        catch (e_50_1) { e_50 = { error: e_50_1 }; }
+        catch (e_51_1) { e_51 = { error: e_51_1 }; }
         finally {
             try {
                 if (layers_3_1 && !layers_3_1.done && (_a = layers_3.return)) _a.call(layers_3);
             }
-            finally { if (e_50) throw e_50.error; }
+            finally { if (e_51) throw e_51.error; }
         }
         return result;
     };
@@ -46385,7 +46431,7 @@ var Diagram = /** @class */ (function () {
         return result;
     };
     Diagram.prototype.findTopLevelNodesAndLinks = function () {
-        var e_51, _a;
+        var e_52, _a;
         var result = new List();
         var layers = this._layers;
         try {
@@ -46401,17 +46447,17 @@ var Diagram = /** @class */ (function () {
                 }
             }
         }
-        catch (e_51_1) { e_51 = { error: e_51_1 }; }
+        catch (e_52_1) { e_52 = { error: e_52_1 }; }
         finally {
             try {
                 if (layers_4_1 && !layers_4_1.done && (_a = layers_4.return)) _a.call(layers_4);
             }
-            finally { if (e_51) throw e_51.error; }
+            finally { if (e_52) throw e_52.error; }
         }
         return result;
     };
     Diagram.prototype.findTopLevelGroups = function () {
-        var e_52, _a;
+        var e_53, _a;
         var result = new List();
         var layers = this._layers;
         try {
@@ -46427,12 +46473,12 @@ var Diagram = /** @class */ (function () {
                 }
             }
         }
-        catch (e_52_1) { e_52 = { error: e_52_1 }; }
+        catch (e_53_1) { e_53 = { error: e_53_1 }; }
         finally {
             try {
                 if (layers_5_1 && !layers_5_1.done && (_a = layers_5.return)) _a.call(layers_5);
             }
-            finally { if (e_52) throw e_52.error; }
+            finally { if (e_53) throw e_53.error; }
         }
         return result;
     };
@@ -46449,7 +46495,7 @@ var Diagram = /** @class */ (function () {
     };
     // ---- 边界/几何 ----
     Diagram.prototype.computePartsBounds = function (parts) {
-        var e_53, _a, e_54, _b, e_55, _c;
+        var e_54, _a, e_55, _b, e_56, _c;
         var result = new Rect();
         if (parts === null || parts === undefined)
             return result;
@@ -46461,12 +46507,12 @@ var Diagram = /** @class */ (function () {
                     items.push(p);
                 }
             }
-            catch (e_53_1) { e_53 = { error: e_53_1 }; }
+            catch (e_54_1) { e_54 = { error: e_54_1 }; }
             finally {
                 try {
                     if (parts_2_1 && !parts_2_1.done && (_a = parts_2.return)) _a.call(parts_2);
                 }
-                finally { if (e_53) throw e_53.error; }
+                finally { if (e_54) throw e_54.error; }
             }
         }
         else {
@@ -46496,12 +46542,12 @@ var Diagram = /** @class */ (function () {
                         items.push(p);
                     }
                 }
-                catch (e_54_1) { e_54 = { error: e_54_1 }; }
+                catch (e_55_1) { e_55 = { error: e_55_1 }; }
                 finally {
                     try {
                         if (_e && !_e.done && (_b = _d.return)) _b.call(_d);
                     }
-                    finally { if (e_54) throw e_54.error; }
+                    finally { if (e_55) throw e_55.error; }
                 }
             }
         }
@@ -46513,12 +46559,12 @@ var Diagram = /** @class */ (function () {
                     result.unionRect(b);
             }
         }
-        catch (e_55_1) { e_55 = { error: e_55_1 }; }
+        catch (e_56_1) { e_56 = { error: e_56_1 }; }
         finally {
             try {
                 if (items_1_1 && !items_1_1.done && (_c = items_1.return)) _c.call(items_1);
             }
-            finally { if (e_55) throw e_55.error; }
+            finally { if (e_56) throw e_56.error; }
         }
         return result;
     };
@@ -46651,7 +46697,7 @@ var Diagram = /** @class */ (function () {
         part._diagram = null;
     };
     Diagram.prototype.clear = function () {
-        var e_56, _a, e_57, _b;
+        var e_57, _a, e_58, _b;
         this.clearSelection();
         try {
             for (var _c = __values(this._layers), _d = _c.next(); !_d.done; _d = _c.next()) {
@@ -46660,33 +46706,33 @@ var Diagram = /** @class */ (function () {
                     continue;
                 var parts = iteratorToArray(layer.parts);
                 try {
-                    for (var parts_3 = (e_57 = void 0, __values(parts)), parts_3_1 = parts_3.next(); !parts_3_1.done; parts_3_1 = parts_3.next()) {
+                    for (var parts_3 = (e_58 = void 0, __values(parts)), parts_3_1 = parts_3.next(); !parts_3_1.done; parts_3_1 = parts_3.next()) {
                         var p = parts_3_1.value;
                         if (p._className !== 'Node' && p._className !== 'Link' && p._className !== 'Group')
                             continue;
                         layer.remove(p);
                     }
                 }
-                catch (e_57_1) { e_57 = { error: e_57_1 }; }
+                catch (e_58_1) { e_58 = { error: e_58_1 }; }
                 finally {
                     try {
                         if (parts_3_1 && !parts_3_1.done && (_b = parts_3.return)) _b.call(parts_3);
                     }
-                    finally { if (e_57) throw e_57.error; }
+                    finally { if (e_58) throw e_58.error; }
                 }
             }
         }
-        catch (e_56_1) { e_56 = { error: e_56_1 }; }
+        catch (e_57_1) { e_57 = { error: e_57_1 }; }
         finally {
             try {
                 if (_d && !_d.done && (_a = _c.return)) _a.call(_c);
             }
-            finally { if (e_56) throw e_56.error; }
+            finally { if (e_57) throw e_57.error; }
         }
         this.requestUpdate();
     };
     Diagram.prototype.removeParts = function (coll, ensureBounds) {
-        var e_58, _a, e_59, _b;
+        var e_59, _a, e_60, _b;
         if (ensureBounds === void 0) { ensureBounds = true; }
         var model = this._model;
         var iter = this._iterateParts(coll);
@@ -46710,12 +46756,12 @@ var Diagram = /** @class */ (function () {
                     model.removeLinkData(ld);
             }
         }
-        catch (e_58_1) { e_58 = { error: e_58_1 }; }
+        catch (e_59_1) { e_59 = { error: e_59_1 }; }
         finally {
             try {
                 if (links_1_1 && !links_1_1.done && (_a = links_1.return)) _a.call(links_1);
             }
-            finally { if (e_58) throw e_58.error; }
+            finally { if (e_59) throw e_59.error; }
         }
         try {
             for (var nodes_1 = __values(nodes), nodes_1_1 = nodes_1.next(); !nodes_1_1.done; nodes_1_1 = nodes_1.next()) {
@@ -46723,12 +46769,12 @@ var Diagram = /** @class */ (function () {
                 model.removeNodeData(nd);
             }
         }
-        catch (e_59_1) { e_59 = { error: e_59_1 }; }
+        catch (e_60_1) { e_60 = { error: e_60_1 }; }
         finally {
             try {
                 if (nodes_1_1 && !nodes_1_1.done && (_b = nodes_1.return)) _b.call(nodes_1);
             }
-            finally { if (e_59) throw e_59.error; }
+            finally { if (e_60) throw e_60.error; }
         }
         if (ensureBounds)
             this.invalidateDocumentBounds();
@@ -46779,7 +46825,7 @@ var Diagram = /** @class */ (function () {
         this.requestUpdate();
     };
     Diagram.prototype.copyParts = function (coll, targetDiagram, check) {
-        var e_60, _a, e_61, _b;
+        var e_61, _a, e_62, _b;
         var result = new Map$1();
         var srcModel = this._model;
         var dstModel = targetDiagram ? targetDiagram.model : srcModel;
@@ -46811,12 +46857,12 @@ var Diagram = /** @class */ (function () {
                     dataMap.add(oldKey, dstModel.getKeyForNodeData(d));
             }
         }
-        catch (e_60_1) { e_60 = { error: e_60_1 }; }
+        catch (e_61_1) { e_61 = { error: e_61_1 }; }
         finally {
             try {
                 if (items_2_1 && !items_2_1.done && (_a = items_2.return)) _a.call(items_2);
             }
-            finally { if (e_60) throw e_60.error; }
+            finally { if (e_61) throw e_61.error; }
         }
         if (targetDiagram)
             targetDiagram.rebuildParts();
@@ -46830,12 +46876,12 @@ var Diagram = /** @class */ (function () {
                 result.add(p, dstPart);
             }
         }
-        catch (e_61_1) { e_61 = { error: e_61_1 }; }
+        catch (e_62_1) { e_62 = { error: e_62_1 }; }
         finally {
             try {
                 if (items_3_1 && !items_3_1.done && (_b = items_3.return)) _b.call(items_3);
             }
-            finally { if (e_61) throw e_61.error; }
+            finally { if (e_62) throw e_62.error; }
         }
         return result;
     };
@@ -47152,7 +47198,7 @@ var Diagram = /** @class */ (function () {
     };
     /** 官方 `Diagram.doLinkRouting(container)`：遍历 routers，canRoute 过滤后 routeLinks(本图 links 集合, container) */
     Diagram.prototype.doLinkRouting = function (container) {
-        var e_62, _a;
+        var e_63, _a;
         var c = container !== undefined && container !== null ? container : this;
         var routers = this._routers;
         if (!routers)
@@ -47189,12 +47235,12 @@ var Diagram = /** @class */ (function () {
                         visit(r);
                     }
                 }
-                catch (e_62_1) { e_62 = { error: e_62_1 }; }
+                catch (e_63_1) { e_63 = { error: e_63_1 }; }
                 finally {
                     try {
                         if (routers_1_1 && !routers_1_1.done && (_a = routers_1.return)) _a.call(routers_1);
                     }
-                    finally { if (e_62) throw e_62.error; }
+                    finally { if (e_63) throw e_63.error; }
                 }
             }
         }

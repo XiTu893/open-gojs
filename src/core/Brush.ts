@@ -84,7 +84,7 @@ export class Brush {
     return this;
   }
 
-  /** 复制 */
+  /** 复制（官方 `copy()`：pattern/zp 共享引用） */
   copy(): Brush {
     const b = new Brush(this.type);
     b.color = this.color;
@@ -94,6 +94,7 @@ export class Brush {
     b.focus = this.focus.copy();
     b.radius = this.radius;
     b._stops = this._stops.map(s => ({ ...s }));
+    b._pattern = this._pattern;
     return b;
   }
 

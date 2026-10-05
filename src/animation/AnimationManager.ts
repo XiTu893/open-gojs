@@ -5,10 +5,11 @@ export class AnimationManager {
   static readonly className: string = "AnimationManager";
 
   private _diagram: any = null;
-  // 官方 `this.Wi=!1`（isEnabled 默认 false —— 官方默认无布局动画；
-  // 我们此前默认 true，200ms location 回写动画在末帧把避障折线打回基础正交版，
-  // 且动画停后无人再跑 doLinkRouting，industrialMonitor 避障 link 最终态丢失）。
-  private _isEnabled: boolean = false;
+  // 官方 `this.Wi=!0`：AnimationManager.isEnabled 默认 true（go-debug 4.0.4 ctor 核对）。
+  // 早先改成 false 想绕过「动画末帧把避障折线打回基础正交版」——但那是错误默认值对齐，
+  // 导致一批样例丢失官方应有的布局动画（leaflet/circuitDesigner 等 +0.2~2.5% 回退）。
+  // 避障末帧问题改在动画收尾处重新触发 _routeInvalidatedLinks 修复。
+  private _isEnabled: boolean = true;
   private _duration: number = 200;
   private _isAnimating: boolean = false;
   private _isInitial: boolean = true;

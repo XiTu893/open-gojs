@@ -14,6 +14,7 @@ export declare class Layout {
     protected _isOngoing: boolean;
     protected _isRealtime: boolean;
     protected _isRouting: boolean;
+    /** 官方 `Tg=!1`：Layout 构造默认无效（首次 _performLayout 才跑） */
     protected _isValidLayout: boolean;
     protected _isViewportSized: boolean;
     /** 官方签名 `(part, lay, rect) => rect` */
@@ -26,6 +27,7 @@ export declare class Layout {
     get arrangementOrigin(): Point;
     set arrangementOrigin(val: Point);
     get isInitial(): boolean;
+    /** 官方 `set isInitial(t){...; t||(this.Tg=!0)}`：置 false 立即视为已有效 → 跳过初始布局 */
     set isInitial(val: boolean);
     get isOngoing(): boolean;
     set isOngoing(val: boolean);

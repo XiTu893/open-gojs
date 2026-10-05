@@ -1028,6 +1028,13 @@ export class Diagram {
   layoutDiagram(invalidate: boolean = true): void {
     if (invalidate) {
       this._layoutInvalid = true;
+      // 官方 `t && C1(!0)`：无条件置所有 layout（顶层+各 Group）isValidLayout=false
+      if (this._layout) (this._layout as any).isValidLayout = false;
+      const gs = this._collectGroups();
+      for (const g of gs) {
+        const gl = g.layout;
+        if (gl) gl.isValidLayout = false;
+      }
     }
     this._performLayout();
     this._layoutInvalid = false;
@@ -2195,17 +2202,20 @@ export class Diagram {
     };
     for (const g of allGroups) visitGroup(g);
 
-    // 2) Diagram 基础布局（官方 o.doLayout(this)）
+    // 2) Diagram 基础布局（官方 o.doLayout(this)）——守卫对齐 iC：
+    //    `o.isValidLayout || (cond ? doLayout : defer)`（n===0 恒真 → cond 只看 isValidLayout）
     if (this._layout && typeof this._layout.doLayout === 'function') {
       if ((this._layout as any).diagram !== this) {
         (this._layout as any).diagram = this;
       }
       const dl = this._layout as any;
-      const wasOngoing = dl.isOngoing;
-      dl.isOngoing = true;
-      dl.doLayout(this);
-      dl.isValidLayout = true;
-      dl.isOngoing = wasOngoing;
+      if (!dl.isValidLayout) {
+        const wasOngoing = dl.isOngoing;
+        dl.isOngoing = true;
+        dl.doLayout(this);
+        dl.isValidLayout = true;
+        dl.isOngoing = wasOngoing;
+      }
     }
 
     // 官方 Db(this)：diagram 布局后全体补测重排 + 位置同步（否则 location 保持 NaN）

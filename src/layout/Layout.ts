@@ -23,7 +23,8 @@ export class Layout {
   protected _isOngoing: boolean = true;
   protected _isRealtime: boolean = true;
   protected _isRouting: boolean = true;
-  protected _isValidLayout: boolean = true;
+  /** 官方 `Tg=!1`：Layout 构造默认无效（首次 _performLayout 才跑） */
+  protected _isValidLayout: boolean = false;
   protected _isViewportSized: boolean = false;
   /** 官方签名 `(part, lay, rect) => rect` */
   protected _boundsComputation: ((part: Part, layout: Layout, bounds: Rect) => Rect) | null = null;
@@ -42,7 +43,11 @@ export class Layout {
   set arrangementOrigin(val: Point) { this._arrangementOrigin = val.copy(); this.invalidateLayout(); }
 
   get isInitial(): boolean { return this._isInitial; }
-  set isInitial(val: boolean) { this._isInitial = val; }
+  /** 官方 `set isInitial(t){...; t||(this.Tg=!0)}`：置 false 立即视为已有效 → 跳过初始布局 */
+  set isInitial(val: boolean) {
+    this._isInitial = val;
+    if (!val) this._isValidLayout = true;
+  }
 
   get isOngoing(): boolean { return this._isOngoing; }
   set isOngoing(val: boolean) { this._isOngoing = val; }
@@ -313,7 +318,8 @@ export class Layout {
     copy._isOngoing = this._isOngoing;
     copy._isRealtime = this._isRealtime;
     copy._isRouting = this._isRouting;
-    copy._isValidLayout = this._isValidLayout;
+    // 官方 `t.Rg=!0`：copy 出的布局视为已有效
+    copy._isValidLayout = true;
     copy._isViewportSized = this._isViewportSized;
     copy._boundsComputation = this._boundsComputation;
   }
