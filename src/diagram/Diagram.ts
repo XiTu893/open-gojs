@@ -9,6 +9,8 @@ import { Panel } from '../view/Panel';
 import { Part } from '../view/Part';
 import { Node } from '../view/Node';
 import { Link } from '../view/Link';
+import { PositionArray } from '../core/PositionArray';
+import { AvoidsNodesRouter } from '../router/AvoidsNodesRouter';
 import { Group } from '../view/Group';
 import { Adornment } from '../view/Adornment';
 import { Shape } from '../view/Shape';
@@ -239,6 +241,9 @@ export class Diagram {
     this._modelChangeListener = (e: ChangedEvent) => this._onModelChanged(e);
     this._model.addChangedListener(this._modelChangeListener);
 
+    // 官方 DL(): `this.Pf=new List, this.setupRouters()` —— 注册默认 AvoidsNodesRouter
+    this.setupRouters();
+
     if (options) {
       this.set(options);
     }
@@ -265,6 +270,19 @@ export class Diagram {
         oldModel.removeChangedListener(listener);
       }
     }
+    // 官方 set model 走 BL(true)：先摘掉 GRID 部件与全部无数据手动部件，
+    // 换 model 后再 add 回来 —— add 对无数据部件会应用 theme 绑定（Na: t.data||t.Zo()）。
+    // industrialMonitor 在 set model 之前注册了 grid 的 .theme() 绑定，
+    // 不做这次摘除/回加，GRID 面板的描边永远停在默认黑色。
+    const gridPart = this._gridPart;
+    if (gridPart !== null) this.remove(gridPart);
+    const dataless: Part[] = [];
+    this._parts.each(pair => {
+      const p = pair.value;
+      if (p && (p.data === null || p.data === undefined)) dataless.push(p);
+    });
+    for (const p of dataless) this.remove(p);
+
     this._model = val;
     if (this._modelChangeListener) {
       this._model.addChangedListener(this._modelChangeListener);
@@ -273,6 +291,11 @@ export class Diagram {
     // 官方会把 model-changed 监听者重新挂到新 model 上
     for (const listener of this._modelChangeListeners) {
       this._model.addChangedListener(listener);
+    }
+    for (const p of dataless) this.add(p);
+    if (gridPart !== null) {
+      this.add(gridPart);
+      this._parts.delete(gridPart);
     }
     // 官方 `Diagram.model` setter（go.js: set model(t){…}）**不会**走事务，
     // 只是 `invalidateDocumentBounds()` + 重挂监听者。
@@ -730,6 +753,12 @@ export class Diagram {
     if (part.data === null || part.data === undefined) {
       part.updateTargetBindings();
     }
+    // 官方 add：avoiding Link → C0（从不复位）；可避障节点 → 网格标待重建
+    if (part instanceof Link && (part as any).isAvoiding) {
+      this._needsAvoidance = true;
+    } else if (typeof (part as any).canAvoid === 'function') {
+      this.Fd(part);
+    }
     this._layoutInvalid = true;
     this.requestUpdate();
     return this;
@@ -747,6 +776,10 @@ export class Diagram {
         }
         if (part.isSelected) {
           this._selection.remove(part);
+        }
+        // 官方 remove：占用场变化 → Fd 标待重建
+        if (!(part instanceof Link) && typeof (part as any).canAvoid === 'function') {
+          this.Fd(part);
         }
         this.requestUpdate();
         return;
@@ -1384,15 +1417,12 @@ export class Diagram {
     let template: Part | null = null;
 
     if (isGroup) {
-      if (category && this._groupTemplateMap.has(category)) {
-        template = this._groupTemplateMap.get(category)!;
-      } else if (this._groupTemplate) {
-        template = this._groupTemplate;
-      } else if (this._nodeTemplateMap.has(category || '')) {
-        template = this._nodeTemplateMap.get(category || '')!;
-      } else {
-        template = this._nodeTemplate;
-      }
+      const cat = category || '';
+      template = this._groupTemplateMap.get(cat) ?? null;
+      if (!template && cat !== '') template = this._groupTemplateMap.get('') ?? null;
+      if (!template) template = this._groupTemplate;
+      if (!template) template = this._nodeTemplateMap.get(cat) ?? null;
+      if (!template) template = this._nodeTemplate;
     } else {
       // 官方 PartManager：nodeTemplateMap.get(category) → get('') → 内置默认。
       // 以前 category 为空串/undefined 时直接掉到 this._nodeTemplate（无）→ 内置
@@ -1448,11 +1478,14 @@ export class Diagram {
     const category = model.getCategoryForLinkData(data);
     let template: Part | null = null;
 
-    if (category && this._linkTemplateMap.has(category)) {
-      template = this._linkTemplateMap.get(category)!;
-    } else {
-      template = this._linkTemplate;
-    }
+    // 官方 PartManager：templateMap.get(category) → get('') → 内置默认。
+    // 与节点路径同样处理空分类：linkTemplateMap.add('', template) 注册的默认
+    // 分类模板以前被 `category &&` 挡掉，industrialMonitor 的全部链接都回退到
+    // 内置默认模板（无 PATH、routing=Normal）。
+    const cat = category || '';
+    template = this._linkTemplateMap.get(cat) ?? null;
+    if (!template && cat !== '') template = this._linkTemplateMap.get('') ?? null;
+    if (!template) template = this._linkTemplate;
 
     const link = template!.copy() as Link;
     link.data = data;
@@ -1460,9 +1493,16 @@ export class Diagram {
 
     const fromKey = model.getFromKeyForLinkData(data);
     const toKey = model.getToKeyForLinkData(data);
+    // 官方 PartManager.makeLinkForData：fromPortId → fromNode → toPortId → toNode。
+    // 此前漏掉 portId 读取，industrialMonitor 的 SCH(fromPort BR)/2→MPHE-01(toPort TR)
+    // 等链接回落到节点本体当端口，整条链路走错端口、路由大偏移。
+    const fromPortId = model.getFromPortIdForLinkData(data);
+    if (fromPortId) link.fromPortId = fromPortId;
     if (fromKey !== undefined) {
       link.fromNode = this._nodeKeyMap.get(fromKey) || null;
     }
+    const toPortId = model.getToPortIdForLinkData(data);
+    if (toPortId) link.toPortId = toPortId;
     if (toKey !== undefined) {
       link.toNode = this._nodeKeyMap.get(toKey) || null;
     }
@@ -1492,11 +1532,10 @@ export class Diagram {
 
     const category = this._model.getCategoryForNodeData(childData);
     let template: Part | null = null;
-    if (category && this._linkTemplateMap.has(category)) {
-      template = this._linkTemplateMap.get(category)!;
-    } else {
-      template = this._linkTemplate;
-    }
+    const cat = category || '';
+    template = this._linkTemplateMap.get(cat) ?? null;
+    if (!template && cat !== '') template = this._linkTemplateMap.get('') ?? null;
+    if (!template) template = this._linkTemplate;
 
     const link = template!.copy() as Link;
     const linkData: ObjectData = {
@@ -1654,13 +1693,22 @@ export class Diagram {
     this._updateBindingsForObject(part, data, propname, part);
   }
 
-  /** 官方 GraphObject.Zo：只应用 isToTheme 绑定，递归子对象 */
+  /** 官方 GraphObject.Zo：只应用 isToTheme 绑定，递归子对象（themeData 源数据沿 panel 链取条目 data，回退 part.data） */
   private _applyThemeBindingsOnly(obj: GraphObject, part: Part): void {
     const bindings: Binding[] = (obj as any)._bindings;
     if (bindings && bindings.length > 0) {
       for (const binding of bindings) {
         if (!binding.isToTheme) continue;
-        const val = this._resolveBindingValue(binding, obj, null as any, part);
+        let data: any = (obj as any)._data;
+        if (data === null || data === undefined) {
+          let t: any = (obj as any)._panel;
+          while (t && (data === null || data === undefined)) {
+            data = t._data;
+            t = t._panel;
+          }
+        }
+        if (data === null || data === undefined) data = (part as any).data ?? null;
+        const val = this._resolveBindingValue(binding, obj, data, part);
         if (val !== undefined) {
           this._setBoundProperty(obj, binding.targetProperty, val);
         }
@@ -1678,7 +1726,15 @@ export class Diagram {
     const bindings: Binding[] = (obj as any)._bindings;
     if (bindings && bindings.length > 0) {
       for (const binding of bindings) {
-        if (binding.sourceObject !== null || propname === undefined || propname === binding.sourceProperty) {
+        // 官方 Binding.RN：拒绝条件 `propname!=="" && source!=="" && source!==propname`，
+        // 即 source=''（监听 data 任意属性，如 radialPartition 的 .bind('geometry','',fn)）
+        // 或 propname 未给（全量刷新）或同名 → 应用。
+        if (
+          binding.sourceObject !== null ||
+          propname === undefined ||
+          binding.sourceProperty === '' ||
+          propname === binding.sourceProperty
+        ) {
           const val = this._resolveBindingValue(binding, obj, data, part!);
           if (val !== undefined) {
             this._setBoundProperty(obj, binding.targetProperty, val);
@@ -1977,6 +2033,11 @@ export class Diagram {
       this._performLayout();
       // 布局期间发生的级联失效不再触发新一轮（对齐官方：单次 layoutDiagram 通过）
       this._layoutInvalid = false;
+    } else if (this._invalidRoutes.count > 0) {
+      // 官方 update: `r = !undoingRedoing && (Jl || Pf.count!==0 && Jr.size!==0)`；
+      // 布局有效但有待路由 link（computePoints 刚重算过，常被动画打回基础版）
+      // → 仍跑一轮 doLinkRouting，让 AvoidsNodesRouter 重算成避障折线。
+      this._routeInvalidatedLinks();
     }
 
     this._updateGeometry();
@@ -2186,7 +2247,8 @@ export class Diagram {
     this._applyAutoScale();
     this._applyContentAlignment();
     // 官方 layoutDiagram 收尾：o.doLayout(t) 后 this.doLinkRouting(t)
-    this.doLinkRouting(this);
+    // + Jr.clear + Ta 非空 23 轮（helper 第一轮即无条件 doLinkRouting）
+    this._routeInvalidatedLinks();
   }
 
   /**
@@ -2329,7 +2391,12 @@ export class Diagram {
         const part = partsIt.value;
         if (!(part instanceof Link)) continue;
         if (!part.visible) continue;
-        part.computePoints();
+        // 官方渲染循环（Or）只在路由失效时经 lazy getter→updateRoute() 重算；
+        // 此前无条件 computePoints() 每帧把 AvoidsNodesRouter 刚改好的避障折线
+        // 打回基础正交版并重新 Jr.add → 与 else 分支 rV 形成活锁（industrialMonitor
+        // 避障 link 最终态永远停在打回瞬间）。updateRoute 有 _isRouteValid 门，
+        // 失效时才重算并登记 Jr，下一帧 else 分支完成避障路由。
+        part.updateRoute();
       }
     }
   }
@@ -2885,14 +2952,24 @@ export class Diagram {
     this.requestUpdate();
   }
 
-  isUnoccupied(rect: Rect): boolean {
-    const parts = this.findPartsIn(rect, false);
-    return parts.count === 0;
+  /** 官方 `Diagram.isUnoccupied(rect, ignore?)`：委托给避障网格 */
+  isUnoccupied(rect: Rect, ignore?: any): boolean {
+    return this.getPositions(false, null, ignore || null).isUnoccupied(rect.x, rect.y, rect.width, rect.height);
   }
+  /**
+   * 官方 `Diagram.computeOccupiedArea(rect)`（getPositions.js:10 调用处
+   * `const o=Rect.a(); this.computeOccupiedArea(o), o.inflate(100,100), s.Ob(o)`）：
+   * 非虚拟化时把**文档范围**拷进 rect（官方 `t.f(this.documentBounds)`）。
+   * 旧占位返回新 Rect(viewport) 且不写 place → 网格只有 (0,0,0,0).inflate(100)=232×232，
+   * 大图节点全在网格外标不上障碍。
+   */
   computeOccupiedArea(place: Rect): Rect {
-    const vs = this.viewSize;
-    const newb = new Rect(place.x, place.y, vs.width / this._scale, vs.height / this._scale);
-    return newb;
+    const db = this.documentBounds;
+    place.x = db.x;
+    place.y = db.y;
+    place.width = db.width;
+    place.height = db.height;
+    return place;
   }
 
   // ---- 滚动/自动滚动 ----
@@ -3152,17 +3229,122 @@ export class Diagram {
   set routers(val: List<any> | any[] | Iterable<any>) {
     this._routers = val instanceof List ? val : new List<any>(val);
   }
-  findRouter(part: any): any { return null; }
+  /** 官方 `Diagram.findRouter(name)` */
+  findRouter(name: string): any {
+    const it = this._routers.iterator;
+    while (it.next()) {
+      const r = it.value;
+      if (r.name === name) return r;
+    }
+    return null;
+  }
   addRenderer(renderer: any): void {
     if (!this._renderer) this._renderer = renderer;
   }
   removeRenderer(renderer: any): void {
     if (this._renderer === renderer) (this._renderer as any) = null;
   }
-  setupRouters(): void { }
-  addInvalidRoute(part: any): void { }
+  /** 官方 `Diagram.setupRouters(){this.Pf.push(new AvoidsNodesRouter)}`（go-debug 279143） */
+  setupRouters(): void {
+    const r = new AvoidsNodesRouter();
+    r.diagram = this;
+    this._routers.add(r);
+  }
+  /**
+   * 官方 `Diagram.addInvalidRoute(t){this.vo?this.Ta.add(t):this.Jr.add(t)}`：
+   * computePoints 成功后把 link 登记进“待避障路由”集合；vo（路由进行中）进 Ta 延迟批。
+   * 本项目 doLinkRouting 直接遍历全部 link（全集 ⊇ 官方 Jr 初值），集合主要保语义。
+   */
+  addInvalidRoute(part: any): void {
+    if ((this as any)._routingLinks) this._invalidRoutesDuringRouting.add(part);
+    else this._invalidRoutes.add(part);
+    // 官方 oi() 尾部联动排帧：Jr 非空 → 下一帧 update 判 r → doLinkRouting
+    this.requestUpdate();
+  }
   computeMove(part: any, pt: Point): void { }
-  getPositions(part: any, t: any): any { return null; }
+  /**
+   * 官方 `Diagram.getPositions(rebuildDistances, container, ignore)`（go-debug 366380）：
+   * 返回（并缓存）避障网格 PositionArray：
+   * - 缓存失效（needsRebuild / 容器变化 / ignore 变化）→ 重算占用场：
+   *   文档范围外扩100 后 Ob，再把各可见非临时层节点的 avoidable 矩形 fE 标占用（yC，
+   *   Group 按 avoidableMembers 递归）；Group 容器则按成员包围盒 Ob。
+   * - rebuildDistances=true 时 aD() 清距离场（路由前重算 BFS 距离）。
+   */
+  getPositions(rebuildDistances: boolean, container: any, ignore: any): PositionArray {
+    let s = this._positionArray;
+    if (s === null) s = this._positionArray = new PositionArray(this._avoidanceCellSize, Link.JF);
+    let n = container;
+    if (s.needsRebuild || s.container !== n || s.ignore !== ignore) {
+      s.mC = Math.max(s.Nf + 1, Math.floor(this._avoidanceLimit / this._avoidanceCellSize.width));
+      s.pC = Math.max(s.Nf + 1, Math.floor(this._avoidanceLimit / this._avoidanceCellSize.height));
+      if (n !== null && n !== undefined) n = this._hD(n);
+      if (n === null || n === undefined) {
+        const o = new Rect(0, 0, 0, 0);
+        this.computeOccupiedArea(o);
+        o.inflate(100, 100);
+        s.Ob(o);
+        const it = this.nodes;
+        while (it.next()) {
+          const l: Node = it.value;
+          const h: any = l.layer;
+          if (h === null || h === undefined || !h.visible || h.isTemporary) continue;
+          this._yC(l, ignore, o);
+        }
+      } else {
+        if (n.memberParts.count > 0) {
+          const l = this.computePartsBounds(n.memberParts);
+          l.inflate(20, 20);
+          s.Ob(l);
+        }
+        const o = new Rect(0, 0, 0, 0);
+        const it = n.memberParts.iterator;
+        while (it.next()) {
+          const l = it.value;
+          if (l instanceof Node) this._yC(l, ignore, o);
+        }
+      }
+      s.container = n;
+      s.ignore = ignore;
+      s.needsRebuild = false;
+    } else if (rebuildDistances) {
+      s.aD();
+    }
+    return s;
+  }
+  /** 官方 `Diagram.hD(t)`：取最外层可避障的容器 Group，否则 null（图级） */
+  private _hD(t: any): any {
+    if (t.canAvoid()) return t;
+    return t.containingGroup !== null && t.containingGroup !== undefined
+      ? this._hD(t.containingGroup)
+      : null;
+  }
+  /** 官方 `Diagram.yC(node, ignore, rect)`：把节点 avoidable 矩形标进网格（Group 递归成员） */
+  private _yC(t: any, ignore: any, rect: Rect): void {
+    if (t === ignore || !t.isVisible()) return;
+    const can = t.canAvoid();
+    if (can) {
+      const r = t.getAvoidableRect(rect);
+      (this._positionArray as PositionArray).fE(r.x, r.y, r.width, r.height);
+    }
+    if (t instanceof Group && (!can || t.avoidableMembers)) {
+      const members = t.memberParts;
+      const it = members.iterator;
+      while (it.next()) {
+        const o = it.value;
+        if (o instanceof Node) this._yC(o, ignore, rect);
+      }
+    }
+  }
+  /**
+   * 官方 `Diagram.Fd(node?)`：节点增删/移动/avoidable 变化后把网格标为待重建
+   * （`bh!==null && !bh.Qo && (t===void0 || t.canAvoid()) → Qo=true`）。
+   */
+  Fd(node?: any): void {
+    const s = this._positionArray;
+    if (s !== null && !s.needsRebuild && (node === undefined || node.canAvoid())) {
+      s.needsRebuild = true;
+    }
+  }
   validCycle(): boolean { return true; }
   getInputOption(prop: string): any { return undefined; }
   setInputOption(prop: string, val: any): void { }
@@ -3185,12 +3367,15 @@ export class Diagram {
   toggleKeyboardControl(shown: boolean): void { }
   onViewportBoundsChanged(): void { this.requestUpdate(); }
   updateAllRelationshipsFromData(): void { }
-  /** 官方 Diagram.updateAllThemeBindings：对所有部件应用 theme 绑定（PartManager.updateAllThemeBindings） */
+  /** 官方 Diagram.updateAllThemeBindings：对所有部件应用 theme 绑定（PartManager.updateAllThemeBindings），并额外处理 GRID 部件（官方 `this.ms.part.Zo()`） */
   updateAllThemeBindings(): void {
     this._parts.each(pair => {
       const part = pair.value;
       if (part) this._applyThemeBindingsOnly(part, part);
     });
+    if (this._gridPart) {
+      this._applyThemeBindingsOnly(this._gridPart, this._gridPart);
+    }
   }
   isTreePathToChildrenFn(): boolean { return this._isTreePathToChildren; }
 
@@ -3200,16 +3385,31 @@ export class Diagram {
 
   // ============ 官方 Diagram API 对齐（阶段 6，收尾成员） ============
 
-  private _avoidanceCellSize: Size = new Size(1, 1);
-  private _avoidanceLimit: number = 1000;
+  // 官方 `I2=new Size(Link.RL, Link.IL)=(8,8)`、`O2=999`（go-debug 796567/796568）。
+  // 旧占位值 (1,1)/1000 会让网格过大、边界判断偏移。
+  private _avoidanceCellSize: Size = new Size(8, 8);
+  private _avoidanceLimit: number = 999;
+  /** 官方 `Diagram.Pb` 避障网格缓存（getPositions 惰性创建，needsRebuild/容器/ignore 变化时重建占用场） */
+  private _positionArray: PositionArray | null = null;
+  /** 官方 `Jr`：computePoints 成功后登记的待避障路由 link 集合 */
+  private _invalidRoutes: Set<any> = new Set<any>();
+  /** 官方 `Ta`：路由进行中（vo=true）登记的延迟批 */
+  private _invalidRoutesDuringRouting: Set<any> = new Set<any>();
+  /** 官方 `vo`：doLinkRouting 进行中标志（addInvalidRoute 据此分流） */
+  private _routingLinks: boolean = false;
+  /** 官方 `C0`：一旦出现 avoiding link 就置 true，且从不复位（canRoute 门控） */
+  private _needsAvoidance: boolean = false;
   private _scaleComputation: ((thisDiagram: Diagram, newScale: number) => number) | null = null;
   private _handlesDragDropForTopLevelParts: boolean = false;
   private _partManager: any = null;
 
   get avoidanceCellSize(): Size { return this._avoidanceCellSize; }
-  set avoidanceCellSize(val: Size) { this._avoidanceCellSize = new Size(val.width, val.height); }
+  set avoidanceCellSize(val: Size) {
+    this._avoidanceCellSize = new Size(Math.max(1, val.width), Math.max(1, val.height));
+    this._positionArray = null; // 官方：格子尺寸变 → 网格整体重建
+  }
   get avoidanceLimit(): number { return this._avoidanceLimit; }
-  set avoidanceLimit(val: number) { this._avoidanceLimit = val; }
+  set avoidanceLimit(val: number) { this._avoidanceLimit = Math.max(1, val); }
   get scaleComputation(): ((thisDiagram: Diagram, newScale: number) => number) | null { return this._scaleComputation; }
   set scaleComputation(val: ((thisDiagram: Diagram, newScale: number) => number) | null) { this._scaleComputation = val; }
   get handlesDragDropForTopLevelParts(): boolean { return this._handlesDragDropForTopLevelParts; }
@@ -3248,11 +3448,40 @@ export class Diagram {
       if (!r.canRoute(c)) return;
       if (typeof r.routeLinks === 'function') r.routeLinks(linkSet, c);
     };
-    if (typeof routers.each === 'function') {
-      routers.each((r: any) => visit(r));
-    } else if (Array.isArray(routers)) {
-      for (const r of routers) visit(r);
+    // 官方 `vo=true; ... routers ...; vo=false` —— 路由进行中 addInvalidRoute 进 Ta 延迟批
+    this._routingLinks = true;
+    try {
+      if (typeof routers.each === 'function') {
+        routers.each((r: any) => visit(r));
+      } else if (Array.isArray(routers)) {
+        for (const r of routers) visit(r);
+      }
+    } finally {
+      this._routingLinks = false;
     }
+  }
+
+  /**
+   * 官方 iC 尾部的路由收尾（go-debug occurrence2）：
+   * `this.doLinkRouting(this), this.Jr.clear(), this.Ta.size!==0 && (最多23轮 swap+doLinkRouting)`
+   * —— 无条件跑一轮（第一轮），清 Jr；路由期间新产生的 Ta 批 swap 成新 Jr 再跑，上限 23。
+   */
+  private _routeInvalidatedLinks(): void {
+    this.doLinkRouting(this);
+    this._invalidRoutes.clear();
+    let round = 0;
+    while (this._invalidRoutesDuringRouting.count > 0 && round < 23) {
+      // swap: Jr ← Ta（官方 `const c=this.Jr; this.Jr=this.Ta; this.Ta=c`）
+      const ta = this._invalidRoutesDuringRouting;
+      this._invalidRoutes.clear();
+      const it = ta.iterator;
+      while (it.next()) this._invalidRoutes.add(it.value);
+      ta.clear();
+      this.doLinkRouting(this);
+      this._invalidRoutes.clear();
+      round++;
+    }
+    this._invalidRoutesDuringRouting.clear();
   }
 
   cacheGroupExternalLinks(start: boolean): void { }

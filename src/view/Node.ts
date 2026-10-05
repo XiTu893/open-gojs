@@ -404,6 +404,9 @@ export class Node extends Part {
     if (old === val) return;
     this._avoidable = val;
     this.raiseChanged('avoidable', old, val);
+    // 官方 setter 末尾 → Diagram.Fd(node)（占用场标待重建）
+    const dg: any = this._diagram;
+    if (dg && typeof dg.Fd === 'function') dg.Fd(this);
   }
 
   /** 官方 `Node.avoidableMargin`（默认 Margin(2,2,2,2)，接受 number） */
@@ -416,6 +419,9 @@ export class Node extends Part {
     if (old.equals(m)) return;
     this._avoidableMargin = m.copy();
     this.raiseChanged('avoidableMargin', old, m);
+    // 官方 setter 末尾 → Diagram.Fd(node)
+    const dg: any = this._diagram;
+    if (dg && typeof dg.Fd === 'function') dg.Fd(this);
   }
 
   /** 官方 `Node.canAvoid()` */

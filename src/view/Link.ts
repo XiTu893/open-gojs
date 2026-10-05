@@ -77,6 +77,8 @@ export class Link extends Part {
   private static _XF: number = 16;
   /** 官方 `Link.Wh`（3） */
   private static _Wh: number = 8;
+  /** 官方 `Link.Wh` 公开访问（AvoidsNodesRouter 端点矩形膨胀用） */
+  static get Wh(): number { return Link._Wh; }
   /** 官方 `Link.yS`（4） */
   private static _yS: number = 3;
   /** 官方 `Link.YF`（5） */
@@ -111,6 +113,8 @@ export class Link extends Part {
   private static _IL: number = 8;
   /** 官方 `Link.JF`（20） */
   private static _JF: number = 11;
+  /** 官方 `Link.JF` 公开访问（PositionArray.Nf 每格距离场步数上限） */
+  static get JF(): number { return Link._JF; }
   /** 官方 `Link.yD`（setRoutingParameter 中 30..70 区间的内部保留值） */
   private static _yD: number = NaN;
 
@@ -427,7 +431,18 @@ export class Link extends Part {
   // fromSpot and toSpot are inherited from GraphObject
 
   get routing(): EnumValue { return this._routing; }
-  set routing(val: EnumValue) { this._routing = val; }
+  set routing(val: EnumValue) {
+    const old = this._routing;
+    if (old !== val) {
+      this._routing = val;
+      // 官方: `this.isAvoiding && this.diagram!==null && (this.diagram.C0=!0)`（go-debug 797720）
+      if (this.isAvoiding && this.diagram !== null) {
+        (this.diagram as any)._needsAvoidance = true;
+      }
+      // 官方: `this.fr=null, this.oi()`（oi = invalidateRoute）
+      this.invalidateRoute();
+    }
+  }
 
   get curve(): EnumValue { return this._curve; }
   set curve(val: EnumValue) { this._curve = val; }
@@ -649,6 +664,10 @@ export class Link extends Part {
       if (f || !a || c) this.addPoint(N);
       this.addPoint(p);
     }
+    // 官方唯一 exit: `return t.addInvalidRoute(this), !0`（go-debug 764588）——
+    // 完整重算成功后把本 link 登记进待避障路由集合（快路径 adjustPoints 不登记，与官方一致）。
+    const dg = this.diagram;
+    if (dg !== null && dg !== undefined) dg.addInvalidRoute(this);
     return true;
   }
 
@@ -2300,6 +2319,13 @@ export class Link extends Part {
   private _fA: boolean = false;
   private _sA: number = 0;
   private _nA: number = 0;
+
+  /** 官方 `Link.sA`：addOrthoPoints 吸附后的 from 方向（AvoidsNodesRouter.rV 读取） */
+  get sA(): number { return this._sA; }
+  /** 官方 `Link.nA`：吸附后的 to 方向 */
+  get nA(): number { return this._nA; }
+  /** 官方 `Link.fA`：端点方向是否被节点边缘吸附 */
+  get fA(): boolean { return this._fA; }
 
   /** 官方 `Link.invalidateOtherJumpOvers(bounds)`（本项目不做 jump 几何缓存，仅让同批 JumpOver/Gap 失效） */
   invalidateOtherJumpOvers(bounds: Rect): void {

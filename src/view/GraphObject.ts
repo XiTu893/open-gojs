@@ -487,10 +487,27 @@ export class GraphObject {
 
   get panel(): Panel | null { return this._panel; }
 
-  get part(): Part | null { return this._part; }
+  get part(): Part | null {
+    const cached = this._part;
+    if (cached) return cached;
+    // 官方 GraphObject.part：沿 panel 链向上找 Part 并缓存（go-debug `get part(){...xl...}`）。
+    // itemArray 运行时生成的条目不经过 Panel.add 的 _propagatePart，_part 初始为 null，
+    // 必须靠这条链解析，否则其 diagram/themeManager 全是 null（industrialMonitor
+    // monitor 节点的数值框/状态条 theme 绑定全部失效成黑色）。
+    let t: any = this._panel;
+    while (t) {
+      const p = t._part;
+      if (p) {
+        this._part = p;
+        return p;
+      }
+      t = t._panel;
+    }
+    return null;
+  }
 
   get diagram(): Diagram | null {
-    const p = this._part;
+    const p = this.part;
     return p ? (p as any)._diagram : null;
   }
 

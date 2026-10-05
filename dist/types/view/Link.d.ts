@@ -57,6 +57,8 @@ export declare class Link extends Part {
     private static _XF;
     /** 官方 `Link.Wh`（3） */
     private static _Wh;
+    /** 官方 `Link.Wh` 公开访问（AvoidsNodesRouter 端点矩形膨胀用） */
+    static get Wh(): number;
     /** 官方 `Link.yS`（4） */
     private static _yS;
     /** 官方 `Link.YF`（5） */
@@ -91,6 +93,8 @@ export declare class Link extends Part {
     private static _IL;
     /** 官方 `Link.JF`（20） */
     private static _JF;
+    /** 官方 `Link.JF` 公开访问（PositionArray.Nf 每格距离场步数上限） */
+    static get JF(): number;
     /** 官方 `Link.yD`（setRoutingParameter 中 30..70 区间的内部保留值） */
     private static _yD;
     /** 官方 `Link.setRoutingParameter(idx, value)`：设置路由算法的内部参数（1..20，以及 30..70 的保留位） */
@@ -410,6 +414,12 @@ export declare class Link extends Part {
     private _fA;
     private _sA;
     private _nA;
+    /** 官方 `Link.sA`：addOrthoPoints 吸附后的 from 方向（AvoidsNodesRouter.rV 读取） */
+    get sA(): number;
+    /** 官方 `Link.nA`：吸附后的 to 方向 */
+    get nA(): number;
+    /** 官方 `Link.fA`：端点方向是否被节点边缘吸附 */
+    get fA(): boolean;
     /** 官方 `Link.invalidateOtherJumpOvers(bounds)`（本项目不做 jump 几何缓存，仅让同批 JumpOver/Gap 失效） */
     invalidateOtherJumpOvers(bounds: Rect): void;
     copy(): Link;

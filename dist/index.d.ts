@@ -4088,6 +4088,8 @@ declare class Link extends Part {
     private static _XF;
     /** 官方 `Link.Wh`（3） */
     private static _Wh;
+    /** 官方 `Link.Wh` 公开访问（AvoidsNodesRouter 端点矩形膨胀用） */
+    static get Wh(): number;
     /** 官方 `Link.yS`（4） */
     private static _yS;
     /** 官方 `Link.YF`（5） */
@@ -4122,6 +4124,8 @@ declare class Link extends Part {
     private static _IL;
     /** 官方 `Link.JF`（20） */
     private static _JF;
+    /** 官方 `Link.JF` 公开访问（PositionArray.Nf 每格距离场步数上限） */
+    static get JF(): number;
     /** 官方 `Link.yD`（setRoutingParameter 中 30..70 区间的内部保留值） */
     private static _yD;
     /** 官方 `Link.setRoutingParameter(idx, value)`：设置路由算法的内部参数（1..20，以及 30..70 的保留位） */
@@ -4441,6 +4445,12 @@ declare class Link extends Part {
     private _fA;
     private _sA;
     private _nA;
+    /** 官方 `Link.sA`：addOrthoPoints 吸附后的 from 方向（AvoidsNodesRouter.rV 读取） */
+    get sA(): number;
+    /** 官方 `Link.nA`：吸附后的 to 方向 */
+    get nA(): number;
+    /** 官方 `Link.fA`：端点方向是否被节点边缘吸附 */
+    get fA(): boolean;
     /** 官方 `Link.invalidateOtherJumpOvers(bounds)`（本项目不做 jump 几何缓存，仅让同批 JumpOver/Gap 失效） */
     invalidateOtherJumpOvers(bounds: Rect): void;
     copy(): Link;
@@ -4617,6 +4627,113 @@ declare class Node extends Part {
     private _isTreePathToChildren;
     /** Create a copy of this Node */
     copy(): Node;
+}
+
+/**
+ * PositionArray - 官方避障网格图（go-debug `class PositionArray`，799249 起）。
+ *
+ * 每个单元格是 Uint32Array：
+ * - `mn = 0`：障碍占用；
+ * - `Sc = 1` .. `kg = 999999`：到障碍的 BFS 距离（tR/Lo/GS/qS 写入）；
+ * - `yA = kg+1`：网格外或未计算；
+ * - `wA = kg+2`：iR 路径搜索的临时访问标记。
+ *
+ * `Ob(rect)` 重设覆盖范围并全部填 yA；`fE` 标记占用；`tR(from,fromDir,to,toDir,bounds,usePath)`
+ * 从两个端口方向做距离场（GS/qS 沿方向射线标距，iR 尝试直接路径，否则 Lo 递推扩散），
+ * AvoidsNodesRouter.rV/hT 再沿距离场回溯出绕开障碍的折线。
+ */
+declare class PositionArray {
+    /** 单元格被占用 */
+    static readonly mn: number;
+    /** 最小距离 */
+    static readonly Sc: number;
+    /** 距离上限 / 未知上限 */
+    static readonly kg: number;
+    /** 网格外或未计算 */
+    static readonly yA: number;
+    /** 搜索访问标记 */
+    static readonly wA: number;
+    private _minX;
+    private _minY;
+    private _maxX;
+    private _maxY;
+    private _cellWidth;
+    private _cellHeight;
+    private _grid;
+    private _maxCol;
+    private _maxRow;
+    /** 官方 qa：最近一次构建所用的容器（Group/坐标系） */
+    container: any;
+    /** 官方 gC：最近一次构建的 ignore 节点 */
+    ignore: any;
+    /** 官方 Qo：需要重建（占用变化后置 true） */
+    needsRebuild: boolean;
+    /** 官方 pw：tR 判定两端几乎同格 */
+    tooClose: boolean;
+    /** 官方 Nf：默认 Link.JF（11），rV 端部膨胀用 */
+    Nf: number;
+    /** 官方 mC：水平方向距离场回退膨胀格数 */
+    mC: number;
+    /** 官方 pC：垂直方向距离场回退膨胀格数 */
+    pC: number;
+    constructor(cellSize: Size, nf?: number);
+    /** 官方 `Ob(rect)`：把覆盖范围扩到 rect（外扩一格），重建网格并全部填 yA */
+    Ob(rect: Rect): void;
+    get bounds(): Rect;
+    get cellWidth(): number;
+    set cellWidth(val: number);
+    get cellHeight(): number;
+    set cellHeight(val: number);
+    /** 官方 `Pg(x,y)`：点是否在网格覆盖内 */
+    Pg(x: number, y: number): boolean;
+    /** 官方 `To(x,y)`：点所在单元格的值 */
+    To(x: number, y: number): number;
+    /** 官方 `fE(x,y,w,h)`：把矩形覆盖的单元格标为占用 */
+    fE(x: number, y: number, w: number, h: number): void;
+    private _fill;
+    /** 官方 `aD()`：把距离值（>=Sc）重置为 yA，保留占用（mn）——每次路由前清距离场 */
+    aD(): void;
+    /** 官方 `S4(x,y)`：点所在格是否被占用 */
+    S4(x: number, y: number): boolean;
+    /** 官方 `isUnoccupied(x,y,w,h)`：矩形范围内没有任何占用格 */
+    isUnoccupied(x: number, y: number, w: number, h: number): boolean;
+    /** 官方 `maxAvoidsLinksSpaceH(x0,x1,y,h)`：水平方向上下扫描可用避让空间 */
+    maxAvoidsLinksSpaceH(x0: number, x1: number, y: number, h: number): number;
+    /** 官方 `maxAvoidsLinksSpaceV(y0,y1,x,w)`：垂直方向左右扫描可用避让空间 */
+    maxAvoidsLinksSpaceV(y0: number, y1: number, x: number, w: number): number;
+    /** 官方 `k4(t,i,e,s,n,o,r,l)`：从 (c,r) 沿 dir 直线写递增距离，遇 >=h 的值或越界停；返回停位 */
+    private _k4;
+    /** 官方 `Lo`：从 (c,r) 起沿 dir 直线写距离后，向两侧垂直递归扩散 */
+    Lo(c: number, r: number, dir: number, horizontal: boolean, minC: number, maxC: number, minR: number, maxR: number): void;
+    /**
+     * 官方 `GS`：从 (c,r) 沿 (horizontal? step=±1 方向) 直线逐格 +1 写距离（起点先写 Sc），
+     * 遇占用(mn)或越界停；返回停时的行/列坐标。
+     * `n` = 非水平方向时的步进；`o` = 是否水平；`r/l/h/a` = 边界。
+     */
+    private _GS;
+    /**
+     * 官方 `qS(t,i,e,s,n,o,...)`：**从 (e,s)（目标端格）**沿 toDir 方向写 kg 常量线
+     * （目标端“吸入”标记，Lo 抵达时会用真实距离覆盖；rV 用 To(目标) 读 kg 判断可达性）。
+     * 前两参 t,i 官方保留未用。
+     */
+    private _qS;
+    /**
+     * 官方 `tR(fromPt, fromDir, toPt, toDir, bounds, usePath)`：
+     * 从两端端口按方向做距离场。from 端用 GS 递增写距，to 端用 qS 写 kg 吸入线；
+     * usePath=true 时先试 iR 直接路径（写成 Sc.. 的递增序列），失败则 Lo 四向扩散。
+     * 两端格距 <=1 时置 tooClose 并直接返回。
+     */
+    tR(fromPt: PointLike, fromDir: number, toPt: PointLike, toDir: number, bounds: Rect, usePath: boolean): void;
+    /**
+     * 官方 `iR`：从 to 端格沿 toDir 逼近 from 端格，途遇分叉则转 90° 递归；
+     * 成功时 `out` 为交替 (c,r) 路径点列，失败回溯清空（保留调用方 push 的内容语义）。
+     * 途中把走过的格标成 wA 防止重入。
+     */
+    private _iR;
+}
+interface PointLike {
+    x: number;
+    y: number;
 }
 
 /**
@@ -6184,7 +6301,7 @@ declare class Diagram {
     private _setBoundProperty;
     private _applyBindingsToObject;
     private _updateBindingsForPart;
-    /** 官方 GraphObject.Zo：只应用 isToTheme 绑定，递归子对象 */
+    /** 官方 GraphObject.Zo：只应用 isToTheme 绑定，递归子对象（themeData 源数据沿 panel 链取条目 data，回退 part.data） */
     private _applyThemeBindingsOnly;
     private _updateBindingsForObject;
     _handlePartPropertyChanged(part: Part, obj: GraphObject, propname: string, value?: any): void;
@@ -6374,7 +6491,15 @@ declare class Diagram {
     invalidateViewport(): void;
     zoomToRect(rect: Rect): void;
     zoomPoint(factor: number): void;
-    isUnoccupied(rect: Rect): boolean;
+    /** 官方 `Diagram.isUnoccupied(rect, ignore?)`：委托给避障网格 */
+    isUnoccupied(rect: Rect, ignore?: any): boolean;
+    /**
+     * 官方 `Diagram.computeOccupiedArea(rect)`（getPositions.js:10 调用处
+     * `const o=Rect.a(); this.computeOccupiedArea(o), o.inflate(100,100), s.Ob(o)`）：
+     * 非虚拟化时把**文档范围**拷进 rect（官方 `t.f(this.documentBounds)`）。
+     * 旧占位返回新 Rect(viewport) 且不写 place → 网格只有 (0,0,0,0).inflate(100)=232×232，
+     * 大图节点全在网格外标不上障碍。
+     */
     computeOccupiedArea(place: Rect): Rect;
     scrollHorizontalLineChange(value: number): void;
     scrollVerticalLineChange(value: number): void;
@@ -6430,13 +6555,37 @@ declare class Diagram {
     private _routers;
     get routers(): List<any>;
     set routers(val: List<any> | any[] | Iterable<any>);
-    findRouter(part: any): any;
+    /** 官方 `Diagram.findRouter(name)` */
+    findRouter(name: string): any;
     addRenderer(renderer: any): void;
     removeRenderer(renderer: any): void;
+    /** 官方 `Diagram.setupRouters(){this.Pf.push(new AvoidsNodesRouter)}`（go-debug 279143） */
     setupRouters(): void;
+    /**
+     * 官方 `Diagram.addInvalidRoute(t){this.vo?this.Ta.add(t):this.Jr.add(t)}`：
+     * computePoints 成功后把 link 登记进“待避障路由”集合；vo（路由进行中）进 Ta 延迟批。
+     * 本项目 doLinkRouting 直接遍历全部 link（全集 ⊇ 官方 Jr 初值），集合主要保语义。
+     */
     addInvalidRoute(part: any): void;
     computeMove(part: any, pt: Point): void;
-    getPositions(part: any, t: any): any;
+    /**
+     * 官方 `Diagram.getPositions(rebuildDistances, container, ignore)`（go-debug 366380）：
+     * 返回（并缓存）避障网格 PositionArray：
+     * - 缓存失效（needsRebuild / 容器变化 / ignore 变化）→ 重算占用场：
+     *   文档范围外扩100 后 Ob，再把各可见非临时层节点的 avoidable 矩形 fE 标占用（yC，
+     *   Group 按 avoidableMembers 递归）；Group 容器则按成员包围盒 Ob。
+     * - rebuildDistances=true 时 aD() 清距离场（路由前重算 BFS 距离）。
+     */
+    getPositions(rebuildDistances: boolean, container: any, ignore: any): PositionArray;
+    /** 官方 `Diagram.hD(t)`：取最外层可避障的容器 Group，否则 null（图级） */
+    private _hD;
+    /** 官方 `Diagram.yC(node, ignore, rect)`：把节点 avoidable 矩形标进网格（Group 递归成员） */
+    private _yC;
+    /**
+     * 官方 `Diagram.Fd(node?)`：节点增删/移动/avoidable 变化后把网格标为待重建
+     * （`bh!==null && !bh.Qo && (t===void0 || t.canAvoid()) → Qo=true`）。
+     */
+    Fd(node?: any): void;
     validCycle(): boolean;
     getInputOption(prop: string): any;
     setInputOption(prop: string, val: any): void;
@@ -6454,12 +6603,22 @@ declare class Diagram {
     toggleKeyboardControl(shown: boolean): void;
     onViewportBoundsChanged(): void;
     updateAllRelationshipsFromData(): void;
-    /** 官方 Diagram.updateAllThemeBindings：对所有部件应用 theme 绑定（PartManager.updateAllThemeBindings） */
+    /** 官方 Diagram.updateAllThemeBindings：对所有部件应用 theme 绑定（PartManager.updateAllThemeBindings），并额外处理 GRID 部件（官方 `this.ms.part.Zo()`） */
     updateAllThemeBindings(): void;
     isTreePathToChildrenFn(): boolean;
     toString(): string;
     private _avoidanceCellSize;
     private _avoidanceLimit;
+    /** 官方 `Diagram.Pb` 避障网格缓存（getPositions 惰性创建，needsRebuild/容器/ignore 变化时重建占用场） */
+    private _positionArray;
+    /** 官方 `Jr`：computePoints 成功后登记的待避障路由 link 集合 */
+    private _invalidRoutes;
+    /** 官方 `Ta`：路由进行中（vo=true）登记的延迟批 */
+    private _invalidRoutesDuringRouting;
+    /** 官方 `vo`：doLinkRouting 进行中标志（addInvalidRoute 据此分流） */
+    private _routingLinks;
+    /** 官方 `C0`：一旦出现 avoiding link 就置 true，且从不复位（canRoute 门控） */
+    private _needsAvoidance;
     private _scaleComputation;
     private _handlesDragDropForTopLevelParts;
     private _partManager;
@@ -6477,6 +6636,12 @@ declare class Diagram {
     diagramScroll(scrollbar: any): void;
     /** 官方 `Diagram.doLinkRouting(container)`：遍历 routers，canRoute 过滤后 routeLinks(本图 links 集合, container) */
     doLinkRouting(container?: any): void;
+    /**
+     * 官方 iC 尾部的路由收尾（go-debug occurrence2）：
+     * `this.doLinkRouting(this), this.Jr.clear(), this.Ta.size!==0 && (最多23轮 swap+doLinkRouting)`
+     * —— 无条件跑一轮（第一轮），清 Jr；路由期间新产生的 Ta 批 swap 成新 Jr 再跑，上限 23。
+     */
+    private _routeInvalidatedLinks;
     cacheGroupExternalLinks(start: boolean): void;
     focusObject(obj: any): void;
     raiseChanged(flag: any, details: any): void;

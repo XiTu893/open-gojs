@@ -5,7 +5,10 @@ export class AnimationManager {
   static readonly className: string = "AnimationManager";
 
   private _diagram: any = null;
-  private _isEnabled: boolean = true;
+  // 官方 `this.Wi=!1`（isEnabled 默认 false —— 官方默认无布局动画；
+  // 我们此前默认 true，200ms location 回写动画在末帧把避障折线打回基础正交版，
+  // 且动画停后无人再跑 doLinkRouting，industrialMonitor 避障 link 最终态丢失）。
+  private _isEnabled: boolean = false;
   private _duration: number = 200;
   private _isAnimating: boolean = false;
   private _isInitial: boolean = true;

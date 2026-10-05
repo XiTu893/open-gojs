@@ -823,6 +823,9 @@ export class Panel extends GraphObject {
         (copy as any)._panel = this;
         this._elements.splice(start + i, 0, copy);
         copy._data = itemData;
+        // 与 Panel.add 一致：把所属 Part 传播到条目子树（克隆体的 _part 不随 copy 带过来），
+        // 否则条目内部的 theme 绑定拿不到 diagram/themeManager。
+        if (this._part) this._setPartRecursive(copy, this._part);
         copy.updateTargetBindings();
       }
     }
@@ -854,7 +857,8 @@ export class Panel extends GraphObject {
         for (const binding of bindings) {
           // 官方：theme 绑定不依赖 data（无数据部件也要应用）
           if (!data && !binding.isToTheme) continue;
-          if (propname === undefined || propname === binding.sourceProperty) {
+          // 官方 Binding.RN：source=''（监听任意属性）或 propname 未给或同名 → 应用
+          if (propname === undefined || binding.sourceProperty === '' || propname === binding.sourceProperty) {
             // 官方 Binding.updateTarget：取源值 + converter + 写目标属性整段
             // 包在 try/catch 里，异常静默吞掉（见 Diagram._resolveBindingValue 注释）
             try {

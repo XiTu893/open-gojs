@@ -338,15 +338,19 @@ export class Geometry {
     let curX = 0, curY = 0;
     let hasMove = false;
     let current = fig;
-    let isFilled = true;
+    // 官方 GeoStream 的 k 默认 false：无 F 前缀的图形 isFilled=false（探针确认）；
+    // 见到 F/F0/F1 后 k=true 并对后续所有 figure 生效。此前本实现是反的
+    // （plain F→不填充），industrialMonitor 的罐体全透明。
+    let isFilled = false;
 
     const startFigure = (x: number, y: number): void => {
       if (hasMove || current.segments.count > 0) {
-        current = new PathFigure(x, y);
+        current = new PathFigure(x, y, isFilled);
         geo.add(current);
       } else {
         current.startX = x;
         current.startY = y;
+        current.isFilled = isFilled;
       }
       hasMove = true;
       curX = x;
@@ -355,14 +359,19 @@ export class Geometry {
 
     for (const cmd of commands) {
       const type = cmd[0];
-      const args = cmd.slice(1).trim().split(/[\s,]+/).map(Number).filter(n => !isNaN(n));
+      // 官方预处理 `([0-9])([+\-])→"$1 $2"` 的等价：按数字而非空白切分，
+      // 否则 `Q25-3 0 3` 里的 "25-3" 被 split 后 Number()=NaN 被丢弃，
+      // 隐式重复的二次贝塞尔参数整体错位（MHWT 罐体上的斜线元凶）。
+      const args = (cmd.slice(1).match(/[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?/g) || []).map(Number);
 
       switch (type) {
         case 'F':
-        case 'F1': {
-          // 官方填充标记：F = 不填充，F1 = 填充（作用于当前 figure）
-          isFilled = type === 'F1';
-          current.isFilled = isFilled;
+        case 'F1':
+        case 'F0': {
+          // 官方 case"F"：F/F0/F1 都把后续 figure 置为 isFilled=true（F0 另置 evenOdd，
+          // 渲染未用到 evenOdd，这里与 F1 同等处理）。
+          isFilled = true;
+          current.isFilled = true;
           break;
         }
         case 'M':
@@ -428,17 +437,50 @@ export class Geometry {
           }
           break;
         case 'A':
-          for (let i = 0; i + 6 < args.length; i += 7) {
-            current.add(PathSegment.Arc(args[i + 5], args[i + 6], args[i], args[i + 1], args[i + 2], args[i + 3] !== 0, args[i + 4] !== 0));
-            curX = args[i + 5]; curY = args[i + 6];
+        case 'a': {
+          // 官方 GeoStream case"A"：弧的两个 flag 是单字符，会和终点粘连成
+          // "0150"（A25 25 0 0150 25）。按官方 token 规则解码：
+          //   len===1 → flag1=token, flag2=下一 token；len===2 → chars；
+          //   len>2  → chars[0], chars[1], X=token.slice(2)
+          // 用数字正则切参数会把 0150 当成 150 → 只剩 5 参 → 弧段被丢弃
+          // （MHWT 罐体渲染成帆形的元凶）。
+          const relative = type === 'a';
+          const arcBody = cmd.slice(1).replace(/([0-9])([+-])/g, '$1 $2');
+          const tokens = arcBody.split(/[\s,]+/).filter((t) => t.length > 0);
+          let ti = 0;
+          while (ti + 2 < tokens.length) {
+            const rx = Math.abs(parseFloat(tokens[ti]));
+            const ry = Math.abs(parseFloat(tokens[ti + 1]));
+            const rot = parseFloat(tokens[ti + 2]);
+            ti += 3;
+            if (ti >= tokens.length) break;
+            const flagTok = tokens[ti];
+            let largeArc: boolean, sweep: boolean, ex: number, ey: number;
+            if (flagTok.length === 1) {
+              largeArc = !!parseFloat(flagTok);
+              sweep = !!parseFloat(tokens[ti + 1] || '0');
+              ex = parseFloat(tokens[ti + 2] || '0');
+              ey = parseFloat(tokens[ti + 3] || '0');
+              ti += 4;
+            } else if (flagTok.length === 2) {
+              largeArc = !!parseFloat(flagTok[0]);
+              sweep = !!parseFloat(flagTok[1]);
+              ex = parseFloat(tokens[ti + 1] || '0');
+              ey = parseFloat(tokens[ti + 2] || '0');
+              ti += 3;
+            } else {
+              largeArc = !!parseFloat(flagTok[0]);
+              sweep = !!parseFloat(flagTok[1]);
+              ex = parseFloat(flagTok.slice(2));
+              ey = parseFloat(tokens[ti + 1] || '0');
+              ti += 2;
+            }
+            if (relative) { ex = curX + ex; ey = curY + ey; }
+            current.add(PathSegment.Arc(ex, ey, rx, ry, rot, largeArc, sweep));
+            curX = ex; curY = ey;
           }
           break;
-        case 'a':
-          for (let i = 0; i + 6 < args.length; i += 7) {
-            current.add(PathSegment.Arc(curX + args[i + 5], curY + args[i + 6], args[i], args[i + 1], args[i + 2], args[i + 3] !== 0, args[i + 4] !== 0));
-            curX += args[i + 5]; curY += args[i + 6];
-          }
-          break;
+        }
         case 'B': {
           // 相对三次贝塞尔：b x1,y1 x2,y2 x,y
           if (args.length >= 6) {

@@ -5,6 +5,7 @@ import { GraphObject } from '../view/GraphObject';
 import { Part } from '../view/Part';
 import { Node } from '../view/Node';
 import { Link } from '../view/Link';
+import { PositionArray } from '../core/PositionArray';
 import { Layer } from '../view/Layer';
 import { Point } from '../core/Point';
 import { Rect } from '../core/Rect';
@@ -320,7 +321,7 @@ export declare class Diagram {
     private _setBoundProperty;
     private _applyBindingsToObject;
     private _updateBindingsForPart;
-    /** 官方 GraphObject.Zo：只应用 isToTheme 绑定，递归子对象 */
+    /** 官方 GraphObject.Zo：只应用 isToTheme 绑定，递归子对象（themeData 源数据沿 panel 链取条目 data，回退 part.data） */
     private _applyThemeBindingsOnly;
     private _updateBindingsForObject;
     _handlePartPropertyChanged(part: Part, obj: GraphObject, propname: string, value?: any): void;
@@ -510,7 +511,15 @@ export declare class Diagram {
     invalidateViewport(): void;
     zoomToRect(rect: Rect): void;
     zoomPoint(factor: number): void;
-    isUnoccupied(rect: Rect): boolean;
+    /** 官方 `Diagram.isUnoccupied(rect, ignore?)`：委托给避障网格 */
+    isUnoccupied(rect: Rect, ignore?: any): boolean;
+    /**
+     * 官方 `Diagram.computeOccupiedArea(rect)`（getPositions.js:10 调用处
+     * `const o=Rect.a(); this.computeOccupiedArea(o), o.inflate(100,100), s.Ob(o)`）：
+     * 非虚拟化时把**文档范围**拷进 rect（官方 `t.f(this.documentBounds)`）。
+     * 旧占位返回新 Rect(viewport) 且不写 place → 网格只有 (0,0,0,0).inflate(100)=232×232，
+     * 大图节点全在网格外标不上障碍。
+     */
     computeOccupiedArea(place: Rect): Rect;
     scrollHorizontalLineChange(value: number): void;
     scrollVerticalLineChange(value: number): void;
@@ -566,13 +575,37 @@ export declare class Diagram {
     private _routers;
     get routers(): List<any>;
     set routers(val: List<any> | any[] | Iterable<any>);
-    findRouter(part: any): any;
+    /** 官方 `Diagram.findRouter(name)` */
+    findRouter(name: string): any;
     addRenderer(renderer: any): void;
     removeRenderer(renderer: any): void;
+    /** 官方 `Diagram.setupRouters(){this.Pf.push(new AvoidsNodesRouter)}`（go-debug 279143） */
     setupRouters(): void;
+    /**
+     * 官方 `Diagram.addInvalidRoute(t){this.vo?this.Ta.add(t):this.Jr.add(t)}`：
+     * computePoints 成功后把 link 登记进“待避障路由”集合；vo（路由进行中）进 Ta 延迟批。
+     * 本项目 doLinkRouting 直接遍历全部 link（全集 ⊇ 官方 Jr 初值），集合主要保语义。
+     */
     addInvalidRoute(part: any): void;
     computeMove(part: any, pt: Point): void;
-    getPositions(part: any, t: any): any;
+    /**
+     * 官方 `Diagram.getPositions(rebuildDistances, container, ignore)`（go-debug 366380）：
+     * 返回（并缓存）避障网格 PositionArray：
+     * - 缓存失效（needsRebuild / 容器变化 / ignore 变化）→ 重算占用场：
+     *   文档范围外扩100 后 Ob，再把各可见非临时层节点的 avoidable 矩形 fE 标占用（yC，
+     *   Group 按 avoidableMembers 递归）；Group 容器则按成员包围盒 Ob。
+     * - rebuildDistances=true 时 aD() 清距离场（路由前重算 BFS 距离）。
+     */
+    getPositions(rebuildDistances: boolean, container: any, ignore: any): PositionArray;
+    /** 官方 `Diagram.hD(t)`：取最外层可避障的容器 Group，否则 null（图级） */
+    private _hD;
+    /** 官方 `Diagram.yC(node, ignore, rect)`：把节点 avoidable 矩形标进网格（Group 递归成员） */
+    private _yC;
+    /**
+     * 官方 `Diagram.Fd(node?)`：节点增删/移动/avoidable 变化后把网格标为待重建
+     * （`bh!==null && !bh.Qo && (t===void0 || t.canAvoid()) → Qo=true`）。
+     */
+    Fd(node?: any): void;
     validCycle(): boolean;
     getInputOption(prop: string): any;
     setInputOption(prop: string, val: any): void;
@@ -590,12 +623,22 @@ export declare class Diagram {
     toggleKeyboardControl(shown: boolean): void;
     onViewportBoundsChanged(): void;
     updateAllRelationshipsFromData(): void;
-    /** 官方 Diagram.updateAllThemeBindings：对所有部件应用 theme 绑定（PartManager.updateAllThemeBindings） */
+    /** 官方 Diagram.updateAllThemeBindings：对所有部件应用 theme 绑定（PartManager.updateAllThemeBindings），并额外处理 GRID 部件（官方 `this.ms.part.Zo()`） */
     updateAllThemeBindings(): void;
     isTreePathToChildrenFn(): boolean;
     toString(): string;
     private _avoidanceCellSize;
     private _avoidanceLimit;
+    /** 官方 `Diagram.Pb` 避障网格缓存（getPositions 惰性创建，needsRebuild/容器/ignore 变化时重建占用场） */
+    private _positionArray;
+    /** 官方 `Jr`：computePoints 成功后登记的待避障路由 link 集合 */
+    private _invalidRoutes;
+    /** 官方 `Ta`：路由进行中（vo=true）登记的延迟批 */
+    private _invalidRoutesDuringRouting;
+    /** 官方 `vo`：doLinkRouting 进行中标志（addInvalidRoute 据此分流） */
+    private _routingLinks;
+    /** 官方 `C0`：一旦出现 avoiding link 就置 true，且从不复位（canRoute 门控） */
+    private _needsAvoidance;
     private _scaleComputation;
     private _handlesDragDropForTopLevelParts;
     private _partManager;
@@ -613,6 +656,12 @@ export declare class Diagram {
     diagramScroll(scrollbar: any): void;
     /** 官方 `Diagram.doLinkRouting(container)`：遍历 routers，canRoute 过滤后 routeLinks(本图 links 集合, container) */
     doLinkRouting(container?: any): void;
+    /**
+     * 官方 iC 尾部的路由收尾（go-debug occurrence2）：
+     * `this.doLinkRouting(this), this.Jr.clear(), this.Ta.size!==0 && (最多23轮 swap+doLinkRouting)`
+     * —— 无条件跑一轮（第一轮），清 Jr；路由期间新产生的 Ta 批 swap 成新 Jr 再跑，上限 23。
+     */
+    private _routeInvalidatedLinks;
     cacheGroupExternalLinks(start: boolean): void;
     focusObject(obj: any): void;
     raiseChanged(flag: any, details: any): void;

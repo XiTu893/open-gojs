@@ -190,6 +190,10 @@ export class Part extends Panel {
       const um = dm && dm.undoManager;
       if (!um || !um.isUndoingRedoing) (this as any).invalidateConnectedLinks();
     }
+    // 官方：Node location 变化 → Diagram.Fd(node)（占用场标待重建，Only nodes matter）
+    if (typeof (this as any).canAvoid === 'function' && this._diagram && typeof (this._diagram as any).Fd === 'function') {
+      (this._diagram as any).Fd(this);
+    }
   }
 
   /** 官方 Part.position（GraphObject.position 的 Part 覆盖：与 location 按 locationSpot 同步） */

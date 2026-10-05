@@ -260,10 +260,16 @@ export class Brush {
     x = 1.2268798 * t1 - 0.5578149 * t2 + 0.281391 * t3;
     y = -0.04057576 * t1 + 1.112286 * t2 - 0.07171106 * t3;
     z = -0.07637294 * t1 - 0.4214933 * t2 + 1.586924 * t3;
-    // XYZ → 线性 RGB → sRGB（官方 qD：round + clamp 0..255）
-    let rr = Math.round(Brush._wN(x) * 255);
-    let gg = Math.round(Brush._wN(y) * 255);
-    let bb = Math.round(Brush._wN(z) * 255);
+    // XYZ → 线性 RGB（官方 qD 的 3.2404542/-1.5371385/-0.4985314 矩阵）。
+    // 早先这里漏了这一步，直接把 XYZ 当线性 RGB 做 gamma 编码，
+    // Brush.darkenBy('#e74c3c',0.3) 算出 (78,47,0) 而官方是 (125,0,0)。
+    const linR = 3.2404542 * x - 1.5371385 * y - 0.4985314 * z;
+    const linG = -0.969266 * x + 1.8760108 * y + 0.041556 * z;
+    const linB = 0.0556434 * x - 0.2040259 * y + 1.0572252 * z;
+    // 线性 RGB → sRGB（官方 qD：round + clamp 0..255）
+    let rr = Math.round(Brush._wN(linR) * 255);
+    let gg = Math.round(Brush._wN(linG) * 255);
+    let bb = Math.round(Brush._wN(linB) * 255);
     if (rr > 255) rr = 255; else if (rr < 0) rr = 0;
     if (gg > 255) gg = 255; else if (gg < 0) gg = 0;
     if (bb > 255) bb = 255; else if (bb < 0) bb = 0;
