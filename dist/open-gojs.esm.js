@@ -42831,8 +42831,6 @@ var ThemeManager = /** @class */ (function () {
 }());
 
 var e_1, _a;
-/** 官方滚动条槽位宽/高（屏幕 px，实测恒为 11，与 viewSize、scale 无关） */
-var SCROLLBAR_SIZE = 11;
 /**
  * 官方 Diagram 的事件名清单（官方 `Diagram.RO()` 建立的 `S2`/`k2` 表）。
  * `set(options)` 遇到这些名字时不会当普通属性赋值，而是转成 addDiagramListener。
@@ -42878,9 +42876,18 @@ var Diagram = /** @class */ (function () {
         this._modelChangeListener = null;
         this._position = Point.Zero.copy();
         this._scale = 1;
-        this._minScale = 0;
-        this._maxScale = Infinity;
+        // 官方 Mb/Cb 默认（ctor @254692）：minScale=1e-4、maxScale=100
+        this._minScale = 1e-4;
+        this._maxScale = 100;
         this._padding = new Margin(5);
+        /**
+         * 官方 Ht（滚动条槽位宽/高，屏幕 px）。构造 NA() 置 17；首次 jM() 经
+         * `setScrollWidth()` 探针量成实测值（本环境 fallback 11）。初始 Sd 必须用 17：
+         * orgChartEditor 官方 scale=0.7578361209233584=(625−17)/802.284…，用 11 会得 0.7653。
+         */
+        this._scrollbarSlot = 17;
+        /** 官方 u2：setScrollWidth 一次性测量标志 */
+        this._scrollbarMeasured = false;
         /**
          * 上一次 raise `DocumentBoundsChanged` 时的文档包围盒。
          * 官方是「包围盒**变了**才 raise」，而本项目以前只在 `invalidateDocumentBounds()`
@@ -42933,6 +42940,8 @@ var Diagram = /** @class */ (function () {
         this._diagramListeners = new Map$1();
         this._needsRender = false;
         this._animationFrameId = 0;
+        /** 官方 delayInitialization 的 vs 冻结位：置位期间 requestUpdate/_renderLoop 直通早退 */
+        this._updateSuspended = false;
         this._resizeObserver = null;
         this._lastDivWidth = 0;
         this._lastDivHeight = 0;
@@ -42971,7 +42980,6 @@ var Diagram = /** @class */ (function () {
         this._scrollsPageOnFocus = false;
         this._hasHorizontalScrollbar = false;
         this._hasVerticalScrollbar = false;
-        this._scrollWidth = 20;
         this._autoScrollInterval = 14;
         this._autoScrollRegion = 28;
         this._isVirtualized = false;
@@ -43324,9 +43332,9 @@ var Diagram = /** @class */ (function () {
             var db = this.documentBounds;
             // 官方自身也兜底 `Math.max(St - Ht, 1)`，否则未布局的 div（clientWidth=0）会算出负尺寸。
             if (db.width * s > vs.width)
-                h = Math.max(h - SCROLLBAR_SIZE, 1);
+                h = Math.max(h - this._scrollbarSlot, 1);
             if (db.height * s > vs.height)
-                w = Math.max(w - SCROLLBAR_SIZE, 1);
+                w = Math.max(w - this._scrollbarSlot, 1);
             return new Rect(this._position.x, this._position.y, w / s, h / s);
         },
         enumerable: false,
@@ -44110,6 +44118,8 @@ var Diagram = /** @class */ (function () {
     // ============ Update Methods ============
     Diagram.prototype.requestUpdate = function (invalidate) {
         var _this = this;
+        if (this._updateSuspended)
+            return; // 官方 requestUpdate 的 vs 守卫
         if (!this._needsRender) {
             this._needsRender = true;
             this._animationFrameId = requestAnimationFrame(function () { return _this._renderLoop(); });
@@ -44155,26 +44165,18 @@ var Diagram = /** @class */ (function () {
         this.requestUpdate();
     };
     /**
-     * 官方 zoomToFit → Td(2)：min(view/doc)，**不超过 defaultScale（通常 1.0）**，
-     * 再 alignDocument(Center, Center) 居中。
+     * 官方 zoomToFit（go.js @278931）：`save yh, yh=1, scale=Sd(2), alignDocument(Center,Center), …`。
+     * yh=scrollMode（默认 None=1）——非 None 时官方补一轮 contentAlignment 对齐，
+     * 本项目 scrollMode 语义尚未移植，默认路径一致故跳过。
      */
     Diagram.prototype.zoomToFit = function () {
-        var db = this.documentBounds;
-        var vs = this.viewSize;
-        if (db.width <= 0 || db.height <= 0 || vs.width <= 0 || vs.height <= 0)
-            return;
-        var newScale = Math.min(vs.width / db.width, vs.height / db.height);
-        var def = this.defaultScale;
-        if (newScale > def)
-            newScale = def;
-        if (newScale < this._minScale)
-            newScale = this._minScale;
-        if (newScale > this._maxScale)
-            newScale = this._maxScale;
-        this._scale = newScale;
+        var u = this._computeAutoScale(2);
+        if (this._scale !== u) {
+            this._scale = u;
+            this._raiseDiagramEvent('ViewportChanged');
+            this.requestUpdate();
+        }
         this.alignDocument(Spot.Center, Spot.Center);
-        this._raiseDiagramEvent('ViewportChanged');
-        this.requestUpdate();
     };
     Diagram.prototype.centerRect = function (r) {
         var vs = this.viewSize;
@@ -44184,19 +44186,15 @@ var Diagram = /** @class */ (function () {
         this.requestUpdate();
     };
     Diagram.prototype.scrollToRect = function (r) {
+        // 官方 go.js scrollToRect（逐字）：viewport 已包含 rect 则不动；
+        // 否则 position = rect.center − viewportBounds/2（**居中**语义，不是最小滚距）。
+        // familyTree 官方 pos.x=2771.375=root.center.x−900/1.2 精确复现；
+        // 旧实现的最小右滚语义把 pos 停在 2168（差 602 文档单位，15% 级像素差）。
         var vb = this.viewportBounds;
-        var newX = this._position.x;
-        var newY = this._position.y;
-        if (r.x < vb.x)
-            newX = r.x;
-        else if (r.right > vb.right)
-            newX = r.right - vb.width;
-        if (r.y < vb.y)
-            newY = r.y;
-        else if (r.bottom > vb.bottom)
-            newY = r.bottom - vb.height;
-        this._position = new Point(newX, newY);
-        this.requestUpdate();
+        if (vb.containsRect(r))
+            return;
+        var c = r.center;
+        this.position = new Point(c.x - vb.width / 2, c.y - vb.height / 2);
     };
     Diagram.prototype.alignDocument = function (docSpot, viewSpot) {
         // 实测：官方 alignDocument 源码虽然写的是 viewportBounds，但它的调用点之后
@@ -45139,6 +45137,11 @@ var Diagram = /** @class */ (function () {
                             }
                             finally { if (e_32) throw e_32.error; }
                         }
+                        // 官方 Set 变更路径的 xw(new) 对 TreeModel 同样建父链；
+                        // 我们的 _addNodeForData 只建节点 → 整替赋值（如 DragZooming
+                        // 的 loadTree: model.nodeDataArray = treedata）会漏掉全部树链。
+                        if (this._model instanceof TreeModel)
+                            this._rebuildTreeLinks();
                         needsLayout = true;
                         this.requestUpdate();
                     }
@@ -45423,6 +45426,8 @@ var Diagram = /** @class */ (function () {
     Diagram.prototype._renderLoop = function () {
         this._needsRender = false;
         this._animationFrameId = 0;
+        if (this._updateSuspended)
+            return; // 官方 Ar 入口的 vs 守卫（冻结期挂起帧直接丢弃）
         this._checkResize();
         if (this._layoutInvalid) {
             this._performLayout();
@@ -45434,6 +45439,13 @@ var Diagram = /** @class */ (function () {
             // 布局有效但有待路由 link（computePoints 刚重算过，常被动画打回基础版）
             // → 仍跑一轮 doLinkRouting，让 AvoidsNodesRouter 重算成避障折线。
             this._routeInvalidatedLinks();
+        }
+        // 官方 jM() 首跑（go.js @272919）：`u2||(Ht=setScrollWidth(),u2=true)` 一次性测量。
+        // 必须排在 _performLayout（含 tE/_applyInitialViewport 与 post-jO 夹取）**之后**：
+        // 官方 Sd/EA+tn(false) 先用 Ht=17 算完，首帧 update 才把 Ht 量成实测值（本环境 11）。
+        if (!this._scrollbarMeasured && this._div && this._div.clientWidth > 0 && this._div.clientHeight > 0) {
+            this._scrollbarMeasured = true;
+            this._scrollbarSlot = this.setScrollWidth();
         }
         this._updateGeometry();
         // 官方：documentBounds 真的变了才 raise DocumentBoundsChanged（见 _lastRaisedDocBounds 注释）
@@ -45715,6 +45727,15 @@ var Diagram = /** @class */ (function () {
         }
         this._applyAutoScale();
         this._applyContentAlignment();
+        // 官方 EA+tn(false) 轮（jO 后 j2(!0,true)，此后 Ar 的 j2(!1,true) 在 ud 脏时同跑）：
+        // Pt/St 换成预留态 viewportBounds，l=contentAlignment **原值不解析**（Default→
+        // isSpot false → H2 只夹取不 align）。orgChartEditor：首夹(raw) align 出
+        // −16.216，此处 r=802.284271==docH → `l<t.bottom−i` 分支修回 −5（官方
+        // TN_EXIT −16.216 → final −5 实测一致）；orgChartStatic/processFlow 夹取不动。
+        {
+            var gv = this.viewportBounds;
+            this._clampViewportPosition(this.documentBounds, gv.width, gv.height, this._contentAlignment);
+        }
         // 官方 layoutDiagram 收尾：o.doLayout(t) 后 this.doLinkRouting(t)
         // + Jr.clear + Ta 非空 23 轮（helper 第一轮即无条件 doLinkRouting）
         this._routeInvalidatedLinks();
@@ -45724,16 +45745,13 @@ var Diagram = /** @class */ (function () {
      * 再按 initialDocumentSpot/initialViewportSpot 计算 position，最后用 Z2 首次夹取修正。
      */
     Diagram.prototype._applyInitialViewport = function () {
-        if (this._initialAutoScale === AutoScaleUniform) {
-            this.zoomToFit();
-        }
-        else if (this._initialAutoScale === AutoScaleUniformToFill) {
-            var db0 = this.documentBounds;
-            var vs_1 = this.viewSize;
-            if (db0.width > 0 && db0.height > 0 && vs_1.width > 0 && vs_1.height > 0) {
-                var newScale = Math.max(vs_1.width / db0.width, vs_1.height / db0.height);
-                this._scale = Math.max(this._minScale, Math.min(this._maxScale, newScale));
-                this._position = new Point(db0.x, db0.y);
+        if (this._initialAutoScale === AutoScaleUniform || this._initialAutoScale === AutoScaleUniformToFill) {
+            // 官方 tE: `if(Yr!==1) scale=Sd(Yr)`（无 alignDocument——position 由下面 on(t) 逻辑算）
+            var mode = this._initialAutoScale === AutoScaleUniform ? 2 : 3;
+            var u_1 = this._computeAutoScale(mode);
+            if (this._scale !== u_1) {
+                this._scale = u_1;
+                this._raiseDiagramEvent('ViewportChanged');
             }
         }
         else {
@@ -45747,7 +45765,10 @@ var Diagram = /** @class */ (function () {
             this._position = this._initialPosition.copy();
             return;
         }
-        // 官方：doc spot 对齐 viewport spot（NoSpot → TopLeft）
+        // 官方 tn(true)：doc spot 对齐 viewport spot（NoSpot → TopLeft）。
+        // `g=this.viewportBounds` 此刻是 **raw**（Pt/St 预留态被 EA 的 `!lo` 早退挡在
+        // jO 之后才算），等价 raw viewSize/scale：orgChartStatic 官方 position.x=
+        // 1182.907=docCentre−900/2（若用预留态 883 会得 1191.4）。
         var u = this._initialDocumentSpot;
         var d = this._initialViewportSpot;
         if (u.isNoSpot())
@@ -45757,41 +45778,34 @@ var Diagram = /** @class */ (function () {
         var db = this.documentBounds;
         var mx = db.x + u.x * db.width + u.offsetX;
         var my = db.y + u.y * db.height + u.offsetY;
-        // 官方 `on(t)` 这里用的是**原始 viewSize**，不是带滚动条预留的 viewportBounds：
-        // orgChartStatic 上 initialDocumentSpot=TopCenter，官方 position.x = 1182.907
-        // = docCentre - 900/2；若用 viewportBounds(889) 会得 1188.407。
         var vs = this.viewSize;
         var p = new Rect(0, 0, vs.width / this._scale, vs.height / this._scale);
         var yx = p.x + d.x * p.width + d.offsetX;
         var yy = p.y + d.y * p.height + d.offsetY;
         this._position = new Point(mx - yx, my - yy);
-        // 官方 on()：contentAlignment 解析（l 非 spot 且 initialContentAlignment 是 spot/default 时用后者）
+        // 官方 tn：contentAlignment 解析（l 非 spot 且 initialContentAlignment 是 spot/default 时用后者）
         var l = this._contentAlignment;
         var h = this._initialContentAlignment;
         if (!l.isSpot() && h !== null && (h.isSpot() || h.isDefault())) {
             var f = this._initialDocumentSpot.isSpot() && this._initialViewportSpot.isSpot();
             l = h.isDefault() && !f ? Spot.Center : h;
         }
-        // 官方 tn(true) 里 H2 的实参 = Pt/it, St/it（原始 viewSize/scale）。
-        // 给 CDN 4.0.5 flowchart 打桩实测：tn(true) 时 St 还没做滚动条预留（=810）、
-        // H2 收 e=682,i=810,n=true → align 得 position.y=-42.468；此后滚动条预留
-        // 才生效（viewportBounds 变 682×799），但后续 H2 调用 n=false 且 s=Default，
-        // 不再 align，position 不回写。早先这里传 viewportBounds(799) 会让首次
-        // align 矮 5.5px——正是 flowchart 像素残差 3% 的主体。
+        // 首夹同样用 raw（jO 内 EA 未跑）：processFlow 官方 y=−50=Center 对齐
+        // raw r=St/i=500/1 所得；用预留态 483 会得 −41.5。
         this._clampViewportPosition(db, vs.width / this._scale, vs.height / this._scale, l);
     };
     /** 官方 Z2(n=true/scrollMode)：夹取 position；视口宽于文档时按对齐 spot 摆放 */
     Diagram.prototype._clampViewportPosition = function (t, i, e, alignSpot) {
         var r = this._position.x;
         var l = this._position.y;
-        // 官方 H2 源码写的是 `const a = this.kh`（Diagram.padding），且 documentBounds 本身
-        // 也已含 padding（实测 pad=50 → doc 从 [0,0,77,14] 变 [-50,-50,177,114]，两边一致），
-        // 即官方在这里是**双重计入** padding。但我们照抄会变差：
-        // animatedFocus 92.7→97.3、grouping 2.43→3.06、conceptMap 3.13→3.47，故保持 0。
-        var ml = 0;
-        var mr = 0;
-        var mt = 0;
-        var mb = 0;
+        // 官方 H2: `const a=this.kh` —— kh=**scrollMargin**（默认 0,0,0,0），不是
+        // padding（padding 另存 se 字段）。早年误认成 padding 双重计入，实验上
+        // 喂 padding 会让 animatedFocus/grouping/conceptMap 变差——因为官方用的就是
+        // scrollMargin(0)。此处直接读 scrollMargin 即逐字等价。
+        var ml = this._scrollMargin.left;
+        var mr = this._scrollMargin.right;
+        var mt = this._scrollMargin.top;
+        var mb = this._scrollMargin.bottom;
         if (alignSpot.isSpot()) {
             if (i > t.width)
                 r = t.x + (alignSpot.x * t.width + alignSpot.offsetX) - (alignSpot.x * i - alignSpot.offsetX);
@@ -45827,6 +45841,63 @@ var Diagram = /** @class */ (function () {
         if (isFinite(r) && isFinite(l))
             this._position = new Point(r, l);
     };
+    /**
+     * 官方 Sd(t)（go.js @278343 逐字移植）：autoScale/initialAutoScale 的缩放比。
+     * 官方 o=Pt+(ro?Ht:0)、r=St+(Ln?Ht:0)，而 Pt/St=raw−(flag?Ht) 恒等复原 →
+     * o/r 即原始 viewSize（本实现 viewSize 一直是 raw，天然等价）。
+     * scrollMargin(kh) 非零时对**较大比值轴**先减 Ht（官方 a>l/a<l 分支）；
+     * t=2 min(a,l)，t=3 恒对大轴减 Ht（与 scrollMargin 无关）；
+     * 依次 clamp defaultScale → minScale → maxScale。
+     * Ht 用 _scrollbarSlot：初始 17（官方 NA 默认），首测后 11——orgChartEditor
+     * 官方 scale=(625−17)/802.284=0.7578361209233584，按 raw/doc 会得 0.77903。
+     */
+    Diagram.prototype._computeAutoScale = function (mode) {
+        var cap = this.defaultScale;
+        if (!this._div)
+            return cap;
+        if (mode === 1)
+            return this._scale;
+        var db = this.documentBounds;
+        if (!db.isReal())
+            return cap;
+        var s = db.width;
+        var n = db.height;
+        var vs = this.viewSize;
+        var o = vs.width;
+        var r = vs.height;
+        var l = o / s;
+        var a = r / n;
+        var Ht = this._scrollbarSlot;
+        var h = this._scrollMargin;
+        var c = h.left + h.right !== 0;
+        var f = h.top + h.bottom !== 0;
+        if (c || f) {
+            if (a === l) {
+                a = (r - Ht) / n;
+                l = (o - Ht) / s;
+            }
+            else if (a > l) {
+                a = (r - Ht) / n;
+            }
+            else {
+                l = (o - Ht) / s;
+            }
+        }
+        var u = 0;
+        if (mode === 2) {
+            u = Math.min(a, l);
+        }
+        else if (mode === 3) {
+            u = a > l ? (r - Ht) / n : (o - Ht) / s;
+        }
+        if (u > cap)
+            u = cap;
+        if (u < this._minScale)
+            u = this._minScale;
+        if (u > this._maxScale)
+            u = this._maxScale;
+        return u;
+    };
     Diagram.prototype._applyAutoScale = function () {
         if (this._autoScale === AutoScaleUniform) {
             this.zoomToFit();
@@ -45835,8 +45906,7 @@ var Diagram = /** @class */ (function () {
             var db = this.documentBounds;
             var vs = this.viewSize;
             if (db.width > 0 && db.height > 0 && vs.width > 0 && vs.height > 0) {
-                var newScale = Math.max(vs.width / db.width, vs.height / db.height);
-                this._scale = Math.max(this._minScale, Math.min(this._maxScale, newScale));
+                this._scale = this._computeAutoScale(3);
                 this._position = new Point(db.x, db.y);
             }
         }
@@ -46640,9 +46710,41 @@ var Diagram = /** @class */ (function () {
         }
         this.requestUpdate();
     };
-    Diagram.prototype.setScrollWidth = function (width) {
-        this._scrollWidth = width;
-        this.requestUpdate();
+    /**
+     * 官方 setScrollWidth(elem?)（go.js @261040 逐字移植）：向 div 里塞
+     * overflow hidden→scroll 的探针 p，量 `hidden.offsetWidth − scroll.offsetWidth`
+     * 得滚动条宽；e===0 且非触屏时 fallback 11。返回实测值（不落字段——官方由
+     * 调用方 jM() 写 `Ht=setScrollWidth()`）。
+     */
+    Diagram.prototype.setScrollWidth = function (elem) {
+        var e = elem === undefined ? this._div : elem;
+        if (e === null)
+            e = document.body;
+        var i = 0;
+        var p = document.createElement('p');
+        p.style.width = '100%';
+        p.style.height = '200px';
+        p.style.boxSizing = 'content-box';
+        var d = document.createElement('div');
+        d.style.position = 'absolute';
+        d.style.visibility = 'hidden';
+        d.style.width = '200px';
+        d.style.height = '150px';
+        d.style.boxSizing = 'content-box';
+        d.appendChild(p);
+        d.style.overflow = 'hidden';
+        e.appendChild(d);
+        var o = p.offsetWidth;
+        d.style.overflow = 'scroll';
+        var r = p.offsetWidth;
+        if (o === r)
+            r = d.clientWidth;
+        e.removeChild(d);
+        i = o - r;
+        var isTouch = (typeof navigator !== 'undefined' && (navigator.maxTouchPoints || 0) > 0);
+        if (i === 0 && !isTouch)
+            i = 11;
+        return i;
     };
     Diagram.prototype.computeAutoScrollPosition = function () {
         var docPoint = this.lastInput.documentPoint;
@@ -47128,9 +47230,29 @@ var Diagram = /** @class */ (function () {
      */
     Diagram.prototype.delayInitialization = function (callback) {
         var _this = this;
+        // 官方 go.js delayInitialization（逐语义）：
+        //   e=animationManager, i=e.isEnabled;
+        //   e.stopAnimation(), e.isEnabled=false,
+        //   this.Ar(),            ← 同步跑完挂起的 update（此刻模型常只有 loading 部件）
+        //   this.lo=false,        ← 打回「未完成初始布局」，回调里补的数据仍算初始 Diagram
+        //   this.nb=new Point(NaN,NaN),
+        //   e.isEnabled=i, this.vs=true;   ← vs 冻结 requestUpdate/Ar
+        //   setTimeout(()=>{ s.vs=false; e._l("Model"); t(s) }, 1);
         var fn = callback === undefined ? null : callback;
+        var anim = this._animationManager;
+        var wasEnabled = anim.isEnabled;
+        anim.stopAnimation();
+        anim.isEnabled = false;
+        this._renderLoop(); // 官方 this.Ar()
+        this._hasPerformedInitialLayout = false; // 官方 this.lo=!1
+        anim.isEnabled = wasEnabled;
+        this._updateSuspended = true; // 官方 this.vs=!0
         if (fn !== null) {
-            setTimeout(function () { fn(_this); }, 1);
+            setTimeout(function () {
+                _this._updateSuspended = false; // 官方 s.vs=!1
+                // 官方 e._l("Model") 是动画器的模型变更通知——本实现无对应物，跳过。
+                fn(_this);
+            }, 1);
         }
     };
     Diagram.prototype.toggleKeyboardControl = function (shown) { };

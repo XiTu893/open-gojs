@@ -6040,6 +6040,14 @@ declare class Diagram {
     private _maxScale;
     private _padding;
     /**
+     * 官方 Ht（滚动条槽位宽/高，屏幕 px）。构造 NA() 置 17；首次 jM() 经
+     * `setScrollWidth()` 探针量成实测值（本环境 fallback 11）。初始 Sd 必须用 17：
+     * orgChartEditor 官方 scale=0.7578361209233584=(625−17)/802.284…，用 11 会得 0.7653。
+     */
+    private _scrollbarSlot;
+    /** 官方 u2：setScrollWidth 一次性测量标志 */
+    private _scrollbarMeasured;
+    /**
      * 上一次 raise `DocumentBoundsChanged` 时的文档包围盒。
      * 官方是「包围盒**变了**才 raise」，而本项目以前只在 `invalidateDocumentBounds()`
      * 里无条件 raise —— 初始建模阶段那批 invalidate 全都发生在样例注册监听器**之前**，
@@ -6093,6 +6101,8 @@ declare class Diagram {
     _diagramListeners: Map$1<string, Function[]>;
     _needsRender: boolean;
     _animationFrameId: number;
+    /** 官方 delayInitialization 的 vs 冻结位：置位期间 requestUpdate/_renderLoop 直通早退 */
+    private _updateSuspended;
     private _resizeObserver;
     private _lastDivWidth;
     private _lastDivHeight;
@@ -6249,8 +6259,9 @@ declare class Diagram {
     layoutDiagram(invalidate?: boolean): void;
     updateAllTargetBindings(propname?: string): void;
     /**
-     * 官方 zoomToFit → Td(2)：min(view/doc)，**不超过 defaultScale（通常 1.0）**，
-     * 再 alignDocument(Center, Center) 居中。
+     * 官方 zoomToFit（go.js @278931）：`save yh, yh=1, scale=Sd(2), alignDocument(Center,Center), …`。
+     * yh=scrollMode（默认 None=1）——非 None 时官方补一轮 contentAlignment 对齐，
+     * 本项目 scrollMode 语义尚未移植，默认路径一致故跳过。
      */
     zoomToFit(): void;
     centerRect(r: Rect): void;
@@ -6340,6 +6351,17 @@ declare class Diagram {
     private _applyInitialViewport;
     /** 官方 Z2(n=true/scrollMode)：夹取 position；视口宽于文档时按对齐 spot 摆放 */
     private _clampViewportPosition;
+    /**
+     * 官方 Sd(t)（go.js @278343 逐字移植）：autoScale/initialAutoScale 的缩放比。
+     * 官方 o=Pt+(ro?Ht:0)、r=St+(Ln?Ht:0)，而 Pt/St=raw−(flag?Ht) 恒等复原 →
+     * o/r 即原始 viewSize（本实现 viewSize 一直是 raw，天然等价）。
+     * scrollMargin(kh) 非零时对**较大比值轴**先减 Ht（官方 a>l/a<l 分支）；
+     * t=2 min(a,l)，t=3 恒对大轴减 Ht（与 scrollMargin 无关）；
+     * 依次 clamp defaultScale → minScale → maxScale。
+     * Ht 用 _scrollbarSlot：初始 17（官方 NA 默认），首测后 11——orgChartEditor
+     * 官方 scale=(625−17)/802.284=0.7578361209233584，按 raw/doc 会得 0.77903。
+     */
+    private _computeAutoScale;
     private _applyAutoScale;
     private _applyContentAlignment;
     private _updateGeometry;
@@ -6388,7 +6410,6 @@ declare class Diagram {
     private _scrollsPageOnFocus;
     private _hasHorizontalScrollbar;
     private _hasVerticalScrollbar;
-    private _scrollWidth;
     private _autoScrollInterval;
     private _autoScrollRegion;
     private _isVirtualized;
@@ -6504,7 +6525,13 @@ declare class Diagram {
     scrollHorizontalLineChange(value: number): void;
     scrollVerticalLineChange(value: number): void;
     scroll(): void;
-    setScrollWidth(width: number): void;
+    /**
+     * 官方 setScrollWidth(elem?)（go.js @261040 逐字移植）：向 div 里塞
+     * overflow hidden→scroll 的探针 p，量 `hidden.offsetWidth − scroll.offsetWidth`
+     * 得滚动条宽；e===0 且非触屏时 fallback 11。返回实测值（不落字段——官方由
+     * 调用方 jM() 写 `Ht=setScrollWidth()`）。
+     */
+    setScrollWidth(elem?: HTMLElement): number;
     computeAutoScrollPosition(): Point;
     doAutoScroll(): void;
     stopAutoScroll(): void;
