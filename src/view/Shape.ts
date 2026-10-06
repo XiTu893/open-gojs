@@ -270,9 +270,9 @@ export class Shape extends GraphObject {
       try {
         const parsed = Geometry.parse(val);
         if (parsed) {
-          const off = parsed.normalize();
+          const off = parsed.normalize(); // 官方 e.normalize()：包围盒左上角移到原点
           this.geometry = parsed;
-          this.position = new Point(-off.x, -off.y);
+          this.position = new Point(-off.x, -off.y); // 官方 position=(-i.x,-i.y)=原生左上角
         }
       } catch {
         // 解析失败时保留字符串，走原来的惰性解析路径（在那里同样会失败）

@@ -19526,9 +19526,9 @@ var Shape = /** @class */ (function (_super) {
                 try {
                     var parsed = Geometry.parse(val);
                     if (parsed) {
-                        var off = parsed.normalize();
+                        var off = parsed.normalize(); // 官方 e.normalize()：包围盒左上角移到原点
                         this.geometry = parsed;
-                        this.position = new Point(-off.x, -off.y);
+                        this.position = new Point(-off.x, -off.y); // 官方 position=(-i.x,-i.y)=原生左上角
                     }
                 }
                 catch (_a) {
