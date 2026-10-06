@@ -445,24 +445,59 @@ export class Panel extends GraphObject {
   }
 
   /**
-   * 官方 `Panel.Rf`（`getNearestIntersectionPoint`）：Panel 作 link 端口时**不能**用
-   * GraphObject 基类的矩形求交，必须遍历可见子元素按各自几何求交、取离目标点 q
-   * 最近（最靠外）的那个；否则圆形节点的 link 端点会贴在外接正方形上
-   * （arrowheads 样例 Center 大圆上的起点偏差即此）。官方对有 background 的 Panel
-   * 按自身 naturalBounds 矩形求交（等价基类实现）。
+   * 官方 `Panel.Rf`（go-debug.js @578464）：
+   * - `background !== null` → 自身 naturalBounds 矩形求交（GraphObject.Rf 路径）；
+   * - 否则遍历可见子元素求交，取**离 aim 最近**的候选，且候选须满足
+   *   dist²(aim, cand) < |aim − focus|²（官方初值 x = |aim−focus|²——这道闸门
+   *   正是官方 processFlow 不会选中 Tank 内 width=5000 溢出面板交点 x≈4870 的原因，
+   *   早前无闸门的子元素遍历即因此把 doc 拉爆到 5023）；
+   * - 无候选时 result = focus，返回 false；isClipping && Spot 面板时主元素单独
+   *   求交作为兜底（官方 `N > x && n.set(M)`）。
+   *
+   * 本项目调用约定（Link → `port.getNearestIntersectionPoint(focus, aim)`）：
+   * p = focus（端口 spot/中心），q = aim（方向点）——与官方参数序 (aim, focus) 相反；
+   * 语义映射：初值 result = p(focus)，候选取离 q(aim) 最近且 dist²(q,cand) < |q−p|²。
    */
   getNearestIntersectionPoint(p: Point, q: Point, result: Point): boolean {
-    if (this.background !== null) return super.getNearestIntersectionPoint(p, q, result);
-    result.set(p);
-    let best = (q.x - p.x) * (q.x - p.x) + (q.y - p.y) * (q.y - p.y);
+    if (this.background !== null && this.background !== undefined) {
+      return super.getNearestIntersectionPoint(p, q, result);
+    }
+    result.setTo(p.x, p.y);
+    const fdx = q.x - p.x;
+    const fdy = q.y - p.y;
+    let minD = fdx * fdx + fdy * fdy;
     let found = false;
     const tmp = new Point();
-    for (const elem of this._elements) {
-      if (!elem.visible) continue;
-      if (!elem.getNearestIntersectionPoint(p, q, tmp)) continue;
+    const els = this._elements;
+    const clipMain = this.isClipping && this.type === PanelSpot;
+    let mainEl: GraphObject | null = null;
+    let mainPt = new Point();
+    let mainD = Infinity;
+    let mainFound = false;
+    if (clipMain) {
+      mainEl = this.findMainElement();
+      if (mainEl !== null) {
+        mainFound = mainEl.getNearestIntersectionPoint(p, q, mainPt);
+        const mdx = mainPt.x - q.x;
+        const mdy = mainPt.y - q.y;
+        mainD = mainFound ? mdx * mdx + mdy * mdy : Infinity;
+        found = mainFound;
+      }
+    }
+    for (const el of els) {
+      if (!el.visible || el === mainEl) continue;
+      if (!el.getNearestIntersectionPoint(p, q, tmp)) continue;
       found = true;
-      const d = (tmp.x - q.x) * (tmp.x - q.x) + (tmp.y - q.y) * (tmp.y - q.y);
-      if (d < best) { best = d; result.set(tmp); }
+      const dx = tmp.x - q.x;
+      const dy = tmp.y - q.y;
+      const d = dx * dx + dy * dy;
+      if (d < minD) {
+        minD = d;
+        result.setTo(tmp.x, tmp.y);
+      }
+    }
+    if (clipMain && mainFound && mainD > minD) {
+      result.setTo(mainPt.x, mainPt.y);
     }
     return found;
   }
@@ -1127,11 +1162,26 @@ export class Panel extends GraphObject {
     }
 
     const pad = this._padding;
+    // 官方 Panel.Vh 尾：`it.arrange(this, els, this.or)` —— 子元素排布用 measure 时的
+    // or（naturalBounds 尺寸、未旋转未缩放），而不是传入的 actualBounds(AABB)。
+    // 对未旋转/未缩放对象 or 尺寸 == bounds 尺寸（等价）；对带 angle/scale 的 Part，
+    // 用 AABB 宽高排布会让子元素按旋转后的包围盒居中（Valve2 SHAPE x=7.2078 vs 官方 1.5747）。
+    let baseW = bounds.width;
+    let baseH = bounds.height;
+    const ang = this.angle;
+    const transformed = (typeof ang === 'number' && !isNaN(ang) && ang !== 0) || this.scale !== 1;
+    if (transformed && (this as any)._rotPivot !== undefined) {
+      const u = this._unionRect;
+      if (u !== null && isFinite(u.width) && u.width > 0 && isFinite(u.height) && u.height > 0) {
+        baseW = u.width;
+        baseH = u.height;
+      }
+    }
     // Children are arranged relative to this panel's origin (0,0)
     const innerX = pad.left;
     const innerY = pad.top;
-    const innerW = Math.max(0, bounds.width - pad.left - pad.right);
-    const innerH = Math.max(0, bounds.height - pad.top - pad.bottom);
+    const innerW = Math.max(0, baseW - pad.left - pad.right);
+    const innerH = Math.max(0, baseH - pad.top - pad.bottom);
 
     if (this._type === PanelAuto) {
       this._arrangeAuto(innerX, innerY, innerW, innerH);
@@ -2246,8 +2296,8 @@ export class Panel extends GraphObject {
       if (!isFinite(px)) px = 0;
       if (!isFinite(py)) py = 0;
       elem._arrange(new Rect(
-        innerX + px - this._originX + m.left,
-        innerY + py - this._originY + m.top,
+        innerX + px + m.left,
+        innerY + py + m.top,
         mb.width,
         mb.height
       ));

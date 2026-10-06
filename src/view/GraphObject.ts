@@ -1061,6 +1061,35 @@ export class GraphObject {
 
   /** Get the bounding rectangle of this object in document coordinates */
   getDocumentBounds(): Rect {
+    // 含旋转 Part 的链：用 4 角经 getDocumentPoint 求 AABB
+    //（官方 getDocumentBounds = naturalBounds 经 D 变换的包围盒；本项目
+    //  未旋转链的 fast path = ab 平移链，与 measuredBounds(含 stroke) 角点等价）。
+    if (this._chainHasRotatedPart()) {
+      const mb = this._measuredBounds;
+      const nb = this._naturalBounds;
+      const src = mb !== null && isFinite(mb.x) && isFinite(mb.y) &&
+        isFinite(mb.width) && isFinite(mb.height) ? mb : nb;
+      if (src !== null && isFinite(src.x) && isFinite(src.y) &&
+        isFinite(src.width) && isFinite(src.height)) {
+        const c = [
+          this.getDocumentPoint(new Point(src.x, src.y)),
+          this.getDocumentPoint(new Point(src.x + src.width, src.y)),
+          this.getDocumentPoint(new Point(src.x + src.width, src.y + src.height)),
+          this.getDocumentPoint(new Point(src.x, src.y + src.height)),
+        ];
+        let minX = Infinity;
+        let minY = Infinity;
+        let maxX = -Infinity;
+        let maxY = -Infinity;
+        for (const p of c) {
+          if (p.x < minX) minX = p.x;
+          if (p.y < minY) minY = p.y;
+          if (p.x > maxX) maxX = p.x;
+          if (p.y > maxY) maxY = p.y;
+        }
+        return new Rect(minX, minY, maxX - minX, maxY - minY);
+      }
+    }
     const bounds = this._actualBounds.copy();
     let panel: Panel | null = this._panel;
     while (panel !== null) {
@@ -1078,10 +1107,78 @@ export class GraphObject {
     return bounds;
   }
 
-  /** Convert a local point to document coordinates */
-  getDocumentPoint(local: Point): Point {
-    const bounds = this.getDocumentBounds();
-    return new Point(bounds.x + local.x, bounds.y + local.y);
+  /** 链上（含自身）是否存在带旋转枢轴的 Part（官方 D 矩阵含旋转的情形） */
+  private _chainHasRotatedPart(): boolean {
+    let o: any = this;
+    let guard = 0;
+    while (o !== null && guard++ < 128) {
+      if (o._rotPivot !== undefined && o._rotPivot !== null && o._angle) return true;
+      o = o._panel;
+    }
+    return false;
+  }
+
+  /**
+   * Convert a local point (or Spot) to document coordinates.
+   *
+   * 官方 `GraphObject.getDocumentPoint(point|Spot, result)`：
+   * - Spot：先取局部点（Shape 版 `spot×(nb+sw) − sw/2 + nb.x/y`；通用版 `spot×nb`），
+   *   再经 D 逐级变换（D = ab + p − mb；带旋转 Part 走枢轴公式
+   *   doc(p) = pos + sc·(r + R(p−r)) − (ax,ay)）。
+   * - Point：直接经 D。
+   */
+  getDocumentPoint(local: Point | Spot): Point {
+    let lx: number;
+    let ly: number;
+    if (local instanceof Spot) {
+      const sp = local;
+      const nb = this._naturalBounds;
+      const swRaw = (this as any).strokeWidth;
+      if (typeof swRaw === 'number' && isFinite(swRaw) && swRaw > 0 && nb !== null &&
+        isFinite(nb.width) && isFinite(nb.height)) {
+        lx = sp.x * (nb.width + swRaw) - swRaw / 2 + nb.x + sp.offsetX;
+        ly = sp.y * (nb.height + swRaw) - swRaw / 2 + nb.y + sp.offsetY;
+      } else if (nb !== null && isFinite(nb.width) && isFinite(nb.height)) {
+        lx = sp.x * nb.width + sp.offsetX;
+        ly = sp.y * nb.height + sp.offsetY;
+      } else {
+        const b = this.getDocumentBounds();
+        const p = sp.positionInRect(b);
+        lx = p.x - b.x;
+        ly = p.y - b.y;
+      }
+    } else {
+      lx = local.x;
+      ly = local.y;
+    }
+    let x = lx;
+    let y = ly;
+    let o: any = this;
+    let guard = 0;
+    while (o !== null && guard++ < 128) {
+      const r = o._rotPivot as Point | null | undefined;
+      const ang = o._angle as number;
+      if (r !== undefined && r !== null && ang && !isNaN(ang) && ang !== 0) {
+        const ab = o._actualBounds;
+        const mb = o._measuredBounds;
+        const sc = typeof o._scale === 'number' ? o._scale : 1;
+        let cs = 1;
+        let sn = 0;
+        if (ang === 90) { cs = 0; sn = 1; } else if (ang === 180) { cs = -1; sn = 0; } else if (ang === 270) { cs = 0; sn = -1; }
+        else { const rd = (ang * Math.PI) / 180; cs = Math.cos(rd); sn = Math.sin(rd); }
+        const dx = x - r.x;
+        const dy = y - r.y;
+        x = (ab ? ab.x : 0) + sc * (r.x + dx * cs - dy * sn) - (mb ? mb.x : 0);
+        y = (ab ? ab.y : 0) + sc * (r.y + dx * sn + dy * cs) - (mb ? mb.y : 0);
+      } else {
+        const ab = o._actualBounds;
+        const mb = o._measuredBounds;
+        if (ab) { x += ab.x; y += ab.y; }
+        if (mb) { x -= mb.x; y -= mb.y; }
+      }
+      o = o._panel;
+    }
+    return new Point(x, y);
   }
 
   /** Get the total scale of this object in document coordinates */

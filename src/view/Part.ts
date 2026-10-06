@@ -122,34 +122,159 @@ export class Part extends Panel {
 
   private _syncGuard: boolean = false;
 
-  /** 官方 WD：location 点相对 bounds TL 的偏移（locationObject = part 本身，naturalBounds + locationSpot） */
-  private _locationOffset(out?: Point): Point {
-    const p = out || new Point();
-    // 官方 WD：Group 的 locationObject = placeholder（偏移 = placeholder 在 group 局部的链偏移 + spot）
+  /**
+   * 官方 Part.po 的旋转枢轴 r：measure 时算出并缓存（angle/scale 均为 1 时为 null）。
+   * r 用于：① po 求 measuredBounds 包围盒；② WD 的 Fi 旋转；③ 渲染器旋转枢轴；④ 文档坐标变换。
+   */
+  protected _rotPivot: Point | null = null;
+
+  /** 官方 locationObject：Adornment/Group→placeholder；否则 locationObjectName 指定对象（不可见回退 this） */
+  private _resolveLocationObject(): any {
     let locObj: any = this;
     if ((this as any)._className === 'Group') {
       const ph = (this as any).placeholder;
       if (ph) locObj = ph;
+    } else if (this._locationObjectName !== '') {
+      const o = this.findObject(this._locationObjectName);
+      if (o !== null && o !== undefined) locObj = o.visible ? o : this;
     }
-    const sp = this._locationSpot;
+    return locObj;
+  }
+
+  /**
+   * 官方 Part.op 的 r：
+   * - locationObject !== this：r = locationSpot × lo.naturalBounds（含 nb.x/y），
+   *   逐级减去 lo 及其祖先面板（至 part 为止）的 measuredBounds 原点（官方 lo.Fi.Pt/a.Fi.Pt 略过——
+   *   locationObject 自身带 scale/angle 的场景极罕见且 Fi 依赖其自身 r）。
+   * - locationObject === this：r = locationSpot × (0,0,nb.w,nb.h)（官方 setSpot(po 入参)）。
+   */
+  private _computeRotPivot(): Point {
+    const ls = this._locationSpot;
+    const spot = ls && (typeof ls.isSpot !== 'function' || ls.isSpot()) ? ls : new Spot(0.5, 0.5);
+    const p = new Point();
+    const locObj = this._resolveLocationObject();
     const nb = locObj._naturalBounds;
-    let w = nb ? nb.width : 0;
-    let h = nb ? nb.height : 0;
-    if (!(w > 0)) w = locObj._measuredBounds ? locObj._measuredBounds.width : 0;
-    if (!(h > 0)) h = locObj._measuredBounds ? locObj._measuredBounds.height : 0;
-    if (!(w > 0)) w = 0;
-    if (!(h > 0)) h = 0;
-    let cx = 0;
-    let cy = 0;
+    const real = nb !== null && nb !== undefined &&
+      isFinite(nb.x) && isFinite(nb.y) && isFinite(nb.width) && isFinite(nb.height);
+    const bw = real ? nb.width : 0;
+    const bh = real ? nb.height : 0;
     if (locObj !== this) {
-      const chain = this.localOffsetTo(locObj);
-      if (chain) {
-        cx = chain.x;
-        cy = chain.y;
+      p.x = (real ? nb.x : 0) + spot.x * bw + spot.offsetX;
+      p.y = (real ? nb.y : 0) + spot.y * bh + spot.offsetY;
+      let cur: any = locObj;
+      let guard = 0;
+      while (cur !== null && cur !== this && guard++ < 64) {
+        const mb = cur._measuredBounds;
+        if (mb && isFinite(mb.x) && isFinite(mb.y)) {
+          p.x -= mb.x;
+          p.y -= mb.y;
+        }
+        cur = cur._panel;
+      }
+    } else {
+      p.x = spot.x * bw + spot.offsetX;
+      p.y = spot.y * bh + spot.offsetY;
+    }
+    return p;
+  }
+
+  /**
+   * 官方 GraphObject.po 的 Part 覆写：Fi = scale(原点) → 绕 r 旋转（官方 Ns：M = S·T(r)·R·T(−r)，
+   * 即 p' = sc·(r + R(p−r))）；measuredBounds = km(Fi,(0,0,nb.w,nb.h)) 的轴对齐包围盒
+   * （mb.x/y = 官方 (ax,ay)）。naturalBounds 不受影响。
+   */
+  protected _applyMeasureTransform(): void {
+    const sc = this.scale;
+    const ang = this.angle;
+    const rotated = !isNaN(ang) && ang !== 0;
+    if (sc === 1 && !rotated) {
+      this._rotPivot = null;
+      return;
+    }
+    const nb = this._naturalBounds;
+    const w = nb !== null && isFinite(nb.width) ? nb.width : this._measuredBounds.width;
+    const h = nb !== null && isFinite(nb.height) ? nb.height : this._measuredBounds.height;
+    if (!rotated) {
+      // 官方 angle=0：op 提前返回，Fi 仅 scale（about 原点）
+      this._rotPivot = null;
+      this._measuredBounds = new Rect(0, 0, w * sc, h * sc);
+      return;
+    }
+    const r = this._computeRotPivot();
+    this._rotPivot = r;
+    let cs = 1;
+    let sn = 0;
+    if (ang === 90) { cs = 0; sn = 1; } else if (ang === 180) { cs = -1; sn = 0; } else if (ang === 270) { cs = 0; sn = -1; }
+    else { const rd = (ang * Math.PI) / 180; cs = Math.cos(rd); sn = Math.sin(rd); }
+    const corners: number[][] = [[0, 0], [w, 0], [0, h], [w, h]];
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const c of corners) {
+      const dx = c[0] - r.x;
+      const dy = c[1] - r.y;
+      const qx = sc * (r.x + dx * cs - dy * sn);
+      const qy = sc * (r.y + dx * sn + dy * cs);
+      if (qx < minX) minX = qx;
+      if (qy < minY) minY = qy;
+      if (qx > maxX) maxX = qx;
+      if (qy > maxY) maxY = qy;
+    }
+    this._measuredBounds = new Rect(minX, minY, maxX - minX, maxY - minY);
+  }
+
+  /** 官方 WD/op：location 点相对文档的偏移（官方 Part.WD(t) 的等价实现） */
+  private _locationOffset(out?: Point): Point {
+    const p = out || new Point();
+    const ls = this._locationSpot;
+    const spot = ls && (typeof ls.isSpot !== 'function' || ls.isSpot()) ? ls : new Spot(0.5, 0.5);
+    const locObj = this._resolveLocationObject();
+    const nb = locObj._naturalBounds;
+    const real = nb !== null && nb !== undefined && isFinite(nb.width) && isFinite(nb.height);
+    const bw = real ? nb.width : 0;
+    const bh = real ? nb.height : 0;
+    const n = locObj !== this && locObj instanceof Shape
+      ? (isFinite((locObj as Shape).strokeWidth) && (locObj as Shape).strokeWidth > 0 ? (locObj as Shape).strokeWidth : 0)
+      : 0;
+    // 官方：t.setSpot(0, 0, s.width + n, s.height + n, locationSpot)
+    p.x = spot.x * (bw + n) + spot.offsetX;
+    p.y = spot.y * (bh + n) + spot.offsetY;
+    if (locObj !== this) {
+      p.x -= n / 2;
+      p.y -= n / 2;
+      // 官方：e.D.Pt(t) + 逐级 panel 的 o.D.Pt(t)（D = ab + p − mb）
+      let cur: any = locObj;
+      let guard = 0;
+      while (cur !== null && cur !== this && guard++ < 64) {
+        const ab = cur._actualBounds;
+        const mb = cur._measuredBounds;
+        if (ab && isFinite(ab.x) && isFinite(ab.y)) { p.x += ab.x; p.y += ab.y; }
+        if (mb && isFinite(mb.x) && isFinite(mb.y)) { p.x -= mb.x; p.y -= mb.y; }
+        cur = cur._panel;
       }
     }
-    p.x = cx + sp.x * w + sp.offsetX - (this._measuredBounds ? this._measuredBounds.x : 0);
-    p.y = cy + sp.y * h + sp.offsetY - (this._measuredBounds ? this._measuredBounds.y : 0);
+    // 官方：this.Fi !== null && this.Fi.Pt(t)（scale(原点) + 绕 r 旋转：p' = sc·(r + R(p−r))）
+    const ang = this.angle;
+    const sc = this.scale;
+    if (!isNaN(ang) && ang !== 0) {
+      const r = this._rotPivot !== null && this._rotPivot !== undefined ? this._rotPivot : this._computeRotPivot();
+      let cs = 1;
+      let sn = 0;
+      if (ang === 90) { cs = 0; sn = 1; } else if (ang === 180) { cs = -1; sn = 0; } else if (ang === 270) { cs = 0; sn = -1; }
+      else { const rd = (ang * Math.PI) / 180; cs = Math.cos(rd); sn = Math.sin(rd); }
+      const dx = p.x - r.x;
+      const dy = p.y - r.y;
+      p.x = r.x + dx * cs - dy * sn;
+      p.y = r.y + dx * sn + dy * cs;
+    }
+    if (sc !== 1) { p.x *= sc; p.y *= sc; }
+    // 官方：t.offset(−this.me.x, −this.me.y)（AABB 原点扣除）
+    const mb = this._measuredBounds;
+    if (mb && isFinite(mb.x) && isFinite(mb.y)) {
+      p.x -= mb.x;
+      p.y -= mb.y;
+    }
     return p;
   }
 

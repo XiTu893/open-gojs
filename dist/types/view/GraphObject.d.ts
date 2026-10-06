@@ -371,8 +371,18 @@ export declare class GraphObject {
     getDocumentAngle(): number;
     /** Get the bounding rectangle of this object in document coordinates */
     getDocumentBounds(): Rect;
-    /** Convert a local point to document coordinates */
-    getDocumentPoint(local: Point): Point;
+    /** 链上（含自身）是否存在带旋转枢轴的 Part（官方 D 矩阵含旋转的情形） */
+    private _chainHasRotatedPart;
+    /**
+     * Convert a local point (or Spot) to document coordinates.
+     *
+     * 官方 `GraphObject.getDocumentPoint(point|Spot, result)`：
+     * - Spot：先取局部点（Shape 版 `spot×(nb+sw) − sw/2 + nb.x/y`；通用版 `spot×nb`），
+     *   再经 D 逐级变换（D = ab + p − mb；带旋转 Part 走枢轴公式
+     *   doc(p) = pos + sc·(r + R(p−r)) − (ax,ay)）。
+     * - Point：直接经 D。
+     */
+    getDocumentPoint(local: Point | Spot): Point;
     /** Get the total scale of this object in document coordinates */
     getDocumentScale(): number;
     /** Convert a document point to local coordinates */

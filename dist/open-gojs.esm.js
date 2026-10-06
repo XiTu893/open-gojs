@@ -13113,6 +13113,50 @@ var GraphObject = /** @class */ (function () {
     };
     /** Get the bounding rectangle of this object in document coordinates */
     GraphObject.prototype.getDocumentBounds = function () {
+        var e_6, _a;
+        // 含旋转 Part 的链：用 4 角经 getDocumentPoint 求 AABB
+        //（官方 getDocumentBounds = naturalBounds 经 D 变换的包围盒；本项目
+        //  未旋转链的 fast path = ab 平移链，与 measuredBounds(含 stroke) 角点等价）。
+        if (this._chainHasRotatedPart()) {
+            var mb = this._measuredBounds;
+            var nb = this._naturalBounds;
+            var src = mb !== null && isFinite(mb.x) && isFinite(mb.y) &&
+                isFinite(mb.width) && isFinite(mb.height) ? mb : nb;
+            if (src !== null && isFinite(src.x) && isFinite(src.y) &&
+                isFinite(src.width) && isFinite(src.height)) {
+                var c = [
+                    this.getDocumentPoint(new Point(src.x, src.y)),
+                    this.getDocumentPoint(new Point(src.x + src.width, src.y)),
+                    this.getDocumentPoint(new Point(src.x + src.width, src.y + src.height)),
+                    this.getDocumentPoint(new Point(src.x, src.y + src.height)),
+                ];
+                var minX = Infinity;
+                var minY = Infinity;
+                var maxX = -Infinity;
+                var maxY = -Infinity;
+                try {
+                    for (var c_4 = __values(c), c_4_1 = c_4.next(); !c_4_1.done; c_4_1 = c_4.next()) {
+                        var p = c_4_1.value;
+                        if (p.x < minX)
+                            minX = p.x;
+                        if (p.y < minY)
+                            minY = p.y;
+                        if (p.x > maxX)
+                            maxX = p.x;
+                        if (p.y > maxY)
+                            maxY = p.y;
+                    }
+                }
+                catch (e_6_1) { e_6 = { error: e_6_1 }; }
+                finally {
+                    try {
+                        if (c_4_1 && !c_4_1.done && (_a = c_4.return)) _a.call(c_4);
+                    }
+                    finally { if (e_6) throw e_6.error; }
+                }
+                return new Rect(minX, minY, maxX - minX, maxY - minY);
+            }
+        }
         var bounds = this._actualBounds.copy();
         var panel = this._panel;
         while (panel !== null) {
@@ -13129,10 +13173,103 @@ var GraphObject = /** @class */ (function () {
         }
         return bounds;
     };
-    /** Convert a local point to document coordinates */
+    /** 链上（含自身）是否存在带旋转枢轴的 Part（官方 D 矩阵含旋转的情形） */
+    GraphObject.prototype._chainHasRotatedPart = function () {
+        var o = this;
+        var guard = 0;
+        while (o !== null && guard++ < 128) {
+            if (o._rotPivot !== undefined && o._rotPivot !== null && o._angle)
+                return true;
+            o = o._panel;
+        }
+        return false;
+    };
+    /**
+     * Convert a local point (or Spot) to document coordinates.
+     *
+     * 官方 `GraphObject.getDocumentPoint(point|Spot, result)`：
+     * - Spot：先取局部点（Shape 版 `spot×(nb+sw) − sw/2 + nb.x/y`；通用版 `spot×nb`），
+     *   再经 D 逐级变换（D = ab + p − mb；带旋转 Part 走枢轴公式
+     *   doc(p) = pos + sc·(r + R(p−r)) − (ax,ay)）。
+     * - Point：直接经 D。
+     */
     GraphObject.prototype.getDocumentPoint = function (local) {
-        var bounds = this.getDocumentBounds();
-        return new Point(bounds.x + local.x, bounds.y + local.y);
+        var lx;
+        var ly;
+        if (local instanceof Spot) {
+            var sp = local;
+            var nb = this._naturalBounds;
+            var swRaw = this.strokeWidth;
+            if (typeof swRaw === 'number' && isFinite(swRaw) && swRaw > 0 && nb !== null &&
+                isFinite(nb.width) && isFinite(nb.height)) {
+                lx = sp.x * (nb.width + swRaw) - swRaw / 2 + nb.x + sp.offsetX;
+                ly = sp.y * (nb.height + swRaw) - swRaw / 2 + nb.y + sp.offsetY;
+            }
+            else if (nb !== null && isFinite(nb.width) && isFinite(nb.height)) {
+                lx = sp.x * nb.width + sp.offsetX;
+                ly = sp.y * nb.height + sp.offsetY;
+            }
+            else {
+                var b = this.getDocumentBounds();
+                var p = sp.positionInRect(b);
+                lx = p.x - b.x;
+                ly = p.y - b.y;
+            }
+        }
+        else {
+            lx = local.x;
+            ly = local.y;
+        }
+        var x = lx;
+        var y = ly;
+        var o = this;
+        var guard = 0;
+        while (o !== null && guard++ < 128) {
+            var r = o._rotPivot;
+            var ang = o._angle;
+            if (r !== undefined && r !== null && ang && !isNaN(ang) && ang !== 0) {
+                var ab = o._actualBounds;
+                var mb = o._measuredBounds;
+                var sc = typeof o._scale === 'number' ? o._scale : 1;
+                var cs = 1;
+                var sn = 0;
+                if (ang === 90) {
+                    cs = 0;
+                    sn = 1;
+                }
+                else if (ang === 180) {
+                    cs = -1;
+                    sn = 0;
+                }
+                else if (ang === 270) {
+                    cs = 0;
+                    sn = -1;
+                }
+                else {
+                    var rd = (ang * Math.PI) / 180;
+                    cs = Math.cos(rd);
+                    sn = Math.sin(rd);
+                }
+                var dx = x - r.x;
+                var dy = y - r.y;
+                x = (ab ? ab.x : 0) + sc * (r.x + dx * cs - dy * sn) - (mb ? mb.x : 0);
+                y = (ab ? ab.y : 0) + sc * (r.y + dx * sn + dy * cs) - (mb ? mb.y : 0);
+            }
+            else {
+                var ab = o._actualBounds;
+                var mb = o._measuredBounds;
+                if (ab) {
+                    x += ab.x;
+                    y += ab.y;
+                }
+                if (mb) {
+                    x -= mb.x;
+                    y -= mb.y;
+                }
+            }
+            o = o._panel;
+        }
+        return new Point(x, y);
     };
     /** Get the total scale of this object in document coordinates */
     GraphObject.prototype.getDocumentScale = function () {
@@ -13526,7 +13663,7 @@ var GraphObject = /** @class */ (function () {
         return GraphObject.make.apply(GraphObject, __spreadArray([type, init], __read(args), false));
     };
     GraphObject.make = function (type) {
-        var e_6, _a, e_7, _b;
+        var e_7, _a, e_8, _b;
         var args = [];
         for (var _i = 1; _i < arguments.length; _i++) {
             args[_i - 1] = arguments[_i];
@@ -13657,7 +13794,7 @@ var GraphObject = /** @class */ (function () {
                     continue;
                 if (Array.isArray(arg)) {
                     try {
-                        for (var arg_1 = (e_7 = void 0, __values(arg)), arg_1_1 = arg_1.next(); !arg_1_1.done; arg_1_1 = arg_1.next()) {
+                        for (var arg_1 = (e_8 = void 0, __values(arg)), arg_1_1 = arg_1.next(); !arg_1_1.done; arg_1_1 = arg_1.next()) {
                             var item = arg_1_1.value;
                             if (item instanceof GraphObject && typeof obj.add === 'function') {
                                 obj.add(item);
@@ -13667,12 +13804,12 @@ var GraphObject = /** @class */ (function () {
                             }
                         }
                     }
-                    catch (e_7_1) { e_7 = { error: e_7_1 }; }
+                    catch (e_8_1) { e_8 = { error: e_8_1 }; }
                     finally {
                         try {
                             if (arg_1_1 && !arg_1_1.done && (_b = arg_1.return)) _b.call(arg_1);
                         }
-                        finally { if (e_7) throw e_7.error; }
+                        finally { if (e_8) throw e_8.error; }
                     }
                 }
                 else if (arg instanceof RowColumnDefinition) {
@@ -13757,12 +13894,12 @@ var GraphObject = /** @class */ (function () {
                 }
             }
         }
-        catch (e_6_1) { e_6 = { error: e_6_1 }; }
+        catch (e_7_1) { e_7 = { error: e_7_1 }; }
         finally {
             try {
                 if (applyArgs_1_1 && !applyArgs_1_1.done && (_a = applyArgs_1.return)) _a.call(applyArgs_1);
             }
-            finally { if (e_6) throw e_6.error; }
+            finally { if (e_7) throw e_7.error; }
         }
         return obj;
     };
@@ -20173,10 +20310,15 @@ var Shape = /** @class */ (function (_super) {
             if (geo)
                 gb = geo.bounds;
         }
-        var orgX = keepOrigin && gb ? gb.x : 0;
-        var orgY = keepOrigin && gb ? gb.y : 0;
+        // 官方 Shape.Yd 尾部 po(−sw/2, −sw/2, w+sw, h+sw)：measuredBounds 原点含
+        // 描边外扩（Infinity 约束分支为 po(gb.x−sw/2, gb.y−sw/2, …)）。
+        // 该原点被官方 Part.op（旋转枢轴 r 的 −lo.mb）、Part.WD（location 偏移链的
+        // −mb）、GraphObject.getDocumentPoint（逐级 D = ab + p − mb）读取——
+        // origin 取 0 会让这些公式整体偏 sw/2（Valve1 pos 0.5px、Valve2 mb.ay 1px）。
+        var orgX = keepOrigin && gb ? gb.x : -strokeW / 2;
+        var orgY = keepOrigin && gb ? gb.y : -strokeW / 2;
         if ((tY === Infinity || iY === Infinity) && gb) {
-            this._measuredBounds = new Rect(gb.x, gb.y, gb.width + strokeW, gb.height + strokeW);
+            this._measuredBounds = new Rect(gb.x - strokeW / 2, gb.y - strokeW / 2, gb.width + strokeW, gb.height + strokeW);
         }
         else {
             this._measuredBounds = new Rect(orgX, orgY, aW + strokeW, aH + strokeW);
@@ -22388,41 +22530,72 @@ var Panel = /** @class */ (function (_super) {
         configurable: true
     });
     /**
-     * 官方 `Panel.Rf`（`getNearestIntersectionPoint`）：Panel 作 link 端口时**不能**用
-     * GraphObject 基类的矩形求交，必须遍历可见子元素按各自几何求交、取离目标点 q
-     * 最近（最靠外）的那个；否则圆形节点的 link 端点会贴在外接正方形上
-     * （arrowheads 样例 Center 大圆上的起点偏差即此）。官方对有 background 的 Panel
-     * 按自身 naturalBounds 矩形求交（等价基类实现）。
+     * 官方 `Panel.Rf`（go-debug.js @578464）：
+     * - `background !== null` → 自身 naturalBounds 矩形求交（GraphObject.Rf 路径）；
+     * - 否则遍历可见子元素求交，取**离 aim 最近**的候选，且候选须满足
+     *   dist²(aim, cand) < |aim − focus|²（官方初值 x = |aim−focus|²——这道闸门
+     *   正是官方 processFlow 不会选中 Tank 内 width=5000 溢出面板交点 x≈4870 的原因，
+     *   早前无闸门的子元素遍历即因此把 doc 拉爆到 5023）；
+     * - 无候选时 result = focus，返回 false；isClipping && Spot 面板时主元素单独
+     *   求交作为兜底（官方 `N > x && n.set(M)`）。
+     *
+     * 本项目调用约定（Link → `port.getNearestIntersectionPoint(focus, aim)`）：
+     * p = focus（端口 spot/中心），q = aim（方向点）——与官方参数序 (aim, focus) 相反；
+     * 语义映射：初值 result = p(focus)，候选取离 q(aim) 最近且 dist²(q,cand) < |q−p|²。
      */
     Panel.prototype.getNearestIntersectionPoint = function (p, q, result) {
         var e_4, _a;
-        if (this.background !== null)
+        if (this.background !== null && this.background !== undefined) {
             return _super.prototype.getNearestIntersectionPoint.call(this, p, q, result);
-        result.set(p);
-        var best = (q.x - p.x) * (q.x - p.x) + (q.y - p.y) * (q.y - p.y);
+        }
+        result.setTo(p.x, p.y);
+        var fdx = q.x - p.x;
+        var fdy = q.y - p.y;
+        var minD = fdx * fdx + fdy * fdy;
         var found = false;
         var tmp = new Point();
+        var els = this._elements;
+        var clipMain = this.isClipping && this.type === PanelSpot;
+        var mainEl = null;
+        var mainPt = new Point();
+        var mainD = Infinity;
+        var mainFound = false;
+        if (clipMain) {
+            mainEl = this.findMainElement();
+            if (mainEl !== null) {
+                mainFound = mainEl.getNearestIntersectionPoint(p, q, mainPt);
+                var mdx = mainPt.x - q.x;
+                var mdy = mainPt.y - q.y;
+                mainD = mainFound ? mdx * mdx + mdy * mdy : Infinity;
+                found = mainFound;
+            }
+        }
         try {
-            for (var _b = __values(this._elements), _c = _b.next(); !_c.done; _c = _b.next()) {
-                var elem = _c.value;
-                if (!elem.visible)
+            for (var els_1 = __values(els), els_1_1 = els_1.next(); !els_1_1.done; els_1_1 = els_1.next()) {
+                var el = els_1_1.value;
+                if (!el.visible || el === mainEl)
                     continue;
-                if (!elem.getNearestIntersectionPoint(p, q, tmp))
+                if (!el.getNearestIntersectionPoint(p, q, tmp))
                     continue;
                 found = true;
-                var d = (tmp.x - q.x) * (tmp.x - q.x) + (tmp.y - q.y) * (tmp.y - q.y);
-                if (d < best) {
-                    best = d;
-                    result.set(tmp);
+                var dx = tmp.x - q.x;
+                var dy = tmp.y - q.y;
+                var d = dx * dx + dy * dy;
+                if (d < minD) {
+                    minD = d;
+                    result.setTo(tmp.x, tmp.y);
                 }
             }
         }
         catch (e_4_1) { e_4 = { error: e_4_1 }; }
         finally {
             try {
-                if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
+                if (els_1_1 && !els_1_1.done && (_a = els_1.return)) _a.call(els_1);
             }
             finally { if (e_4) throw e_4.error; }
+        }
+        if (clipMain && mainFound && mainD > minD) {
+            result.setTo(mainPt.x, mainPt.y);
         }
         return found;
     };
@@ -23269,11 +23442,26 @@ var Panel = /** @class */ (function (_super) {
             return;
         }
         var pad = this._padding;
+        // 官方 Panel.Vh 尾：`it.arrange(this, els, this.or)` —— 子元素排布用 measure 时的
+        // or（naturalBounds 尺寸、未旋转未缩放），而不是传入的 actualBounds(AABB)。
+        // 对未旋转/未缩放对象 or 尺寸 == bounds 尺寸（等价）；对带 angle/scale 的 Part，
+        // 用 AABB 宽高排布会让子元素按旋转后的包围盒居中（Valve2 SHAPE x=7.2078 vs 官方 1.5747）。
+        var baseW = bounds.width;
+        var baseH = bounds.height;
+        var ang = this.angle;
+        var transformed = (typeof ang === 'number' && !isNaN(ang) && ang !== 0) || this.scale !== 1;
+        if (transformed && this._rotPivot !== undefined) {
+            var u = this._unionRect;
+            if (u !== null && isFinite(u.width) && u.width > 0 && isFinite(u.height) && u.height > 0) {
+                baseW = u.width;
+                baseH = u.height;
+            }
+        }
         // Children are arranged relative to this panel's origin (0,0)
         var innerX = pad.left;
         var innerY = pad.top;
-        var innerW = Math.max(0, bounds.width - pad.left - pad.right);
-        var innerH = Math.max(0, bounds.height - pad.top - pad.bottom);
+        var innerW = Math.max(0, baseW - pad.left - pad.right);
+        var innerH = Math.max(0, baseH - pad.top - pad.bottom);
         if (this._type === PanelAuto) {
             this._arrangeAuto(innerX, innerY, innerW, innerH);
         }
@@ -23408,8 +23596,8 @@ var Panel = /** @class */ (function (_super) {
         var maxT = 0;
         var maxTh = 0;
         try {
-            for (var els_1 = __values(els), els_1_1 = els_1.next(); !els_1_1.done; els_1_1 = els_1.next()) {
-                var el = els_1_1.value;
+            for (var els_2 = __values(els), els_2_1 = els_2.next(); !els_2_1.done; els_2_1 = els_2.next()) {
+                var el = els_2_1.value;
                 if (el === main || !el.visible)
                     continue;
                 var em = el.margin;
@@ -23424,7 +23612,7 @@ var Panel = /** @class */ (function (_super) {
         catch (e_20_1) { e_20 = { error: e_20_1 }; }
         finally {
             try {
-                if (els_1_1 && !els_1_1.done && (_a = els_1.return)) _a.call(els_1);
+                if (els_2_1 && !els_2_1.done && (_a = els_2.return)) _a.call(els_2);
             }
             finally { if (e_20) throw e_20.error; }
         }
@@ -23488,8 +23676,8 @@ var Panel = /** @class */ (function (_super) {
         var holeW = Math.abs(hx2 - hx1);
         var holeH = Math.abs(hy2 - hy1);
         try {
-            for (var els_2 = __values(els), els_2_1 = els_2.next(); !els_2_1.done; els_2_1 = els_2.next()) {
-                var el = els_2_1.value;
+            for (var els_3 = __values(els), els_3_1 = els_3.next(); !els_3_1.done; els_3_1 = els_3.next()) {
+                var el = els_3_1.value;
                 if (el === main || !el.visible)
                     continue;
                 var eMb = el.measuredBounds;
@@ -23505,7 +23693,7 @@ var Panel = /** @class */ (function (_super) {
         catch (e_21_1) { e_21 = { error: e_21_1 }; }
         finally {
             try {
-                if (els_2_1 && !els_2_1.done && (_a = els_2.return)) _a.call(els_2);
+                if (els_3_1 && !els_3_1.done && (_a = els_3.return)) _a.call(els_3);
             }
             finally { if (e_21) throw e_21.error; }
         }
@@ -23709,8 +23897,8 @@ var Panel = /** @class */ (function (_super) {
         var sBoxH = Math.max(mB.height + d, 0);
         var hasOther = false;
         try {
-            for (var els_3 = __values(els), els_3_1 = els_3.next(); !els_3_1.done; els_3_1 = els_3.next()) {
-                var el = els_3_1.value;
+            for (var els_4 = __values(els), els_4_1 = els_4.next(); !els_4_1.done; els_4_1 = els_4.next()) {
+                var el = els_4_1.value;
                 if (el === main || !el.visible)
                     continue;
                 var em = el.margin;
@@ -23766,7 +23954,7 @@ var Panel = /** @class */ (function (_super) {
         catch (e_28_1) { e_28 = { error: e_28_1 }; }
         finally {
             try {
-                if (els_3_1 && !els_3_1.done && (_a = els_3.return)) _a.call(els_3);
+                if (els_4_1 && !els_4_1.done && (_a = els_4.return)) _a.call(els_4);
             }
             finally { if (e_28) throw e_28.error; }
         }
@@ -23793,8 +23981,8 @@ var Panel = /** @class */ (function (_super) {
         if (!hasOther)
             return;
         try {
-            for (var els_4 = __values(els), els_4_1 = els_4.next(); !els_4_1.done; els_4_1 = els_4.next()) {
-                var el = els_4_1.value;
+            for (var els_5 = __values(els), els_5_1 = els_5.next(); !els_5_1.done; els_5_1 = els_5.next()) {
+                var el = els_5_1.value;
                 if (el === main || !el.visible)
                     continue;
                 var em = el.margin;
@@ -23818,7 +24006,7 @@ var Panel = /** @class */ (function (_super) {
         catch (e_29_1) { e_29 = { error: e_29_1 }; }
         finally {
             try {
-                if (els_4_1 && !els_4_1.done && (_b = els_4.return)) _b.call(els_4);
+                if (els_5_1 && !els_5_1.done && (_b = els_5.return)) _b.call(els_5);
             }
             finally { if (e_29) throw e_29.error; }
         }
@@ -23839,8 +24027,8 @@ var Panel = /** @class */ (function (_super) {
         var dw = mb.width;
         var dh = mb.height;
         try {
-            for (var els_5 = __values(els), els_5_1 = els_5.next(); !els_5_1.done; els_5_1 = els_5.next()) {
-                var el = els_5_1.value;
+            for (var els_6 = __values(els), els_6_1 = els_6.next(); !els_6_1.done; els_6_1 = els_6.next()) {
+                var el = els_6_1.value;
                 if (el === main || !el.visible)
                     continue;
                 var eMb = el.measuredBounds;
@@ -23863,7 +24051,7 @@ var Panel = /** @class */ (function (_super) {
         catch (e_30_1) { e_30 = { error: e_30_1 }; }
         finally {
             try {
-                if (els_5_1 && !els_5_1.done && (_a = els_5.return)) _a.call(els_5);
+                if (els_6_1 && !els_6_1.done && (_a = els_6.return)) _a.call(els_6);
             }
             finally { if (e_30) throw e_30.error; }
         }
@@ -24778,7 +24966,7 @@ var Panel = /** @class */ (function (_super) {
                     px = 0;
                 if (!isFinite(py))
                     py = 0;
-                elem._arrange(new Rect(innerX + px - this._originX + m.left, innerY + py - this._originY + m.top, mb.width, mb.height));
+                elem._arrange(new Rect(innerX + px + m.left, innerY + py + m.top, mb.width, mb.height));
             }
         }
         catch (e_44_1) { e_44 = { error: e_44_1 }; }
@@ -25418,8 +25606,8 @@ var Panel = /** @class */ (function (_super) {
         var pts = host.points;
         var mid = new Point();
         try {
-            for (var els_6 = __values(els), els_6_1 = els_6.next(); !els_6_1.done; els_6_1 = els_6.next()) {
-                var A = els_6_1.value;
+            for (var els_7 = __values(els), els_7_1 = els_7.next(); !els_7_1.done; els_7_1 = els_7.next()) {
+                var A = els_7_1.value;
                 if (A === pathEl)
                     continue;
                 if (A.isPanelMain && A instanceof Shape) {
@@ -25573,7 +25761,7 @@ var Panel = /** @class */ (function (_super) {
         catch (e_47_1) { e_47 = { error: e_47_1 }; }
         finally {
             try {
-                if (els_6_1 && !els_6_1.done && (_b = els_6.return)) _b.call(els_6);
+                if (els_7_1 && !els_7_1.done && (_b = els_7.return)) _b.call(els_7);
             }
             finally { if (e_47) throw e_47.error; }
         }
@@ -26121,6 +26309,11 @@ var Part = /** @class */ (function (_super) {
         _this._adornmentsPending = false;
         // ============ Properties ============
         _this._syncGuard = false;
+        /**
+         * 官方 Part.po 的旋转枢轴 r：measure 时算出并缓存（angle/scale 均为 1 时为 null）。
+         * r 用于：① po 求 measuredBounds 包围盒；② WD 的 Fi 旋转；③ 渲染器旋转枢轴；④ 文档坐标变换。
+         */
+        _this._rotPivot = null;
         _this._className = 'Part';
         if (i) {
             _this.set(i);
@@ -26149,39 +26342,208 @@ var Part = /** @class */ (function (_super) {
         enumerable: false,
         configurable: true
     });
-    /** 官方 WD：location 点相对 bounds TL 的偏移（locationObject = part 本身，naturalBounds + locationSpot） */
-    Part.prototype._locationOffset = function (out) {
-        var p = out || new Point();
-        // 官方 WD：Group 的 locationObject = placeholder（偏移 = placeholder 在 group 局部的链偏移 + spot）
+    /** 官方 locationObject：Adornment/Group→placeholder；否则 locationObjectName 指定对象（不可见回退 this） */
+    Part.prototype._resolveLocationObject = function () {
         var locObj = this;
         if (this._className === 'Group') {
             var ph = this.placeholder;
             if (ph)
                 locObj = ph;
         }
-        var sp = this._locationSpot;
+        else if (this._locationObjectName !== '') {
+            var o = this.findObject(this._locationObjectName);
+            if (o !== null && o !== undefined)
+                locObj = o.visible ? o : this;
+        }
+        return locObj;
+    };
+    /**
+     * 官方 Part.op 的 r：
+     * - locationObject !== this：r = locationSpot × lo.naturalBounds（含 nb.x/y），
+     *   逐级减去 lo 及其祖先面板（至 part 为止）的 measuredBounds 原点（官方 lo.Fi.Pt/a.Fi.Pt 略过——
+     *   locationObject 自身带 scale/angle 的场景极罕见且 Fi 依赖其自身 r）。
+     * - locationObject === this：r = locationSpot × (0,0,nb.w,nb.h)（官方 setSpot(po 入参)）。
+     */
+    Part.prototype._computeRotPivot = function () {
+        var ls = this._locationSpot;
+        var spot = ls && (typeof ls.isSpot !== 'function' || ls.isSpot()) ? ls : new Spot(0.5, 0.5);
+        var p = new Point();
+        var locObj = this._resolveLocationObject();
         var nb = locObj._naturalBounds;
-        var w = nb ? nb.width : 0;
-        var h = nb ? nb.height : 0;
-        if (!(w > 0))
-            w = locObj._measuredBounds ? locObj._measuredBounds.width : 0;
-        if (!(h > 0))
-            h = locObj._measuredBounds ? locObj._measuredBounds.height : 0;
-        if (!(w > 0))
-            w = 0;
-        if (!(h > 0))
-            h = 0;
-        var cx = 0;
-        var cy = 0;
+        var real = nb !== null && nb !== undefined &&
+            isFinite(nb.x) && isFinite(nb.y) && isFinite(nb.width) && isFinite(nb.height);
+        var bw = real ? nb.width : 0;
+        var bh = real ? nb.height : 0;
         if (locObj !== this) {
-            var chain = this.localOffsetTo(locObj);
-            if (chain) {
-                cx = chain.x;
-                cy = chain.y;
+            p.x = (real ? nb.x : 0) + spot.x * bw + spot.offsetX;
+            p.y = (real ? nb.y : 0) + spot.y * bh + spot.offsetY;
+            var cur = locObj;
+            var guard = 0;
+            while (cur !== null && cur !== this && guard++ < 64) {
+                var mb = cur._measuredBounds;
+                if (mb && isFinite(mb.x) && isFinite(mb.y)) {
+                    p.x -= mb.x;
+                    p.y -= mb.y;
+                }
+                cur = cur._panel;
             }
         }
-        p.x = cx + sp.x * w + sp.offsetX - (this._measuredBounds ? this._measuredBounds.x : 0);
-        p.y = cy + sp.y * h + sp.offsetY - (this._measuredBounds ? this._measuredBounds.y : 0);
+        else {
+            p.x = spot.x * bw + spot.offsetX;
+            p.y = spot.y * bh + spot.offsetY;
+        }
+        return p;
+    };
+    /**
+     * 官方 GraphObject.po 的 Part 覆写：Fi = scale(原点) → 绕 r 旋转（官方 Ns：M = S·T(r)·R·T(−r)，
+     * 即 p' = sc·(r + R(p−r))）；measuredBounds = km(Fi,(0,0,nb.w,nb.h)) 的轴对齐包围盒
+     * （mb.x/y = 官方 (ax,ay)）。naturalBounds 不受影响。
+     */
+    Part.prototype._applyMeasureTransform = function () {
+        var e_1, _a;
+        var sc = this.scale;
+        var ang = this.angle;
+        var rotated = !isNaN(ang) && ang !== 0;
+        if (sc === 1 && !rotated) {
+            this._rotPivot = null;
+            return;
+        }
+        var nb = this._naturalBounds;
+        var w = nb !== null && isFinite(nb.width) ? nb.width : this._measuredBounds.width;
+        var h = nb !== null && isFinite(nb.height) ? nb.height : this._measuredBounds.height;
+        if (!rotated) {
+            // 官方 angle=0：op 提前返回，Fi 仅 scale（about 原点）
+            this._rotPivot = null;
+            this._measuredBounds = new Rect(0, 0, w * sc, h * sc);
+            return;
+        }
+        var r = this._computeRotPivot();
+        this._rotPivot = r;
+        var cs = 1;
+        var sn = 0;
+        if (ang === 90) {
+            cs = 0;
+            sn = 1;
+        }
+        else if (ang === 180) {
+            cs = -1;
+            sn = 0;
+        }
+        else if (ang === 270) {
+            cs = 0;
+            sn = -1;
+        }
+        else {
+            var rd = (ang * Math.PI) / 180;
+            cs = Math.cos(rd);
+            sn = Math.sin(rd);
+        }
+        var corners = [[0, 0], [w, 0], [0, h], [w, h]];
+        var minX = Infinity;
+        var minY = Infinity;
+        var maxX = -Infinity;
+        var maxY = -Infinity;
+        try {
+            for (var corners_1 = __values(corners), corners_1_1 = corners_1.next(); !corners_1_1.done; corners_1_1 = corners_1.next()) {
+                var c = corners_1_1.value;
+                var dx = c[0] - r.x;
+                var dy = c[1] - r.y;
+                var qx = sc * (r.x + dx * cs - dy * sn);
+                var qy = sc * (r.y + dx * sn + dy * cs);
+                if (qx < minX)
+                    minX = qx;
+                if (qy < minY)
+                    minY = qy;
+                if (qx > maxX)
+                    maxX = qx;
+                if (qy > maxY)
+                    maxY = qy;
+            }
+        }
+        catch (e_1_1) { e_1 = { error: e_1_1 }; }
+        finally {
+            try {
+                if (corners_1_1 && !corners_1_1.done && (_a = corners_1.return)) _a.call(corners_1);
+            }
+            finally { if (e_1) throw e_1.error; }
+        }
+        this._measuredBounds = new Rect(minX, minY, maxX - minX, maxY - minY);
+    };
+    /** 官方 WD/op：location 点相对文档的偏移（官方 Part.WD(t) 的等价实现） */
+    Part.prototype._locationOffset = function (out) {
+        var p = out || new Point();
+        var ls = this._locationSpot;
+        var spot = ls && (typeof ls.isSpot !== 'function' || ls.isSpot()) ? ls : new Spot(0.5, 0.5);
+        var locObj = this._resolveLocationObject();
+        var nb = locObj._naturalBounds;
+        var real = nb !== null && nb !== undefined && isFinite(nb.width) && isFinite(nb.height);
+        var bw = real ? nb.width : 0;
+        var bh = real ? nb.height : 0;
+        var n = locObj !== this && locObj instanceof Shape
+            ? (isFinite(locObj.strokeWidth) && locObj.strokeWidth > 0 ? locObj.strokeWidth : 0)
+            : 0;
+        // 官方：t.setSpot(0, 0, s.width + n, s.height + n, locationSpot)
+        p.x = spot.x * (bw + n) + spot.offsetX;
+        p.y = spot.y * (bh + n) + spot.offsetY;
+        if (locObj !== this) {
+            p.x -= n / 2;
+            p.y -= n / 2;
+            // 官方：e.D.Pt(t) + 逐级 panel 的 o.D.Pt(t)（D = ab + p − mb）
+            var cur = locObj;
+            var guard = 0;
+            while (cur !== null && cur !== this && guard++ < 64) {
+                var ab = cur._actualBounds;
+                var mb_1 = cur._measuredBounds;
+                if (ab && isFinite(ab.x) && isFinite(ab.y)) {
+                    p.x += ab.x;
+                    p.y += ab.y;
+                }
+                if (mb_1 && isFinite(mb_1.x) && isFinite(mb_1.y)) {
+                    p.x -= mb_1.x;
+                    p.y -= mb_1.y;
+                }
+                cur = cur._panel;
+            }
+        }
+        // 官方：this.Fi !== null && this.Fi.Pt(t)（scale(原点) + 绕 r 旋转：p' = sc·(r + R(p−r))）
+        var ang = this.angle;
+        var sc = this.scale;
+        if (!isNaN(ang) && ang !== 0) {
+            var r = this._rotPivot !== null && this._rotPivot !== undefined ? this._rotPivot : this._computeRotPivot();
+            var cs = 1;
+            var sn = 0;
+            if (ang === 90) {
+                cs = 0;
+                sn = 1;
+            }
+            else if (ang === 180) {
+                cs = -1;
+                sn = 0;
+            }
+            else if (ang === 270) {
+                cs = 0;
+                sn = -1;
+            }
+            else {
+                var rd = (ang * Math.PI) / 180;
+                cs = Math.cos(rd);
+                sn = Math.sin(rd);
+            }
+            var dx = p.x - r.x;
+            var dy = p.y - r.y;
+            p.x = r.x + dx * cs - dy * sn;
+            p.y = r.y + dx * sn + dy * cs;
+        }
+        if (sc !== 1) {
+            p.x *= sc;
+            p.y *= sc;
+        }
+        // 官方：t.offset(−this.me.x, −this.me.y)（AABB 原点扣除）
+        var mb = this._measuredBounds;
+        if (mb && isFinite(mb.x) && isFinite(mb.y)) {
+            p.x -= mb.x;
+            p.y -= mb.y;
+        }
         return p;
     };
     Object.defineProperty(Part.prototype, "location", {
@@ -26287,7 +26649,7 @@ var Part = /** @class */ (function (_super) {
             return o === target || (o._elements ? o._elements.some(function (c) { return contains(c); }) : false);
         };
         var acc = function (obj, px, py) {
-            var e_1, _a;
+            var e_2, _a;
             var els = obj._elements;
             if (!els)
                 return null;
@@ -26306,12 +26668,12 @@ var Part = /** @class */ (function (_super) {
                     }
                 }
             }
-            catch (e_1_1) { e_1 = { error: e_1_1 }; }
+            catch (e_2_1) { e_2 = { error: e_2_1 }; }
             finally {
                 try {
                     if (els_1_1 && !els_1_1.done && (_a = els_1.return)) _a.call(els_1);
                 }
-                finally { if (e_1) throw e_1.error; }
+                finally { if (e_2) throw e_2.error; }
             }
             return null;
         };
@@ -28168,7 +28530,14 @@ var Link = /** @class */ (function (_super) {
             to.x = from.x;
         }
     };
-    /** 官方 `GraphObject.getDocumentPoint(Spot, result)` 在无 Transform 时的等价实现 */
+    /**
+     * 官方 `GraphObject.getDocumentPoint(Spot, result)` 的等价实现：
+     * - Shape 版：local = spot×(nb+sw) − sw/2 + nb.x/y（含描边），再经 D（逐级 ab−mb、
+     *   带旋转 Part 走枢轴公式）变换到文档坐标；
+     * - 通用版：local = spot×nb，再经 D。
+     * 未旋转链下与旧实现（positionInRect(actualBounds)）严格等价：
+     * ab + spot×(nb+sw) − sw/2 − (−sw/2) = ab + spot×(nb+sw)。
+     */
     Link._docPoint = function (obj, spot, result) {
         if (obj === null) {
             result.x = NaN;
@@ -28181,7 +28550,28 @@ var Link = /** @class */ (function (_super) {
             result.y = c.y;
             return result;
         }
-        var p = spot.positionInRect(obj.getDocumentBounds());
+        var nb = obj.naturalBounds;
+        var lx;
+        var ly;
+        var swRaw = obj.strokeWidth;
+        if (typeof swRaw === 'number' && isFinite(swRaw) && swRaw > 0 && nb !== null &&
+            isFinite(nb.x) && isFinite(nb.y) && isFinite(nb.width) && isFinite(nb.height)) {
+            // Shape 版官方公式
+            lx = spot.x * (nb.width + swRaw) - swRaw / 2 + nb.x + spot.offsetX;
+            ly = spot.y * (nb.height + swRaw) - swRaw / 2 + nb.y + spot.offsetY;
+        }
+        else if (nb !== null && isFinite(nb.width) && isFinite(nb.height)) {
+            lx = spot.x * nb.width + spot.offsetX;
+            ly = spot.y * nb.height + spot.offsetY;
+        }
+        else {
+            var b = obj.getDocumentBounds();
+            var p_1 = spot.positionInRect(b);
+            result.x = p_1.x;
+            result.y = p_1.y;
+            return result;
+        }
+        var p = obj.getDocumentPoint(new Point(lx, ly));
         result.x = p.x;
         result.y = p.y;
         return result;
@@ -28527,25 +28917,25 @@ var Link = /** @class */ (function (_super) {
             var ok = false;
             if (!d && o >= 3) {
                 var g_1 = this.getLinkPoint(from, fromPort, r, true, false, to, toPort);
-                var p_1 = this.getLinkPoint(to, toPort, l, false, false, from, fromPort);
-                ok = this.adjustPoints(0, g_1, o - 1, p_1);
+                var p_2 = this.getLinkPoint(to, toPort, l, false, false, from, fromPort);
+                ok = this.adjustPoints(0, g_1, o - 1, p_2);
                 if (ok) {
                     g_1 = this.getLinkPoint(from, fromPort, r, true, false, to, toPort);
-                    p_1 = this.getLinkPoint(to, toPort, l, false, false, from, fromPort);
-                    ok = this.adjustPoints(0, g_1, o - 1, p_1);
+                    p_2 = this.getLinkPoint(to, toPort, l, false, false, from, fromPort);
+                    ok = this.adjustPoints(0, g_1, o - 1, p_2);
                 }
             }
             if (!ok) {
                 var g_2 = this.getLinkPoint(from, fromPort, r, true, false, to, toPort);
-                var p_2 = this.getLinkPoint(to, toPort, l, false, false, from, fromPort);
+                var p_3 = this.getLinkPoint(to, toPort, l, false, false, from, fromPort);
                 this._points.clear();
                 this.addPoint(g_2);
-                this.addPoint(p_2);
+                this.addPoint(p_3);
                 if (this._curve === CurveBezier) {
                     this._o4(from, fromPort, r, to, toPort, l);
                 }
                 else if (this.hasCurviness()) {
-                    this._r4Mid(g_2, p_2);
+                    this._r4Mid(g_2, p_3);
                 }
                 // 官方 r4 内的 ZF（节点重叠端点修正）未移植（flowchart 不触发）。
             }
@@ -37211,14 +37601,34 @@ var CanvasRenderer = /** @class */ (function () {
     // ============ Internal methods ============
     /** Apply position, scale, angle transforms for a Part */
     CanvasRenderer.prototype._applyTransform = function (part) {
+        var _a;
         var ctx = this.ctx;
         if (!ctx)
             return;
-        // The part's actualBounds already includes its location position,
-        // so we don't need to translate by location again.
-        // Only apply angle and scale transforms.
+        // 官方 Part 渲染变换：内容画在未旋转帧（pos + p），经
+        //   translate(q') → rotate(angle) → [scale] → translate(−c0)
+        // 映射到文档：doc(p) = pos + sc·(r + R(p−r)) − (ax,ay)
+        // 其中 r = 官方 Part.po 的旋转枢轴（locationSpot 点），c0 = pos + r，
+        // q' = pos + sc·r − (ax,ay)，(ax,ay) = measuredBounds 原点（AABB 相对未旋转帧的偏移）。
         var angle = part._angle;
-        if (angle && angle !== 0) {
+        var sc = part._scale;
+        var r = (_a = part._rotPivot) !== null && _a !== void 0 ? _a : null;
+        if (angle && !isNaN(angle) && angle !== 0 && r !== null) {
+            var ab = part.actualBounds;
+            var mb = part.measuredBounds;
+            var c0x = ab.x + r.x;
+            var c0y = ab.y + r.y;
+            var qx = ab.x + r.x * sc - (mb ? mb.x : 0);
+            var qy = ab.y + r.y * sc - (mb ? mb.y : 0);
+            ctx.translate(qx, qy);
+            if (sc !== 1)
+                ctx.scale(sc, sc);
+            ctx.rotate(angle * Math.PI / 180);
+            ctx.translate(-c0x, -c0y);
+            return;
+        }
+        if (angle && !isNaN(angle) && angle !== 0) {
+            // 无枢轴兜底（measure 未跑）：绕 actualBounds 中心
             var ab = part.actualBounds;
             var cx = ab.x + ab.width / 2;
             var cy = ab.y + ab.height / 2;
@@ -37226,14 +37636,12 @@ var CanvasRenderer = /** @class */ (function () {
             ctx.rotate(angle * Math.PI / 180);
             ctx.translate(-cx, -cy);
         }
-        var partScale = part._scale;
-        if (partScale && partScale !== 1) {
+        if (sc && sc !== 1) {
+            // 官方 angle=0：Fi 仅 scale(原点)：doc(p) = pos + sc·p
             var ab = part.actualBounds;
-            var cx = ab.x + ab.width / 2;
-            var cy = ab.y + ab.height / 2;
-            ctx.translate(cx, cy);
-            ctx.scale(partScale, partScale);
-            ctx.translate(-cx, -cy);
+            ctx.translate(ab.x, ab.y);
+            ctx.scale(sc, sc);
+            ctx.translate(-ab.x, -ab.y);
         }
     };
     /** Restore canvas state after part transform */

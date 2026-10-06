@@ -167,11 +167,18 @@ export declare class Panel extends GraphObject {
     get elements(): Iterator<GraphObject>;
     get elementCount(): number;
     /**
-     * 官方 `Panel.Rf`（`getNearestIntersectionPoint`）：Panel 作 link 端口时**不能**用
-     * GraphObject 基类的矩形求交，必须遍历可见子元素按各自几何求交、取离目标点 q
-     * 最近（最靠外）的那个；否则圆形节点的 link 端点会贴在外接正方形上
-     * （arrowheads 样例 Center 大圆上的起点偏差即此）。官方对有 background 的 Panel
-     * 按自身 naturalBounds 矩形求交（等价基类实现）。
+     * 官方 `Panel.Rf`（go-debug.js @578464）：
+     * - `background !== null` → 自身 naturalBounds 矩形求交（GraphObject.Rf 路径）；
+     * - 否则遍历可见子元素求交，取**离 aim 最近**的候选，且候选须满足
+     *   dist²(aim, cand) < |aim − focus|²（官方初值 x = |aim−focus|²——这道闸门
+     *   正是官方 processFlow 不会选中 Tank 内 width=5000 溢出面板交点 x≈4870 的原因，
+     *   早前无闸门的子元素遍历即因此把 doc 拉爆到 5023）；
+     * - 无候选时 result = focus，返回 false；isClipping && Spot 面板时主元素单独
+     *   求交作为兜底（官方 `N > x && n.set(M)`）。
+     *
+     * 本项目调用约定（Link → `port.getNearestIntersectionPoint(focus, aim)`）：
+     * p = focus（端口 spot/中心），q = aim（方向点）——与官方参数序 (aim, focus) 相反；
+     * 语义映射：初值 result = p(focus)，候选取离 q(aim) 最近且 dist²(q,cand) < |q−p|²。
      */
     getNearestIntersectionPoint(p: Point, q: Point, result: Point): boolean;
     add(...elements: GraphObject[]): Panel;

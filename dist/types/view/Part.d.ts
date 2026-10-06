@@ -83,7 +83,28 @@ export declare class Part extends Panel {
     get visible(): boolean;
     set visible(val: boolean);
     private _syncGuard;
-    /** 官方 WD：location 点相对 bounds TL 的偏移（locationObject = part 本身，naturalBounds + locationSpot） */
+    /**
+     * 官方 Part.po 的旋转枢轴 r：measure 时算出并缓存（angle/scale 均为 1 时为 null）。
+     * r 用于：① po 求 measuredBounds 包围盒；② WD 的 Fi 旋转；③ 渲染器旋转枢轴；④ 文档坐标变换。
+     */
+    protected _rotPivot: Point | null;
+    /** 官方 locationObject：Adornment/Group→placeholder；否则 locationObjectName 指定对象（不可见回退 this） */
+    private _resolveLocationObject;
+    /**
+     * 官方 Part.op 的 r：
+     * - locationObject !== this：r = locationSpot × lo.naturalBounds（含 nb.x/y），
+     *   逐级减去 lo 及其祖先面板（至 part 为止）的 measuredBounds 原点（官方 lo.Fi.Pt/a.Fi.Pt 略过——
+     *   locationObject 自身带 scale/angle 的场景极罕见且 Fi 依赖其自身 r）。
+     * - locationObject === this：r = locationSpot × (0,0,nb.w,nb.h)（官方 setSpot(po 入参)）。
+     */
+    private _computeRotPivot;
+    /**
+     * 官方 GraphObject.po 的 Part 覆写：Fi = scale(原点) → 绕 r 旋转（官方 Ns：M = S·T(r)·R·T(−r)，
+     * 即 p' = sc·(r + R(p−r))）；measuredBounds = km(Fi,(0,0,nb.w,nb.h)) 的轴对齐包围盒
+     * （mb.x/y = 官方 (ax,ay)）。naturalBounds 不受影响。
+     */
+    protected _applyMeasureTransform(): void;
+    /** 官方 WD/op：location 点相对文档的偏移（官方 Part.WD(t) 的等价实现） */
     private _locationOffset;
     get location(): Point;
     set location(val: Point);

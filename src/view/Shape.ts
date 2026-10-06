@@ -846,10 +846,15 @@ export class Shape extends GraphObject {
       const geo = this._getGeometry();
       if (geo) gb = geo.bounds;
     }
-    const orgX = keepOrigin && gb ? gb.x : 0;
-    const orgY = keepOrigin && gb ? gb.y : 0;
+    // 官方 Shape.Yd 尾部 po(−sw/2, −sw/2, w+sw, h+sw)：measuredBounds 原点含
+    // 描边外扩（Infinity 约束分支为 po(gb.x−sw/2, gb.y−sw/2, …)）。
+    // 该原点被官方 Part.op（旋转枢轴 r 的 −lo.mb）、Part.WD（location 偏移链的
+    // −mb）、GraphObject.getDocumentPoint（逐级 D = ab + p − mb）读取——
+    // origin 取 0 会让这些公式整体偏 sw/2（Valve1 pos 0.5px、Valve2 mb.ay 1px）。
+    const orgX = keepOrigin && gb ? gb.x : -strokeW / 2;
+    const orgY = keepOrigin && gb ? gb.y : -strokeW / 2;
     if ((tY === Infinity || iY === Infinity) && gb) {
-      this._measuredBounds = new Rect(gb.x, gb.y, gb.width + strokeW, gb.height + strokeW);
+      this._measuredBounds = new Rect(gb.x - strokeW / 2, gb.y - strokeW / 2, gb.width + strokeW, gb.height + strokeW);
     } else {
       this._measuredBounds = new Rect(orgX, orgY, aW + strokeW, aH + strokeW);
     }

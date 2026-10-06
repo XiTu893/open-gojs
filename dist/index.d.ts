@@ -2822,11 +2822,18 @@ declare class Panel extends GraphObject {
     get elements(): Iterator<GraphObject>;
     get elementCount(): number;
     /**
-     * 官方 `Panel.Rf`（`getNearestIntersectionPoint`）：Panel 作 link 端口时**不能**用
-     * GraphObject 基类的矩形求交，必须遍历可见子元素按各自几何求交、取离目标点 q
-     * 最近（最靠外）的那个；否则圆形节点的 link 端点会贴在外接正方形上
-     * （arrowheads 样例 Center 大圆上的起点偏差即此）。官方对有 background 的 Panel
-     * 按自身 naturalBounds 矩形求交（等价基类实现）。
+     * 官方 `Panel.Rf`（go-debug.js @578464）：
+     * - `background !== null` → 自身 naturalBounds 矩形求交（GraphObject.Rf 路径）；
+     * - 否则遍历可见子元素求交，取**离 aim 最近**的候选，且候选须满足
+     *   dist²(aim, cand) < |aim − focus|²（官方初值 x = |aim−focus|²——这道闸门
+     *   正是官方 processFlow 不会选中 Tank 内 width=5000 溢出面板交点 x≈4870 的原因，
+     *   早前无闸门的子元素遍历即因此把 doc 拉爆到 5023）；
+     * - 无候选时 result = focus，返回 false；isClipping && Spot 面板时主元素单独
+     *   求交作为兜底（官方 `N > x && n.set(M)`）。
+     *
+     * 本项目调用约定（Link → `port.getNearestIntersectionPoint(focus, aim)`）：
+     * p = focus（端口 spot/中心），q = aim（方向点）——与官方参数序 (aim, focus) 相反；
+     * 语义映射：初值 result = p(focus)，候选取离 q(aim) 最近且 dist²(q,cand) < |q−p|²。
      */
     getNearestIntersectionPoint(p: Point, q: Point, result: Point): boolean;
     add(...elements: GraphObject[]): Panel;
@@ -3246,7 +3253,28 @@ declare class Part extends Panel {
     get visible(): boolean;
     set visible(val: boolean);
     private _syncGuard;
-    /** 官方 WD：location 点相对 bounds TL 的偏移（locationObject = part 本身，naturalBounds + locationSpot） */
+    /**
+     * 官方 Part.po 的旋转枢轴 r：measure 时算出并缓存（angle/scale 均为 1 时为 null）。
+     * r 用于：① po 求 measuredBounds 包围盒；② WD 的 Fi 旋转；③ 渲染器旋转枢轴；④ 文档坐标变换。
+     */
+    protected _rotPivot: Point | null;
+    /** 官方 locationObject：Adornment/Group→placeholder；否则 locationObjectName 指定对象（不可见回退 this） */
+    private _resolveLocationObject;
+    /**
+     * 官方 Part.op 的 r：
+     * - locationObject !== this：r = locationSpot × lo.naturalBounds（含 nb.x/y），
+     *   逐级减去 lo 及其祖先面板（至 part 为止）的 measuredBounds 原点（官方 lo.Fi.Pt/a.Fi.Pt 略过——
+     *   locationObject 自身带 scale/angle 的场景极罕见且 Fi 依赖其自身 r）。
+     * - locationObject === this：r = locationSpot × (0,0,nb.w,nb.h)（官方 setSpot(po 入参)）。
+     */
+    private _computeRotPivot;
+    /**
+     * 官方 GraphObject.po 的 Part 覆写：Fi = scale(原点) → 绕 r 旋转（官方 Ns：M = S·T(r)·R·T(−r)，
+     * 即 p' = sc·(r + R(p−r))）；measuredBounds = km(Fi,(0,0,nb.w,nb.h)) 的轴对齐包围盒
+     * （mb.x/y = 官方 (ax,ay)）。naturalBounds 不受影响。
+     */
+    protected _applyMeasureTransform(): void;
+    /** 官方 WD/op：location 点相对文档的偏移（官方 Part.WD(t) 的等价实现） */
     private _locationOffset;
     get location(): Point;
     set location(val: Point);
@@ -3839,8 +3867,18 @@ declare class GraphObject {
     getDocumentAngle(): number;
     /** Get the bounding rectangle of this object in document coordinates */
     getDocumentBounds(): Rect;
-    /** Convert a local point to document coordinates */
-    getDocumentPoint(local: Point): Point;
+    /** 链上（含自身）是否存在带旋转枢轴的 Part（官方 D 矩阵含旋转的情形） */
+    private _chainHasRotatedPart;
+    /**
+     * Convert a local point (or Spot) to document coordinates.
+     *
+     * 官方 `GraphObject.getDocumentPoint(point|Spot, result)`：
+     * - Spot：先取局部点（Shape 版 `spot×(nb+sw) − sw/2 + nb.x/y`；通用版 `spot×nb`），
+     *   再经 D 逐级变换（D = ab + p − mb；带旋转 Part 走枢轴公式
+     *   doc(p) = pos + sc·(r + R(p−r)) − (ax,ay)）。
+     * - Point：直接经 D。
+     */
+    getDocumentPoint(local: Point | Spot): Point;
     /** Get the total scale of this object in document coordinates */
     getDocumentScale(): number;
     /** Convert a document point to local coordinates */
@@ -4227,7 +4265,14 @@ declare class Link extends Part {
     private static _approxZero;
     /** 官方 `Link.uA`：把 to 点沿主导方向推到无穷远处，用作正交方向参考 */
     private static _orthogonalize;
-    /** 官方 `GraphObject.getDocumentPoint(Spot, result)` 在无 Transform 时的等价实现 */
+    /**
+     * 官方 `GraphObject.getDocumentPoint(Spot, result)` 的等价实现：
+     * - Shape 版：local = spot×(nb+sw) − sw/2 + nb.x/y（含描边），再经 D（逐级 ab−mb、
+     *   带旋转 Part 走枢轴公式）变换到文档坐标；
+     * - 通用版：local = spot×nb，再经 D。
+     * 未旋转链下与旧实现（positionInRect(actualBounds)）严格等价：
+     * ab + spot×(nb+sw) − sw/2 − (−sw/2) = ab + spot×(nb+sw)。
+     */
     private static _docPoint;
     private _fromNode;
     private _toNode;

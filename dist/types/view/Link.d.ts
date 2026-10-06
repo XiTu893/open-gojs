@@ -115,7 +115,14 @@ export declare class Link extends Part {
     private static _approxZero;
     /** 官方 `Link.uA`：把 to 点沿主导方向推到无穷远处，用作正交方向参考 */
     private static _orthogonalize;
-    /** 官方 `GraphObject.getDocumentPoint(Spot, result)` 在无 Transform 时的等价实现 */
+    /**
+     * 官方 `GraphObject.getDocumentPoint(Spot, result)` 的等价实现：
+     * - Shape 版：local = spot×(nb+sw) − sw/2 + nb.x/y（含描边），再经 D（逐级 ab−mb、
+     *   带旋转 Part 走枢轴公式）变换到文档坐标；
+     * - 通用版：local = spot×nb，再经 D。
+     * 未旋转链下与旧实现（positionInRect(actualBounds)）严格等价：
+     * ab + spot×(nb+sw) − sw/2 − (−sw/2) = ab + spot×(nb+sw)。
+     */
     private static _docPoint;
     private _fromNode;
     private _toNode;

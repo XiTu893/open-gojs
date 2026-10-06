@@ -1611,12 +1611,32 @@ export class CanvasRenderer {
     const ctx = this.ctx;
     if (!ctx) return;
 
-    // The part's actualBounds already includes its location position,
-    // so we don't need to translate by location again.
-    // Only apply angle and scale transforms.
+    // 官方 Part 渲染变换：内容画在未旋转帧（pos + p），经
+    //   translate(q') → rotate(angle) → [scale] → translate(−c0)
+    // 映射到文档：doc(p) = pos + sc·(r + R(p−r)) − (ax,ay)
+    // 其中 r = 官方 Part.po 的旋转枢轴（locationSpot 点），c0 = pos + r，
+    // q' = pos + sc·r − (ax,ay)，(ax,ay) = measuredBounds 原点（AABB 相对未旋转帧的偏移）。
 
     const angle = (part as any)._angle as number;
-    if (angle && angle !== 0) {
+    const sc = (part as any)._scale as number;
+    const r: Point | null = (part as any)._rotPivot ?? null;
+
+    if (angle && !isNaN(angle) && angle !== 0 && r !== null) {
+      const ab = part.actualBounds;
+      const mb = part.measuredBounds;
+      const c0x = ab.x + r.x;
+      const c0y = ab.y + r.y;
+      const qx = ab.x + r.x * sc - (mb ? mb.x : 0);
+      const qy = ab.y + r.y * sc - (mb ? mb.y : 0);
+      ctx.translate(qx, qy);
+      if (sc !== 1) ctx.scale(sc, sc);
+      ctx.rotate(angle * Math.PI / 180);
+      ctx.translate(-c0x, -c0y);
+      return;
+    }
+
+    if (angle && !isNaN(angle) && angle !== 0) {
+      // 无枢轴兜底（measure 未跑）：绕 actualBounds 中心
       const ab = part.actualBounds;
       const cx = ab.x + ab.width / 2;
       const cy = ab.y + ab.height / 2;
@@ -1625,14 +1645,12 @@ export class CanvasRenderer {
       ctx.translate(-cx, -cy);
     }
 
-    const partScale = (part as any)._scale as number;
-    if (partScale && partScale !== 1) {
+    if (sc && sc !== 1) {
+      // 官方 angle=0：Fi 仅 scale(原点)：doc(p) = pos + sc·p
       const ab = part.actualBounds;
-      const cx = ab.x + ab.width / 2;
-      const cy = ab.y + ab.height / 2;
-      ctx.translate(cx, cy);
-      ctx.scale(partScale, partScale);
-      ctx.translate(-cx, -cy);
+      ctx.translate(ab.x, ab.y);
+      ctx.scale(sc, sc);
+      ctx.translate(-ab.x, -ab.y);
     }
   }
 

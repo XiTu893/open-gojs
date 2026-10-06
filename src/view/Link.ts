@@ -245,7 +245,14 @@ export class Link extends Part {
     }
   }
 
-  /** 官方 `GraphObject.getDocumentPoint(Spot, result)` 在无 Transform 时的等价实现 */
+  /**
+   * 官方 `GraphObject.getDocumentPoint(Spot, result)` 的等价实现：
+   * - Shape 版：local = spot×(nb+sw) − sw/2 + nb.x/y（含描边），再经 D（逐级 ab−mb、
+   *   带旋转 Part 走枢轴公式）变换到文档坐标；
+   * - 通用版：local = spot×nb，再经 D。
+   * 未旋转链下与旧实现（positionInRect(actualBounds)）严格等价：
+   * ab + spot×(nb+sw) − sw/2 − (−sw/2) = ab + spot×(nb+sw)。
+   */
   private static _docPoint(obj: GraphObject | null, spot: Spot, result: Point): Point {
     if (obj === null) {
       result.x = NaN;
@@ -258,7 +265,26 @@ export class Link extends Part {
       result.y = c.y;
       return result;
     }
-    const p = spot.positionInRect(obj.getDocumentBounds());
+    const nb = obj.naturalBounds;
+    let lx: number;
+    let ly: number;
+    const swRaw = (obj as any).strokeWidth;
+    if (typeof swRaw === 'number' && isFinite(swRaw) && swRaw > 0 && nb !== null &&
+      isFinite(nb.x) && isFinite(nb.y) && isFinite(nb.width) && isFinite(nb.height)) {
+      // Shape 版官方公式
+      lx = spot.x * (nb.width + swRaw) - swRaw / 2 + nb.x + spot.offsetX;
+      ly = spot.y * (nb.height + swRaw) - swRaw / 2 + nb.y + spot.offsetY;
+    } else if (nb !== null && isFinite(nb.width) && isFinite(nb.height)) {
+      lx = spot.x * nb.width + spot.offsetX;
+      ly = spot.y * nb.height + spot.offsetY;
+    } else {
+      const b = obj.getDocumentBounds();
+      const p = spot.positionInRect(b);
+      result.x = p.x;
+      result.y = p.y;
+      return result;
+    }
+    const p = obj.getDocumentPoint(new Point(lx, ly));
     result.x = p.x;
     result.y = p.y;
     return result;
