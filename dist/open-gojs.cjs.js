@@ -47500,6 +47500,14 @@ var Diagram = /** @class */ (function () {
             return;
         }
         this._lastRaisedDocBounds = new Rect(b.x, b.y, b.width, b.height);
+        // 官方 tD（go.js @340140）：先 kp → **tn(!1)**（viewport 重算 + H2 夹取
+        // position）→ f2 → 才 raise 事件。缺 tn 会导致 doc 在 post-layout 变化后
+        // position 永不修正（kanban：position 停在早期 doc topLeft (−5,−21.477)，
+        // 终值应为 (−3,−5)，内容整体偏 +2,+16.477 → 列头整条错位 ~16px）。
+        {
+            var gv = this.viewportBounds;
+            this._clampViewportPosition(this.documentBounds, gv.width, gv.height, this._contentAlignment);
+        }
         this._raiseDiagramEvent('DocumentBoundsChanged');
     };
     Diagram.prototype.invalidateViewport = function () {
