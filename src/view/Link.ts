@@ -1791,12 +1791,14 @@ export class Link extends Part {
     const path = this.path;
     if (path !== null) {
       (path as any)._geometry = geo;
+      (path as any)._invalidateGeometryCache();
     }
     const els: any = (this as any)._elements;
     if (!els || !els.length) return;
     for (const o of els) {
       if (o !== path && o.isPanelMain === true && o instanceof Shape) {
         (o as any)._geometry = geo;
+        (o as any)._invalidateGeometryCache();
       }
     }
   }

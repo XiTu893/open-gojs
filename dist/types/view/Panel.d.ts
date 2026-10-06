@@ -51,6 +51,10 @@ export declare class Panel extends GraphObject {
     private _gradMarks;
     /** 官方 `Panel.Ii`：measureGraduatedLabels 复用的临时 TextBlock（renderer 也用它逐 mark 重测） */
     private _gradTempText;
+    /** 与 `_elements` 逐下标对齐的临时 TextBlock：官方 render 前会逐元素 YD(el, Ii) 重灌属性，
+     *  单槽 `_gradTempText` 会让多 TextBlock 面板（thermometer 华氏 18px 黑标签 + 12px 红 32 标签）
+     *  全部按最后一个元素的样式绘制 —— 这里按元素存槽等价官方逐元素重灌。 */
+    private _gradTempTexts;
     private _defaultColumnSeparatorStroke;
     private _defaultColumnSeparatorStrokeWidth;
     private _defaultRowSeparatorStroke;
@@ -294,7 +298,7 @@ export declare class Panel extends GraphObject {
     private _gradDE;
     /** 官方 measureGraduatedTicks：每个 mark 旋转 4 角点求包围盒，push ns + union 面板 */
     private _measureGraduatedTicks;
-    /** 官方 measureGraduatedLabels：逐 mark 测量文本并算 actualBounds L */
+    /** 官方 measureGraduatedLabels：逐 mark 测量文本并算 actualBounds L；返回本元素的临时 TextBlock */
     private _measureGraduatedLabels;
     private _arrangeGraduated;
     /** 官方 segmentOrientation → 数值分支码（21..28） */
@@ -353,6 +357,7 @@ export declare class Panel extends GraphObject {
     private _resolveAlignment;
     /** 官方：alignmentFocus 默认 → 回退为该元素的 alignment（focus 落在 alignment 同一边） */
     private _resolveAlignmentFocus;
+    private _focusNameTarget;
     /**
      * 官方 PanelLayoutVertical/Horizontal.arrange 里算元素宽度用的是
      *   `g = Math.max(union.width - 元素左右 margin - 面板右 padding, 0)`

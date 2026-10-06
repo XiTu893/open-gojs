@@ -103,6 +103,12 @@ export declare class GraphObject {
     set height(val: number);
     get desiredSize(): Size;
     set desiredSize(val: Size);
+    /**
+     * 官方 `Shape.fi()` 钩子：desiredSize 变更时清掉缩放几何缓存
+     * （官方 width/height/desiredSize setter 里 `this instanceof Shape && this.fi()`）。
+     * 基类 no-op；Shape 覆写为清 `_scaledGeometry`。
+     */
+    _invalidateGeometryCache(): void;
     get minSize(): Size;
     set minSize(val: Size);
     get maxSize(): Size;

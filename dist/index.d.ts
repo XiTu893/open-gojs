@@ -1817,32 +1817,51 @@ declare class Geometry {
  */
 declare class Brush {
     static readonly className: string;
-    /** 画刷类型 */
-    type: EnumValue;
+    /** 画刷类型（官方 Brush.J；经 setter 在 NoSpot 时按类型补 start/end 默认） */
+    private _type;
     /** 纯色颜色值 */
     color: string;
     /** 渐变色标 */
     private _stops;
-    /** 线性渐变起点 */
-    start: Point;
-    /** 线性渐变终点 */
-    end: Point;
-    /** 径向渐变中心 */
+    /** 渐变起点（Linear 默认 TopCenter=(0.5,0)、Radial 默认 Center=(0.5,0.5)；可存 Spot 实例） */
+    private _start;
+    /** 渐变终点（Linear 默认 BottomCenter=(0.5,1)、Radial 默认 Center=(0.5,0.5)） */
+    private _end;
+    /** 官方语义：start 处于 Spot.None（未按类型初始化过） */
+    private _startNoSpot;
+    /** 官方语义：end 处于 Spot.None（未按类型初始化过） */
+    private _endNoSpot;
+    /** 径向渐变中心（旧字段；renderer 渐变已按官方 makeBrush 用 start/end/startRadius/endRadius） */
     center: Point;
-    /** 径向渐变焦点 */
+    /** 径向渐变焦点（旧字段） */
     focus: Point;
-    /** 径向渐变半径 */
+    /** 径向渐变半径（旧字段，max(w,h) 的分数） */
     radius: number;
-    /** 官方 `Brush(type?, colorStops?)`：colorStops 对象中数字键为色标，其余键直接赋值（如 start/end） */
-    constructor(type?: EnumValue | string, colorStops?: Record<string, any>);
+    /** 官方 `Brush(type?, colorStops?)`：字符串先按 BrushType 名解析（Solid/Linear/Radial/Pattern），
+     *  否则当纯色颜色；对象作第一参数时当 colorStops。色标数字键 addColorStop，其余键直接赋值
+     *  （如 start/end/startRadius/endRadius）。构造按初始类型设 start/end 默认（官方 fe/Ds）。 */
+    constructor(type?: EnumValue | string | Record<string, any>, colorStops?: Record<string, any>);
+    get type(): EnumValue;
+    /** 官方 `set type`：NoSpot 的 start/end 按新类型补默认（2→TopCenter/BottomCenter，3→Center/Center） */
+    set type(value: EnumValue | string);
+    get start(): Point;
+    set start(value: Point);
+    get end(): Point;
+    set end(value: Point);
+    /** BrushType 名（'Solid'/'Linear'/'Radial'/'Pattern'）→ 枚举值；非类型名返回 null（当颜色处理） */
+    private static _typeFromName;
+    /** EnumValue / 数字（1..4）→ BrushType 枚举值 */
+    private static _typeFromValue;
+    /** 官方构造/set type 的 fe/Ds 默认：Linear→TopCenter/BottomCenter，Radial→Center/Center；NoSpot 时才补 */
+    private static _applyTypeStartEnd;
     /** 获取色标列表 */
     get stops(): BrushStop[];
     /** 添加色标（官方：Solid 上加色标会自动转为 Linear） */
     addColorStop(offset: number, color: string): this;
     set(props: Record<string, any>): this;
-    /** 复制（官方 `copy()`：pattern/zp 共享引用） */
+    /** 复制（官方 `copy()`：start/end/半径/色标全带过去） */
     copy(): Brush;
-    /** 创建 Canvas 渐变对象 */
+    /** 创建 Canvas 渐变对象（官方 makeBrush：spot 分数×bounds + offsetX/offsetY；radial 半径按官方 NaN 默认） */
     _createCanvasGradient(ctx: CanvasRenderingContext2D, bounds: {
         x: number;
         y: number;
@@ -1854,7 +1873,8 @@ declare class Brush {
     static Solid(color: string): Brush;
     /** 创建线性渐变画刷 */
     static Linear(startX: number, startY: number, endX: number, endY: number): Brush;
-    /** 创建径向渐变画刷 */
+    /** 创建径向渐变画刷（旧 API：center/focus/radius 为 max(w,h) 分数；renderer 走 start/end，
+     *  这里同步把 start=focus、end=center 写进官方字段，endRadius 用官方默认 max/2 ≡ radius 0.5） */
     static Radial(centerX: number, centerY: number, radius: number, focusX?: number, focusY?: number): Brush;
     /** 判断是否为 Brush */
     static isBrush(b: any): b is Brush;
@@ -1878,6 +1898,7 @@ declare class Brush {
     private static _wd;
     static isDark(color: string): boolean;
     private _startRadius;
+    /** 官方默认 endRadius=NaN → makeBrush 里取 max(w,h)/2 */
     private _endRadius;
     private _pattern;
     /** 官方 Brush.startRadius（Radial 起始半径） */
@@ -2680,6 +2701,10 @@ declare class Panel extends GraphObject {
     private _gradMarks;
     /** 官方 `Panel.Ii`：measureGraduatedLabels 复用的临时 TextBlock（renderer 也用它逐 mark 重测） */
     private _gradTempText;
+    /** 与 `_elements` 逐下标对齐的临时 TextBlock：官方 render 前会逐元素 YD(el, Ii) 重灌属性，
+     *  单槽 `_gradTempText` 会让多 TextBlock 面板（thermometer 华氏 18px 黑标签 + 12px 红 32 标签）
+     *  全部按最后一个元素的样式绘制 —— 这里按元素存槽等价官方逐元素重灌。 */
+    private _gradTempTexts;
     private _defaultColumnSeparatorStroke;
     private _defaultColumnSeparatorStrokeWidth;
     private _defaultRowSeparatorStroke;
@@ -2923,7 +2948,7 @@ declare class Panel extends GraphObject {
     private _gradDE;
     /** 官方 measureGraduatedTicks：每个 mark 旋转 4 角点求包围盒，push ns + union 面板 */
     private _measureGraduatedTicks;
-    /** 官方 measureGraduatedLabels：逐 mark 测量文本并算 actualBounds L */
+    /** 官方 measureGraduatedLabels：逐 mark 测量文本并算 actualBounds L；返回本元素的临时 TextBlock */
     private _measureGraduatedLabels;
     private _arrangeGraduated;
     /** 官方 segmentOrientation → 数值分支码（21..28） */
@@ -2982,6 +3007,7 @@ declare class Panel extends GraphObject {
     private _resolveAlignment;
     /** 官方：alignmentFocus 默认 → 回退为该元素的 alignment（focus 落在 alignment 同一边） */
     private _resolveAlignmentFocus;
+    private _focusNameTarget;
     /**
      * 官方 PanelLayoutVertical/Horizontal.arrange 里算元素宽度用的是
      *   `g = Math.max(union.width - 元素左右 margin - 面板右 padding, 0)`
@@ -3540,6 +3566,12 @@ declare class GraphObject {
     set height(val: number);
     get desiredSize(): Size;
     set desiredSize(val: Size);
+    /**
+     * 官方 `Shape.fi()` 钩子：desiredSize 变更时清掉缩放几何缓存
+     * （官方 width/height/desiredSize setter 里 `this instanceof Shape && this.fi()`）。
+     * 基类 no-op；Shape 覆写为清 `_scaledGeometry`。
+     */
+    _invalidateGeometryCache(): void;
     get minSize(): Size;
     set minSize(val: Size);
     get maxSize(): Size;
@@ -3902,6 +3934,10 @@ declare class Shape extends GraphObject {
     private _strokeMiterLimit;
     private _pathPattern;
     private _isGeometryPositioned;
+    private _scaledGeometry;
+    private _scaledFrom;
+    private _parsedGeometryString;
+    private _parsedGeometry;
     constructor(figOrGeo?: string | Geometry | Partial<Shape>, init?: Partial<Shape>);
     get fill(): BrushLike;
     set fill(val: BrushLike);
@@ -3991,6 +4027,19 @@ declare class Shape extends GraphObject {
      * 外接正方形上而不是圆上。
      */
     getNearestIntersectionPoint(p: Point, q: Point, result: Point): boolean;
+    /**
+     * 官方 `Shape.fi()`：清掉缩放几何缓存（dt=null，geometry 暂回 raw，直到下次 measure 重建）。
+     * 在 desiredSize 变更（官方 width/height/desiredSize setter 调 fi）以及
+     * Link/Panel 直写 `_geometry` 后必须调用，否则 `.geometry` 会拿到过期的缩放几何。
+     */
+    _invalidateGeometryCache(): void;
+    /** 显式几何（官方 rn）：_geometry 或 geometryString 的缓存解析结果 */
+    private _explicitGeometry;
+    /**
+     * 官方 `dt!==null ? dt : rn` 的等价物：返回该 raw 几何对应的缩放几何。
+     * 未测过或 raw 已变（直写/重新赋值）时返回 raw —— 下次 measure 会重建缓存。
+     */
+    private _scaledOrRaw;
     /** 获取几何路径（从图形名称或自定义几何） */
     _getGeometry(): Geometry | null;
     private _getFigureGeometry;

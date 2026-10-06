@@ -136,6 +136,7 @@ export class GraphObject {
     if (this._desiredSize.width === val) return;
     this._desiredSize = new Size(val, this._desiredSize.height);
     this._invalidateMeasure();
+    this._invalidateGeometryCache();
   }
 
   /** Convenience property for desiredSize.height */
@@ -144,6 +145,7 @@ export class GraphObject {
     if (this._desiredSize.height === val) return;
     this._desiredSize = new Size(this._desiredSize.width, val);
     this._invalidateMeasure();
+    this._invalidateGeometryCache();
   }
 
   get desiredSize(): Size { return this._desiredSize; }
@@ -152,7 +154,15 @@ export class GraphObject {
     if (this._desiredSize.equals(s)) return;
     this._desiredSize = s;
     this._invalidateMeasure();
+    this._invalidateGeometryCache();
   }
+
+  /**
+   * 官方 `Shape.fi()` 钩子：desiredSize 变更时清掉缩放几何缓存
+   * （官方 width/height/desiredSize setter 里 `this instanceof Shape && this.fi()`）。
+   * 基类 no-op；Shape 覆写为清 `_scaledGeometry`。
+   */
+  _invalidateGeometryCache(): void { /* Shape 覆写 */ }
 
   get minSize(): Size { return this._minSize; }
   set minSize(val: Size) {

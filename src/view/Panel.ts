@@ -78,6 +78,10 @@ export class Panel extends GraphObject {
   private _gradMarks: GradMark[][] | null = null;
   /** 官方 `Panel.Ii`：measureGraduatedLabels 复用的临时 TextBlock（renderer 也用它逐 mark 重测） */
   private _gradTempText: TextBlock | null = null;
+  /** 与 `_elements` 逐下标对齐的临时 TextBlock：官方 render 前会逐元素 YD(el, Ii) 重灌属性，
+   *  单槽 `_gradTempText` 会让多 TextBlock 面板（thermometer 华氏 18px 黑标签 + 12px 红 32 标签）
+   *  全部按最后一个元素的样式绘制 —— 这里按元素存槽等价官方逐元素重灌。 */
+  private _gradTempTexts: (TextBlock | null)[] = [];
   private _defaultColumnSeparatorStroke: BrushLike = null;
   private _defaultColumnSeparatorStrokeWidth: number = 1;
   private _defaultRowSeparatorStroke: BrushLike = null;
@@ -1487,8 +1491,9 @@ export class Panel extends GraphObject {
       if (A.isDefault() || isNaN(A.x) || isNaN(A.y)) A = Spot.Center;
       let I = el.alignmentFocus;
       if (I.isDefault()) I = Spot.Center;
-      const X = -D + A.x * kw + A.offsetX - (I.x * mb.width + I.offsetX);
-      const Y = -F + A.y * kh + A.offsetY - (I.y * mb.height + I.offsetY);
+      const ft = this._focusNameTarget(el, I);
+      const X = -D + A.x * kw + A.offsetX - (ft !== null ? ft.x : I.x * mb.width + I.offsetX);
+      const Y = -F + A.y * kh + A.offsetY - (ft !== null ? ft.y : I.y * mb.height + I.offsetY);
       if (!hasOther) {
         hasOther = true;
         union.setTo(X, Y, y, x);
@@ -1521,8 +1526,9 @@ export class Panel extends GraphObject {
       if (A.isDefault() || isNaN(A.x) || isNaN(A.y)) A = Spot.Center;
       let I = el.alignmentFocus;
       if (I.isDefault()) I = Spot.Center;
-      const X = A.x * kw + A.offsetX - (I.x * mb.width + I.offsetX) - em.left;
-      const Y = A.y * kh + A.offsetY - (I.y * mb.height + I.offsetY) - em.top;
+      const ft = this._focusNameTarget(el, I);
+      const X = A.x * kw + A.offsetX - (ft !== null ? ft.x : I.x * mb.width + I.offsetX) - em.left;
+      const Y = A.y * kh + A.offsetY - (ft !== null ? ft.y : I.y * mb.height + I.offsetY) - em.top;
       this._unionInto(X, Y, y, x);
     }
     this._unionInto(sBoxX, sBoxY, sBoxW, sBoxH);
@@ -1548,8 +1554,9 @@ export class Panel extends GraphObject {
       if (A.isDefault() || isNaN(A.x) || isNaN(A.y)) A = Spot.Center;
       let I = el.alignmentFocus;
       if (I.isDefault()) I = Spot.Center;
-      let f = A.x * dw + A.offsetX - (I.x * eMb.width + I.offsetX);
-      let uu = A.y * dh + A.offsetY - (I.y * eMb.height + I.offsetY);
+      const ft = this._focusNameTarget(el, I);
+      let f = A.x * dw + A.offsetX - (ft !== null ? ft.x : I.x * eMb.width + I.offsetX);
+      let uu = A.y * dh + A.offsetY - (ft !== null ? ft.y : I.y * eMb.height + I.offsetY);
       f += -this._originX;
       uu += -this._originY;
       el._arrange(new Rect(pad.left + f, pad.top + uu, eMb.width, eMb.height));
@@ -2317,6 +2324,7 @@ export class Panel extends GraphObject {
     const rects: Rect[] = [];
     this._gradRects = rects;
     this._gradMarks = null;
+    this._gradTempTexts = [];
     const main = this.findMainElement();
     if (!(main instanceof Shape)) return;
 
@@ -2339,7 +2347,7 @@ export class Panel extends GraphObject {
       const mk = marks[i];
       if (!el.visible || el === main || mk === undefined || mk.length === 0) continue;
       if (el instanceof Shape) this._measureGraduatedTicks(el, mk);
-      else if (el instanceof TextBlock) this._measureGraduatedLabels(el, mk);
+      else if (el instanceof TextBlock) this._gradTempTexts[i] = this._measureGraduatedLabels(el, mk);
     }
   }
 
@@ -2574,8 +2582,8 @@ export class Panel extends GraphObject {
     this._unionInto(d.x, d.y, d.width, d.height);
   }
 
-  /** 官方 measureGraduatedLabels：逐 mark 测量文本并算 actualBounds L */
-  private _measureGraduatedLabels(el: TextBlock, marks: GradMark[]): void {
+  /** 官方 measureGraduatedLabels：逐 mark 测量文本并算 actualBounds L；返回本元素的临时 TextBlock */
+  private _measureGraduatedLabels(el: TextBlock, marks: GradMark[]): TextBlock {
     const temp = el.copy();
     this._gradTempText = temp;
     let focus = el.alignmentFocus;
@@ -2635,6 +2643,7 @@ export class Panel extends GraphObject {
     }
     if (this._gradRects !== null) this._gradRects.push(a);
     this._unionInto(a.x, a.y, a.width, a.height);
+    return temp;
   }
 
   private _arrangeGraduated(): void {
@@ -2772,7 +2781,10 @@ export class Panel extends GraphObject {
       const geo = (host as any).geometry;
       if (geo) {
         for (const e of this._elements) {
-          if ((e as any).isPanelMain && e instanceof Shape) (e as any)._geometry = geo;
+          if ((e as any).isPanelMain && e instanceof Shape) {
+            (e as any)._geometry = geo;
+            (e as any)._invalidateGeometryCache();
+          }
         }
       }
     }
@@ -3212,6 +3224,22 @@ export class Panel extends GraphObject {
     const af = elem.alignmentFocus;
     if (af.isDefault()) return this._resolveAlignment(elem);
     return af;
+  }
+
+  private _focusNameTarget(el: GraphObject, I: Spot): Point | null {
+    if (!(el instanceof Panel)) return null;
+    const nm = el.alignmentFocusName;
+    if (nm === '') return null;
+    const target = el.findObject(nm);
+    if (target === null || target === el) return null;
+    const S = target.actualBounds;
+    const p = new Point(S.x + I.x * S.width - I.offsetX, S.y + I.y * S.height - I.offsetY);
+    if (!isFinite(p.x) || !isFinite(p.y)) return null;
+    for (let q = target.panel; q !== null && q !== el; q = q.panel) {
+      p.x += q.actualBounds.x;
+      p.y += q.actualBounds.y;
+    }
+    return p;
   }
 
   /**

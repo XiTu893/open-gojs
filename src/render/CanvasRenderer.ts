@@ -1487,7 +1487,12 @@ export class CanvasRenderer {
             ctx.restore();
           }
         } else if (el instanceof TextBlock) {
-          const temp = (panel as any)._gradTempText as TextBlock | null;
+          // 官方 render：`YD(g, Ii)` 先把**本元素**属性灌进临时 TextBlock 再逐 mark 画。
+          // 直接复用单槽 `_gradTempText`（measure 最后一个 TextBlock 的拷贝）会让
+          // 多 TextBlock 面板的标签全按最后一个元素的样式画（thermometer 华氏
+          // 18px 黑标签被画成 12px 红标签样式）。
+          const temps = (panel as any)._gradTempTexts as (TextBlock | null)[] | undefined;
+          const temp = (temps && temps[i]) || (panel as any)._gradTempText as TextBlock | null;
           if (temp === null) continue;
           for (const m of mk) {
             if (!m.actualBounds || !m.measuredBounds || !m.naturalBounds) continue;
@@ -1823,10 +1828,13 @@ export class CanvasRenderer {
       }
 
       if (brush.type === BrushLinear) {
-        const x1 = bounds.x + brush.start.x * bounds.width;
-        const y1 = bounds.y + brush.start.y * bounds.height;
-        const x2 = bounds.x + brush.end.x * bounds.width;
-        const y2 = bounds.y + brush.end.y * bounds.height;
+        // 官方 makeBrush：spot 分数×bounds + offsetX/offsetY（Point 无 offset → 0）
+        const s: any = brush.start;
+        const e: any = brush.end;
+        const x1 = bounds.x + s.x * bounds.width + (s.offsetX || 0);
+        const y1 = bounds.y + s.y * bounds.height + (s.offsetY || 0);
+        const x2 = bounds.x + e.x * bounds.width + (e.offsetX || 0);
+        const y2 = bounds.y + e.y * bounds.height + (e.offsetY || 0);
         if (!isFinite(x1) || !isFinite(y1) || !isFinite(x2) || !isFinite(y2)) {
           if (typeof console !== 'undefined' && console.log) {
             console.log('brush NaN: bounds=' + bounds.x + ',' + bounds.y + ',' + bounds.width + ',' + bounds.height +
@@ -1842,18 +1850,27 @@ export class CanvasRenderer {
       }
 
       if (brush.type === BrushRadial) {
-        const cx = bounds.x + brush.center.x * bounds.width;
-        const cy = bounds.y + brush.center.y * bounds.height;
-        const r = brush.radius * Math.max(bounds.width, bounds.height);
-        const fx = bounds.x + brush.focus.x * bounds.width;
-        const fy = bounds.y + brush.focus.y * bounds.height;
-        if (!isFinite(cx) || !isFinite(cy) || !isFinite(r) || !isFinite(fx) || !isFinite(fy)) {
+        // 官方 makeBrush type===3：内圆=start（默认 Center），外圆=end（默认 Center），
+        // startRadius 默认 0、endRadius 默认 NaN → max(w,h)/2；startRadius 为 NaN 时
+        // 官方把 endRadius 也回落 max/2（p 的赋值顺序）。
+        const s: any = brush.start;
+        const e: any = brush.end;
+        const fx = bounds.x + s.x * bounds.width + (s.offsetX || 0);
+        const fy = bounds.y + s.y * bounds.height + (s.offsetY || 0);
+        const cx = bounds.x + e.x * bounds.width + (e.offsetX || 0);
+        const cy = bounds.y + e.y * bounds.height + (e.offsetY || 0);
+        const maxWH = Math.max(bounds.width, bounds.height);
+        let er = brush.endRadius;
+        let sr: number;
+        if (isNaN(brush.startRadius)) { sr = 0; er = maxWH / 2; }
+        else { sr = brush.startRadius; if (isNaN(er)) er = maxWH / 2; }
+        if (!isFinite(fx) || !isFinite(fy) || !isFinite(cx) || !isFinite(cy) || !isFinite(sr) || !isFinite(er)) {
           if (typeof console !== 'undefined' && console.log) {
             console.log('brush NaN radial: bounds=' + bounds.x + ',' + bounds.y + ',' + bounds.width + ',' + bounds.height);
           }
           return brush.color || 'transparent';
         }
-        const gradient = ctx.createRadialGradient(fx, fy, 0, cx, cy, r);
+        const gradient = ctx.createRadialGradient(fx, fy, sr, cx, cy, er);
         for (const stop of brush.stops) {
           gradient.addColorStop(stop.offset, stop.color);
         }

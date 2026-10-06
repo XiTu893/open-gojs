@@ -1,4 +1,5 @@
 import { EnumValue, BrushSolid, BrushLinear, BrushRadial, BrushPattern, ColorSpaceHSL } from './EnumValues';
+import { BrushType } from './EnumNamespaces';
 import { Point } from './Point';
 
 /**
@@ -7,44 +8,120 @@ import { Point } from './Point';
  */
 export class Brush {
   static readonly className: string = "Brush";
-  /** 画刷类型 */
-  public type: EnumValue;
+  /** 画刷类型（官方 Brush.J；经 setter 在 NoSpot 时按类型补 start/end 默认） */
+  private _type: EnumValue;
   /** 纯色颜色值 */
   public color: string;
   /** 渐变色标 */
   private _stops: BrushStop[];
-  /** 线性渐变起点 */
-  public start: Point;
-  /** 线性渐变终点 */
-  public end: Point;
-  /** 径向渐变中心 */
+  /** 渐变起点（Linear 默认 TopCenter=(0.5,0)、Radial 默认 Center=(0.5,0.5)；可存 Spot 实例） */
+  private _start: Point;
+  /** 渐变终点（Linear 默认 BottomCenter=(0.5,1)、Radial 默认 Center=(0.5,0.5)） */
+  private _end: Point;
+  /** 官方语义：start 处于 Spot.None（未按类型初始化过） */
+  private _startNoSpot: boolean;
+  /** 官方语义：end 处于 Spot.None（未按类型初始化过） */
+  private _endNoSpot: boolean;
+  /** 径向渐变中心（旧字段；renderer 渐变已按官方 makeBrush 用 start/end/startRadius/endRadius） */
   public center: Point;
-  /** 径向渐变焦点 */
+  /** 径向渐变焦点（旧字段） */
   public focus: Point;
-  /** 径向渐变半径 */
+  /** 径向渐变半径（旧字段，max(w,h) 的分数） */
   public radius: number;
 
-  /** 官方 `Brush(type?, colorStops?)`：colorStops 对象中数字键为色标，其余键直接赋值（如 start/end） */
-  constructor(type?: EnumValue | string, colorStops?: Record<string, any>) {
-    if (typeof type === 'string') {
-      this.type = BrushSolid;
-      this.color = type;
-    } else {
-      this.type = type || BrushSolid;
-      this.color = '';
-    }
+  /** 官方 `Brush(type?, colorStops?)`：字符串先按 BrushType 名解析（Solid/Linear/Radial/Pattern），
+   *  否则当纯色颜色；对象作第一参数时当 colorStops。色标数字键 addColorStop，其余键直接赋值
+   *  （如 start/end/startRadius/endRadius）。构造按初始类型设 start/end 默认（官方 fe/Ds）。 */
+  constructor(type?: EnumValue | string | Record<string, any>, colorStops?: Record<string, any>) {
     this._stops = [];
-    this.start = new Point(0, 0);
-    this.end = new Point(1, 0);
+    this._start = new Point(0, 0);
+    this._end = new Point(1, 0);
+    this._startNoSpot = true;
+    this._endNoSpot = true;
     this.center = new Point(0.5, 0.5);
     this.focus = new Point(0.5, 0.5);
     this.radius = 0.5;
-    if (colorStops) {
-      for (const key of Object.keys(colorStops)) {
+    this.color = 'black';
+    let stopsArg: Record<string, any> | undefined = colorStops;
+    if (type === undefined || type === null) {
+      this._type = BrushSolid;
+    } else if (typeof type === 'string') {
+      const t = Brush._typeFromName(type);
+      if (t !== null) this._type = t;
+      else { this._type = BrushSolid; this.color = type; }
+    } else if (typeof type === 'object' && !(type instanceof EnumValue)) {
+      this._type = BrushSolid;
+      stopsArg = type as Record<string, any>;
+    } else {
+      this._type = Brush._typeFromValue(type) || BrushSolid;
+    }
+    Brush._applyTypeStartEnd(this, this._type);
+    if (stopsArg) {
+      for (const key of Object.keys(stopsArg)) {
         const n = parseFloat(key);
-        if (isFinite(n)) this.addColorStop(n, colorStops[key]);
-        else (this as any)[key] = colorStops[key];
+        if (isFinite(n)) this.addColorStop(n, stopsArg[key]);
+        else (this as any)[key] = stopsArg[key];
       }
+    }
+  }
+
+  get type(): EnumValue {
+    return this._type;
+  }
+  /** 官方 `set type`：NoSpot 的 start/end 按新类型补默认（2→TopCenter/BottomCenter，3→Center/Center） */
+  set type(value: EnumValue | string) {
+    let t: any = value;
+    if (typeof value === 'string') {
+      const r = Brush._typeFromName(value);
+      if (r !== null) t = r;
+    }
+    this._type = t;
+    Brush._applyTypeStartEnd(this, t);
+  }
+
+  get start(): Point {
+    return this._start;
+  }
+  set start(value: Point) {
+    this._start = value;
+    this._startNoSpot = false;
+  }
+
+  get end(): Point {
+    return this._end;
+  }
+  set end(value: Point) {
+    this._end = value;
+    this._endNoSpot = false;
+  }
+
+  /** BrushType 名（'Solid'/'Linear'/'Radial'/'Pattern'）→ 枚举值；非类型名返回 null（当颜色处理） */
+  private static _typeFromName(name: string): EnumValue | null {
+    const t = (BrushType as Record<string, EnumValue>)[name];
+    return t === undefined ? null : t;
+  }
+
+  /** EnumValue / 数字（1..4）→ BrushType 枚举值 */
+  private static _typeFromValue(v: EnumValue | number): EnumValue | null {
+    if (v instanceof EnumValue) return Brush._typeFromName(v._name);
+    if (typeof v === 'number') {
+      if (v === 1) return BrushSolid;
+      if (v === 2) return BrushLinear;
+      if (v === 3) return BrushRadial;
+      if (v === 4) return BrushPattern;
+    }
+    return null;
+  }
+
+  /** 官方构造/set type 的 fe/Ds 默认：Linear→TopCenter/BottomCenter，Radial→Center/Center；NoSpot 时才补 */
+  private static _applyTypeStartEnd(b: Brush, t: EnumValue): void {
+    if (b._startNoSpot) {
+      if (t === BrushLinear) { b._start = new Point(0.5, 0); b._startNoSpot = false; }
+      else if (t === BrushRadial) { b._start = new Point(0.5, 0.5); b._startNoSpot = false; }
+    }
+    if (b._endNoSpot) {
+      if (t === BrushLinear) { b._end = new Point(0.5, 1); b._endNoSpot = false; }
+      else if (t === BrushRadial) { b._end = new Point(0.5, 0.5); b._endNoSpot = false; }
     }
   }
 
@@ -84,28 +161,34 @@ export class Brush {
     return this;
   }
 
-  /** 复制（官方 `copy()`：pattern/zp 共享引用） */
+  /** 复制（官方 `copy()`：start/end/半径/色标全带过去） */
   copy(): Brush {
-    const b = new Brush(this.type);
+    const b = new Brush(this._type);
     b.color = this.color;
-    b.start = this.start.copy();
-    b.end = this.end.copy();
+    b._start = this._start.copy();
+    b._startNoSpot = this._startNoSpot;
+    b._end = this._end.copy();
+    b._endNoSpot = this._endNoSpot;
     b.center = this.center.copy();
     b.focus = this.focus.copy();
     b.radius = this.radius;
     b._stops = this._stops.map(s => ({ ...s }));
     b._pattern = this._pattern;
+    b._startRadius = this._startRadius;
+    b._endRadius = this._endRadius;
     return b;
   }
 
-  /** 创建 Canvas 渐变对象 */
+  /** 创建 Canvas 渐变对象（官方 makeBrush：spot 分数×bounds + offsetX/offsetY；radial 半径按官方 NaN 默认） */
   _createCanvasGradient(ctx: CanvasRenderingContext2D, bounds: { x: number; y: number; width: number; height: number }): CanvasGradient | null {
     if (this.type === BrushSolid) return null;
+    const s: any = this._start;
+    const e: any = this._end;
     if (this.type === BrushLinear) {
-      const x1 = bounds.x + this.start.x * bounds.width;
-      const y1 = bounds.y + this.start.y * bounds.height;
-      const x2 = bounds.x + this.end.x * bounds.width;
-      const y2 = bounds.y + this.end.y * bounds.height;
+      const x1 = bounds.x + s.x * bounds.width + (s.offsetX || 0);
+      const y1 = bounds.y + s.y * bounds.height + (s.offsetY || 0);
+      const x2 = bounds.x + e.x * bounds.width + (e.offsetX || 0);
+      const y2 = bounds.y + e.y * bounds.height + (e.offsetY || 0);
       const grad = ctx.createLinearGradient(x1, y1, x2, y2);
       for (const stop of this._stops) {
         grad.addColorStop(stop.offset, stop.color);
@@ -113,12 +196,16 @@ export class Brush {
       return grad;
     }
     if (this.type === BrushRadial) {
-      const cx = bounds.x + this.center.x * bounds.width;
-      const cy = bounds.y + this.center.y * bounds.height;
-      const fx = bounds.x + this.focus.x * bounds.width;
-      const fy = bounds.y + this.focus.y * bounds.height;
-      const r = this.radius * Math.max(bounds.width, bounds.height);
-      const grad = ctx.createRadialGradient(fx, fy, 0, cx, cy, r);
+      const fx = bounds.x + s.x * bounds.width + (s.offsetX || 0);
+      const fy = bounds.y + s.y * bounds.height + (s.offsetY || 0);
+      const cx = bounds.x + e.x * bounds.width + (e.offsetX || 0);
+      const cy = bounds.y + e.y * bounds.height + (e.offsetY || 0);
+      const maxWH = Math.max(bounds.width, bounds.height);
+      let er = this._endRadius;
+      let sr: number;
+      if (isNaN(this._startRadius)) { sr = 0; er = maxWH / 2; }
+      else { sr = this._startRadius; if (isNaN(er)) er = maxWH / 2; }
+      const grad = ctx.createRadialGradient(fx, fy, sr, cx, cy, er);
       for (const stop of this._stops) {
         grad.addColorStop(stop.offset, stop.color);
       }
@@ -154,14 +241,16 @@ export class Brush {
     return b;
   }
 
-  /** 创建径向渐变画刷 */
+  /** 创建径向渐变画刷（旧 API：center/focus/radius 为 max(w,h) 分数；renderer 走 start/end，
+   *  这里同步把 start=focus、end=center 写进官方字段，endRadius 用官方默认 max/2 ≡ radius 0.5） */
   static Radial(centerX: number, centerY: number, radius: number, focusX?: number, focusY?: number): Brush {
     const b = new Brush(BrushRadial);
     b.center = new Point(centerX, centerY);
     b.radius = radius;
-    if (focusX !== undefined && focusY !== undefined) {
-      b.focus = new Point(focusX, focusY);
-    }
+    b._start = new Point(focusX === undefined ? centerX : focusX, focusY === undefined ? centerY : focusY);
+    b._startNoSpot = false;
+    b._end = new Point(centerX, centerY);
+    b._endNoSpot = false;
     return b;
   }
 
@@ -285,7 +374,8 @@ export class Brush {
   // ============ 官方 Brush API 对齐（阶段 5） ============
 
   private _startRadius: number = 0;
-  private _endRadius: number = 0;
+  /** 官方默认 endRadius=NaN → makeBrush 里取 max(w,h)/2 */
+  private _endRadius: number = NaN;
   private _pattern: HTMLCanvasElement | HTMLImageElement | null = null;
 
   /** 官方 Brush.startRadius（Radial 起始半径） */

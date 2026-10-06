@@ -35,6 +35,10 @@ export declare class Shape extends GraphObject {
     private _strokeMiterLimit;
     private _pathPattern;
     private _isGeometryPositioned;
+    private _scaledGeometry;
+    private _scaledFrom;
+    private _parsedGeometryString;
+    private _parsedGeometry;
     constructor(figOrGeo?: string | Geometry | Partial<Shape>, init?: Partial<Shape>);
     get fill(): BrushLike;
     set fill(val: BrushLike);
@@ -124,6 +128,19 @@ export declare class Shape extends GraphObject {
      * 外接正方形上而不是圆上。
      */
     getNearestIntersectionPoint(p: Point, q: Point, result: Point): boolean;
+    /**
+     * 官方 `Shape.fi()`：清掉缩放几何缓存（dt=null，geometry 暂回 raw，直到下次 measure 重建）。
+     * 在 desiredSize 变更（官方 width/height/desiredSize setter 调 fi）以及
+     * Link/Panel 直写 `_geometry` 后必须调用，否则 `.geometry` 会拿到过期的缩放几何。
+     */
+    _invalidateGeometryCache(): void;
+    /** 显式几何（官方 rn）：_geometry 或 geometryString 的缓存解析结果 */
+    private _explicitGeometry;
+    /**
+     * 官方 `dt!==null ? dt : rn` 的等价物：返回该 raw 几何对应的缩放几何。
+     * 未测过或 raw 已变（直写/重新赋值）时返回 raw —— 下次 measure 会重建缓存。
+     */
+    private _scaledOrRaw;
     /** 获取几何路径（从图形名称或自定义几何） */
     _getGeometry(): Geometry | null;
     private _getFigureGeometry;

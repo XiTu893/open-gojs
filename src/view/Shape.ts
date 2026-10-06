@@ -128,6 +128,12 @@ export class Shape extends GraphObject {
   private _strokeMiterLimit: number = 10;
   private _pathPattern: GraphObject | null = null;
   private _isGeometryPositioned: boolean = false;
+  // 官方 Shape.dt：按内容尺寸缩放后的几何；_scaledFrom 是它源自的 raw geometry（官方 rn）
+  private _scaledGeometry: Geometry | null = null;
+  private _scaledFrom: Geometry | null = null;
+  // geometryString 的惰性解析缓存（保证 geometry getter 对象身份稳定，供 _scaledFrom 比对）
+  private _parsedGeometryString: string = '';
+  private _parsedGeometry: Geometry | null = null;
 
   constructor(figOrGeo?: string | Geometry | Partial<Shape>, init?: Partial<Shape>) {
     super();
@@ -214,6 +220,7 @@ export class Shape extends GraphObject {
   set figure(val: string) {
     if (this._figure !== val) {
       this._figure = val;
+      this._invalidateGeometryCache();
       this._invalidateMeasure();
     }
   }
@@ -234,14 +241,16 @@ export class Shape extends GraphObject {
         // 此前只返回 _geometry，导致 geometryString 形状的 geometry 恒为 null
         // （Graduated 面板 graduatedPointForValue 拿不到路径 → 表盘指针角度错）。
         const g = this._getGeometry();
-        if (g !== null) return g;
+        if (g !== null) return this._scaledOrRaw(g);
+        return null;
       }
     }
-    return this._geometry;
+    return this._scaledOrRaw(this._geometry);
   }
   set geometry(val: Geometry | null) {
     if (this._geometry !== val) {
       this._geometry = val;
+      this._invalidateGeometryCache();
       this._invalidateMeasure();
     }
   }
@@ -250,6 +259,9 @@ export class Shape extends GraphObject {
   set geometryString(val: string) {
     if (this._geometryString !== val) {
       this._geometryString = val;
+      this._parsedGeometryString = '';
+      this._parsedGeometry = null;
+      this._invalidateGeometryCache();
       this._invalidateMeasure();
     }
   }
@@ -258,6 +270,7 @@ export class Shape extends GraphObject {
   set parameter1(val: number) {
     if (this._parameter1 !== val) {
       this._parameter1 = val;
+      this._invalidateGeometryCache();
       this._invalidateMeasure();
     }
   }
@@ -266,6 +279,7 @@ export class Shape extends GraphObject {
   set parameter2(val: number) {
     if (this._parameter2 !== val) {
       this._parameter2 = val;
+      this._invalidateGeometryCache();
       this._invalidateMeasure();
     }
   }
@@ -287,6 +301,7 @@ export class Shape extends GraphObject {
   set toArrow(val: string) {
     if (this._toArrow !== val) {
       this._toArrow = val;
+      this._invalidateGeometryCache();
       this._invalidateMeasure();
       this._applyArrowLinkDefaults();
     }
@@ -296,6 +311,7 @@ export class Shape extends GraphObject {
   set fromArrow(val: string) {
     if (this._fromArrow !== val) {
       this._fromArrow = val;
+      this._invalidateGeometryCache();
       this._invalidateMeasure();
       this._applyArrowLinkDefaults();
     }
@@ -572,13 +588,44 @@ export class Shape extends GraphObject {
     return super.getNearestIntersectionPoint(p, q, result);
   }
 
+  /**
+   * 官方 `Shape.fi()`：清掉缩放几何缓存（dt=null，geometry 暂回 raw，直到下次 measure 重建）。
+   * 在 desiredSize 变更（官方 width/height/desiredSize setter 调 fi）以及
+   * Link/Panel 直写 `_geometry` 后必须调用，否则 `.geometry` 会拿到过期的缩放几何。
+   */
+  _invalidateGeometryCache(): void {
+    this._scaledGeometry = null;
+    this._scaledFrom = null;
+  }
+
+  /** 显式几何（官方 rn）：_geometry 或 geometryString 的缓存解析结果 */
+  private _explicitGeometry(): Geometry | null {
+    if (this._geometry !== null) return this._geometry;
+    if (this._geometryString) return this._getGeometry();
+    return null;
+  }
+
+  /**
+   * 官方 `dt!==null ? dt : rn` 的等价物：返回该 raw 几何对应的缩放几何。
+   * 未测过或 raw 已变（直写/重新赋值）时返回 raw —— 下次 measure 会重建缓存。
+   */
+  private _scaledOrRaw(raw: Geometry): Geometry {
+    return this._scaledGeometry !== null && this._scaledFrom === raw ? this._scaledGeometry : raw;
+  }
+
   /** 获取几何路径（从图形名称或自定义几何） */
   _getGeometry(): Geometry | null {
     if (this._geometry !== null) {
       return this._geometry;
     }
     if (this._geometryString) {
-      return Geometry.parse(this._geometryString);
+      // 缓存解析结果：geometry getter 要靠对象身份与 _scaledFrom 比对命中缩放缓存
+      if (this._parsedGeometryString !== this._geometryString) {
+        const parsed = Geometry.parse(this._geometryString);
+        this._parsedGeometry = parsed;
+        this._parsedGeometryString = this._geometryString;
+      }
+      return this._parsedGeometry;
     }
     if (this._toArrow && this._toArrow !== 'None') {
       return Shape._getArrowheadGeometry(this._toArrow);
@@ -743,6 +790,23 @@ export class Shape extends GraphObject {
     if (gH === 0) gH = 0.001;
     (this as any)._geoW = gW;
     (this as any)._geoH = gH;
+    // 官方 Yd 尾部 `dt = rn.UR(l,a)`：显式几何按内容尺寸（gW/gH）缩放。
+    // 这样 geometry.bounds/路径长度与官方一致 —— graduated marks、
+    // graduatedPointForValue 才会落在正确的长度上（如 thermometer 竖线 400→250）。
+    const expl = this._explicitGeometry();
+    if (expl !== null) {
+      const b = expl.bounds;
+      let sx = gW / b.width;
+      let sy = gH / b.height;
+      // 官方 UR：宽/高为 0 时商为 ±Infinity/NaN → isFinite 失败 → 1
+      if (!isFinite(sx)) sx = 1;
+      if (!isFinite(sy)) sy = 1;
+      this._scaledGeometry = sx === 1 && sy === 1 ? expl : expl.copy().scale(sx, sy);
+      this._scaledFrom = expl;
+    } else {
+      this._scaledGeometry = null;
+      this._scaledFrom = null;
+    }
     // 官方 Yd 尾部：约束有一维 Infinity → measuredBounds = 实际几何 bounds（Uniform letterbox 生效，
     // 如 Square width=85 + 竖排面板高度 Infinity → 85×85 而非 85×100）
     let gb: Rect | null = null;
@@ -752,8 +816,8 @@ export class Shape extends GraphObject {
     // 普通 Shape（含 sparklineGraphs 的负 y geometryString）在绘制时会被归一化到
     // 自身包围盒，原点不应影响测量。
     let keepOrigin = false;
-    if (this._geometry !== null || this._geometryString) {
-      const raw = this._geometry !== null ? this._geometry : Geometry.parse(this._geometryString);
+    if (expl !== null) {
+      const raw = expl;
       const yM0 = yM === 0 || yM === 2;
       if (yM0 && this._isGeometryPositioned) {
         gb = raw.bounds.copy();
@@ -794,9 +858,10 @@ export class Shape extends GraphObject {
       if (gs === GeometryStretchUniform) return 6;
       return 2; // Fill / UniformToFill（非官方按 Fill）
     }
-    // Default：显式 geometry → 官方 t===1 ? 2 : t；figure → figure geometry 的 defaultStretch
-    if (this._geometry !== null) return this._geometry.defaultStretch !== undefined ? (this._geometry.defaultStretch === 1 ? 2 : this._geometry.defaultStretch) : 2;
-    if (this._figure && this._figure !== 'None') {
+    // Default：官方 fM() —— 显式 geometry（rn!==null，含 geometryString）恒为 2，
+    // **不读** geometry.defaultStretch；只有 figure（rn===null）才回落到
+    // figure geometry 的 defaultStretch（Shape.FN[figure].defaultStretch）。
+    if (this._geometry === null && !this._geometryString && this._figure && this._figure !== 'None') {
       const g = getFigureGeometry(this._figure, 100, 100, NaN, NaN, null);
       if (g) return g.defaultStretch !== undefined ? (g.defaultStretch === 1 ? 2 : g.defaultStretch) : 2;
     }

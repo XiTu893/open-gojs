@@ -6951,36 +6951,55 @@ var Geometry = /** @class */ (function () {
  * 支持 Solid（纯色）、Linear（线性渐变）、Radial（径向渐变）
  */
 var Brush = /** @class */ (function () {
-    /** 官方 `Brush(type?, colorStops?)`：colorStops 对象中数字键为色标，其余键直接赋值（如 start/end） */
+    /** 官方 `Brush(type?, colorStops?)`：字符串先按 BrushType 名解析（Solid/Linear/Radial/Pattern），
+     *  否则当纯色颜色；对象作第一参数时当 colorStops。色标数字键 addColorStop，其余键直接赋值
+     *  （如 start/end/startRadius/endRadius）。构造按初始类型设 start/end 默认（官方 fe/Ds）。 */
     function Brush(type, colorStops) {
         var e_1, _a;
         // ============ 官方 Brush API 对齐（阶段 5） ============
         this._startRadius = 0;
-        this._endRadius = 0;
+        /** 官方默认 endRadius=NaN → makeBrush 里取 max(w,h)/2 */
+        this._endRadius = NaN;
         this._pattern = null;
-        if (typeof type === 'string') {
-            this.type = BrushSolid;
-            this.color = type;
-        }
-        else {
-            this.type = type || BrushSolid;
-            this.color = '';
-        }
         this._stops = [];
-        this.start = new Point(0, 0);
-        this.end = new Point(1, 0);
+        this._start = new Point(0, 0);
+        this._end = new Point(1, 0);
+        this._startNoSpot = true;
+        this._endNoSpot = true;
         this.center = new Point(0.5, 0.5);
         this.focus = new Point(0.5, 0.5);
         this.radius = 0.5;
-        if (colorStops) {
+        this.color = 'black';
+        var stopsArg = colorStops;
+        if (type === undefined || type === null) {
+            this._type = BrushSolid;
+        }
+        else if (typeof type === 'string') {
+            var t = Brush._typeFromName(type);
+            if (t !== null)
+                this._type = t;
+            else {
+                this._type = BrushSolid;
+                this.color = type;
+            }
+        }
+        else if (typeof type === 'object' && !(type instanceof EnumValue)) {
+            this._type = BrushSolid;
+            stopsArg = type;
+        }
+        else {
+            this._type = Brush._typeFromValue(type) || BrushSolid;
+        }
+        Brush._applyTypeStartEnd(this, this._type);
+        if (stopsArg) {
             try {
-                for (var _b = __values(Object.keys(colorStops)), _c = _b.next(); !_c.done; _c = _b.next()) {
+                for (var _b = __values(Object.keys(stopsArg)), _c = _b.next(); !_c.done; _c = _b.next()) {
                     var key = _c.value;
                     var n = parseFloat(key);
                     if (isFinite(n))
-                        this.addColorStop(n, colorStops[key]);
+                        this.addColorStop(n, stopsArg[key]);
                     else
-                        this[key] = colorStops[key];
+                        this[key] = stopsArg[key];
                 }
             }
             catch (e_1_1) { e_1 = { error: e_1_1 }; }
@@ -6992,6 +7011,90 @@ var Brush = /** @class */ (function () {
             }
         }
     }
+    Object.defineProperty(Brush.prototype, "type", {
+        get: function () {
+            return this._type;
+        },
+        /** 官方 `set type`：NoSpot 的 start/end 按新类型补默认（2→TopCenter/BottomCenter，3→Center/Center） */
+        set: function (value) {
+            var t = value;
+            if (typeof value === 'string') {
+                var r = Brush._typeFromName(value);
+                if (r !== null)
+                    t = r;
+            }
+            this._type = t;
+            Brush._applyTypeStartEnd(this, t);
+        },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(Brush.prototype, "start", {
+        get: function () {
+            return this._start;
+        },
+        set: function (value) {
+            this._start = value;
+            this._startNoSpot = false;
+        },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(Brush.prototype, "end", {
+        get: function () {
+            return this._end;
+        },
+        set: function (value) {
+            this._end = value;
+            this._endNoSpot = false;
+        },
+        enumerable: false,
+        configurable: true
+    });
+    /** BrushType 名（'Solid'/'Linear'/'Radial'/'Pattern'）→ 枚举值；非类型名返回 null（当颜色处理） */
+    Brush._typeFromName = function (name) {
+        var t = BrushType[name];
+        return t === undefined ? null : t;
+    };
+    /** EnumValue / 数字（1..4）→ BrushType 枚举值 */
+    Brush._typeFromValue = function (v) {
+        if (v instanceof EnumValue)
+            return Brush._typeFromName(v._name);
+        if (typeof v === 'number') {
+            if (v === 1)
+                return BrushSolid;
+            if (v === 2)
+                return BrushLinear;
+            if (v === 3)
+                return BrushRadial;
+            if (v === 4)
+                return BrushPattern;
+        }
+        return null;
+    };
+    /** 官方构造/set type 的 fe/Ds 默认：Linear→TopCenter/BottomCenter，Radial→Center/Center；NoSpot 时才补 */
+    Brush._applyTypeStartEnd = function (b, t) {
+        if (b._startNoSpot) {
+            if (t === BrushLinear) {
+                b._start = new Point(0.5, 0);
+                b._startNoSpot = false;
+            }
+            else if (t === BrushRadial) {
+                b._start = new Point(0.5, 0.5);
+                b._startNoSpot = false;
+            }
+        }
+        if (b._endNoSpot) {
+            if (t === BrushLinear) {
+                b._end = new Point(0.5, 1);
+                b._endNoSpot = false;
+            }
+            else if (t === BrushRadial) {
+                b._end = new Point(0.5, 0.5);
+                b._endNoSpot = false;
+            }
+        }
+    };
     Object.defineProperty(Brush.prototype, "stops", {
         /** 获取色标列表 */
         get: function () {
@@ -7042,29 +7145,35 @@ var Brush = /** @class */ (function () {
         }
         return this;
     };
-    /** 复制（官方 `copy()`：pattern/zp 共享引用） */
+    /** 复制（官方 `copy()`：start/end/半径/色标全带过去） */
     Brush.prototype.copy = function () {
-        var b = new Brush(this.type);
+        var b = new Brush(this._type);
         b.color = this.color;
-        b.start = this.start.copy();
-        b.end = this.end.copy();
+        b._start = this._start.copy();
+        b._startNoSpot = this._startNoSpot;
+        b._end = this._end.copy();
+        b._endNoSpot = this._endNoSpot;
         b.center = this.center.copy();
         b.focus = this.focus.copy();
         b.radius = this.radius;
         b._stops = this._stops.map(function (s) { return (__assign({}, s)); });
         b._pattern = this._pattern;
+        b._startRadius = this._startRadius;
+        b._endRadius = this._endRadius;
         return b;
     };
-    /** 创建 Canvas 渐变对象 */
+    /** 创建 Canvas 渐变对象（官方 makeBrush：spot 分数×bounds + offsetX/offsetY；radial 半径按官方 NaN 默认） */
     Brush.prototype._createCanvasGradient = function (ctx, bounds) {
         var e_3, _a, e_4, _b;
         if (this.type === BrushSolid)
             return null;
+        var s = this._start;
+        var e = this._end;
         if (this.type === BrushLinear) {
-            var x1 = bounds.x + this.start.x * bounds.width;
-            var y1 = bounds.y + this.start.y * bounds.height;
-            var x2 = bounds.x + this.end.x * bounds.width;
-            var y2 = bounds.y + this.end.y * bounds.height;
+            var x1 = bounds.x + s.x * bounds.width + (s.offsetX || 0);
+            var y1 = bounds.y + s.y * bounds.height + (s.offsetY || 0);
+            var x2 = bounds.x + e.x * bounds.width + (e.offsetX || 0);
+            var y2 = bounds.y + e.y * bounds.height + (e.offsetY || 0);
             var grad = ctx.createLinearGradient(x1, y1, x2, y2);
             try {
                 for (var _c = __values(this._stops), _d = _c.next(); !_d.done; _d = _c.next()) {
@@ -7082,12 +7191,23 @@ var Brush = /** @class */ (function () {
             return grad;
         }
         if (this.type === BrushRadial) {
-            var cx = bounds.x + this.center.x * bounds.width;
-            var cy = bounds.y + this.center.y * bounds.height;
-            var fx = bounds.x + this.focus.x * bounds.width;
-            var fy = bounds.y + this.focus.y * bounds.height;
-            var r = this.radius * Math.max(bounds.width, bounds.height);
-            var grad = ctx.createRadialGradient(fx, fy, 0, cx, cy, r);
+            var fx = bounds.x + s.x * bounds.width + (s.offsetX || 0);
+            var fy = bounds.y + s.y * bounds.height + (s.offsetY || 0);
+            var cx = bounds.x + e.x * bounds.width + (e.offsetX || 0);
+            var cy = bounds.y + e.y * bounds.height + (e.offsetY || 0);
+            var maxWH = Math.max(bounds.width, bounds.height);
+            var er = this._endRadius;
+            var sr = void 0;
+            if (isNaN(this._startRadius)) {
+                sr = 0;
+                er = maxWH / 2;
+            }
+            else {
+                sr = this._startRadius;
+                if (isNaN(er))
+                    er = maxWH / 2;
+            }
+            var grad = ctx.createRadialGradient(fx, fy, sr, cx, cy, er);
             try {
                 for (var _e = __values(this._stops), _f = _e.next(); !_f.done; _f = _e.next()) {
                     var stop_2 = _f.value;
@@ -7134,14 +7254,16 @@ var Brush = /** @class */ (function () {
         b.end = new Point(endX, endY);
         return b;
     };
-    /** 创建径向渐变画刷 */
+    /** 创建径向渐变画刷（旧 API：center/focus/radius 为 max(w,h) 分数；renderer 走 start/end，
+     *  这里同步把 start=focus、end=center 写进官方字段，endRadius 用官方默认 max/2 ≡ radius 0.5） */
     Brush.Radial = function (centerX, centerY, radius, focusX, focusY) {
         var b = new Brush(BrushRadial);
         b.center = new Point(centerX, centerY);
         b.radius = radius;
-        if (focusX !== undefined && focusY !== undefined) {
-            b.focus = new Point(focusX, focusY);
-        }
+        b._start = new Point(focusX === undefined ? centerX : focusX, focusY === undefined ? centerY : focusY);
+        b._startNoSpot = false;
+        b._end = new Point(centerX, centerY);
+        b._endNoSpot = false;
         return b;
     };
     /** 判断是否为 Brush */
@@ -11702,6 +11824,7 @@ var GraphObject = /** @class */ (function () {
                 return;
             this._desiredSize = new Size(val, this._desiredSize.height);
             this._invalidateMeasure();
+            this._invalidateGeometryCache();
         },
         enumerable: false,
         configurable: true
@@ -11714,6 +11837,7 @@ var GraphObject = /** @class */ (function () {
                 return;
             this._desiredSize = new Size(this._desiredSize.width, val);
             this._invalidateMeasure();
+            this._invalidateGeometryCache();
         },
         enumerable: false,
         configurable: true
@@ -11726,10 +11850,17 @@ var GraphObject = /** @class */ (function () {
                 return;
             this._desiredSize = s;
             this._invalidateMeasure();
+            this._invalidateGeometryCache();
         },
         enumerable: false,
         configurable: true
     });
+    /**
+     * 官方 `Shape.fi()` 钩子：desiredSize 变更时清掉缩放几何缓存
+     * （官方 width/height/desiredSize setter 里 `this instanceof Shape && this.fi()`）。
+     * 基类 no-op；Shape 覆写为清 `_scaledGeometry`。
+     */
+    GraphObject.prototype._invalidateGeometryCache = function () { };
     Object.defineProperty(GraphObject.prototype, "minSize", {
         get: function () { return this._minSize; },
         set: function (val) {
@@ -19119,6 +19250,12 @@ var Shape = /** @class */ (function (_super) {
         _this._strokeMiterLimit = 10;
         _this._pathPattern = null;
         _this._isGeometryPositioned = false;
+        // 官方 Shape.dt：按内容尺寸缩放后的几何；_scaledFrom 是它源自的 raw geometry（官方 rn）
+        _this._scaledGeometry = null;
+        _this._scaledFrom = null;
+        // geometryString 的惰性解析缓存（保证 geometry getter 对象身份稳定，供 _scaledFrom 比对）
+        _this._parsedGeometryString = '';
+        _this._parsedGeometry = null;
         _this._spot1 = null;
         _this._spot2 = null;
         _this._className = 'Shape';
@@ -19241,6 +19378,7 @@ var Shape = /** @class */ (function (_super) {
         set: function (val) {
             if (this._figure !== val) {
                 this._figure = val;
+                this._invalidateGeometryCache();
                 this._invalidateMeasure();
             }
         },
@@ -19265,14 +19403,16 @@ var Shape = /** @class */ (function (_super) {
                     // （Graduated 面板 graduatedPointForValue 拿不到路径 → 表盘指针角度错）。
                     var g = this._getGeometry();
                     if (g !== null)
-                        return g;
+                        return this._scaledOrRaw(g);
+                    return null;
                 }
             }
-            return this._geometry;
+            return this._scaledOrRaw(this._geometry);
         },
         set: function (val) {
             if (this._geometry !== val) {
                 this._geometry = val;
+                this._invalidateGeometryCache();
                 this._invalidateMeasure();
             }
         },
@@ -19284,6 +19424,9 @@ var Shape = /** @class */ (function (_super) {
         set: function (val) {
             if (this._geometryString !== val) {
                 this._geometryString = val;
+                this._parsedGeometryString = '';
+                this._parsedGeometry = null;
+                this._invalidateGeometryCache();
                 this._invalidateMeasure();
             }
         },
@@ -19295,6 +19438,7 @@ var Shape = /** @class */ (function (_super) {
         set: function (val) {
             if (this._parameter1 !== val) {
                 this._parameter1 = val;
+                this._invalidateGeometryCache();
                 this._invalidateMeasure();
             }
         },
@@ -19306,6 +19450,7 @@ var Shape = /** @class */ (function (_super) {
         set: function (val) {
             if (this._parameter2 !== val) {
                 this._parameter2 = val;
+                this._invalidateGeometryCache();
                 this._invalidateMeasure();
             }
         },
@@ -19333,6 +19478,7 @@ var Shape = /** @class */ (function (_super) {
         set: function (val) {
             if (this._toArrow !== val) {
                 this._toArrow = val;
+                this._invalidateGeometryCache();
                 this._invalidateMeasure();
                 this._applyArrowLinkDefaults();
             }
@@ -19345,6 +19491,7 @@ var Shape = /** @class */ (function (_super) {
         set: function (val) {
             if (this._fromArrow !== val) {
                 this._fromArrow = val;
+                this._invalidateGeometryCache();
                 this._invalidateMeasure();
                 this._applyArrowLinkDefaults();
             }
@@ -19653,13 +19800,43 @@ var Shape = /** @class */ (function (_super) {
         }
         return _super.prototype.getNearestIntersectionPoint.call(this, p, q, result);
     };
+    /**
+     * 官方 `Shape.fi()`：清掉缩放几何缓存（dt=null，geometry 暂回 raw，直到下次 measure 重建）。
+     * 在 desiredSize 变更（官方 width/height/desiredSize setter 调 fi）以及
+     * Link/Panel 直写 `_geometry` 后必须调用，否则 `.geometry` 会拿到过期的缩放几何。
+     */
+    Shape.prototype._invalidateGeometryCache = function () {
+        this._scaledGeometry = null;
+        this._scaledFrom = null;
+    };
+    /** 显式几何（官方 rn）：_geometry 或 geometryString 的缓存解析结果 */
+    Shape.prototype._explicitGeometry = function () {
+        if (this._geometry !== null)
+            return this._geometry;
+        if (this._geometryString)
+            return this._getGeometry();
+        return null;
+    };
+    /**
+     * 官方 `dt!==null ? dt : rn` 的等价物：返回该 raw 几何对应的缩放几何。
+     * 未测过或 raw 已变（直写/重新赋值）时返回 raw —— 下次 measure 会重建缓存。
+     */
+    Shape.prototype._scaledOrRaw = function (raw) {
+        return this._scaledGeometry !== null && this._scaledFrom === raw ? this._scaledGeometry : raw;
+    };
     /** 获取几何路径（从图形名称或自定义几何） */
     Shape.prototype._getGeometry = function () {
         if (this._geometry !== null) {
             return this._geometry;
         }
         if (this._geometryString) {
-            return Geometry.parse(this._geometryString);
+            // 缓存解析结果：geometry getter 要靠对象身份与 _scaledFrom 比对命中缩放缓存
+            if (this._parsedGeometryString !== this._geometryString) {
+                var parsed = Geometry.parse(this._geometryString);
+                this._parsedGeometry = parsed;
+                this._parsedGeometryString = this._geometryString;
+            }
+            return this._parsedGeometry;
         }
         if (this._toArrow && this._toArrow !== 'None') {
             return Shape._getArrowheadGeometry(this._toArrow);
@@ -19844,6 +20021,26 @@ var Shape = /** @class */ (function (_super) {
             gH = 0.001;
         this._geoW = gW;
         this._geoH = gH;
+        // 官方 Yd 尾部 `dt = rn.UR(l,a)`：显式几何按内容尺寸（gW/gH）缩放。
+        // 这样 geometry.bounds/路径长度与官方一致 —— graduated marks、
+        // graduatedPointForValue 才会落在正确的长度上（如 thermometer 竖线 400→250）。
+        var expl = this._explicitGeometry();
+        if (expl !== null) {
+            var b = expl.bounds;
+            var sx = gW / b.width;
+            var sy_2 = gH / b.height;
+            // 官方 UR：宽/高为 0 时商为 ±Infinity/NaN → isFinite 失败 → 1
+            if (!isFinite(sx))
+                sx = 1;
+            if (!isFinite(sy_2))
+                sy_2 = 1;
+            this._scaledGeometry = sx === 1 && sy_2 === 1 ? expl : expl.copy().scale(sx, sy_2);
+            this._scaledFrom = expl;
+        }
+        else {
+            this._scaledGeometry = null;
+            this._scaledFrom = null;
+        }
         // 官方 Yd 尾部：约束有一维 Infinity → measuredBounds = 实际几何 bounds（Uniform letterbox 生效，
         // 如 Square width=85 + 竖排面板高度 Infinity → 85×85 而非 85×100）
         var gb = null;
@@ -19853,8 +20050,8 @@ var Shape = /** @class */ (function (_super) {
         // 普通 Shape（含 sparklineGraphs 的负 y geometryString）在绘制时会被归一化到
         // 自身包围盒，原点不应影响测量。
         var keepOrigin = false;
-        if (this._geometry !== null || this._geometryString) {
-            var raw = this._geometry !== null ? this._geometry : Geometry.parse(this._geometryString);
+        if (expl !== null) {
+            var raw = expl;
             var yM0 = yM === 0 || yM === 2;
             if (yM0 && this._isGeometryPositioned) {
                 gb = raw.bounds.copy();
@@ -19902,10 +20099,10 @@ var Shape = /** @class */ (function (_super) {
                 return 6;
             return 2; // Fill / UniformToFill（非官方按 Fill）
         }
-        // Default：显式 geometry → 官方 t===1 ? 2 : t；figure → figure geometry 的 defaultStretch
-        if (this._geometry !== null)
-            return this._geometry.defaultStretch !== undefined ? (this._geometry.defaultStretch === 1 ? 2 : this._geometry.defaultStretch) : 2;
-        if (this._figure && this._figure !== 'None') {
+        // Default：官方 fM() —— 显式 geometry（rn!==null，含 geometryString）恒为 2，
+        // **不读** geometry.defaultStretch；只有 figure（rn===null）才回落到
+        // figure geometry 的 defaultStretch（Shape.FN[figure].defaultStretch）。
+        if (this._geometry === null && !this._geometryString && this._figure && this._figure !== 'None') {
             var g = getFigureGeometry(this._figure, 100, 100, NaN, NaN, null);
             if (g)
                 return g.defaultStretch !== undefined ? (g.defaultStretch === 1 ? 2 : g.defaultStretch) : 2;
@@ -21555,6 +21752,10 @@ var Panel = /** @class */ (function (_super) {
         _this._gradMarks = null;
         /** 官方 `Panel.Ii`：measureGraduatedLabels 复用的临时 TextBlock（renderer 也用它逐 mark 重测） */
         _this._gradTempText = null;
+        /** 与 `_elements` 逐下标对齐的临时 TextBlock：官方 render 前会逐元素 YD(el, Ii) 重灌属性，
+         *  单槽 `_gradTempText` 会让多 TextBlock 面板（thermometer 华氏 18px 黑标签 + 12px 红 32 标签）
+         *  全部按最后一个元素的样式绘制 —— 这里按元素存槽等价官方逐元素重灌。 */
+        _this._gradTempTexts = [];
         _this._defaultColumnSeparatorStroke = null;
         _this._defaultColumnSeparatorStrokeWidth = 1;
         _this._defaultRowSeparatorStroke = null;
@@ -23444,8 +23645,9 @@ var Panel = /** @class */ (function (_super) {
                 var I = el.alignmentFocus;
                 if (I.isDefault())
                     I = Spot.Center;
-                var X = -D + A.x * kw + A.offsetX - (I.x * mb.width + I.offsetX);
-                var Y = -F + A.y * kh + A.offsetY - (I.y * mb.height + I.offsetY);
+                var ft = this._focusNameTarget(el, I);
+                var X = -D + A.x * kw + A.offsetX - (ft !== null ? ft.x : I.x * mb.width + I.offsetX);
+                var Y = -F + A.y * kh + A.offsetY - (ft !== null ? ft.y : I.y * mb.height + I.offsetY);
                 if (!hasOther) {
                     hasOther = true;
                     union.setTo(X, Y, y, x);
@@ -23501,8 +23703,9 @@ var Panel = /** @class */ (function (_super) {
                 var I = el.alignmentFocus;
                 if (I.isDefault())
                     I = Spot.Center;
-                var X = A.x * kw + A.offsetX - (I.x * mb.width + I.offsetX) - em.left;
-                var Y = A.y * kh + A.offsetY - (I.y * mb.height + I.offsetY) - em.top;
+                var ft = this._focusNameTarget(el, I);
+                var X = A.x * kw + A.offsetX - (ft !== null ? ft.x : I.x * mb.width + I.offsetX) - em.left;
+                var Y = A.y * kh + A.offsetY - (ft !== null ? ft.y : I.y * mb.height + I.offsetY) - em.top;
                 this._unionInto(X, Y, y, x);
             }
         }
@@ -23543,8 +23746,9 @@ var Panel = /** @class */ (function (_super) {
                 var I = el.alignmentFocus;
                 if (I.isDefault())
                     I = Spot.Center;
-                var f = A.x * dw + A.offsetX - (I.x * eMb.width + I.offsetX);
-                var uu = A.y * dh + A.offsetY - (I.y * eMb.height + I.offsetY);
+                var ft = this._focusNameTarget(el, I);
+                var f = A.x * dw + A.offsetX - (ft !== null ? ft.x : I.x * eMb.width + I.offsetX);
+                var uu = A.y * dh + A.offsetY - (ft !== null ? ft.y : I.y * eMb.height + I.offsetY);
                 f += -this._originX;
                 uu += -this._originY;
                 el._arrange(new Rect(pad.left + f, pad.top + uu, eMb.width, eMb.height));
@@ -24540,6 +24744,7 @@ var Panel = /** @class */ (function (_super) {
         var rects = [];
         this._gradRects = rects;
         this._gradMarks = null;
+        this._gradTempTexts = [];
         var main = this.findMainElement();
         if (!(main instanceof Shape))
             return;
@@ -24559,7 +24764,7 @@ var Panel = /** @class */ (function (_super) {
             if (el instanceof Shape)
                 this._measureGraduatedTicks(el, mk);
             else if (el instanceof TextBlock)
-                this._measureGraduatedLabels(el, mk);
+                this._gradTempTexts[i] = this._measureGraduatedLabels(el, mk);
         }
     };
     /** 官方 determineGraduatedMarks(t,e)：沿主 Shape 路径为每个元素生成 mark 列表 */
@@ -24825,7 +25030,7 @@ var Panel = /** @class */ (function (_super) {
             this._gradRects.push(d);
         this._unionInto(d.x, d.y, d.width, d.height);
     };
-    /** 官方 measureGraduatedLabels：逐 mark 测量文本并算 actualBounds L */
+    /** 官方 measureGraduatedLabels：逐 mark 测量文本并算 actualBounds L；返回本元素的临时 TextBlock */
     Panel.prototype._measureGraduatedLabels = function (el, marks) {
         var temp = el.copy();
         this._gradTempText = temp;
@@ -24897,6 +25102,7 @@ var Panel = /** @class */ (function (_super) {
         if (this._gradRects !== null)
             this._gradRects.push(a);
         this._unionInto(a.x, a.y, a.width, a.height);
+        return temp;
     };
     Panel.prototype._arrangeGraduated = function () {
         var rects = this._gradRects;
@@ -25074,8 +25280,10 @@ var Panel = /** @class */ (function (_super) {
                 try {
                     for (var _e = __values(this._elements), _f = _e.next(); !_f.done; _f = _e.next()) {
                         var e = _f.value;
-                        if (e.isPanelMain && e instanceof Shape)
+                        if (e.isPanelMain && e instanceof Shape) {
                             e._geometry = geo;
+                            e._invalidateGeometryCache();
+                        }
                     }
                 }
                 catch (e_46_1) { e_46 = { error: e_46_1 }; }
@@ -25611,6 +25819,25 @@ var Panel = /** @class */ (function (_super) {
         if (af.isDefault())
             return this._resolveAlignment(elem);
         return af;
+    };
+    Panel.prototype._focusNameTarget = function (el, I) {
+        if (!(el instanceof Panel))
+            return null;
+        var nm = el.alignmentFocusName;
+        if (nm === '')
+            return null;
+        var target = el.findObject(nm);
+        if (target === null || target === el)
+            return null;
+        var S = target.actualBounds;
+        var p = new Point(S.x + I.x * S.width - I.offsetX, S.y + I.y * S.height - I.offsetY);
+        if (!isFinite(p.x) || !isFinite(p.y))
+            return null;
+        for (var q = target.panel; q !== null && q !== el; q = q.panel) {
+            p.x += q.actualBounds.x;
+            p.y += q.actualBounds.y;
+        }
+        return p;
     };
     /**
      * 官方 PanelLayoutVertical/Horizontal.arrange 里算元素宽度用的是
@@ -29520,6 +29747,7 @@ var Link = /** @class */ (function (_super) {
         var path = this.path;
         if (path !== null) {
             path._geometry = geo;
+            path._invalidateGeometryCache();
         }
         var els = this._elements;
         if (!els || !els.length)
@@ -29529,6 +29757,7 @@ var Link = /** @class */ (function (_super) {
                 var o = els_1_1.value;
                 if (o !== path && o.isPanelMain === true && o instanceof Shape) {
                     o._geometry = geo;
+                    o._invalidateGeometryCache();
                 }
             }
         }
@@ -36744,7 +36973,12 @@ var CanvasRenderer = /** @class */ (function () {
                     }
                 }
                 else if (el instanceof TextBlock) {
-                    var temp = panel._gradTempText;
+                    // 官方 render：`YD(g, Ii)` 先把**本元素**属性灌进临时 TextBlock 再逐 mark 画。
+                    // 直接复用单槽 `_gradTempText`（measure 最后一个 TextBlock 的拷贝）会让
+                    // 多 TextBlock 面板的标签全按最后一个元素的样式画（thermometer 华氏
+                    // 18px 黑标签被画成 12px 红标签样式）。
+                    var temps = panel._gradTempTexts;
+                    var temp = (temps && temps[i]) || panel._gradTempText;
                     if (temp === null)
                         continue;
                     try {
@@ -37070,10 +37304,13 @@ var CanvasRenderer = /** @class */ (function () {
                 return brush.color || 'black';
             }
             if (brush.type === BrushLinear) {
-                var x1 = bounds.x + brush.start.x * bounds.width;
-                var y1 = bounds.y + brush.start.y * bounds.height;
-                var x2 = bounds.x + brush.end.x * bounds.width;
-                var y2 = bounds.y + brush.end.y * bounds.height;
+                // 官方 makeBrush：spot 分数×bounds + offsetX/offsetY（Point 无 offset → 0）
+                var s = brush.start;
+                var e = brush.end;
+                var x1 = bounds.x + s.x * bounds.width + (s.offsetX || 0);
+                var y1 = bounds.y + s.y * bounds.height + (s.offsetY || 0);
+                var x2 = bounds.x + e.x * bounds.width + (e.offsetX || 0);
+                var y2 = bounds.y + e.y * bounds.height + (e.offsetY || 0);
                 if (!isFinite(x1) || !isFinite(y1) || !isFinite(x2) || !isFinite(y2)) {
                     if (typeof console !== 'undefined' && console.log) {
                         console.log('brush NaN: bounds=' + bounds.x + ',' + bounds.y + ',' + bounds.width + ',' + bounds.height +
@@ -37098,18 +37335,34 @@ var CanvasRenderer = /** @class */ (function () {
                 return gradient;
             }
             if (brush.type === BrushRadial) {
-                var cx = bounds.x + brush.center.x * bounds.width;
-                var cy = bounds.y + brush.center.y * bounds.height;
-                var r = brush.radius * Math.max(bounds.width, bounds.height);
-                var fx = bounds.x + brush.focus.x * bounds.width;
-                var fy = bounds.y + brush.focus.y * bounds.height;
-                if (!isFinite(cx) || !isFinite(cy) || !isFinite(r) || !isFinite(fx) || !isFinite(fy)) {
+                // 官方 makeBrush type===3：内圆=start（默认 Center），外圆=end（默认 Center），
+                // startRadius 默认 0、endRadius 默认 NaN → max(w,h)/2；startRadius 为 NaN 时
+                // 官方把 endRadius 也回落 max/2（p 的赋值顺序）。
+                var s = brush.start;
+                var e = brush.end;
+                var fx = bounds.x + s.x * bounds.width + (s.offsetX || 0);
+                var fy = bounds.y + s.y * bounds.height + (s.offsetY || 0);
+                var cx = bounds.x + e.x * bounds.width + (e.offsetX || 0);
+                var cy = bounds.y + e.y * bounds.height + (e.offsetY || 0);
+                var maxWH = Math.max(bounds.width, bounds.height);
+                var er = brush.endRadius;
+                var sr = void 0;
+                if (isNaN(brush.startRadius)) {
+                    sr = 0;
+                    er = maxWH / 2;
+                }
+                else {
+                    sr = brush.startRadius;
+                    if (isNaN(er))
+                        er = maxWH / 2;
+                }
+                if (!isFinite(fx) || !isFinite(fy) || !isFinite(cx) || !isFinite(cy) || !isFinite(sr) || !isFinite(er)) {
                     if (typeof console !== 'undefined' && console.log) {
                         console.log('brush NaN radial: bounds=' + bounds.x + ',' + bounds.y + ',' + bounds.width + ',' + bounds.height);
                     }
                     return brush.color || 'transparent';
                 }
-                var gradient = ctx.createRadialGradient(fx, fy, 0, cx, cy, r);
+                var gradient = ctx.createRadialGradient(fx, fy, sr, cx, cy, er);
                 try {
                     for (var _e = __values(brush.stops), _f = _e.next(); !_f.done; _f = _e.next()) {
                         var stop_2 = _f.value;
