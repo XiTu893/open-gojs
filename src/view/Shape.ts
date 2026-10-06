@@ -261,6 +261,22 @@ export class Shape extends GraphObject {
       this._geometryString = val;
       this._parsedGeometryString = '';
       this._parsedGeometry = null;
+      // 官方 `set geometryString(t){const e=Geometry.parse(t),i=e.normalize();
+      // this.geometry=e; this.position=Point.O(-i.x,-i.y)}`：
+      // 解析后立即 normalize（包围盒左上角移到原点），position 记录原生左上角，
+      // 绘制时 position + 归一化路径 = 原生坐标（官方 geometryString 恒画原生位置）。
+      // 关键：normalize 后 bounds 不含原点外扩（否则负坐标 geometryString 如
+      // sparklineGraphs 的高度会因并入 (0,0) 而虚高，节点布局错位）。
+      try {
+        const parsed = Geometry.parse(val);
+        if (parsed) {
+          const off = parsed.normalize();
+          this.geometry = parsed;
+          this.position = new Point(-off.x, -off.y);
+        }
+      } catch {
+        // 解析失败时保留字符串，走原来的惰性解析路径（在那里同样会失败）
+      }
       this._invalidateGeometryCache();
       this._invalidateMeasure();
     }

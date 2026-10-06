@@ -144,13 +144,25 @@ export class Geometry {
     return this._bounds;
   }
 
-  /** 计算边界矩形 */
+  /** 计算边界矩形。官方 get bounds()：`t.e(0,0,Ec,Uc)`（记录的 width/height 盒）
+   * → NL 并入所有 figure/曲线极值 → **最后 `t.he(0,0,0,0)` 无条件并入原点 (0,0)**。
+   * 少了原点并入，tiger 这类原点外几何的 bounds 会缺 (0,0) 象限 —— 官方
+   * path54 geo bounds=[0,0,872.07,899.11]，我们算出 [95.67,396.33,…]，
+   * Shape 测量/文档包围盒整体偏小。 */
   private computeBounds(): Rect {
     const acc = [Infinity, Infinity, -Infinity, -Infinity];
+    const unionPoint = (x: number, y: number): void => {
+      if (x < acc[0]) acc[0] = x;
+      if (y < acc[1]) acc[1] = y;
+      if (x > acc[2]) acc[2] = x;
+      if (y > acc[3]) acc[3] = y;
+    };
     if (!isNaN(this.width) && !isNaN(this.height)) {
       acc[0] = 0; acc[1] = 0; acc[2] = this.width; acc[3] = this.height;
     }
     this._accumulatePathBounds(acc);
+    // 官方 get bounds 结尾的 t.he(0,0,0,0)
+    if (isFinite(acc[0])) unionPoint(0, 0);
     if (!isFinite(acc[0])) {
       return new Rect(0, 0, 0, 0);
     }
@@ -324,8 +336,9 @@ export class Geometry {
     return true;
   }
 
-  /** 从 SVG 路径字符串解析 */
-  static parse(str: string): Geometry {
+  /** 从 SVG 路径字符串解析。isFilled=true 时按官方 Geometry.parse(str,e) 语义
+   * 把所有 figure 置为 isFilled（渲染 fill 由 fig.isFilled 门控）。 */
+  static parse(str: string, isFilled?: boolean): Geometry {
     const geo = new Geometry();
     const fig = new PathFigure(0, 0);
     geo.add(fig);
@@ -341,20 +354,31 @@ export class Geometry {
     // 官方 GeoStream 的 k 默认 false：无 F 前缀的图形 isFilled=false（探针确认）；
     // 见到 F/F0/F1 后 k=true 并对后续所有 figure 生效。此前本实现是反的
     // （plain F→不填充），industrialMonitor 的罐体全透明。
-    let isFilled = false;
+    let fillFlag = false;
+    // 官方 GeoStream 状态：f=当前点(curX/curY)、c=上一曲线控制点、
+    // a=上一个命令字母（S/T 的反射门控）、h=最近 M 起点（Z 复位用）
+    let lastCX = 0, lastCY = 0;
+    let prevType = '';
+    let movetoX = 0, movetoY = 0;
+    const reflects = (): boolean => {
+      const p = prevType.toLowerCase();
+      return p === 'c' || p === 's' || p === 'q' || p === 't';
+    };
 
     const startFigure = (x: number, y: number): void => {
       if (hasMove || current.segments.count > 0) {
-        current = new PathFigure(x, y, isFilled);
+        current = new PathFigure(x, y, fillFlag);
         geo.add(current);
       } else {
         current.startX = x;
         current.startY = y;
-        current.isFilled = isFilled;
+        current.isFilled = fillFlag;
       }
       hasMove = true;
       curX = x;
       curY = y;
+      movetoX = x;
+      movetoY = y;
     };
 
     for (const cmd of commands) {
@@ -370,7 +394,7 @@ export class Geometry {
         case 'F0': {
           // 官方 case"F"：F/F0/F1 都把后续 figure 置为 isFilled=true（F0 另置 evenOdd，
           // 渲染未用到 evenOdd，这里与 F1 同等处理）。
-          isFilled = true;
+          fillFlag = true;
           current.isFilled = true;
           break;
         }
@@ -415,27 +439,66 @@ export class Geometry {
         case 'C':
           for (let i = 0; i + 5 < args.length; i += 6) {
             current.add(PathSegment.CubicBezier(args[i + 4], args[i + 5], args[i], args[i + 1], args[i + 2], args[i + 3]));
+            lastCX = args[i + 2]; lastCY = args[i + 3];
             curX = args[i + 4]; curY = args[i + 5];
           }
           break;
         case 'c':
           for (let i = 0; i + 5 < args.length; i += 6) {
-            current.add(PathSegment.CubicBezier(curX + args[i + 4], curY + args[i + 5], curX + args[i], curY + args[i + 1], curX + args[i + 2], curY + args[i + 3]));
+            lastCX = curX + args[i + 2]; lastCY = curY + args[i + 3];
+            current.add(PathSegment.CubicBezier(curX + args[i + 4], curY + args[i + 5], curX + args[i], curY + args[i + 1], lastCX, lastCY));
             curX += args[i + 4]; curY += args[i + 5];
+          }
+          break;
+        case 'S':
+          // 官方 case"S"：D=x()(反射控制点) y()(第二控制点存 c) p()(终点)。
+          // 反射门控用上一个命令字母 a（token 内多段共享同一个 a，c 每段更新）。
+          for (let i = 0; i + 3 < args.length; i += 4) {
+            const c1x = reflects() ? 2 * curX - lastCX : curX;
+            const c1y = reflects() ? 2 * curY - lastCY : curY;
+            lastCX = args[i]; lastCY = args[i + 1];
+            current.add(PathSegment.CubicBezier(args[i + 2], args[i + 3], c1x, c1y, lastCX, lastCY));
+            curX = args[i + 2]; curY = args[i + 3];
+          }
+          break;
+        case 's':
+          for (let i = 0; i + 3 < args.length; i += 4) {
+            const c1x = reflects() ? 2 * curX - lastCX : curX;
+            const c1y = reflects() ? 2 * curY - lastCY : curY;
+            lastCX = curX + args[i]; lastCY = curY + args[i + 1];
+            current.add(PathSegment.CubicBezier(curX + args[i + 2], curY + args[i + 3], c1x, c1y, lastCX, lastCY));
+            curX += args[i + 2]; curY += args[i + 3];
           }
           break;
         case 'Q':
           for (let i = 0; i + 3 < args.length; i += 4) {
             current.add(PathSegment.QuadraticBezier(args[i + 2], args[i + 3], args[i], args[i + 1]));
+            lastCX = args[i]; lastCY = args[i + 1];
             curX = args[i + 2]; curY = args[i + 3];
           }
           break;
         case 'q':
           for (let i = 0; i + 3 < args.length; i += 4) {
-            current.add(PathSegment.QuadraticBezier(curX + args[i + 2], curY + args[i + 3], curX + args[i], curY + args[i + 1]));
+            lastCX = curX + args[i]; lastCY = curY + args[i + 1];
+            current.add(PathSegment.QuadraticBezier(curX + args[i + 2], curY + args[i + 3], lastCX, lastCY));
             curX += args[i + 2]; curY += args[i + 3];
           }
           break;
+        case 'T':
+        case 't': {
+          // 官方 case"T"：D=x(); c.h(D); F=p(); ... c.h(F)
+          // —— 控制点先反射，随后 c 被写成**终点**（官方语义，逐字镜像）。
+          const rel = type === 't';
+          for (let i = 0; i + 1 < args.length; i += 2) {
+            const c1x = reflects() ? 2 * curX - lastCX : curX;
+            const c1y = reflects() ? 2 * curY - lastCY : curY;
+            curX = rel ? curX + args[i] : args[i];
+            curY = rel ? curY + args[i + 1] : args[i + 1];
+            current.add(PathSegment.QuadraticBezier(curX, curY, c1x, c1y));
+            lastCX = curX; lastCY = curY;
+          }
+          break;
+        }
         case 'A':
         case 'a': {
           // 官方 GeoStream case"A"：弧的两个 flag 是单字符，会和终点粘连成
@@ -531,9 +594,18 @@ export class Geometry {
         }
         case 'Z':
         case 'z':
+          // 官方 case"Z": k.RR(), f.h(h) —— 关闭后当前点复位到最近 M 起点
           current.add(PathSegment.Close());
+          if (hasMove) { curX = movetoX; curY = movetoY; }
           break;
       }
+      prevType = type;
+    }
+
+    if (isFilled) {
+      // 官方 Geometry.parse(str,e): e=true → 所有 figure isFilled=true
+      const it = geo.figures.iterator;
+      while (it.next()) it.value.isFilled = true;
     }
 
     return geo;

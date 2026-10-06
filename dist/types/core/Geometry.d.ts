@@ -59,7 +59,11 @@ export declare class Geometry {
     setSize(w: number, h: number): void;
     /** 获取边界矩形 */
     get bounds(): Rect;
-    /** 计算边界矩形 */
+    /** 计算边界矩形。官方 get bounds()：`t.e(0,0,Ec,Uc)`（记录的 width/height 盒）
+     * → NL 并入所有 figure/曲线极值 → **最后 `t.he(0,0,0,0)` 无条件并入原点 (0,0)**。
+     * 少了原点并入，tiger 这类原点外几何的 bounds 会缺 (0,0) 象限 —— 官方
+     * path54 geo bounds=[0,0,872.07,899.11]，我们算出 [95.67,396.33,…]，
+     * Shape 测量/文档包围盒整体偏小。 */
     private computeBounds;
     /**
      * 路径几何累积包围盒 acc=[minX,minY,maxX,maxY]。
@@ -73,8 +77,9 @@ export declare class Geometry {
     private static _bezierBounds;
     copy(): Geometry;
     equals(geo: Geometry): boolean;
-    /** 从 SVG 路径字符串解析 */
-    static parse(str: string): Geometry;
+    /** 从 SVG 路径字符串解析。isFilled=true 时按官方 Geometry.parse(str,e) 语义
+     * 把所有 figure 置为 isFilled（渲染 fill 由 fig.isFilled 门控）。 */
+    static parse(str: string, isFilled?: boolean): Geometry;
     /** 从 GoJS 几何字符串格式解析 */
     static parseString(str: string, width?: number, height?: number): Geometry;
     /** 转换为 SVG 路径字符串 */
