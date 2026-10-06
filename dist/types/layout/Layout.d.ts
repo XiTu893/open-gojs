@@ -103,6 +103,10 @@ export declare class Layout {
     createNetwork(): LayoutNetwork;
     /**
      * Get the layout bounds of a part.
+     * 官方 `Layout.getLayoutBounds(t, rect?)`（go.js）：
+     *   boundsComputation 非空 → bc(t, this, rect)；
+     *   否则 rect.set(t.actualBounds); rect.addMargin(t.margin)（margin 全 0 快路返回 actualBounds）。
+     * kanban 泳道 Group margin (0,2) → 宽 162+4=166（步进 166），漏 margin 会得 162。
      * @param part - The part to get bounds for
      */
     getLayoutBounds(part: Part): Rect;

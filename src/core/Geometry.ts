@@ -482,13 +482,19 @@ export class Geometry {
           break;
         }
         case 'B': {
-          // 相对三次贝塞尔：b x1,y1 x2,y2 x,y
-          if (args.length >= 6) {
-            current.add(PathSegment.CubicBezier(
-              curX + args[4], curY + args[5],
-              curX + args[0], curY + args[1],
-              curX + args[2], curY + args[3]));
-            curX += args[4]; curY += args[5];
+          // 官方 GeoStream case"B" → FR(startAngle, sweepAngle, centerX, centerY,
+          // radiusX[, radiusY][, close])：**按角度的椭圆弧**，圆心是绝对坐标
+          // （小写 b 才把圆心加上当前点）。例：instrumentGauge 的
+          // "M-70.7107 70.7107 B135 270 0 0 100 100" = 圆心(0,0) r=100 起 135° 扫 270°。
+          if (args.length >= 5) {
+            const cx = args[2];
+            const cy = args[3];
+            const rx = args[4];
+            const ry = args.length >= 6 && isFinite(args[5]) ? args[5] : rx;
+            current.add(PathSegment.AngleArc(cx, cy, rx, ry, args[0], args[1]));
+            const endAngle = (args[0] + args[1]) * Math.PI / 180;
+            curX = cx + rx * Math.cos(endAngle);
+            curY = cy + ry * Math.sin(endAngle);
           }
           break;
         }
@@ -1358,17 +1364,48 @@ export class Geometry {
           pts
         );
       } else if (name === 'Arc') {
-        const cubics = Geometry._arcToCubics(
-          pts[pts.length - 2],
-          pts[pts.length - 1],
-          seg
-        );
-        for (let i = 0; i < cubics.length; i++) {
-          const c = cubics[i];
-          Geometry._sampleCubic(c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], pts);
-        }
-        if (pts.length < 4 || pts[pts.length - 2] !== seg.endX || pts[pts.length - 1] !== seg.endY) {
-          pts.push(seg.endX, seg.endY);
+        if (!isNaN(seg.startAngle) && !isNaN(seg.centerX)) {
+          // 官方「按角度」圆弧（startAngle/sweepAngle/center/radius）：
+          // 必须按角度采样。走下面的 SVG 弧转换会把 largeArc/clockwise
+          // （两者默认 false）当成方向/长短弧标志，270° 的表盘弧被展成
+          // 反向 90° 小弧 → flattenedTotalLength 只有 157（应为 471），
+          // graduatedPointForValue/刻度定位全错（表盘指针角度偏差根因）。
+          const rY = seg.radiusY === 0 ? seg.radiusX : seg.radiusY;
+          const a0 = seg.startAngle * Math.PI / 180;
+          const sw = (seg.sweepAngle || 0) * Math.PI / 180;
+          const steps = Math.max(4, Math.ceil(Math.abs(seg.sweepAngle || 0) / 5));
+          for (let i = 1; i <= steps; i++) {
+            const a = a0 + (sw * i) / steps;
+            pts.push(seg.centerX + seg.radiusX * Math.cos(a), seg.centerY + rY * Math.sin(a));
+          }
+          // 终点与最后采样点可能只差浮点噪声（严格 !== 会 push 出零长度段，
+          // 让 graduated mark 的 atan2 取到随机方向、包围盒外扩）
+          if (Math.abs(pts[pts.length - 2] - seg.endX) > 1e-9 || Math.abs(pts[pts.length - 1] - seg.endY) > 1e-9) {
+            pts.push(seg.endX, seg.endY);
+          } else {
+            pts[pts.length - 2] = seg.endX;
+            pts[pts.length - 1] = seg.endY;
+          }
+        } else {
+          const cubics = Geometry._arcToCubics(
+            pts[pts.length - 2],
+            pts[pts.length - 1],
+            seg
+          );
+          for (let i = 0; i < cubics.length; i++) {
+            const c = cubics[i];
+            Geometry._sampleCubic(c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], pts);
+          }
+          if (
+            pts.length < 4 ||
+            Math.abs(pts[pts.length - 2] - seg.endX) > 1e-9 ||
+            Math.abs(pts[pts.length - 1] - seg.endY) > 1e-9
+          ) {
+            pts.push(seg.endX, seg.endY);
+          } else {
+            pts[pts.length - 2] = seg.endX;
+            pts[pts.length - 1] = seg.endY;
+          }
         }
       } else {
         pts.push(seg.endX, seg.endY);

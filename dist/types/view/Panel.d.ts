@@ -10,6 +10,22 @@ import { BrushLike } from '../core/Brush';
 import { GraphObject } from './GraphObject';
 import { RowColumnDefinition } from './RowColumnDefinition';
 /**
+ * 官方 `PanelLayoutGraduated` 的单个 mark（determineGraduatedMarks 产出）：
+ * pt/angle 在 measure 阶段算好，TextBlock 的 label 额外带 actualBounds/measuredBounds/
+ * naturalBounds（measureGraduatedLabels 回填，renderer pE 变换直接消费）。
+ */
+export interface GradMark {
+    pt: Point;
+    angle: number;
+    text?: string;
+    labelAngle?: number;
+    lineCount?: number;
+    lines?: unknown;
+    actualBounds?: Rect;
+    measuredBounds?: Rect;
+    naturalBounds?: Rect;
+}
+/**
  * Panel - container that arranges child GraphObjects according to its type.
  */
 export declare class Panel extends GraphObject {
@@ -29,6 +45,12 @@ export declare class Panel extends GraphObject {
     private _linkOrRect;
     /** 官方 `PanelLayoutLink.qf`：measure 时按固定顺序存下的子元素 z 矩形，arrange 按序消费 */
     private _linkQfRects;
+    /** 官方 `PanelLayoutGraduated.ns`：measure 顺序的子元素矩形，arrange 按序消费（arrange 末尾置 null） */
+    private _gradRects;
+    /** 官方 `Panel.Es`：与 `_elements` 逐下标对齐的 mark 列表 */
+    private _gradMarks;
+    /** 官方 `Panel.Ii`：measureGraduatedLabels 复用的临时 TextBlock（renderer 也用它逐 mark 重测） */
+    private _gradTempText;
     private _defaultColumnSeparatorStroke;
     private _defaultColumnSeparatorStrokeWidth;
     private _defaultRowSeparatorStroke;
@@ -259,7 +281,28 @@ export declare class Panel extends GraphObject {
     private _measureViewbox;
     private _arrangeViewbox;
     private _measureGraduated;
+    /** 官方 determineGraduatedMarks(t,e)：沿主 Shape 路径为每个元素生成 mark 列表 */
+    private _determineGraduatedMarks;
+    /** 官方 fE(t)：每个元素「同构造器、interval 更大」的其它元素 interval 列表 */
+    private _graduatedLargerIntervals;
+    /** 官方 uE(t,e,i)：与更大 interval 刻度重合则跳过本 mark */
+    private _gradUnitExcluded;
+    /**
+     * 官方 dE(t,e,i,s,n)：段接缝处的角度平滑（V 接近 0.5/0/1 时与邻段角度混合，
+     * 闭合图形首尾互借）。
+     */
+    private _gradDE;
+    /** 官方 measureGraduatedTicks：每个 mark 旋转 4 角点求包围盒，push ns + union 面板 */
+    private _measureGraduatedTicks;
+    /** 官方 measureGraduatedLabels：逐 mark 测量文本并算 actualBounds L */
+    private _measureGraduatedLabels;
     private _arrangeGraduated;
+    /** 官方 segmentOrientation → 数值分支码（21..28） */
+    private static _orientCode;
+    /** 官方 Link.computeAngle(orientation, angle)（按分支码） */
+    private static _computeOrientAngle;
+    /** 把点绕 (cx,cy) 旋转 deg 度 */
+    private static _rotateAbout;
     /** 取 link 里「画线」的主图元：优先 isPanelMain，否则第一个同时有 fill/stroke 的 Shape */
     private _findLinkMainElement;
     /**

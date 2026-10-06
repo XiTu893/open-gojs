@@ -1,5 +1,5 @@
 import { GraphObject } from '../view/GraphObject';
-import { Panel } from '../view/Panel';
+import { Panel, type GradMark } from '../view/Panel';
 import { Part } from '../view/Part';
 import { Node } from '../view/Node';
 import { Link } from '../view/Link';
@@ -17,7 +17,7 @@ import { Margin } from '../core/Margin';
 import { Brush, BrushLike, Color } from '../core/Brush';
 import { Geometry } from '../core/Geometry';
 import { PathFigure } from '../core/PathFigure';
-import { computePathPoints, interpolatePath } from '../core/PathSampling';
+import { computePathPoints, interpolatePath, type PathPoint } from '../core/PathSampling';
 import { getFigureGeometry } from '../figures/Figures';
 import {
   PanelAuto, PanelVertical, PanelHorizontal, PanelSpot, PanelTable,
@@ -1404,151 +1404,120 @@ export class CanvasRenderer {
     ctx.restore();
   }
 
-  private _renderGraduated(panel: Panel, panelX: number, panelY: number, panelW: number, panelH: number): void {
+  private _renderGraduated(panel: Panel, panelX: number, panelY: number, _panelW: number, _panelH: number): void {
     const ctx = this.ctx;
     if (!ctx) return;
 
     const elements = (panel as any)._elements as GraphObject[];
-    const mainElement = this._findGraduatedMain(elements);
-    if (!mainElement) return;
+    const mainElement = panel.findMainElement();
+    const marks = (panel as any)._gradMarks as GradMark[][] | null;
 
-    this.renderGraphObject(mainElement, panelX, panelY);
+    // 官方 PanelLayoutGraduated.qe：clip 到 naturalBounds 外扩 1px → 画 main →
+    // 逐元素用 measure 缓存的 mark，按 gE/pE 变换重复绘制刻度与标签。
+    const nb = panel.naturalBounds;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(panelX - 1, panelY - 1, nb.width + 1, nb.height + 1);
+    ctx.clip();
 
-    const gradMin = (panel as any)._graduatedMin as number;
-    const gradMax = (panel as any)._graduatedMax as number;
-    const tickUnit = (panel as any)._graduatedTickUnit as number;
-    const tickBase = (panel as any)._graduatedTickBase as number;
-    const gradStart = (panel as any)._graduatedStart as number;
-    const gradEnd = (panel as any)._graduatedEnd as number;
-    const pad = (panel as any)._padding as Margin;
+    if (mainElement !== null) {
+      this.renderGraphObject(mainElement, panelX, panelY);
+    }
 
-    const range = gradMax - gradMin;
-    if (range <= 0 || tickUnit <= 0) return;
+    if (marks !== null && mainElement !== null) {
+      const mainAb = mainElement.actualBounds;
+      const mainGeo = mainElement instanceof Shape ? this._getShapeGeometry(mainElement) : null;
+      const total = mainGeo !== null ? mainGeo.flattenedTotalLength : 0;
+      const tickUnit = panel.graduatedTickUnit;
+      const range = panel.graduatedRange;
+      const dscale = this.diagram && typeof this.diagram.scale === 'number' ? this.diagram.scale : 1;
+      const h = panel.getDocumentScale() * dscale;
 
-    const effectiveStart = gradStart;
-    const effectiveEnd = gradEnd;
+      for (let i = 0; i < elements.length; i++) {
+        const el = elements[i];
+        const mk = marks[i];
+        if (!el.visible || el === mainElement || !mk || mk.length === 0) continue;
 
-    const mainAb = mainElement.actualBounds;
-    const mainX = panelX + mainAb.x;
-    const mainY = panelY + mainAb.y;
-    const mainW = mainAb.width;
-    const mainH = mainAb.height;
-
-    const geo = this._getShapeGeometry(mainElement);
-    const pathPoints = geo ? this._computePathPoints(geo, mainW, mainH) : null;
-    // 主元素的几何在渲染时会平移 -geoBounds.origin 后再绘制，
-    // 刻度定位必须用同一套坐标，否则 graduatedMin 会落到形状顶端（刻度倒置）。
-    const mainGeoBounds = geo ? geo.bounds : null;
-    const mainOffX = mainGeoBounds ? mainGeoBounds.x : 0;
-    const mainOffY = mainGeoBounds ? mainGeoBounds.y : 0;
-
-    const templates = elements.filter(e => e !== mainElement && e.visible);
-
-    for (let val = gradMin; val <= gradMax + tickUnit * 0.001; val += tickUnit) {
-      const fraction = (val - gradMin) / range;
-      if (fraction < -0.001 || fraction > 1.001) continue;
-
-      let px: number, py: number, angle: number;
-      if (pathPoints && pathPoints.length >= 2) {
-        const pathFraction = effectiveStart + fraction * (effectiveEnd - effectiveStart);
-        const pt = this._interpolatePath(pathPoints, pathFraction);
-        px = mainX + pt.x - mainOffX;
-        py = mainY + pt.y - mainOffY;
-        angle = pt.angle;
-      } else {
-        const pathFraction = effectiveStart + fraction * (effectiveEnd - effectiveStart);
-        px = mainX + pathFraction * mainW;
-        py = mainY + mainH / 2;
-        angle = 0;
-      }
-
-      for (const tmpl of templates) {
-        const interval = (tmpl as any)._interval || 1;
-        const tickIndex = Math.round((val - gradMin) / tickUnit);
-        if (tickIndex % interval !== 0) continue;
-        // 官方 graduatedSkip(elem, value)：返回 true 表示跳过该刻度
-        const skipFn = (tmpl as any)._graduatedSkip;
-        if (typeof skipFn === 'function' && skipFn(val, tmpl)) continue;
-
-        const focus = (tmpl as any)._alignmentFocus || Spot.Default;
-        const mb = tmpl.measuredBounds;
-        const focusX = focus.x * mb.width + (focus.offsetX || 0);
-        const focusY = focus.y * mb.height + (focus.offsetY || 0);
-
-        const segOffset = (tmpl as any)._segmentOffset;
-        let offX = 0, offY = 0;
-        if (segOffset && !isNaN(segOffset.x)) offX = segOffset.x;
-        if (segOffset && !isNaN(segOffset.y)) offY = segOffset.y;
-
-        const drawX = px - focusX + offX;
-        const drawY = py - focusY + offY;
-
-        if (tmpl instanceof Shape) {
-          this._renderGraduatedShape(tmpl, drawX, drawY, mb.width, mb.height, angle);
-        } else if (tmpl instanceof TextBlock) {
-          this._renderGraduatedText(tmpl, val, tickBase, drawX, drawY, mb.width, mb.height, angle);
+        if (el instanceof Shape) {
+          // 官方渲染期的亚像素门限（与 measure 同式，另乘 documentScale*diagramScale）
+          if (((tickUnit * el.interval * total) / range) * h < 2 && el.graduatedSkip === null) continue;
+          const mb = el.measuredBounds;
+          const o = el.strokeWidth * el.scale;
+          let focus = el.alignmentFocus;
+          if (focus.isNoSpot()) focus = Spot.TopCenter;
+          const geo = this._getShapeGeometry(el);
+          if (geo === null) continue;
+          const geoR = geo.bounds;
+          const brushRect = new Rect(0, 0, geoR.width, geoR.height);
+          for (const m of mk) {
+            // gE：translate(pt+mainAB) → rotate(markAngle+elemAngle) →
+            //     translate(-w*fx+fxOff+o/2, -h*fy+fyOff+o/2) → scale
+            // mark.pt 已含 measure 阶段的 +strokeWidth/2 - geo.bounds.origin 补偿。
+            ctx.save();
+            ctx.translate(panelX + mainAb.x + m.pt.x, panelY + mainAb.y + m.pt.y);
+            const ang = m.angle + el.angle;
+            if (ang !== 0) ctx.rotate((ang * Math.PI) / 180);
+            ctx.translate(
+              -mb.width * focus.x + focus.offsetX + o / 2,
+              -mb.height * focus.y + focus.offsetY + o / 2
+            );
+            if (el.scale !== 1) ctx.scale(el.scale, el.scale);
+            // 官方 Shape.va：在变换后的元素坐标系里画**原始几何**（不按 actualBounds 缩放）
+            const stroke = el.stroke;
+            const doStroke = !!stroke && el.strokeWidth > 0;
+            const doFill = !!el.fill;
+            if (doStroke && el.strokeDashArray) ctx.setLineDash(el.strokeDashArray);
+            const figIt = geo.figures.iterator;
+            while (figIt.next()) {
+              const fig = figIt.value;
+              this._drawFigure(ctx, fig);
+              if (doFill && fig.isFilled) {
+                ctx.fillStyle = this._applyBrush(ctx, el.fill as string, brushRect);
+                ctx.fill();
+              }
+              if (doStroke) {
+                ctx.strokeStyle = this._applyBrush(ctx, stroke as string, brushRect);
+                ctx.lineWidth = el.strokeWidth;
+                ctx.lineCap = el.strokeCap as CanvasLineCap;
+                ctx.lineJoin = el.strokeJoin as CanvasLineJoin;
+                ctx.stroke();
+              }
+            }
+            if (doStroke && el.strokeDashArray) ctx.setLineDash([]);
+            ctx.restore();
+          }
+        } else if (el instanceof TextBlock) {
+          const temp = (panel as any)._gradTempText as TextBlock | null;
+          if (temp === null) continue;
+          for (const m of mk) {
+            if (!m.actualBounds || !m.measuredBounds || !m.naturalBounds) continue;
+            const L = m.actualBounds, A = m.measuredBounds, D = m.naturalBounds;
+            temp.text = m.text || '';
+            temp.angle = m.labelAngle || 0;
+            temp._measure(Infinity, Infinity);
+            (temp as any)._actualBounds = new Rect(0, 0, D.width, D.height);
+            // pE：translate(L+mainAB) → translate(-A.origin) → scale → rotate(labelAngle, D中心)
+            ctx.save();
+            ctx.translate(panelX + mainAb.x + L.x, panelY + mainAb.y + L.y);
+            ctx.translate(-A.x, -A.y);
+            if (temp.scale !== 1) ctx.scale(temp.scale, temp.scale);
+            if (temp.angle !== 0) {
+              const cx = D.x + D.width / 2;
+              const cy = D.y + D.height / 2;
+              ctx.translate(cx, cy);
+              ctx.rotate((temp.angle * Math.PI) / 180);
+              ctx.translate(-cx, -cy);
+            }
+            this.renderTextBlock(temp, 0, 0);
+            ctx.restore();
+          }
         }
       }
     }
-  }
 
-  private _renderGraduatedShape(shape: Shape, x: number, y: number, w: number, h: number, angle: number): void {
-    const ctx = this.ctx;
-    if (!ctx) return;
-
-    const geo = this._getShapeGeometry(shape);
-    if (!geo) return;
-
-    ctx.save();
-    // 官方：刻度元素以「自身盒子底边中心」为锚点落在路径点上，再按路径切线角旋转。
-    // 锚点取错（例如用盒子左上角）会让竖直标尺上的刻度线朝反方向延伸，
-    // 被管道/节点盖住而看不见（thermometer 刻度只在顶部露出一小段）。
-    ctx.translate(x + w / 2, y + h);
-    if (angle) {
-      ctx.rotate((angle * Math.PI) / 180);
-    }
-    ctx.translate(-w / 2, -h);
-    const stroke = (shape as any)._stroke;
-    if (stroke) {
-      ctx.strokeStyle = typeof stroke === 'string' ? stroke : 'black';
-    }
-    const strokeWidth = (shape as any)._strokeWidth;
-    if (strokeWidth !== undefined) {
-      ctx.lineWidth = strokeWidth;
-    }
-
-    this._drawGeometryPath(ctx, geo, w, h);
-    ctx.stroke();
     ctx.restore();
   }
 
-  private _renderGraduatedText(textBlock: TextBlock, val: number, tickBase: number, x: number, y: number, w: number, h: number, angle: number): void {
-    const ctx = this.ctx;
-    if (!ctx) return;
-
-    // 官方：优先用 graduatedFunction 自定义刻度文字，否则用刻度值本身
-    const gf = (textBlock as any)._graduatedFunction;
-    let text: string;
-    if (typeof gf === 'function') {
-      const v = gf(val, textBlock);
-      text = v === null || v === undefined ? '' : v.toString();
-    } else {
-      text = (+val.toFixed(2)).toString();
-    }
-    if (text === '') return;
-
-    const font = (textBlock as any)._font || '13px sans-serif';
-    const stroke = (textBlock as any)._stroke || 'black';
-
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.font = font;
-    ctx.fillStyle = typeof stroke === 'string' ? stroke : 'black';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(text, w / 2, h / 2);
-    ctx.restore();
-  }
 
   private _getShapeGeometry(elem: GraphObject): Geometry | null {
     if (!(elem instanceof Shape)) return null;
@@ -1572,11 +1541,11 @@ export class CanvasRenderer {
     return null;
   }
 
-  private _computePathPoints(geo: Geometry, width: number, height: number): Array<{x: number, y: number, angle: number}> {
+  private _computePathPoints(geo: Geometry, width: number, height: number): PathPoint[] {
     return computePathPoints(geo);
   }
 
-  private _interpolatePath(points: Array<{x: number, y: number, angle: number}>, fraction: number): {x: number, y: number, angle: number} {
+  private _interpolatePath(points: PathPoint[], fraction: number): PathPoint {
     return interpolatePath(points, fraction);
   }
 
@@ -1622,16 +1591,6 @@ export class CanvasRenderer {
     }
 
     ctx.restore();
-  }
-
-  private _findGraduatedMain(elements: GraphObject[]): GraphObject | null {
-    for (const elem of elements) {
-      if (elem.visible && elem.isPanelMain) return elem;
-    }
-    for (const elem of elements) {
-      if (elem.visible) return elem;
-    }
-    return null;
   }
 
   // ============ Internal methods ============

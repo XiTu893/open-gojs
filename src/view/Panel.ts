@@ -7,8 +7,11 @@ import {
   StretchHorizontal, StretchVertical,
   SizingNone, SizingAuto, SizingProp,
   SegmentOrientationNone, SegmentOrientationAlong, SegmentOrientationOpposite,
-  SegmentOrientationParallel, SegmentOrientationPerpendicular, SegmentOrientationOrthogonal
+  SegmentOrientationParallel, SegmentOrientationPerpendicular, SegmentOrientationOrthogonal,
+  OrientationAlong, OrientationPlus90, OrientationMinus90, OrientationOpposite,
+  OrientationUpright, OrientationPlus90Upright, OrientationMinus90Upright, OrientationUpright45
 } from '../core/EnumValues';
+import { TextBlock } from './TextBlock';
 import { Point } from '../core/Point';
 import { Rect } from '../core/Rect';
 import { Size } from '../core/Size';
@@ -26,6 +29,23 @@ import { Binding } from '../model/Binding';
 import { GraphObject } from './GraphObject';
 import { Shape } from './Shape';
 import { RowColumnDefinition } from './RowColumnDefinition';
+
+/**
+ * 官方 `PanelLayoutGraduated` 的单个 mark（determineGraduatedMarks 产出）：
+ * pt/angle 在 measure 阶段算好，TextBlock 的 label 额外带 actualBounds/measuredBounds/
+ * naturalBounds（measureGraduatedLabels 回填，renderer pE 变换直接消费）。
+ */
+export interface GradMark {
+  pt: Point;
+  angle: number;
+  text?: string;
+  labelAngle?: number;
+  lineCount?: number;
+  lines?: unknown;
+  actualBounds?: Rect;
+  measuredBounds?: Rect;
+  naturalBounds?: Rect;
+}
 
 /**
  * Panel - container that arranges child GraphObjects according to its type.
@@ -52,6 +72,12 @@ export class Panel extends GraphObject {
   private _linkOrRect: Rect | null = null;
   /** 官方 `PanelLayoutLink.qf`：measure 时按固定顺序存下的子元素 z 矩形，arrange 按序消费 */
   private _linkQfRects: Rect[] | null = null;
+  /** 官方 `PanelLayoutGraduated.ns`：measure 顺序的子元素矩形，arrange 按序消费（arrange 末尾置 null） */
+  private _gradRects: Rect[] | null = null;
+  /** 官方 `Panel.Es`：与 `_elements` 逐下标对齐的 mark 列表 */
+  private _gradMarks: GradMark[][] | null = null;
+  /** 官方 `Panel.Ii`：measureGraduatedLabels 复用的临时 TextBlock（renderer 也用它逐 mark 重测） */
+  private _gradTempText: TextBlock | null = null;
   private _defaultColumnSeparatorStroke: BrushLike = null;
   private _defaultColumnSeparatorStrokeWidth: number = 1;
   private _defaultRowSeparatorStroke: BrushLike = null;
@@ -661,9 +687,20 @@ export class Panel extends GraphObject {
     const geo = Panel._geometryOf(main);
     const pt = geo !== null
       ? interpolatePath(computePathPoints(geo), frac)
-      : { x: frac * main.actualBounds.width, y: 0, angle: 0 };
-    // 官方最后一步 `main.T.wt(e)`：把主元素局部坐标换算到本 Panel 坐标
-    result.setTo(pt.x + main.actualBounds.x, pt.y + main.actualBounds.y);
+      : { x: frac * main.actualBounds.width, y: 0, angle: 0, len: 0 };
+    // 官方最后一步 `main.T.wt(e)`：把主元素局部坐标换算到本 Panel 坐标。
+    // 官方的几何已归一化（bounds 原点 0），其 T 含 +strokeWidth/2 - bounds.origin；
+    // 我们的几何可能带负原点（如表盘弧 bounds [-100,-100]），必须同样补偿，
+    // 否则指针角度从中心算出来整体偏（226.8° vs 官方 229.5°）。
+    let ox = main.actualBounds.x;
+    let oy = main.actualBounds.y;
+    if (geo !== null) {
+      const bb = geo.bounds;
+      const sw = (main as Shape).strokeWidth || 0;
+      ox += sw / 2 - bb.x;
+      oy += sw / 2 - bb.y;
+    }
+    result.setTo(pt.x + ox, pt.y + oy);
     return result;
   }
 
@@ -1113,7 +1150,7 @@ export class Panel extends GraphObject {
     } else if (this._type === PanelViewbox) {
       this._arrangeViewbox(innerX, innerY, innerW, innerH);
     } else if (this._type === PanelGraduated) {
-      this._arrangeGraduated(innerX, innerY, innerW, innerH);
+      this._arrangeGraduated();
     } else {
       // Default: arrange all elements to fill
       for (const elem of this._elements) {
@@ -2271,51 +2308,420 @@ export class Panel extends GraphObject {
   }
 
   // ============ PanelGraduated measure/arrange ============
+  // 官方 PanelLayoutGraduated（go.js 534824）：
+  // measure → ns[0] = 主元素矩形(-margin) → determineGraduatedMarks 生成逐元素 mark →
+  // measureGraduatedTicks/Labels 算每个刻度/标签的包围盒并 union 进面板包围盒；
+  // arrange → 子元素 actualBounds = ns 矩形 − union(tr) 原点（不按面板 bounds 拉伸、不加 padding）。
 
   private _measureGraduated(availW: number, availH: number): void {
-    const { main } = this._findMainAndOthers();
+    const rects: Rect[] = [];
+    this._gradRects = rects;
+    this._gradMarks = null;
+    const main = this.findMainElement();
+    if (!(main instanceof Shape)) return;
 
-    // 官方 `PanelLayoutGraduated.measure`：Graduated 面板的尺寸**只**由 main 元素决定，
-    // 刻度元素（interval / alignmentFocus 那些）沿路径摆放，不参与面板包围盒。
-    // 以前把 others 也 union 进来，gantt 的 `myTimeline`（Graduated 面板）被撑到 648 高，
-    // 里面 `MAIN` 那根 `background:'lightgray'` 的形状就铺满整个图区，
-    // 把所有任务条都盖住了（实测 gantt 右图区一片浅灰）。
-    if (main !== null && main.visible) {
-      main._measure(availW, availH);
-      const mb = main.measuredBounds;
-      const m = main.margin;
-      this._unionRect.setTo(0, 0, Math.max(mb.width + m.left + m.right, 0), Math.max(mb.height + m.top + m.bottom, 0));
-    } else {
-      this._unionRect.setTo(0, 0, 0, 0);
+    const m = main.margin;
+    main._measure(availW, availH);
+    const mb = main.measuredBounds;
+    const mainRect = new Rect(
+      -m.left, -m.top,
+      Math.max(mb.width + m.left + m.right, 0),
+      Math.max(mb.height + m.top + m.bottom, 0)
+    );
+    rects.push(mainRect);
+    this._unionRect.setTo(mainRect.x, mainRect.y, mainRect.width, mainRect.height);
+
+    const marks: GradMark[][] = this._determineGraduatedMarks(main);
+
+    const els = this._elements;
+    for (let i = 0; i < els.length; i++) {
+      const el = els[i];
+      const mk = marks[i];
+      if (!el.visible || el === main || mk === undefined || mk.length === 0) continue;
+      if (el instanceof Shape) this._measureGraduatedTicks(el, mk);
+      else if (el instanceof TextBlock) this._measureGraduatedLabels(el, mk);
     }
   }
 
-  private _arrangeGraduated(innerX: number, innerY: number, innerW: number, innerH: number): void {
-    const { main, others } = this._findMainAndOthers();
-
-    if (main !== null) {
-      const m = main.margin;
-      main._arrange(new Rect(
-        innerX + m.left,
-        innerY + m.top,
-        innerW - m.left - m.right,
-        innerH - m.top - m.bottom
-      ));
+  /** 官方 determineGraduatedMarks(t,e)：沿主 Shape 路径为每个元素生成 mark 列表 */
+  private _determineGraduatedMarks(main: Shape): GradMark[][] {
+    const els = this._elements;
+    const out: GradMark[][] = [];
+    this._gradMarks = out;
+    const geo = main.geometry;
+    if (geo === null) {
+      for (let i = 0; i < els.length; i++) out.push([]);
+      return out;
     }
-
-    for (const elem of others) {
-      const mb = elem.measuredBounds;
-      const alignment = this._resolveAlignment(elem);
-      const pos = alignment.positionInRect(new Rect(innerX, innerY, innerW, innerH));
-      const focus = this._resolveAlignmentFocus(elem);
-      const focusPos = focus.positionInRect(new Rect(0, 0, mb.width, mb.height));
-      elem._arrange(new Rect(
-        pos.x - focusPos.x,
-        pos.y - focusPos.y,
-        mb.width,
-        mb.height
-      ));
+    const segs = geo.flattenedSegments;
+    const lens = geo.flattenedLengths;
+    const total = geo.flattenedTotalLength;
+    // 逐段角度数组（度，0..360）：每 figure 跳过首点
+    const angleArrays: number[][] = [];
+    for (let f = 0; f < segs.length; f++) {
+      const pts = segs[f];
+      const arr: number[] = [];
+      let ax = 0, ay = 0;
+      for (let s = 0; s < pts.length; s += 2) {
+        const px = pts[s], py = pts[s + 1];
+        if (s === 0) { ax = px; ay = py; continue; }
+        let ang = (Math.atan2(py - ay, px - ax) * 180) / Math.PI;
+        if (ang < 0) ang += 360;
+        arr.push(ang);
+        ax = px;
+        ay = py;
+      }
+      angleArrays.push(arr);
     }
+    const larger = this._graduatedLargerIntervals();
+    const sw = main.strokeWidth;
+    const gb = geo.bounds;
+    const mainScale = main.scale;
+    const tickUnit = this._graduatedTickUnit;
+    const gmin = this._graduatedMin;
+    const gmax = this._graduatedMax;
+    const range = this.graduatedRange;
+    const base0 = this._graduatedTickBase;
+
+    for (let ei = 0; ei < els.length; ei++) {
+      const el = els[ei];
+      const y: GradMark[] = [];
+      out.push(y);
+      if (!el.visible || el === main) continue;
+      if (lens.length === 0 || lens[0].length === 0) continue;
+      const interval = Math.abs(el.interval);
+      if ((tickUnit * interval * total) / range < 2 && el.graduatedSkip === null) continue;
+      // 段游标在**单个元素内**持久推进（mark 的弧长单调递增）
+      let S = lens[0][0], T = 0, N = 0;
+      const gLo = total * el.graduatedStart - 1e-4;
+      const gHi = total * el.graduatedEnd + 1e-4;
+      const step = tickUnit * interval;
+      let C = base0;
+      if (C < gmin) {
+        let F = (gmin - C) / step;
+        F = F % 1 === 0 ? F : Math.floor(F + 1);
+        C += F * step;
+      } else if (C > gmin + step) {
+        const F = Math.floor((C - gmin) / step);
+        C -= F * step;
+      }
+      const A0 = C;
+      const eps = gmax * 1e-6;
+      const largerEi = larger[ei];
+      const skipFn = el.graduatedSkip;
+      for (let F = 1; C <= gmax + eps; F++) {
+        if (this._gradUnitExcluded(C - base0, largerEi)) {
+          C = A0 + F * step;
+          continue;
+        }
+        if (C > gmax) C = gmax;
+        const skipOk =
+          skipFn === null ||
+          (((el instanceof TextBlock) || (el instanceof Shape)) && !skipFn(C, el));
+        if (skipOk) {
+          let m = ((C - gmin) * total) / range;
+          if (m > total) m = total;
+          if (m >= gLo && m <= gHi && m === m) {
+            let v = angleArrays[T][N], R = lens[T][N];
+            for (; T < lens.length; ) {
+              while (m > S && N < lens[T].length - 1) {
+                N++;
+                v = angleArrays[T][N];
+                R = lens[T][N];
+                S += R;
+              }
+              if (m <= S) break;
+              T++;
+              N = 0;
+              if (T >= lens.length) break;
+              v = angleArrays[T][N];
+              R = lens[T][N];
+              S += R;
+            }
+            if (T < lens.length && R > 0) {
+              const O = segs[T];
+              const z = O[N * 2], X = O[N * 2 + 1], E = O[N * 2 + 2], Y = O[N * 2 + 3];
+              const V = (m - (S - R)) / R;
+              let Hx = z + (E - z) * V + sw / 2 - gb.x;
+              let Hy = X + (Y - X) * V + sw / 2 - gb.y;
+              if (mainScale !== 1) {
+                Hx *= mainScale;
+                Hy *= mainScale;
+              }
+              const ang = this._gradDE(v, V, O, angleArrays[T], N);
+              if (isFinite(Hx) && isFinite(Hy)) {
+                if (el instanceof TextBlock) {
+                  let q = '';
+                  const fn = el.graduatedFunction;
+                  if (fn !== null) {
+                    const r = fn(C, el);
+                    q = r !== null && r !== undefined ? String(r) : '';
+                  } else {
+                    q = (+C.toFixed(2)).toString();
+                  }
+                  if (q !== '') y.push({ pt: new Point(Hx, Hy), angle: ang, text: q });
+                } else {
+                  y.push({ pt: new Point(Hx, Hy), angle: ang });
+                }
+              }
+            }
+          }
+        }
+        C = A0 + F * step;
+      }
+    }
+    return out;
+  }
+
+  /** 官方 fE(t)：每个元素「同构造器、interval 更大」的其它元素 interval 列表 */
+  private _graduatedLargerIntervals(): number[][] {
+    const els = this._elements;
+    const res: number[][] = [];
+    for (let n = 0; n < els.length; n++) {
+      const r: number[] = [];
+      res.push(r);
+      const o = els[n];
+      if (!o.visible) continue;
+      const l = o.interval;
+      if (!(l < 0)) {
+        for (let a = 0; a < els.length; a++) {
+          if (a === n) continue;
+          const h = els[a];
+          if (!h.visible || o.constructor !== h.constructor) continue;
+          const c = h.interval;
+          if (c > l) r.push(c);
+        }
+      }
+    }
+    return res;
+  }
+
+  /** 官方 uE(t,e,i)：与更大 interval 刻度重合则跳过本 mark */
+  private _gradUnitExcluded(val: number, larger: number[]): boolean {
+    const unit = this._graduatedTickUnit;
+    for (let i = 0; i < larger.length; i++) {
+      const oo = larger[i] * unit;
+      const r = val % oo;
+      const eps = unit * 1e-6;
+      if (r < eps && r > -eps) return true;
+    }
+    return false;
+  }
+
+  /**
+   * 官方 dE(t,e,i,s,n)：段接缝处的角度平滑（V 接近 0.5/0/1 时与邻段角度混合，
+   * 闭合图形首尾互借）。
+   */
+  private _gradDE(angle: number, V: number, figPts: number[], figAngles: number[], segIdx: number): number {
+    if (V < 0.5005 && V > 0.4995) return angle;
+    const closed =
+      figPts[0] === figPts[figPts.length - 2] && figPts[1] === figPts[figPts.length - 1];
+    let o = angle;
+    if (V < 0.5) {
+      if (segIdx > 0) o = figAngles[segIdx - 1];
+      else if (closed) o = figAngles[figAngles.length - 1];
+    } else if (V > 0.5) {
+      if (segIdx + 1 < figAngles.length) o = figAngles[segIdx + 1];
+      else if (closed) o = figAngles[0];
+    }
+    if (angle !== o) {
+      let t = angle;
+      let r = Math.abs(t - o);
+      if (r > 180) {
+        if (t < o) t += 360;
+        else o += 360;
+        r = Math.abs(t - o);
+      }
+      if (V < 5e-4 || V > 0.9995) return ((t + o) / 2) % 360;
+      if (r < 10) {
+        const l = 1 - Math.abs(0.5 - V);
+        return (t * l + o * (1 - l)) % 360;
+      }
+    }
+    return angle;
+  }
+
+  /** 官方 measureGraduatedTicks：每个 mark 旋转 4 角点求包围盒，push ns + union 面板 */
+  private _measureGraduatedTicks(el: Shape, marks: GradMark[]): void {
+    let focus = el.alignmentFocus;
+    if (focus.isNoSpot()) focus = Spot.TopCenter;
+    const savedAngle = el.angle;
+    el.angle = 0;
+    el._measure(Infinity, Infinity);
+    el.angle = savedAngle;
+    const mb = el.measuredBounds;
+    const w = mb.width, h = mb.height;
+    const spot = new Point().setRectSpot(new Rect(0, 0, w, h), focus);
+    const fx = -spot.x, fy = -spot.y;
+    const d = new Rect();
+    const rot = savedAngle; // el.angle（已恢复）
+    for (let g = 0; g < marks.length; g++) {
+      const mk = marks[g];
+      const px = mk.pt.x, py = mk.pt.y, a = mk.angle + rot;
+      for (let k = 0; k < 4; k++) {
+        let cx = fx, cy = fy;
+        if (k === 1) cx = fx + w;
+        else if (k === 2) cy = fy + h;
+        else if (k === 3) { cx = fx + w; cy = fy + h; }
+        const p = new Point(cx, cy);
+        p.rotate(a);
+        p.offset(px, py);
+        if (g === 0 && k === 0) d.setTo(p.x, p.y, 0, 0);
+        else d.unionPoint(p);
+      }
+    }
+    if (this._gradRects !== null) this._gradRects.push(d);
+    this._unionInto(d.x, d.y, d.width, d.height);
+  }
+
+  /** 官方 measureGraduatedLabels：逐 mark 测量文本并算 actualBounds L */
+  private _measureGraduatedLabels(el: TextBlock, marks: GradMark[]): void {
+    const temp = el.copy();
+    this._gradTempText = temp;
+    let focus = el.alignmentFocus;
+    if (focus.isNoSpot()) focus = Spot.TopCenter;
+    const code = Panel._orientCode(el.segmentOrientation);
+    const segOffset = el.segmentOffset;
+    const a = new Rect();
+    for (let g = 0; g < marks.length; g++) {
+      const mk = marks[g];
+      let hx = mk.pt.x, hy = mk.pt.y;
+      const f = mk.angle;
+      let d = el.angle;
+      let u = el.angle;
+      if (code !== 0) {
+        if (code === 21 || code === 25) d = f + el.angle;
+        else d = f;
+        u = Panel._computeOrientAngle(code, d);
+      }
+      temp.angle = u;
+      temp.text = mk.text || '';
+      temp._measure(Infinity, Infinity);
+      const y = temp.measuredBounds;
+      const x = temp.naturalBounds;
+      const b = x.width, k = x.height;
+      // P = translate(-y.origin) ∘ scale ∘ rotate(d+special, 中心)（点序：旋转→缩放→平移）
+      const T = new Point();
+      T.setRectSpot(new Rect(0, 0, b, k), focus);
+      let special = 0;
+      if (code === 22 || code === 26) special = 90;
+      else if (code === 23 || code === 27) special = -90;
+      else if (code === 28 && ((f > 45 && f < 135) || (f > 225 && f < 315))) special = -f;
+      Panel._rotateAbout(T, d + special, b / 2, k / 2);
+      if (temp.scale !== 1) {
+        T.x *= temp.scale;
+        T.y *= temp.scale;
+      }
+      T.x -= y.x;
+      T.y -= y.y;
+      const N = -T.x, M = -T.y;
+      const C = segOffset.copy();
+      if (isNaN(C.x)) C.x = b / 2 + 3;
+      if (isNaN(C.y)) C.y = -(k / 2 + 3);
+      C.rotate(f);
+      hx += C.x + N;
+      hy += C.y + M;
+      const L = new Rect(hx, hy, y.width, y.height);
+      const A = new Rect(y.x, y.y, y.width, y.height);
+      const D = new Rect(x.x, x.y, x.width, x.height);
+      mk.labelAngle = u;
+      mk.lines = temp.getMetrics();
+      mk.lineCount = (mk.lines as Array<number | number[] | string[] | string | null>)[3] as number;
+      mk.actualBounds = L;
+      mk.measuredBounds = A;
+      mk.naturalBounds = D;
+      if (g === 0) a.setTo(L.x, L.y, L.width, L.height);
+      else a.unionRect(L);
+    }
+    if (this._gradRects !== null) this._gradRects.push(a);
+    this._unionInto(a.x, a.y, a.width, a.height);
+  }
+
+  private _arrangeGraduated(): void {
+    const rects = this._gradRects;
+    const marks = this._gradMarks;
+    if (rects === null || marks === null) return;
+    const union = this._unionRect;
+    const ux = union.x, uy = union.y;
+    const main = this.findMainElement();
+    let r = 0;
+    if (main !== null && r < rects.length) {
+      const l = rects[r];
+      r++;
+      main._arrange(new Rect(l.x - ux, l.y - uy, l.width, l.height));
+    }
+    const els = this._elements;
+    for (let i = 0; i < els.length; i++) {
+      const el = els[i];
+      const mk = marks[i];
+      if (!el.visible || el === main || mk === undefined || mk.length === 0) continue;
+      if (r >= rects.length) break;
+      const l = rects[r];
+      r++;
+      el._arrange(new Rect(l.x - ux, l.y - uy, l.width, l.height));
+    }
+    this._gradRects = null;
+  }
+
+  /** 官方 segmentOrientation → 数值分支码（21..28） */
+  private static _orientCode(o: unknown): number {
+    if (typeof o === 'number') return o;
+    if (o === OrientationAlong) return 21;
+    if (o === OrientationPlus90) return 22;
+    if (o === OrientationMinus90) return 23;
+    if (o === OrientationOpposite) return 24;
+    if (o === OrientationUpright) return 25;
+    if (o === OrientationPlus90Upright) return 26;
+    if (o === OrientationMinus90Upright) return 27;
+    if (o === OrientationUpright45) return 28;
+    return 0;
+  }
+
+  /** 官方 Link.computeAngle(orientation, angle)（按分支码） */
+  private static _computeOrientAngle(code: number, angle: number): number {
+    const norm = (v: number): number => {
+      let r = v % 360;
+      if (r < 0) r += 360;
+      return r;
+    };
+    let e = 0;
+    switch (code) {
+      case 21: e = angle; break;
+      case 22: e = angle + 90; break;
+      case 23: e = angle - 90; break;
+      case 24: e = angle + 180; break;
+      case 25:
+        e = norm(angle);
+        if (e > 90 && e < 270) e -= 180;
+        break;
+      case 26:
+        e = norm(angle + 90);
+        if (e > 90 && e < 270) e -= 180;
+        break;
+      case 27:
+        e = norm(angle - 90);
+        if (e > 90 && e < 270) e -= 180;
+        break;
+      case 28: {
+        e = norm(angle);
+        if ((e > 45 && e < 135) || (e > 225 && e < 315)) return 0;
+        if (e > 90 && e < 270) e -= 180;
+        break;
+      }
+      default: e = 0;
+    }
+    return norm(e);
+  }
+
+  /** 把点绕 (cx,cy) 旋转 deg 度 */
+  private static _rotateAbout(p: Point, deg: number, cx: number, cy: number): void {
+    if (deg === 0) return;
+    const rad = (deg * Math.PI) / 180;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+    const rx = p.x - cx, ry = p.y - cy;
+    p.x = cx + rx * cos - ry * sin;
+    p.y = cy + rx * sin + ry * cos;
   }
 
   // ============ PanelLink measure/arrange ============

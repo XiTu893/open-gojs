@@ -229,6 +229,13 @@ export class Shape extends GraphObject {
       if (part && typeof part.updateRoute === 'function' && typeof part.computePoints === 'function') {
         part.updateRoute();
       }
+      if (this._geometry === null) {
+        // 官方 Shape.geometry 对 geometryString/figure 是**惰性解析且直接可见**的；
+        // 此前只返回 _geometry，导致 geometryString 形状的 geometry 恒为 null
+        // （Graduated 面板 graduatedPointForValue 拿不到路径 → 表盘指针角度错）。
+        const g = this._getGeometry();
+        if (g !== null) return g;
+      }
     }
     return this._geometry;
   }

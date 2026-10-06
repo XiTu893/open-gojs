@@ -2674,6 +2674,12 @@ declare class Panel extends GraphObject {
     private _linkOrRect;
     /** 官方 `PanelLayoutLink.qf`：measure 时按固定顺序存下的子元素 z 矩形，arrange 按序消费 */
     private _linkQfRects;
+    /** 官方 `PanelLayoutGraduated.ns`：measure 顺序的子元素矩形，arrange 按序消费（arrange 末尾置 null） */
+    private _gradRects;
+    /** 官方 `Panel.Es`：与 `_elements` 逐下标对齐的 mark 列表 */
+    private _gradMarks;
+    /** 官方 `Panel.Ii`：measureGraduatedLabels 复用的临时 TextBlock（renderer 也用它逐 mark 重测） */
+    private _gradTempText;
     private _defaultColumnSeparatorStroke;
     private _defaultColumnSeparatorStrokeWidth;
     private _defaultRowSeparatorStroke;
@@ -2904,7 +2910,28 @@ declare class Panel extends GraphObject {
     private _measureViewbox;
     private _arrangeViewbox;
     private _measureGraduated;
+    /** 官方 determineGraduatedMarks(t,e)：沿主 Shape 路径为每个元素生成 mark 列表 */
+    private _determineGraduatedMarks;
+    /** 官方 fE(t)：每个元素「同构造器、interval 更大」的其它元素 interval 列表 */
+    private _graduatedLargerIntervals;
+    /** 官方 uE(t,e,i)：与更大 interval 刻度重合则跳过本 mark */
+    private _gradUnitExcluded;
+    /**
+     * 官方 dE(t,e,i,s,n)：段接缝处的角度平滑（V 接近 0.5/0/1 时与邻段角度混合，
+     * 闭合图形首尾互借）。
+     */
+    private _gradDE;
+    /** 官方 measureGraduatedTicks：每个 mark 旋转 4 角点求包围盒，push ns + union 面板 */
+    private _measureGraduatedTicks;
+    /** 官方 measureGraduatedLabels：逐 mark 测量文本并算 actualBounds L */
+    private _measureGraduatedLabels;
     private _arrangeGraduated;
+    /** 官方 segmentOrientation → 数值分支码（21..28） */
+    private static _orientCode;
+    /** 官方 Link.computeAngle(orientation, angle)（按分支码） */
+    private static _computeOrientAngle;
+    /** 把点绕 (cx,cy) 旋转 deg 度 */
+    private static _rotateAbout;
     /** 取 link 里「画线」的主图元：优先 isPanelMain，否则第一个同时有 fill/stroke 的 Shape */
     private _findLinkMainElement;
     /**
@@ -4963,13 +4990,10 @@ declare class CanvasRenderer {
     /** Render a Viewbox panel - scales its child to fit while maintaining aspect ratio */
     private _renderViewbox;
     private _renderGraduated;
-    private _renderGraduatedShape;
-    private _renderGraduatedText;
     private _getShapeGeometry;
     private _computePathPoints;
     private _interpolatePath;
     private _drawGeometryPath;
-    private _findGraduatedMain;
     /** Apply position, scale, angle transforms for a Part */
     _applyTransform(part: Part): void;
     /** Restore canvas state after part transform */
@@ -7309,6 +7333,10 @@ declare class Layout {
     createNetwork(): LayoutNetwork;
     /**
      * Get the layout bounds of a part.
+     * 官方 `Layout.getLayoutBounds(t, rect?)`（go.js）：
+     *   boundsComputation 非空 → bc(t, this, rect)；
+     *   否则 rect.set(t.actualBounds); rect.addMargin(t.margin)（margin 全 0 快路返回 actualBounds）。
+     * kanban 泳道 Group margin (0,2) → 宽 162+4=166（步进 166），漏 margin 会得 162。
      * @param part - The part to get bounds for
      */
     getLayoutBounds(part: Part): Rect;

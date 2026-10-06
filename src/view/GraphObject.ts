@@ -1054,9 +1054,15 @@ export class GraphObject {
     const bounds = this._actualBounds.copy();
     let panel: Panel | null = this._panel;
     while (panel !== null) {
-      const panelBounds = (panel as any)._actualBounds;
-      bounds.x += panelBounds.x;
-      bounds.y += panelBounds.y;
+      // 官方 Table 布局 hoist：TableRow/TableColumn 子元素的 actualBounds 已在
+      // Table 坐标系（官方 Bn()===false，渲染器同规则），该层偏移必须跳过，
+      // 否则 Table 单元格内元素的文档坐标会重复累加列/行偏移
+      // （barCharts link 端点被推出节点即此）。
+      if (panel.type !== PanelTableRow && panel.type !== PanelTableColumn) {
+        const panelBounds = (panel as any)._actualBounds;
+        bounds.x += panelBounds.x;
+        bounds.y += panelBounds.y;
+      }
       panel = (panel as any)._panel;
     }
     return bounds;

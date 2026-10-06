@@ -5248,11 +5248,19 @@ var Geometry = /** @class */ (function () {
                         break;
                     }
                     case 'B': {
-                        // 相对三次贝塞尔：b x1,y1 x2,y2 x,y
-                        if (args.length >= 6) {
-                            current.add(PathSegment.CubicBezier(curX + args[4], curY + args[5], curX + args[0], curY + args[1], curX + args[2], curY + args[3]));
-                            curX += args[4];
-                            curY += args[5];
+                        // 官方 GeoStream case"B" → FR(startAngle, sweepAngle, centerX, centerY,
+                        // radiusX[, radiusY][, close])：**按角度的椭圆弧**，圆心是绝对坐标
+                        // （小写 b 才把圆心加上当前点）。例：instrumentGauge 的
+                        // "M-70.7107 70.7107 B135 270 0 0 100 100" = 圆心(0,0) r=100 起 135° 扫 270°。
+                        if (args.length >= 5) {
+                            var cx = args[2];
+                            var cy = args[3];
+                            var rx = args[4];
+                            var ry = args.length >= 6 && isFinite(args[5]) ? args[5] : rx;
+                            current.add(PathSegment.AngleArc(cx, cy, rx, ry, args[0], args[1]));
+                            var endAngle = (args[0] + args[1]) * Math.PI / 180;
+                            curX = cx + rx * Math.cos(endAngle);
+                            curY = cy + ry * Math.sin(endAngle);
                         }
                         break;
                     }
@@ -6140,13 +6148,45 @@ var Geometry = /** @class */ (function () {
                 Geometry._sampleCubic(pts[pts.length - 2], pts[pts.length - 1], seg.x1, seg.y1, seg.x2, seg.y2, seg.endX, seg.endY, pts);
             }
             else if (name_3 === 'Arc') {
-                var cubics = Geometry._arcToCubics(pts[pts.length - 2], pts[pts.length - 1], seg);
-                for (var i = 0; i < cubics.length; i++) {
-                    var c = cubics[i];
-                    Geometry._sampleCubic(c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], pts);
+                if (!isNaN(seg.startAngle) && !isNaN(seg.centerX)) {
+                    // 官方「按角度」圆弧（startAngle/sweepAngle/center/radius）：
+                    // 必须按角度采样。走下面的 SVG 弧转换会把 largeArc/clockwise
+                    // （两者默认 false）当成方向/长短弧标志，270° 的表盘弧被展成
+                    // 反向 90° 小弧 → flattenedTotalLength 只有 157（应为 471），
+                    // graduatedPointForValue/刻度定位全错（表盘指针角度偏差根因）。
+                    var rY = seg.radiusY === 0 ? seg.radiusX : seg.radiusY;
+                    var a0 = seg.startAngle * Math.PI / 180;
+                    var sw = (seg.sweepAngle || 0) * Math.PI / 180;
+                    var steps = Math.max(4, Math.ceil(Math.abs(seg.sweepAngle || 0) / 5));
+                    for (var i = 1; i <= steps; i++) {
+                        var a = a0 + (sw * i) / steps;
+                        pts.push(seg.centerX + seg.radiusX * Math.cos(a), seg.centerY + rY * Math.sin(a));
+                    }
+                    // 终点与最后采样点可能只差浮点噪声（严格 !== 会 push 出零长度段，
+                    // 让 graduated mark 的 atan2 取到随机方向、包围盒外扩）
+                    if (Math.abs(pts[pts.length - 2] - seg.endX) > 1e-9 || Math.abs(pts[pts.length - 1] - seg.endY) > 1e-9) {
+                        pts.push(seg.endX, seg.endY);
+                    }
+                    else {
+                        pts[pts.length - 2] = seg.endX;
+                        pts[pts.length - 1] = seg.endY;
+                    }
                 }
-                if (pts.length < 4 || pts[pts.length - 2] !== seg.endX || pts[pts.length - 1] !== seg.endY) {
-                    pts.push(seg.endX, seg.endY);
+                else {
+                    var cubics = Geometry._arcToCubics(pts[pts.length - 2], pts[pts.length - 1], seg);
+                    for (var i = 0; i < cubics.length; i++) {
+                        var c = cubics[i];
+                        Geometry._sampleCubic(c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], pts);
+                    }
+                    if (pts.length < 4 ||
+                        Math.abs(pts[pts.length - 2] - seg.endX) > 1e-9 ||
+                        Math.abs(pts[pts.length - 1] - seg.endY) > 1e-9) {
+                        pts.push(seg.endX, seg.endY);
+                    }
+                    else {
+                        pts[pts.length - 2] = seg.endX;
+                        pts[pts.length - 1] = seg.endY;
+                    }
                 }
             }
             else {
@@ -12858,9 +12898,15 @@ var GraphObject = /** @class */ (function () {
         var bounds = this._actualBounds.copy();
         var panel = this._panel;
         while (panel !== null) {
-            var panelBounds = panel._actualBounds;
-            bounds.x += panelBounds.x;
-            bounds.y += panelBounds.y;
+            // 官方 Table 布局 hoist：TableRow/TableColumn 子元素的 actualBounds 已在
+            // Table 坐标系（官方 Bn()===false，渲染器同规则），该层偏移必须跳过，
+            // 否则 Table 单元格内元素的文档坐标会重复累加列/行偏移
+            // （barCharts link 端点被推出节点即此）。
+            if (panel.type !== PanelTableRow && panel.type !== PanelTableColumn) {
+                var panelBounds = panel._actualBounds;
+                bounds.x += panelBounds.x;
+                bounds.y += panelBounds.y;
+            }
             panel = panel._panel;
         }
         return bounds;
@@ -19215,6 +19261,14 @@ var Shape = /** @class */ (function (_super) {
                 if (part && typeof part.updateRoute === 'function' && typeof part.computePoints === 'function') {
                     part.updateRoute();
                 }
+                if (this._geometry === null) {
+                    // 官方 Shape.geometry 对 geometryString/figure 是**惰性解析且直接可见**的；
+                    // 此前只返回 _geometry，导致 geometryString 形状的 geometry 恒为 null
+                    // （Graduated 面板 graduatedPointForValue 拿不到路径 → 表盘指针角度错）。
+                    var g = this._getGeometry();
+                    if (g !== null)
+                        return g;
+                }
             }
             return this._geometry;
         },
@@ -21375,27 +21429,30 @@ var PanelLayout = /** @class */ (function () {
     return PanelLayout;
 }());
 
-/** 把 Geometry 的所有 figure 拍平成一串折线点（每点带指向它的线段方向角）。 */
+/** 把 Geometry 拍平成一串折线点（每点带到达该点的线段方向角，0..360）。 */
 function computePathPoints(geo) {
     var points = [];
-    var it = geo.figures.iterator;
-    while (it.next()) {
-        var fig = it.value;
-        var prevX = fig.startX;
-        var prevY = fig.startY;
-        points.push({ x: prevX, y: prevY, angle: 0 });
-        var segIt = fig.segments.iterator;
-        while (segIt.next()) {
-            var seg = segIt.value;
-            var segName = seg.type._name;
-            if (segName === 'Close')
-                continue;
-            var endX = seg.endX;
-            var endY = seg.endY;
-            var angle = Math.atan2(endY - prevY, endX - prevX) * 180 / Math.PI;
-            points.push({ x: endX, y: endY, angle: angle });
-            prevX = endX;
-            prevY = endY;
+    // 用 Geometry 的扁平化缓存（与官方 flattenedSegments/Lengths 同源）：
+    // 直接遍历 figures/segments 会把 AngleArc 当成一条直线段（表盘指针
+    // 角度 318° vs 官方 229.5° 的根因），也不会对曲线采样。
+    var segs = geo.flattenedSegments;
+    var lens = geo.flattenedLengths;
+    for (var f = 0; f < segs.length; f++) {
+        var pts = segs[f];
+        if (pts.length < 4)
+            continue;
+        var lengths = lens[f];
+        for (var i = 0; i < lengths.length; i++) {
+            var x0 = pts[i * 2];
+            var y0 = pts[i * 2 + 1];
+            var x1 = pts[i * 2 + 2];
+            var y1 = pts[i * 2 + 3];
+            if (i === 0)
+                points.push({ x: x0, y: y0, angle: 0, len: 0 });
+            var angle = Math.atan2(y1 - y0, x1 - x0) * 180 / Math.PI;
+            if (angle < 0)
+                angle += 360;
+            points.push({ x: x1, y: y1, angle: angle, len: lengths[i] });
         }
     }
     return points;
@@ -21403,73 +21460,68 @@ function computePathPoints(geo) {
 /** 按折线总长的 fraction（0..1）插值出点与方向角。 */
 function interpolatePath(points, fraction) {
     if (points.length === 0)
-        return { x: 0, y: 0, angle: 0 };
+        return { x: 0, y: 0, angle: 0, len: 0 };
     if (points.length === 1)
-        return { x: points[0].x, y: points[0].y, angle: 0 };
+        return { x: points[0].x, y: points[0].y, angle: 0, len: 0 };
     var totalLen = 0;
-    var segLens = [];
-    for (var i = 1; i < points.length; i++) {
-        var dx = points[i].x - points[i - 1].x;
-        var dy = points[i].y - points[i - 1].y;
-        var len = Math.sqrt(dx * dx + dy * dy);
-        segLens.push(len);
-        totalLen += len;
-    }
+    for (var i = 1; i < points.length; i++)
+        totalLen += points[i].len;
     if (totalLen === 0)
-        return { x: points[0].x, y: points[0].y, angle: 0 };
+        return { x: points[0].x, y: points[0].y, angle: 0, len: 0 };
     var targetLen = fraction * totalLen;
     var accum = 0;
-    for (var i = 0; i < segLens.length; i++) {
-        if (accum + segLens[i] >= targetLen || i === segLens.length - 1) {
-            var segFrac = segLens[i] > 0 ? (targetLen - accum) / segLens[i] : 0;
-            var clampedFrac = Math.max(0, Math.min(1, segFrac));
-            var x = points[i].x + (points[i + 1].x - points[i].x) * clampedFrac;
-            var y = points[i].y + (points[i + 1].y - points[i].y) * clampedFrac;
-            var angle = points[i + 1].angle;
-            return { x: x, y: y, angle: angle };
+    for (var i = 1; i < points.length; i++) {
+        var segLen = points[i].len;
+        if (segLen === 0)
+            continue; // 跨 figure 断点
+        if (accum + segLen >= targetLen || (i === points.length - 1 && accum < targetLen)) {
+            var segFrac = (targetLen - accum) / segLen;
+            var t = Math.max(0, Math.min(1, segFrac));
+            var prev = points[i - 1];
+            var cur = points[i];
+            return {
+                x: prev.x + (cur.x - prev.x) * t,
+                y: prev.y + (cur.y - prev.y) * t,
+                angle: cur.angle,
+                len: segLen * t
+            };
         }
-        accum += segLens[i];
+        accum += segLen;
     }
     var last = points[points.length - 1];
-    return { x: last.x, y: last.y, angle: last.angle };
+    return { x: last.x, y: last.y, angle: last.angle, len: 0 };
 }
 /** `interpolatePath` 的逆：求点在折线上所处的弧长比例（0..1）。 */
 function fractionAlongPath(points, x, y) {
     if (points.length < 2)
         return 0;
     var totalLen = 0;
-    var segLens = [];
-    for (var i = 1; i < points.length; i++) {
-        var dx = points[i].x - points[i - 1].x;
-        var dy = points[i].y - points[i - 1].y;
-        var len = Math.sqrt(dx * dx + dy * dy);
-        segLens.push(len);
-        totalLen += len;
-    }
+    for (var i = 1; i < points.length; i++)
+        totalLen += points[i].len;
     if (totalLen === 0)
         return 0;
     // 取每个线段上「垂足」的投影长度；若垂足落在线段外则按最近端点算。
     var bestLen = 0;
     var bestDist = Infinity;
     var accum = 0;
-    for (var i = 0; i < segLens.length; i++) {
-        var ax = points[i].x;
-        var ay = points[i].y;
-        var bx = points[i + 1].x;
-        var by = points[i + 1].y;
-        var dx = bx - ax;
-        var dy = by - ay;
-        var segLen = segLens[i];
-        var t = segLen > 0 ? ((x - ax) * dx + (y - ay) * dy) / (segLen * segLen) : 0;
-        t = Math.max(0, Math.min(1, t));
-        var px = ax + dx * t;
-        var py = ay + dy * t;
-        var dist = (px - x) * (px - x) + (py - y) * (py - y);
-        if (dist < bestDist) {
-            bestDist = dist;
-            bestLen = accum + segLen * t;
+    for (var i = 1; i < points.length; i++) {
+        var segLen = points[i].len;
+        var prev = points[i - 1];
+        var cur = points[i];
+        if (segLen > 0) {
+            var dx = cur.x - prev.x;
+            var dy = cur.y - prev.y;
+            var t = ((x - prev.x) * dx + (y - prev.y) * dy) / (segLen * segLen);
+            t = Math.max(0, Math.min(1, t));
+            var px = prev.x + dx * t;
+            var py = prev.y + dy * t;
+            var dist = (px - x) * (px - x) + (py - y) * (py - y);
+            if (dist < bestDist) {
+                bestDist = dist;
+                bestLen = accum + segLen * t;
+            }
+            accum += segLen;
         }
-        accum += segLen;
     }
     return bestLen / totalLen;
 }
@@ -21499,6 +21551,12 @@ var Panel = /** @class */ (function (_super) {
         _this._linkOrRect = null;
         /** 官方 `PanelLayoutLink.qf`：measure 时按固定顺序存下的子元素 z 矩形，arrange 按序消费 */
         _this._linkQfRects = null;
+        /** 官方 `PanelLayoutGraduated.ns`：measure 顺序的子元素矩形，arrange 按序消费（arrange 末尾置 null） */
+        _this._gradRects = null;
+        /** 官方 `Panel.Es`：与 `_elements` 逐下标对齐的 mark 列表 */
+        _this._gradMarks = null;
+        /** 官方 `Panel.Ii`：measureGraduatedLabels 复用的临时 TextBlock（renderer 也用它逐 mark 重测） */
+        _this._gradTempText = null;
         _this._defaultColumnSeparatorStroke = null;
         _this._defaultColumnSeparatorStrokeWidth = 1;
         _this._defaultRowSeparatorStroke = null;
@@ -22355,8 +22413,19 @@ var Panel = /** @class */ (function (_super) {
         var pt = geo !== null
             ? interpolatePath(computePathPoints(geo), frac)
             : { x: frac * main.actualBounds.width, y: 0};
-        // 官方最后一步 `main.T.wt(e)`：把主元素局部坐标换算到本 Panel 坐标
-        result.setTo(pt.x + main.actualBounds.x, pt.y + main.actualBounds.y);
+        // 官方最后一步 `main.T.wt(e)`：把主元素局部坐标换算到本 Panel 坐标。
+        // 官方的几何已归一化（bounds 原点 0），其 T 含 +strokeWidth/2 - bounds.origin；
+        // 我们的几何可能带负原点（如表盘弧 bounds [-100,-100]），必须同样补偿，
+        // 否则指针角度从中心算出来整体偏（226.8° vs 官方 229.5°）。
+        var ox = main.actualBounds.x;
+        var oy = main.actualBounds.y;
+        if (geo !== null) {
+            var bb = geo.bounds;
+            var sw = main.strokeWidth || 0;
+            ox += sw / 2 - bb.x;
+            oy += sw / 2 - bb.y;
+        }
+        result.setTo(pt.x + ox, pt.y + oy);
         return result;
     };
     /** 官方 `Panel.graduatedValueForPoint(pt)`：Graduated 面板把路径上的点反算成数值 */
@@ -22928,7 +22997,7 @@ var Panel = /** @class */ (function (_super) {
             this._arrangeViewbox(innerX, innerY, innerW, innerH);
         }
         else if (this._type === PanelGraduated) {
-            this._arrangeGraduated(innerX, innerY, innerW, innerH);
+            this._arrangeGraduated();
         }
         else {
             try {
@@ -24465,53 +24534,486 @@ var Panel = /** @class */ (function (_super) {
         child._arrange(new Rect(innerX + offsetX, innerY + offsetY, childW, childH));
     };
     // ============ PanelGraduated measure/arrange ============
+    // 官方 PanelLayoutGraduated（go.js 534824）：
+    // measure → ns[0] = 主元素矩形(-margin) → determineGraduatedMarks 生成逐元素 mark →
+    // measureGraduatedTicks/Labels 算每个刻度/标签的包围盒并 union 进面板包围盒；
+    // arrange → 子元素 actualBounds = ns 矩形 − union(tr) 原点（不按面板 bounds 拉伸、不加 padding）。
     Panel.prototype._measureGraduated = function (availW, availH) {
-        var main = this._findMainAndOthers().main;
-        // 官方 `PanelLayoutGraduated.measure`：Graduated 面板的尺寸**只**由 main 元素决定，
-        // 刻度元素（interval / alignmentFocus 那些）沿路径摆放，不参与面板包围盒。
-        // 以前把 others 也 union 进来，gantt 的 `myTimeline`（Graduated 面板）被撑到 648 高，
-        // 里面 `MAIN` 那根 `background:'lightgray'` 的形状就铺满整个图区，
-        // 把所有任务条都盖住了（实测 gantt 右图区一片浅灰）。
-        if (main !== null && main.visible) {
-            main._measure(availW, availH);
-            var mb = main.measuredBounds;
-            var m = main.margin;
-            this._unionRect.setTo(0, 0, Math.max(mb.width + m.left + m.right, 0), Math.max(mb.height + m.top + m.bottom, 0));
-        }
-        else {
-            this._unionRect.setTo(0, 0, 0, 0);
+        var rects = [];
+        this._gradRects = rects;
+        this._gradMarks = null;
+        var main = this.findMainElement();
+        if (!(main instanceof Shape))
+            return;
+        var m = main.margin;
+        main._measure(availW, availH);
+        var mb = main.measuredBounds;
+        var mainRect = new Rect(-m.left, -m.top, Math.max(mb.width + m.left + m.right, 0), Math.max(mb.height + m.top + m.bottom, 0));
+        rects.push(mainRect);
+        this._unionRect.setTo(mainRect.x, mainRect.y, mainRect.width, mainRect.height);
+        var marks = this._determineGraduatedMarks(main);
+        var els = this._elements;
+        for (var i = 0; i < els.length; i++) {
+            var el = els[i];
+            var mk = marks[i];
+            if (!el.visible || el === main || mk === undefined || mk.length === 0)
+                continue;
+            if (el instanceof Shape)
+                this._measureGraduatedTicks(el, mk);
+            else if (el instanceof TextBlock)
+                this._measureGraduatedLabels(el, mk);
         }
     };
-    Panel.prototype._arrangeGraduated = function (innerX, innerY, innerW, innerH) {
-        var e_45, _a;
-        var _b = this._findMainAndOthers(), main = _b.main, others = _b.others;
-        if (main !== null) {
-            var m = main.margin;
-            main._arrange(new Rect(innerX + m.left, innerY + m.top, innerW - m.left - m.right, innerH - m.top - m.bottom));
+    /** 官方 determineGraduatedMarks(t,e)：沿主 Shape 路径为每个元素生成 mark 列表 */
+    Panel.prototype._determineGraduatedMarks = function (main) {
+        var els = this._elements;
+        var out = [];
+        this._gradMarks = out;
+        var geo = main.geometry;
+        if (geo === null) {
+            for (var i = 0; i < els.length; i++)
+                out.push([]);
+            return out;
         }
-        try {
-            for (var others_1 = __values(others), others_1_1 = others_1.next(); !others_1_1.done; others_1_1 = others_1.next()) {
-                var elem = others_1_1.value;
-                var mb = elem.measuredBounds;
-                var alignment = this._resolveAlignment(elem);
-                var pos = alignment.positionInRect(new Rect(innerX, innerY, innerW, innerH));
-                var focus_1 = this._resolveAlignmentFocus(elem);
-                var focusPos = focus_1.positionInRect(new Rect(0, 0, mb.width, mb.height));
-                elem._arrange(new Rect(pos.x - focusPos.x, pos.y - focusPos.y, mb.width, mb.height));
+        var segs = geo.flattenedSegments;
+        var lens = geo.flattenedLengths;
+        var total = geo.flattenedTotalLength;
+        // 逐段角度数组（度，0..360）：每 figure 跳过首点
+        var angleArrays = [];
+        for (var f = 0; f < segs.length; f++) {
+            var pts = segs[f];
+            var arr = [];
+            var ax = 0, ay = 0;
+            for (var s = 0; s < pts.length; s += 2) {
+                var px = pts[s], py = pts[s + 1];
+                if (s === 0) {
+                    ax = px;
+                    ay = py;
+                    continue;
+                }
+                var ang = (Math.atan2(py - ay, px - ax) * 180) / Math.PI;
+                if (ang < 0)
+                    ang += 360;
+                arr.push(ang);
+                ax = px;
+                ay = py;
+            }
+            angleArrays.push(arr);
+        }
+        var larger = this._graduatedLargerIntervals();
+        var sw = main.strokeWidth;
+        var gb = geo.bounds;
+        var mainScale = main.scale;
+        var tickUnit = this._graduatedTickUnit;
+        var gmin = this._graduatedMin;
+        var gmax = this._graduatedMax;
+        var range = this.graduatedRange;
+        var base0 = this._graduatedTickBase;
+        for (var ei = 0; ei < els.length; ei++) {
+            var el = els[ei];
+            var y = [];
+            out.push(y);
+            if (!el.visible || el === main)
+                continue;
+            if (lens.length === 0 || lens[0].length === 0)
+                continue;
+            var interval = Math.abs(el.interval);
+            if ((tickUnit * interval * total) / range < 2 && el.graduatedSkip === null)
+                continue;
+            // 段游标在**单个元素内**持久推进（mark 的弧长单调递增）
+            var S = lens[0][0], T = 0, N = 0;
+            var gLo = total * el.graduatedStart - 1e-4;
+            var gHi = total * el.graduatedEnd + 1e-4;
+            var step = tickUnit * interval;
+            var C = base0;
+            if (C < gmin) {
+                var F = (gmin - C) / step;
+                F = F % 1 === 0 ? F : Math.floor(F + 1);
+                C += F * step;
+            }
+            else if (C > gmin + step) {
+                var F = Math.floor((C - gmin) / step);
+                C -= F * step;
+            }
+            var A0 = C;
+            var eps = gmax * 1e-6;
+            var largerEi = larger[ei];
+            var skipFn = el.graduatedSkip;
+            for (var F = 1; C <= gmax + eps; F++) {
+                if (this._gradUnitExcluded(C - base0, largerEi)) {
+                    C = A0 + F * step;
+                    continue;
+                }
+                if (C > gmax)
+                    C = gmax;
+                var skipOk = skipFn === null ||
+                    (((el instanceof TextBlock) || (el instanceof Shape)) && !skipFn(C, el));
+                if (skipOk) {
+                    var m = ((C - gmin) * total) / range;
+                    if (m > total)
+                        m = total;
+                    if (m >= gLo && m <= gHi && m === m) {
+                        var v = angleArrays[T][N], R = lens[T][N];
+                        for (; T < lens.length;) {
+                            while (m > S && N < lens[T].length - 1) {
+                                N++;
+                                v = angleArrays[T][N];
+                                R = lens[T][N];
+                                S += R;
+                            }
+                            if (m <= S)
+                                break;
+                            T++;
+                            N = 0;
+                            if (T >= lens.length)
+                                break;
+                            v = angleArrays[T][N];
+                            R = lens[T][N];
+                            S += R;
+                        }
+                        if (T < lens.length && R > 0) {
+                            var O = segs[T];
+                            var z = O[N * 2], X = O[N * 2 + 1], E = O[N * 2 + 2], Y = O[N * 2 + 3];
+                            var V = (m - (S - R)) / R;
+                            var Hx = z + (E - z) * V + sw / 2 - gb.x;
+                            var Hy = X + (Y - X) * V + sw / 2 - gb.y;
+                            if (mainScale !== 1) {
+                                Hx *= mainScale;
+                                Hy *= mainScale;
+                            }
+                            var ang = this._gradDE(v, V, O, angleArrays[T], N);
+                            if (isFinite(Hx) && isFinite(Hy)) {
+                                if (el instanceof TextBlock) {
+                                    var q = '';
+                                    var fn = el.graduatedFunction;
+                                    if (fn !== null) {
+                                        var r = fn(C, el);
+                                        q = r !== null && r !== undefined ? String(r) : '';
+                                    }
+                                    else {
+                                        q = (+C.toFixed(2)).toString();
+                                    }
+                                    if (q !== '')
+                                        y.push({ pt: new Point(Hx, Hy), angle: ang, text: q });
+                                }
+                                else {
+                                    y.push({ pt: new Point(Hx, Hy), angle: ang });
+                                }
+                            }
+                        }
+                    }
+                }
+                C = A0 + F * step;
             }
         }
-        catch (e_45_1) { e_45 = { error: e_45_1 }; }
-        finally {
-            try {
-                if (others_1_1 && !others_1_1.done && (_a = others_1.return)) _a.call(others_1);
+        return out;
+    };
+    /** 官方 fE(t)：每个元素「同构造器、interval 更大」的其它元素 interval 列表 */
+    Panel.prototype._graduatedLargerIntervals = function () {
+        var els = this._elements;
+        var res = [];
+        for (var n = 0; n < els.length; n++) {
+            var r = [];
+            res.push(r);
+            var o = els[n];
+            if (!o.visible)
+                continue;
+            var l = o.interval;
+            if (!(l < 0)) {
+                for (var a = 0; a < els.length; a++) {
+                    if (a === n)
+                        continue;
+                    var h = els[a];
+                    if (!h.visible || o.constructor !== h.constructor)
+                        continue;
+                    var c = h.interval;
+                    if (c > l)
+                        r.push(c);
+                }
             }
-            finally { if (e_45) throw e_45.error; }
         }
+        return res;
+    };
+    /** 官方 uE(t,e,i)：与更大 interval 刻度重合则跳过本 mark */
+    Panel.prototype._gradUnitExcluded = function (val, larger) {
+        var unit = this._graduatedTickUnit;
+        for (var i = 0; i < larger.length; i++) {
+            var oo = larger[i] * unit;
+            var r = val % oo;
+            var eps = unit * 1e-6;
+            if (r < eps && r > -eps)
+                return true;
+        }
+        return false;
+    };
+    /**
+     * 官方 dE(t,e,i,s,n)：段接缝处的角度平滑（V 接近 0.5/0/1 时与邻段角度混合，
+     * 闭合图形首尾互借）。
+     */
+    Panel.prototype._gradDE = function (angle, V, figPts, figAngles, segIdx) {
+        if (V < 0.5005 && V > 0.4995)
+            return angle;
+        var closed = figPts[0] === figPts[figPts.length - 2] && figPts[1] === figPts[figPts.length - 1];
+        var o = angle;
+        if (V < 0.5) {
+            if (segIdx > 0)
+                o = figAngles[segIdx - 1];
+            else if (closed)
+                o = figAngles[figAngles.length - 1];
+        }
+        else if (V > 0.5) {
+            if (segIdx + 1 < figAngles.length)
+                o = figAngles[segIdx + 1];
+            else if (closed)
+                o = figAngles[0];
+        }
+        if (angle !== o) {
+            var t = angle;
+            var r = Math.abs(t - o);
+            if (r > 180) {
+                if (t < o)
+                    t += 360;
+                else
+                    o += 360;
+                r = Math.abs(t - o);
+            }
+            if (V < 5e-4 || V > 0.9995)
+                return ((t + o) / 2) % 360;
+            if (r < 10) {
+                var l = 1 - Math.abs(0.5 - V);
+                return (t * l + o * (1 - l)) % 360;
+            }
+        }
+        return angle;
+    };
+    /** 官方 measureGraduatedTicks：每个 mark 旋转 4 角点求包围盒，push ns + union 面板 */
+    Panel.prototype._measureGraduatedTicks = function (el, marks) {
+        var focus = el.alignmentFocus;
+        if (focus.isNoSpot())
+            focus = Spot.TopCenter;
+        var savedAngle = el.angle;
+        el.angle = 0;
+        el._measure(Infinity, Infinity);
+        el.angle = savedAngle;
+        var mb = el.measuredBounds;
+        var w = mb.width, h = mb.height;
+        var spot = new Point().setRectSpot(new Rect(0, 0, w, h), focus);
+        var fx = -spot.x, fy = -spot.y;
+        var d = new Rect();
+        var rot = savedAngle; // el.angle（已恢复）
+        for (var g = 0; g < marks.length; g++) {
+            var mk = marks[g];
+            var px = mk.pt.x, py = mk.pt.y, a = mk.angle + rot;
+            for (var k = 0; k < 4; k++) {
+                var cx = fx, cy = fy;
+                if (k === 1)
+                    cx = fx + w;
+                else if (k === 2)
+                    cy = fy + h;
+                else if (k === 3) {
+                    cx = fx + w;
+                    cy = fy + h;
+                }
+                var p = new Point(cx, cy);
+                p.rotate(a);
+                p.offset(px, py);
+                if (g === 0 && k === 0)
+                    d.setTo(p.x, p.y, 0, 0);
+                else
+                    d.unionPoint(p);
+            }
+        }
+        if (this._gradRects !== null)
+            this._gradRects.push(d);
+        this._unionInto(d.x, d.y, d.width, d.height);
+    };
+    /** 官方 measureGraduatedLabels：逐 mark 测量文本并算 actualBounds L */
+    Panel.prototype._measureGraduatedLabels = function (el, marks) {
+        var temp = el.copy();
+        this._gradTempText = temp;
+        var focus = el.alignmentFocus;
+        if (focus.isNoSpot())
+            focus = Spot.TopCenter;
+        var code = Panel._orientCode(el.segmentOrientation);
+        var segOffset = el.segmentOffset;
+        var a = new Rect();
+        for (var g = 0; g < marks.length; g++) {
+            var mk = marks[g];
+            var hx = mk.pt.x, hy = mk.pt.y;
+            var f = mk.angle;
+            var d = el.angle;
+            var u = el.angle;
+            if (code !== 0) {
+                if (code === 21 || code === 25)
+                    d = f + el.angle;
+                else
+                    d = f;
+                u = Panel._computeOrientAngle(code, d);
+            }
+            temp.angle = u;
+            temp.text = mk.text || '';
+            temp._measure(Infinity, Infinity);
+            var y = temp.measuredBounds;
+            var x = temp.naturalBounds;
+            var b = x.width, k = x.height;
+            // P = translate(-y.origin) ∘ scale ∘ rotate(d+special, 中心)（点序：旋转→缩放→平移）
+            var T = new Point();
+            T.setRectSpot(new Rect(0, 0, b, k), focus);
+            var special = 0;
+            if (code === 22 || code === 26)
+                special = 90;
+            else if (code === 23 || code === 27)
+                special = -90;
+            else if (code === 28 && ((f > 45 && f < 135) || (f > 225 && f < 315)))
+                special = -f;
+            Panel._rotateAbout(T, d + special, b / 2, k / 2);
+            if (temp.scale !== 1) {
+                T.x *= temp.scale;
+                T.y *= temp.scale;
+            }
+            T.x -= y.x;
+            T.y -= y.y;
+            var N = -T.x, M = -T.y;
+            var C = segOffset.copy();
+            if (isNaN(C.x))
+                C.x = b / 2 + 3;
+            if (isNaN(C.y))
+                C.y = -(k / 2 + 3);
+            C.rotate(f);
+            hx += C.x + N;
+            hy += C.y + M;
+            var L = new Rect(hx, hy, y.width, y.height);
+            var A = new Rect(y.x, y.y, y.width, y.height);
+            var D = new Rect(x.x, x.y, x.width, x.height);
+            mk.labelAngle = u;
+            mk.lines = temp.getMetrics();
+            mk.lineCount = mk.lines[3];
+            mk.actualBounds = L;
+            mk.measuredBounds = A;
+            mk.naturalBounds = D;
+            if (g === 0)
+                a.setTo(L.x, L.y, L.width, L.height);
+            else
+                a.unionRect(L);
+        }
+        if (this._gradRects !== null)
+            this._gradRects.push(a);
+        this._unionInto(a.x, a.y, a.width, a.height);
+    };
+    Panel.prototype._arrangeGraduated = function () {
+        var rects = this._gradRects;
+        var marks = this._gradMarks;
+        if (rects === null || marks === null)
+            return;
+        var union = this._unionRect;
+        var ux = union.x, uy = union.y;
+        var main = this.findMainElement();
+        var r = 0;
+        if (main !== null && r < rects.length) {
+            var l = rects[r];
+            r++;
+            main._arrange(new Rect(l.x - ux, l.y - uy, l.width, l.height));
+        }
+        var els = this._elements;
+        for (var i = 0; i < els.length; i++) {
+            var el = els[i];
+            var mk = marks[i];
+            if (!el.visible || el === main || mk === undefined || mk.length === 0)
+                continue;
+            if (r >= rects.length)
+                break;
+            var l = rects[r];
+            r++;
+            el._arrange(new Rect(l.x - ux, l.y - uy, l.width, l.height));
+        }
+        this._gradRects = null;
+    };
+    /** 官方 segmentOrientation → 数值分支码（21..28） */
+    Panel._orientCode = function (o) {
+        if (typeof o === 'number')
+            return o;
+        if (o === OrientationAlong)
+            return 21;
+        if (o === OrientationPlus90)
+            return 22;
+        if (o === OrientationMinus90)
+            return 23;
+        if (o === OrientationOpposite)
+            return 24;
+        if (o === OrientationUpright)
+            return 25;
+        if (o === OrientationPlus90Upright)
+            return 26;
+        if (o === OrientationMinus90Upright)
+            return 27;
+        if (o === OrientationUpright45)
+            return 28;
+        return 0;
+    };
+    /** 官方 Link.computeAngle(orientation, angle)（按分支码） */
+    Panel._computeOrientAngle = function (code, angle) {
+        var norm = function (v) {
+            var r = v % 360;
+            if (r < 0)
+                r += 360;
+            return r;
+        };
+        var e = 0;
+        switch (code) {
+            case 21:
+                e = angle;
+                break;
+            case 22:
+                e = angle + 90;
+                break;
+            case 23:
+                e = angle - 90;
+                break;
+            case 24:
+                e = angle + 180;
+                break;
+            case 25:
+                e = norm(angle);
+                if (e > 90 && e < 270)
+                    e -= 180;
+                break;
+            case 26:
+                e = norm(angle + 90);
+                if (e > 90 && e < 270)
+                    e -= 180;
+                break;
+            case 27:
+                e = norm(angle - 90);
+                if (e > 90 && e < 270)
+                    e -= 180;
+                break;
+            case 28: {
+                e = norm(angle);
+                if ((e > 45 && e < 135) || (e > 225 && e < 315))
+                    return 0;
+                if (e > 90 && e < 270)
+                    e -= 180;
+                break;
+            }
+            default: e = 0;
+        }
+        return norm(e);
+    };
+    /** 把点绕 (cx,cy) 旋转 deg 度 */
+    Panel._rotateAbout = function (p, deg, cx, cy) {
+        if (deg === 0)
+            return;
+        var rad = (deg * Math.PI) / 180;
+        var cos = Math.cos(rad);
+        var sin = Math.sin(rad);
+        var rx = p.x - cx, ry = p.y - cy;
+        p.x = cx + rx * cos - ry * sin;
+        p.y = cy + rx * sin + ry * cos;
     };
     // ============ PanelLink measure/arrange ============
     /** 取 link 里「画线」的主图元：优先 isPanelMain，否则第一个同时有 fill/stroke 的 Shape */
     Panel.prototype._findLinkMainElement = function () {
-        var e_46, _a;
+        var e_45, _a;
         var fallback = null;
         try {
             for (var _b = __values(this._elements), _c = _b.next(); !_c.done; _c = _b.next()) {
@@ -24524,12 +25026,12 @@ var Panel = /** @class */ (function (_super) {
                     fallback = elem;
             }
         }
-        catch (e_46_1) { e_46 = { error: e_46_1 }; }
+        catch (e_45_1) { e_45 = { error: e_45_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_46) throw e_46.error; }
+            finally { if (e_45) throw e_45.error; }
         }
         return fallback;
     };
@@ -24545,7 +25047,7 @@ var Panel = /** @class */ (function (_super) {
      *   路线中点；否则 → 点列线段插值。锚点均为 route-local（doc − routeBounds 原点）。
      */
     Panel.prototype._measureLink = function (_availW, _availH) {
-        var e_47, _a, e_48, _b;
+        var e_46, _a, e_47, _b;
         var panel = this;
         var host = typeof panel.updateRoute === 'function'
             ? panel
@@ -24578,12 +25080,12 @@ var Panel = /** @class */ (function (_super) {
                             e._geometry = geo;
                     }
                 }
-                catch (e_47_1) { e_47 = { error: e_47_1 }; }
+                catch (e_46_1) { e_46 = { error: e_46_1 }; }
                 finally {
                     try {
                         if (_f && !_f.done && (_a = _e.return)) _a.call(_e);
                     }
-                    finally { if (e_47) throw e_47.error; }
+                    finally { if (e_46) throw e_46.error; }
                 }
             }
         }
@@ -24756,12 +25258,12 @@ var Panel = /** @class */ (function (_super) {
                 d.unionRect(z);
             }
         }
-        catch (e_48_1) { e_48 = { error: e_48_1 }; }
+        catch (e_47_1) { e_47 = { error: e_47_1 }; }
         finally {
             try {
                 if (els_6_1 && !els_6_1.done && (_b = els_6.return)) _b.call(els_6);
             }
-            finally { if (e_48) throw e_48.error; }
+            finally { if (e_47) throw e_47.error; }
         }
         // 官方 labelNodes：只测量，不并入 union
         try {
@@ -24807,7 +25309,7 @@ var Panel = /** @class */ (function (_super) {
     };
     /** 官方 `GraphObject.po(x,y,w,h)`：设 measuredBounds；scale/angle 非恒等时取变换后的轴对齐包围盒 */
     Panel.prototype._linkPo = function (shape, x, y, w, h) {
-        var e_49, _a;
+        var e_48, _a;
         var sc = shape.scale;
         var ang = shape.angle;
         if (sc === 1 && (isNaN(ang) || ang === 0)) {
@@ -24835,12 +25337,12 @@ var Panel = /** @class */ (function (_super) {
                     maxY = p.y;
             }
         }
-        catch (e_49_1) { e_49 = { error: e_49_1 }; }
+        catch (e_48_1) { e_48 = { error: e_48_1 }; }
         finally {
             try {
                 if (corners_1_1 && !corners_1_1.done && (_a = corners_1.return)) _a.call(corners_1);
             }
-            finally { if (e_49) throw e_49.error; }
+            finally { if (e_48) throw e_48.error; }
         }
         shape._measuredBounds = new Rect(minX, minY, maxX - minX, maxY - minY);
     };
@@ -24886,7 +25388,7 @@ var Panel = /** @class */ (function (_super) {
      * 收尾把 `t.location` 同步为 position + WD 偏移。
      */
     Panel.prototype._arrangeLink = function (_bounds) {
-        var e_50, _a, e_51, _b;
+        var e_49, _a, e_50, _b;
         var panel = this;
         var qf = this._linkQfRects;
         var or = this._linkOrRect;
@@ -24911,12 +25413,12 @@ var Panel = /** @class */ (function (_super) {
                     m._arrange(new Rect(r.x - or.x, r.y - or.y, r.width, r.height));
                 }
             }
-            catch (e_50_1) { e_50 = { error: e_50_1 }; }
+            catch (e_49_1) { e_49 = { error: e_49_1 }; }
             finally {
                 try {
                     if (_d && !_d.done && (_a = _c.return)) _a.call(_c);
                 }
-                finally { if (e_50) throw e_50.error; }
+                finally { if (e_49) throw e_49.error; }
             }
         }
         else {
@@ -24927,12 +25429,12 @@ var Panel = /** @class */ (function (_super) {
                     m._arrange(new Rect(0, 0, mb.width, mb.height));
                 }
             }
-            catch (e_51_1) { e_51 = { error: e_51_1 }; }
+            catch (e_50_1) { e_50 = { error: e_50_1 }; }
             finally {
                 try {
                     if (_f && !_f.done && (_b = _e.return)) _b.call(_e);
                 }
-                finally { if (e_51) throw e_51.error; }
+                finally { if (e_50) throw e_50.error; }
             }
         }
         // 官方：t.location.e(t.position.x + WD.x, t.position.y + WD.y)
@@ -32098,6 +32600,10 @@ var Layout = /** @class */ (function () {
     };
     /**
      * Get the layout bounds of a part.
+     * 官方 `Layout.getLayoutBounds(t, rect?)`（go.js）：
+     *   boundsComputation 非空 → bc(t, this, rect)；
+     *   否则 rect.set(t.actualBounds); rect.addMargin(t.margin)（margin 全 0 快路返回 actualBounds）。
+     * kanban 泳道 Group margin (0,2) → 宽 162+4=166（步进 166），漏 margin 会得 162。
      * @param part - The part to get bounds for
      */
     Layout.prototype.getLayoutBounds = function (part) {
@@ -32105,6 +32611,9 @@ var Layout = /** @class */ (function () {
         if (this._boundsComputation) {
             return this._boundsComputation(part, this, bounds);
         }
+        var m = part.margin;
+        if (!m.equalTo(0, 0, 0, 0))
+            bounds.addMargin(m);
         return bounds;
     };
     /**
@@ -36142,152 +36651,141 @@ var CanvasRenderer = /** @class */ (function () {
         child._actualBounds = origBounds;
         ctx.restore();
     };
-    CanvasRenderer.prototype._renderGraduated = function (panel, panelX, panelY, panelW, panelH) {
-        var e_17, _a;
+    CanvasRenderer.prototype._renderGraduated = function (panel, panelX, panelY, _panelW, _panelH) {
+        var e_17, _a, e_18, _b;
         var ctx = this.ctx;
         if (!ctx)
             return;
         var elements = panel._elements;
-        var mainElement = this._findGraduatedMain(elements);
-        if (!mainElement)
-            return;
-        this.renderGraphObject(mainElement, panelX, panelY);
-        var gradMin = panel._graduatedMin;
-        var gradMax = panel._graduatedMax;
-        var tickUnit = panel._graduatedTickUnit;
-        var tickBase = panel._graduatedTickBase;
-        var gradStart = panel._graduatedStart;
-        var gradEnd = panel._graduatedEnd;
-        panel._padding;
-        var range = gradMax - gradMin;
-        if (range <= 0 || tickUnit <= 0)
-            return;
-        var effectiveStart = gradStart;
-        var effectiveEnd = gradEnd;
-        var mainAb = mainElement.actualBounds;
-        var mainX = panelX + mainAb.x;
-        var mainY = panelY + mainAb.y;
-        var mainW = mainAb.width;
-        var mainH = mainAb.height;
-        var geo = this._getShapeGeometry(mainElement);
-        var pathPoints = geo ? this._computePathPoints(geo, mainW, mainH) : null;
-        // 主元素的几何在渲染时会平移 -geoBounds.origin 后再绘制，
-        // 刻度定位必须用同一套坐标，否则 graduatedMin 会落到形状顶端（刻度倒置）。
-        var mainGeoBounds = geo ? geo.bounds : null;
-        var mainOffX = mainGeoBounds ? mainGeoBounds.x : 0;
-        var mainOffY = mainGeoBounds ? mainGeoBounds.y : 0;
-        var templates = elements.filter(function (e) { return e !== mainElement && e.visible; });
-        for (var val = gradMin; val <= gradMax + tickUnit * 0.001; val += tickUnit) {
-            var fraction = (val - gradMin) / range;
-            if (fraction < -1e-3 || fraction > 1.001)
-                continue;
-            var px = void 0, py = void 0, angle = void 0;
-            if (pathPoints && pathPoints.length >= 2) {
-                var pathFraction = effectiveStart + fraction * (effectiveEnd - effectiveStart);
-                var pt = this._interpolatePath(pathPoints, pathFraction);
-                px = mainX + pt.x - mainOffX;
-                py = mainY + pt.y - mainOffY;
-                angle = pt.angle;
-            }
-            else {
-                var pathFraction = effectiveStart + fraction * (effectiveEnd - effectiveStart);
-                px = mainX + pathFraction * mainW;
-                py = mainY + mainH / 2;
-                angle = 0;
-            }
-            try {
-                for (var templates_1 = (e_17 = void 0, __values(templates)), templates_1_1 = templates_1.next(); !templates_1_1.done; templates_1_1 = templates_1.next()) {
-                    var tmpl = templates_1_1.value;
-                    var interval = tmpl._interval || 1;
-                    var tickIndex = Math.round((val - gradMin) / tickUnit);
-                    if (tickIndex % interval !== 0)
+        var mainElement = panel.findMainElement();
+        var marks = panel._gradMarks;
+        // 官方 PanelLayoutGraduated.qe：clip 到 naturalBounds 外扩 1px → 画 main →
+        // 逐元素用 measure 缓存的 mark，按 gE/pE 变换重复绘制刻度与标签。
+        var nb = panel.naturalBounds;
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(panelX - 1, panelY - 1, nb.width + 1, nb.height + 1);
+        ctx.clip();
+        if (mainElement !== null) {
+            this.renderGraphObject(mainElement, panelX, panelY);
+        }
+        if (marks !== null && mainElement !== null) {
+            var mainAb = mainElement.actualBounds;
+            var mainGeo = mainElement instanceof Shape ? this._getShapeGeometry(mainElement) : null;
+            var total = mainGeo !== null ? mainGeo.flattenedTotalLength : 0;
+            var tickUnit = panel.graduatedTickUnit;
+            var range = panel.graduatedRange;
+            var dscale = this.diagram && typeof this.diagram.scale === 'number' ? this.diagram.scale : 1;
+            var h = panel.getDocumentScale() * dscale;
+            for (var i = 0; i < elements.length; i++) {
+                var el = elements[i];
+                var mk = marks[i];
+                if (!el.visible || el === mainElement || !mk || mk.length === 0)
+                    continue;
+                if (el instanceof Shape) {
+                    // 官方渲染期的亚像素门限（与 measure 同式，另乘 documentScale*diagramScale）
+                    if (((tickUnit * el.interval * total) / range) * h < 2 && el.graduatedSkip === null)
                         continue;
-                    // 官方 graduatedSkip(elem, value)：返回 true 表示跳过该刻度
-                    var skipFn = tmpl._graduatedSkip;
-                    if (typeof skipFn === 'function' && skipFn(val, tmpl))
+                    var mb = el.measuredBounds;
+                    var o = el.strokeWidth * el.scale;
+                    var focus_1 = el.alignmentFocus;
+                    if (focus_1.isNoSpot())
+                        focus_1 = Spot.TopCenter;
+                    var geo = this._getShapeGeometry(el);
+                    if (geo === null)
                         continue;
-                    var focus_1 = tmpl._alignmentFocus || Spot.Default;
-                    var mb = tmpl.measuredBounds;
-                    var focusX = focus_1.x * mb.width + (focus_1.offsetX || 0);
-                    var focusY = focus_1.y * mb.height + (focus_1.offsetY || 0);
-                    var segOffset = tmpl._segmentOffset;
-                    var offX = 0, offY = 0;
-                    if (segOffset && !isNaN(segOffset.x))
-                        offX = segOffset.x;
-                    if (segOffset && !isNaN(segOffset.y))
-                        offY = segOffset.y;
-                    var drawX = px - focusX + offX;
-                    var drawY = py - focusY + offY;
-                    if (tmpl instanceof Shape) {
-                        this._renderGraduatedShape(tmpl, drawX, drawY, mb.width, mb.height, angle);
+                    var geoR = geo.bounds;
+                    var brushRect = new Rect(0, 0, geoR.width, geoR.height);
+                    try {
+                        for (var mk_1 = (e_17 = void 0, __values(mk)), mk_1_1 = mk_1.next(); !mk_1_1.done; mk_1_1 = mk_1.next()) {
+                            var m = mk_1_1.value;
+                            // gE：translate(pt+mainAB) → rotate(markAngle+elemAngle) →
+                            //     translate(-w*fx+fxOff+o/2, -h*fy+fyOff+o/2) → scale
+                            // mark.pt 已含 measure 阶段的 +strokeWidth/2 - geo.bounds.origin 补偿。
+                            ctx.save();
+                            ctx.translate(panelX + mainAb.x + m.pt.x, panelY + mainAb.y + m.pt.y);
+                            var ang = m.angle + el.angle;
+                            if (ang !== 0)
+                                ctx.rotate((ang * Math.PI) / 180);
+                            ctx.translate(-mb.width * focus_1.x + focus_1.offsetX + o / 2, -mb.height * focus_1.y + focus_1.offsetY + o / 2);
+                            if (el.scale !== 1)
+                                ctx.scale(el.scale, el.scale);
+                            // 官方 Shape.va：在变换后的元素坐标系里画**原始几何**（不按 actualBounds 缩放）
+                            var stroke = el.stroke;
+                            var doStroke = !!stroke && el.strokeWidth > 0;
+                            var doFill = !!el.fill;
+                            if (doStroke && el.strokeDashArray)
+                                ctx.setLineDash(el.strokeDashArray);
+                            var figIt = geo.figures.iterator;
+                            while (figIt.next()) {
+                                var fig = figIt.value;
+                                this._drawFigure(ctx, fig);
+                                if (doFill && fig.isFilled) {
+                                    ctx.fillStyle = this._applyBrush(ctx, el.fill, brushRect);
+                                    ctx.fill();
+                                }
+                                if (doStroke) {
+                                    ctx.strokeStyle = this._applyBrush(ctx, stroke, brushRect);
+                                    ctx.lineWidth = el.strokeWidth;
+                                    ctx.lineCap = el.strokeCap;
+                                    ctx.lineJoin = el.strokeJoin;
+                                    ctx.stroke();
+                                }
+                            }
+                            if (doStroke && el.strokeDashArray)
+                                ctx.setLineDash([]);
+                            ctx.restore();
+                        }
                     }
-                    else if (tmpl instanceof TextBlock) {
-                        this._renderGraduatedText(tmpl, val, tickBase, drawX, drawY, mb.width, mb.height, angle);
+                    catch (e_17_1) { e_17 = { error: e_17_1 }; }
+                    finally {
+                        try {
+                            if (mk_1_1 && !mk_1_1.done && (_a = mk_1.return)) _a.call(mk_1);
+                        }
+                        finally { if (e_17) throw e_17.error; }
+                    }
+                }
+                else if (el instanceof TextBlock) {
+                    var temp = panel._gradTempText;
+                    if (temp === null)
+                        continue;
+                    try {
+                        for (var mk_2 = (e_18 = void 0, __values(mk)), mk_2_1 = mk_2.next(); !mk_2_1.done; mk_2_1 = mk_2.next()) {
+                            var m = mk_2_1.value;
+                            if (!m.actualBounds || !m.measuredBounds || !m.naturalBounds)
+                                continue;
+                            var L = m.actualBounds, A = m.measuredBounds, D = m.naturalBounds;
+                            temp.text = m.text || '';
+                            temp.angle = m.labelAngle || 0;
+                            temp._measure(Infinity, Infinity);
+                            temp._actualBounds = new Rect(0, 0, D.width, D.height);
+                            // pE：translate(L+mainAB) → translate(-A.origin) → scale → rotate(labelAngle, D中心)
+                            ctx.save();
+                            ctx.translate(panelX + mainAb.x + L.x, panelY + mainAb.y + L.y);
+                            ctx.translate(-A.x, -A.y);
+                            if (temp.scale !== 1)
+                                ctx.scale(temp.scale, temp.scale);
+                            if (temp.angle !== 0) {
+                                var cx = D.x + D.width / 2;
+                                var cy = D.y + D.height / 2;
+                                ctx.translate(cx, cy);
+                                ctx.rotate((temp.angle * Math.PI) / 180);
+                                ctx.translate(-cx, -cy);
+                            }
+                            this.renderTextBlock(temp, 0, 0);
+                            ctx.restore();
+                        }
+                    }
+                    catch (e_18_1) { e_18 = { error: e_18_1 }; }
+                    finally {
+                        try {
+                            if (mk_2_1 && !mk_2_1.done && (_b = mk_2.return)) _b.call(mk_2);
+                        }
+                        finally { if (e_18) throw e_18.error; }
                     }
                 }
             }
-            catch (e_17_1) { e_17 = { error: e_17_1 }; }
-            finally {
-                try {
-                    if (templates_1_1 && !templates_1_1.done && (_a = templates_1.return)) _a.call(templates_1);
-                }
-                finally { if (e_17) throw e_17.error; }
-            }
         }
-    };
-    CanvasRenderer.prototype._renderGraduatedShape = function (shape, x, y, w, h, angle) {
-        var ctx = this.ctx;
-        if (!ctx)
-            return;
-        var geo = this._getShapeGeometry(shape);
-        if (!geo)
-            return;
-        ctx.save();
-        // 官方：刻度元素以「自身盒子底边中心」为锚点落在路径点上，再按路径切线角旋转。
-        // 锚点取错（例如用盒子左上角）会让竖直标尺上的刻度线朝反方向延伸，
-        // 被管道/节点盖住而看不见（thermometer 刻度只在顶部露出一小段）。
-        ctx.translate(x + w / 2, y + h);
-        if (angle) {
-            ctx.rotate((angle * Math.PI) / 180);
-        }
-        ctx.translate(-w / 2, -h);
-        var stroke = shape._stroke;
-        if (stroke) {
-            ctx.strokeStyle = typeof stroke === 'string' ? stroke : 'black';
-        }
-        var strokeWidth = shape._strokeWidth;
-        if (strokeWidth !== undefined) {
-            ctx.lineWidth = strokeWidth;
-        }
-        this._drawGeometryPath(ctx, geo, w, h);
-        ctx.stroke();
-        ctx.restore();
-    };
-    CanvasRenderer.prototype._renderGraduatedText = function (textBlock, val, tickBase, x, y, w, h, angle) {
-        var ctx = this.ctx;
-        if (!ctx)
-            return;
-        // 官方：优先用 graduatedFunction 自定义刻度文字，否则用刻度值本身
-        var gf = textBlock._graduatedFunction;
-        var text;
-        if (typeof gf === 'function') {
-            var v = gf(val, textBlock);
-            text = v === null || v === undefined ? '' : v.toString();
-        }
-        else {
-            text = (+val.toFixed(2)).toString();
-        }
-        if (text === '')
-            return;
-        var font = textBlock._font || '13px sans-serif';
-        var stroke = textBlock._stroke || 'black';
-        ctx.save();
-        ctx.translate(x, y);
-        ctx.font = font;
-        ctx.fillStyle = typeof stroke === 'string' ? stroke : 'black';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(text, w / 2, h / 2);
         ctx.restore();
     };
     CanvasRenderer.prototype._getShapeGeometry = function (elem) {
@@ -36363,38 +36861,6 @@ var CanvasRenderer = /** @class */ (function () {
             }
         }
         ctx.restore();
-    };
-    CanvasRenderer.prototype._findGraduatedMain = function (elements) {
-        var e_18, _a, e_19, _b;
-        try {
-            for (var elements_11 = __values(elements), elements_11_1 = elements_11.next(); !elements_11_1.done; elements_11_1 = elements_11.next()) {
-                var elem = elements_11_1.value;
-                if (elem.visible && elem.isPanelMain)
-                    return elem;
-            }
-        }
-        catch (e_18_1) { e_18 = { error: e_18_1 }; }
-        finally {
-            try {
-                if (elements_11_1 && !elements_11_1.done && (_a = elements_11.return)) _a.call(elements_11);
-            }
-            finally { if (e_18) throw e_18.error; }
-        }
-        try {
-            for (var elements_12 = __values(elements), elements_12_1 = elements_12.next(); !elements_12_1.done; elements_12_1 = elements_12.next()) {
-                var elem = elements_12_1.value;
-                if (elem.visible)
-                    return elem;
-            }
-        }
-        catch (e_19_1) { e_19 = { error: e_19_1 }; }
-        finally {
-            try {
-                if (elements_12_1 && !elements_12_1.done && (_b = elements_12.return)) _b.call(elements_12);
-            }
-            finally { if (e_19) throw e_19.error; }
-        }
-        return null;
     };
     // ============ Internal methods ============
     /** Apply position, scale, angle transforms for a Part */
@@ -36594,7 +37060,7 @@ var CanvasRenderer = /** @class */ (function () {
     };
     /** Resolve a BrushLike to a fill style string or CanvasGradient */
     CanvasRenderer.prototype._applyBrush = function (ctx, brush, bounds) {
-        var e_20, _a, e_21, _b;
+        var e_19, _a, e_20, _b;
         if (!brush) {
             return 'transparent';
         }
@@ -36624,12 +37090,12 @@ var CanvasRenderer = /** @class */ (function () {
                         gradient.addColorStop(stop_1.offset, stop_1.color);
                     }
                 }
-                catch (e_20_1) { e_20 = { error: e_20_1 }; }
+                catch (e_19_1) { e_19 = { error: e_19_1 }; }
                 finally {
                     try {
                         if (_d && !_d.done && (_a = _c.return)) _a.call(_c);
                     }
-                    finally { if (e_20) throw e_20.error; }
+                    finally { if (e_19) throw e_19.error; }
                 }
                 return gradient;
             }
@@ -36652,12 +37118,12 @@ var CanvasRenderer = /** @class */ (function () {
                         gradient.addColorStop(stop_2.offset, stop_2.color);
                     }
                 }
-                catch (e_21_1) { e_21 = { error: e_21_1 }; }
+                catch (e_20_1) { e_20 = { error: e_20_1 }; }
                 finally {
                     try {
                         if (_f && !_f.done && (_b = _e.return)) _b.call(_e);
                     }
-                    finally { if (e_21) throw e_21.error; }
+                    finally { if (e_20) throw e_20.error; }
                 }
                 return gradient;
             }

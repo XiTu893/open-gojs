@@ -66,13 +66,10 @@ export declare class CanvasRenderer {
     /** Render a Viewbox panel - scales its child to fit while maintaining aspect ratio */
     private _renderViewbox;
     private _renderGraduated;
-    private _renderGraduatedShape;
-    private _renderGraduatedText;
     private _getShapeGeometry;
     private _computePathPoints;
     private _interpolatePath;
     private _drawGeometryPath;
-    private _findGraduatedMain;
     /** Apply position, scale, angle transforms for a Part */
     _applyTransform(part: Part): void;
     /** Restore canvas state after part transform */
