@@ -159,7 +159,7 @@ export class CanvasRenderer {
         ctx.beginPath();
         ctx.moveTo(panelX, y);
         ctx.lineTo(panelX + bounds.width, y);
-        ctx.stroke();
+        this._strokeNoShadow(ctx);
       }
     }
 
@@ -178,7 +178,7 @@ export class CanvasRenderer {
         ctx.beginPath();
         ctx.moveTo(x, panelY);
         ctx.lineTo(x, panelY + bounds.height);
-        ctx.stroke();
+        this._strokeNoShadow(ctx);
       }
     }
 
@@ -204,7 +204,7 @@ export class CanvasRenderer {
     ctx.strokeStyle = 'dodgerblue';
     ctx.lineWidth = 1 / this.scale;
     ctx.fillRect(box.x, box.y, box.width, box.height);
-    ctx.strokeRect(box.x, box.y, box.width, box.height);
+    this._strokeRectNoShadow(ctx, box.x, box.y, box.width, box.height);
     ctx.restore();
   }
 
@@ -260,10 +260,16 @@ export class CanvasRenderer {
     }
 
     if ((part as any)._isShadowed) {
-      ctx.shadowOffsetX = (part as any)._shadowOffset.x;
-      ctx.shadowOffsetY = (part as any)._shadowOffset.y;
-      ctx.shadowColor = (part as any)._shadowColor || 'rgba(0,0,0,0.3)';
-      ctx.shadowBlur = (part as any)._shadowBlur || 5;
+      // 官方 shadowsSet(offset×diagramScale×objScale×pixelRatio, blur 原值)：
+      // canvas 的 shadowOffset/shadowBlur 不受 CTM 影响 → 显式乘回设备像素空间。
+      // 默认值官方为 shadowColor "gray"、shadowBlur 4、shadowOffset (6,6)。
+      const dscale = this.diagram && typeof this.diagram.scale === 'number' ? this.diagram.scale : 1;
+      const dpr = typeof window !== 'undefined' && window.devicePixelRatio ? window.devicePixelRatio : 1;
+      const k = dscale * part.scale * dpr;
+      ctx.shadowOffsetX = (part as any)._shadowOffset.x * k;
+      ctx.shadowOffsetY = (part as any)._shadowOffset.y * k;
+      ctx.shadowColor = (part as any)._shadowColor ?? 'gray';
+      ctx.shadowBlur = ((part as any)._shadowBlur ?? 4);
     }
 
     if (part instanceof Link) {
@@ -402,7 +408,7 @@ export class CanvasRenderer {
       if (shape.strokeDashArray) {
         ctx.setLineDash(shape.strokeDashArray);
       }
-      ctx.stroke();
+      this._strokeNoShadow(ctx);
     }
 
     ctx.restore();
@@ -721,7 +727,7 @@ export class CanvasRenderer {
     if (stroke) {
       ctx.strokeStyle = typeof stroke === 'string' ? stroke : 'black';
       ctx.lineWidth = strokeWidth * arrowScale;
-      ctx.stroke();
+      this._strokeNoShadow(ctx);
     }
     if (!fill && !stroke) {
       ctx.fillStyle = 'black';
@@ -984,7 +990,7 @@ export class CanvasRenderer {
         if (shape.strokeDashArray) {
           ctx.setLineDash(shape.strokeDashArray);
         }
-        ctx.strokeRect(shapeX, shapeY, shapeW, shapeH);
+        this._strokeRectNoShadow(ctx, shapeX, shapeY, shapeW, shapeH);
         ctx.restore();
       }
       return;
@@ -1030,7 +1036,7 @@ export class CanvasRenderer {
         ctx.lineWidth = shape.strokeWidth / Math.max(scaleX, scaleY);
         ctx.lineCap = shape.strokeCap as CanvasLineCap;
         ctx.lineJoin = shape.strokeJoin as CanvasLineJoin;
-        ctx.stroke();
+        this._strokeNoShadow(ctx);
       }
     }
 
@@ -1129,7 +1135,7 @@ export class CanvasRenderer {
         ctx.strokeStyle = underlineStroke;
         ctx.moveTo(tbX + f, uy);
         ctx.lineTo(tbX + f + lw, uy);
-        ctx.stroke();
+        this._strokeNoShadow(ctx);
       }
       if (tb.isStrikethrough) {
         let sy = (tbY + u + lineHeight - lineHeight / 2.2) | 0;
@@ -1139,7 +1145,7 @@ export class CanvasRenderer {
         ctx.strokeStyle = underlineStroke;
         ctx.moveTo(tbX + f, sy);
         ctx.lineTo(tbX + f + lw, sy);
-        ctx.stroke();
+        this._strokeNoShadow(ctx);
       }
     };
 
@@ -1225,14 +1231,14 @@ export class CanvasRenderer {
       ctx.strokeStyle = '#ccc';
       ctx.lineWidth = 1;
       ctx.setLineDash([4, 4]);
-      ctx.strokeRect(picX, picY, picW, picH);
+      this._strokeRectNoShadow(ctx, picX, picY, picW, picH);
 
       ctx.beginPath();
       ctx.moveTo(picX, picY);
       ctx.lineTo(picX + picW, picY + picH);
       ctx.moveTo(picX + picW, picY);
       ctx.lineTo(picX, picY + picH);
-      ctx.stroke();
+      this._strokeNoShadow(ctx);
       ctx.setLineDash([]);
       ctx.restore();
     }
@@ -1325,7 +1331,7 @@ export class CanvasRenderer {
             }
           }
         }
-        ctx.stroke();
+        this._strokeNoShadow(ctx);
       } else if (S.fill !== null && S.fill !== undefined && S.fill !== '') {
         ctx.fillStyle = this._applyBrush(ctx, S.fill, new Rect(panelX, panelY, a, c));
         if (S.figure === 'BarV') {
@@ -1480,7 +1486,7 @@ export class CanvasRenderer {
                 ctx.lineWidth = el.strokeWidth;
                 ctx.lineCap = el.strokeCap as CanvasLineCap;
                 ctx.lineJoin = el.strokeJoin as CanvasLineJoin;
-                ctx.stroke();
+                this._strokeNoShadow(ctx);
               }
             }
             if (doStroke && el.strokeDashArray) ctx.setLineDash([]);
@@ -1810,6 +1816,22 @@ export class CanvasRenderer {
         ctx.lineTo(px, py);
       }
     }
+  }
+
+  /** 官方：stroke 前 shadowsOff、stroke 后 shadowsOn（只有 fill 投影，stroke 不投影）。
+   *  用 shadowColor 透明等价关闭，比改 offset/blur 更轻。 */
+  private _strokeNoShadow(ctx: CanvasRenderingContext2D): void {
+    const prev = ctx.shadowColor;
+    ctx.shadowColor = 'rgba(0, 0, 0, 0)';
+    ctx.stroke();
+    ctx.shadowColor = prev;
+  }
+
+  private _strokeRectNoShadow(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number): void {
+    const prev = ctx.shadowColor;
+    ctx.shadowColor = 'rgba(0, 0, 0, 0)';
+    ctx.strokeRect(x, y, w, h);
+    ctx.shadowColor = prev;
   }
 
   /** Resolve a BrushLike to a fill style string or CanvasGradient */

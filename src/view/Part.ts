@@ -51,9 +51,9 @@ export class Part extends Panel {
   protected _isLayoutPositioned: boolean = true;
   private _isInDocumentBounds: boolean = true;
   protected _isShadowed: boolean = false;
-  protected _shadowOffset: Point = new Point(5, 5);
-  private _shadowColor: string = 'rgba(0,0,0,0.3)';
-  private _shadowBlur: number = 5;
+  protected _shadowOffset: Point = new Point(6, 6);
+  private _shadowColor: string = 'gray';
+  private _shadowBlur: number = 4;
   private _layerName: string = '';
   private _zOrder: number = 0;
   private _canStart: boolean = true;

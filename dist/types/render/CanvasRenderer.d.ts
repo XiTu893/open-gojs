@@ -89,6 +89,10 @@ export declare class CanvasRenderer {
     private _drawFigureSegments;
     /** Draw an arc segment from current point using SVG arc parameterization */
     private _drawArcSegment;
+    /** 官方：stroke 前 shadowsOff、stroke 后 shadowsOn（只有 fill 投影，stroke 不投影）。
+     *  用 shadowColor 透明等价关闭，比改 offset/blur 更轻。 */
+    private _strokeNoShadow;
+    private _strokeRectNoShadow;
     /** Resolve a BrushLike to a fill style string or CanvasGradient */
     _applyBrush(ctx: CanvasRenderingContext2D, brush: BrushLike, bounds: Rect): string | CanvasGradient | CanvasPattern;
     /** Update viewportBounds from current canvas size, scale, and position */

@@ -25977,9 +25977,9 @@ var Part = /** @class */ (function (_super) {
         _this._isLayoutPositioned = true;
         _this._isInDocumentBounds = true;
         _this._isShadowed = false;
-        _this._shadowOffset = new Point(5, 5);
-        _this._shadowColor = 'rgba(0,0,0,0.3)';
-        _this._shadowBlur = 5;
+        _this._shadowOffset = new Point(6, 6);
+        _this._shadowColor = 'gray';
+        _this._shadowBlur = 4;
         _this._layerName = '';
         _this._zOrder = 0;
         _this._canStart = true;
@@ -35530,7 +35530,7 @@ var CanvasRenderer = /** @class */ (function () {
                 ctx.beginPath();
                 ctx.moveTo(panelX, y);
                 ctx.lineTo(panelX + bounds.width, y);
-                ctx.stroke();
+                this._strokeNoShadow(ctx);
             }
         }
         var x = panelX;
@@ -35547,7 +35547,7 @@ var CanvasRenderer = /** @class */ (function () {
                 ctx.beginPath();
                 ctx.moveTo(x, panelY);
                 ctx.lineTo(x, panelY + bounds.height);
-                ctx.stroke();
+                this._strokeNoShadow(ctx);
             }
         }
         ctx.setLineDash([]);
@@ -35571,7 +35571,7 @@ var CanvasRenderer = /** @class */ (function () {
         ctx.strokeStyle = 'dodgerblue';
         ctx.lineWidth = 1 / this.scale;
         ctx.fillRect(box.x, box.y, box.width, box.height);
-        ctx.strokeRect(box.x, box.y, box.width, box.height);
+        this._strokeRectNoShadow(ctx, box.x, box.y, box.width, box.height);
         ctx.restore();
     };
     /** Render all parts in a layer */
@@ -35595,6 +35595,7 @@ var CanvasRenderer = /** @class */ (function () {
     };
     CanvasRenderer.prototype.renderPart = function (part) {
         var e_2, _a;
+        var _b, _c;
         var ctx = this.ctx;
         if (!ctx)
             return;
@@ -35629,10 +35630,16 @@ var CanvasRenderer = /** @class */ (function () {
             ctx.globalAlpha *= part.opacity;
         }
         if (part._isShadowed) {
-            ctx.shadowOffsetX = part._shadowOffset.x;
-            ctx.shadowOffsetY = part._shadowOffset.y;
-            ctx.shadowColor = part._shadowColor || 'rgba(0,0,0,0.3)';
-            ctx.shadowBlur = part._shadowBlur || 5;
+            // 官方 shadowsSet(offset×diagramScale×objScale×pixelRatio, blur 原值)：
+            // canvas 的 shadowOffset/shadowBlur 不受 CTM 影响 → 显式乘回设备像素空间。
+            // 默认值官方为 shadowColor "gray"、shadowBlur 4、shadowOffset (6,6)。
+            var dscale = this.diagram && typeof this.diagram.scale === 'number' ? this.diagram.scale : 1;
+            var dpr = typeof window !== 'undefined' && window.devicePixelRatio ? window.devicePixelRatio : 1;
+            var k = dscale * part.scale * dpr;
+            ctx.shadowOffsetX = part._shadowOffset.x * k;
+            ctx.shadowOffsetY = part._shadowOffset.y * k;
+            ctx.shadowColor = (_b = part._shadowColor) !== null && _b !== void 0 ? _b : 'gray';
+            ctx.shadowBlur = ((_c = part._shadowBlur) !== null && _c !== void 0 ? _c : 4);
         }
         if (part instanceof Link) {
             this.renderLink(part);
@@ -35793,7 +35800,7 @@ var CanvasRenderer = /** @class */ (function () {
             if (shape.strokeDashArray) {
                 ctx.setLineDash(shape.strokeDashArray);
             }
-            ctx.stroke();
+            this._strokeNoShadow(ctx);
         }
         ctx.restore();
     };
@@ -36113,7 +36120,7 @@ var CanvasRenderer = /** @class */ (function () {
         if (stroke) {
             ctx.strokeStyle = typeof stroke === 'string' ? stroke : 'black';
             ctx.lineWidth = strokeWidth * arrowScale;
-            ctx.stroke();
+            this._strokeNoShadow(ctx);
         }
         if (!fill && !stroke) {
             ctx.fillStyle = 'black';
@@ -36462,7 +36469,7 @@ var CanvasRenderer = /** @class */ (function () {
                 if (shape.strokeDashArray) {
                     ctx.setLineDash(shape.strokeDashArray);
                 }
-                ctx.strokeRect(shapeX, shapeY, shapeW, shapeH);
+                this._strokeRectNoShadow(ctx, shapeX, shapeY, shapeW, shapeH);
                 ctx.restore();
             }
             return;
@@ -36504,13 +36511,14 @@ var CanvasRenderer = /** @class */ (function () {
                 ctx.lineWidth = shape.strokeWidth / Math.max(scaleX, scaleY);
                 ctx.lineCap = shape.strokeCap;
                 ctx.lineJoin = shape.strokeJoin;
-                ctx.stroke();
+                this._strokeNoShadow(ctx);
             }
         }
         ctx.restore();
     };
     /** Render a TextBlock —— 官方 TextBlock.draw + aF 管线逐条复刻 */
     CanvasRenderer.prototype.renderTextBlock = function (tb, offsetX, offsetY) {
+        var _this = this;
         if (!tb.visible || !tb.text)
             return;
         var ctx = this.ctx;
@@ -36607,7 +36615,7 @@ var CanvasRenderer = /** @class */ (function () {
                 ctx.strokeStyle = underlineStroke;
                 ctx.moveTo(tbX + f, uy);
                 ctx.lineTo(tbX + f + lw, uy);
-                ctx.stroke();
+                _this._strokeNoShadow(ctx);
             }
             if (tb.isStrikethrough) {
                 var sy = (tbY + u + lineHeight - lineHeight / 2.2) | 0;
@@ -36618,7 +36626,7 @@ var CanvasRenderer = /** @class */ (function () {
                 ctx.strokeStyle = underlineStroke;
                 ctx.moveTo(tbX + f, sy);
                 ctx.lineTo(tbX + f + lw, sy);
-                ctx.stroke();
+                _this._strokeNoShadow(ctx);
             }
         };
         // 官方 draw：单行走 qn 分支（u += spacingAbove 一次）；
@@ -36701,13 +36709,13 @@ var CanvasRenderer = /** @class */ (function () {
             ctx.strokeStyle = '#ccc';
             ctx.lineWidth = 1;
             ctx.setLineDash([4, 4]);
-            ctx.strokeRect(picX, picY, picW, picH);
+            this._strokeRectNoShadow(ctx, picX, picY, picW, picH);
             ctx.beginPath();
             ctx.moveTo(picX, picY);
             ctx.lineTo(picX + picW, picY + picH);
             ctx.moveTo(picX + picW, picY);
             ctx.lineTo(picX, picY + picH);
-            ctx.stroke();
+            this._strokeNoShadow(ctx);
             ctx.setLineDash([]);
             ctx.restore();
         }
@@ -36803,7 +36811,7 @@ var CanvasRenderer = /** @class */ (function () {
                         }
                     }
                 }
-                ctx.stroke();
+                this._strokeNoShadow(ctx);
             }
             else if (S.fill !== null && S.fill !== undefined && S.fill !== '') {
                 ctx.fillStyle = this._applyBrush(ctx, S.fill, new Rect(panelX, panelY, a, c));
@@ -36958,7 +36966,7 @@ var CanvasRenderer = /** @class */ (function () {
                                     ctx.lineWidth = el.strokeWidth;
                                     ctx.lineCap = el.strokeCap;
                                     ctx.lineJoin = el.strokeJoin;
-                                    ctx.stroke();
+                                    this._strokeNoShadow(ctx);
                                 }
                             }
                             if (doStroke && el.strokeDashArray)
@@ -37291,6 +37299,20 @@ var CanvasRenderer = /** @class */ (function () {
                 ctx.lineTo(px, py);
             }
         }
+    };
+    /** 官方：stroke 前 shadowsOff、stroke 后 shadowsOn（只有 fill 投影，stroke 不投影）。
+     *  用 shadowColor 透明等价关闭，比改 offset/blur 更轻。 */
+    CanvasRenderer.prototype._strokeNoShadow = function (ctx) {
+        var prev = ctx.shadowColor;
+        ctx.shadowColor = 'rgba(0, 0, 0, 0)';
+        ctx.stroke();
+        ctx.shadowColor = prev;
+    };
+    CanvasRenderer.prototype._strokeRectNoShadow = function (ctx, x, y, w, h) {
+        var prev = ctx.shadowColor;
+        ctx.shadowColor = 'rgba(0, 0, 0, 0)';
+        ctx.strokeRect(x, y, w, h);
+        ctx.shadowColor = prev;
     };
     /** Resolve a BrushLike to a fill style string or CanvasGradient */
     CanvasRenderer.prototype._applyBrush = function (ctx, brush, bounds) {
