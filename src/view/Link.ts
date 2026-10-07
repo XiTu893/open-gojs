@@ -1306,10 +1306,14 @@ export class Link extends Part {
     // `port.Rf(...)`（= getNearestIntersectionPoint），结果再乘回矩阵。本项目
     // GraphObject 没有独立文档矩阵（旋转经 getDocumentBounds 体现），直接按
     // 文档坐标求交；参数方向按本项目实现族的 (中心 focus, 目标 p) 语义。
-    // 官方 Rf 失败时 result=focus；gantt 端口在射线反方向时官方即回退到 focus，
-    // 而不是矩形外推（早期 _getEdgeIntersection 回退会把端点推出端口外）。
+    // 官方 Rf 失败时 result=focus；本项目 Rf 对部分端口（gantt 内 Panel 端口）
+    // 会返回反方向外推点，故保留矩形求交回退兜底，避免端点塌回中心。
     if (!port.getNearestIntersectionPoint(focus, p, out)) {
-      out.set(focus);
+      const bounds = port.getDocumentBounds();
+      const origin = bounds.containsPoint(focus) ? focus : bounds.center;
+      const hit = this._getEdgeIntersection(bounds, origin, p);
+      out.x = hit.x;
+      out.y = hit.y;
     }
     return out;
   }
