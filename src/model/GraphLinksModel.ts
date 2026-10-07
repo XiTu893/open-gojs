@@ -39,7 +39,8 @@ export class GraphLinksModel extends Model {
     }
     // 第二个参数优先；不能覆盖 set(init) 中已通过 linkDataArray 属性设置的值
     if (linkDataArray) {
-      this._linkDataArray = linkDataArray;
+      // 官方 GraphLinksModel 构造器走 setter（含 key 补齐两趟）
+      this.linkDataArray = linkDataArray;
     }
     // set(init) 中属性的赋值顺序不保证 archetypeNodeData 先于 linkDataArray，
     // 因此在所有属性就位后再统一补齐 archetype 节点
@@ -56,8 +57,23 @@ export class GraphLinksModel extends Model {
     const old = this._linkDataArray;
     if (old === val) return;
     this._linkDataArray = val || [];
+    this._linkKeyMap.clear();
+    if (this.linkKeyProperty) {
+      // 官方 GraphLinksModel.linkDataArray setter 的 key 补齐两趟
+      //（与 Model.nodeDataArray 同构；makeLinkDataKeyUnique 亦为负数键）
+      const rekey: ObjectData[] = [];
+      for (const r of this._linkDataArray) {
+        const l = this.getLinkKeyForData(r);
+        if (l === undefined || this._linkKeyMap.has(l)) rekey.push(r);
+        else this._linkKeyMap.add(l, r);
+      }
+      for (const o of rekey) {
+        this.makeLinkDataKeyUnique(o);
+        const l = this.getLinkKeyForData(o);
+        if (l !== undefined) this._linkKeyMap.add(l, o);
+      }
+    }
     for (const ld of this._linkDataArray) this._ensureArchetypeNodesForLinkData(ld);
-    this._rebuildLinkKeyMap();
     this.raiseChangedEvent(ChangedEventProperty, this, 'linkDataArray', old, this._linkDataArray);
   }
 
@@ -85,9 +101,12 @@ export class GraphLinksModel extends Model {
   addLinkData(data: ObjectData): void {
     if (!data) throw new Error('Cannot add null link data');
     if (this.isReadOnly) throw new Error('Model is read-only');
+    if (this.containsLinkData(data)) return; // 官方 mv：重复添加直接 no-op
     this._linkDataArray.push(data);
     this._ensureArchetypeNodesForLinkData(data);
     if (this.linkKeyProperty) {
+      // 官方 mv：key 缺失/重复 → makeLinkDataKeyUnique（负数键）后入 keyMap
+      this.makeLinkDataKeyUnique(data);
       const key = this.getLinkKeyForData(data);
       if (key !== undefined) {
         this._linkKeyMap.add(key, data);

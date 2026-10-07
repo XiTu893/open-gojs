@@ -1274,7 +1274,10 @@ export class Part extends Panel {
   }
 
   copy(): Part {
-    const copy = new Part();
+    // 官方 Part.copy：`const t=new this.constructor; cloneProtected(t)` ——
+    // 多态构造，子类模板（BarLink 等）复制后仍是子类。旧实现硬编码
+    // `new Part()`，自定义 Link 子类模板全部退化成基础类。
+    const copy = new (this as any).constructor();
     this._copyPropertiesTo(copy as any);
     this._copyPanelPropertiesTo(copy as any);
     this._copyPartPropertiesTo(copy);

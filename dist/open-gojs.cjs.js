@@ -4975,7 +4975,10 @@ var Geometry = /** @class */ (function () {
         }
         return false;
     };
-    /** 官方 G.Yu：细分三次贝塞尔至平坦后把端点并入 acc=[minX,minY,maxX,maxY] */
+    /**
+     * 官方 G.Yu/G.Iu：细分三次贝塞尔至平坦后把端点并入 acc=[minX,minY,maxX,maxY]。
+     * 非 private：Link._computeRouteBounds（官方 nT 的曲线包围盒分支）复用同一算法。
+     */
     Geometry._bezierBounds = function (x0, y0, x1, y1, x2, y2, x3, y3, tol, acc, depth) {
         if (depth >= 24 ||
             (Geometry._vi(x0, y0, x3, y3, tol, x1, y1) && Geometry._vi(x0, y0, x3, y3, tol, x2, y2))) {
@@ -9112,12 +9115,17 @@ var Model = /** @class */ (function () {
         this._nextKey = 1;
         // ============ 官方 Model API 对齐（阶段 5） ============
         this._afterCopyFunction = null;
-        this._nodeDataArray = Array.isArray(init) ? init : [];
+        this._nodeDataArray = [];
         this._undoManager = new UndoManager();
         this._undoManager.model = this;
         this._keyMap = new Map$1();
         this.modelData = {};
-        if (init && !Array.isArray(init)) {
+        if (Array.isArray(init)) {
+            // 官方 Model 构造器：Array 形参走 nodeDataArray setter（含 key 补齐两趟）
+            this._nodeDataArray = init;
+            this._rekeyNodeDataArray(this._nodeDataArray);
+        }
+        else if (init) {
             this.set(init);
         }
         this._rebuildKeyMap();
@@ -9132,7 +9140,7 @@ var Model = /** @class */ (function () {
             if (old === val)
                 return;
             this._nodeDataArray = val || [];
-            this._rebuildKeyMap();
+            this._rekeyNodeDataArray(this._nodeDataArray);
             // 官方 Model.nodeDataArray setter：发出 Set 变更（modelChange="nodeDataArray"），
             // Diagram 据此移除旧数组数据的 Parts 并为新数组数据创建 Parts
             this.raiseChangedEvent(ChangedEventProperty, this, 'nodeDataArray', old, this._nodeDataArray);
@@ -9140,12 +9148,60 @@ var Model = /** @class */ (function () {
         enumerable: false,
         configurable: true
     });
+    /**
+     * 官方 `Model.nodeDataArray` setter 的 key 补齐两趟：
+     * 第一趟把「key 缺失或与已有条目重复」的数据收进 rekey 列表，其余入 keyMap；
+     * 第二趟对 rekey 逐个 `makeNodeDataKeyUnique`（官方对 undefined/number 生成
+     * **负数键** `-count-1` 递减），成功后再入 keyMap。
+     * 早期实现直接 `_rebuildKeyMap`——keyless 数据全被跳过，`findNodeForData`
+     * 永远返回 null（animatedFocus 的 focusOnNode 静默早退）。
+     */
+    Model.prototype._rekeyNodeDataArray = function (arr) {
+        var e_1, _a, e_2, _b;
+        this._keyMap.clear();
+        var rekey = [];
+        try {
+            for (var arr_1 = __values(arr), arr_1_1 = arr_1.next(); !arr_1_1.done; arr_1_1 = arr_1.next()) {
+                var r = arr_1_1.value;
+                var l = this.getKeyForNodeData(r);
+                if (l === undefined || this._keyMap.has(l))
+                    rekey.push(r);
+                else
+                    this._keyMap.add(l, r);
+            }
+        }
+        catch (e_1_1) { e_1 = { error: e_1_1 }; }
+        finally {
+            try {
+                if (arr_1_1 && !arr_1_1.done && (_a = arr_1.return)) _a.call(arr_1);
+            }
+            finally { if (e_1) throw e_1.error; }
+        }
+        try {
+            for (var rekey_1 = __values(rekey), rekey_1_1 = rekey_1.next(); !rekey_1_1.done; rekey_1_1 = rekey_1.next()) {
+                var o = rekey_1_1.value;
+                this.makeNodeDataKeyUnique(o);
+                var l = this.getKeyForNodeData(o);
+                if (l !== undefined)
+                    this._keyMap.add(l, o);
+            }
+        }
+        catch (e_2_1) { e_2 = { error: e_2_1 }; }
+        finally {
+            try {
+                if (rekey_1_1 && !rekey_1_1.done && (_b = rekey_1.return)) _b.call(rekey_1);
+            }
+            finally { if (e_2) throw e_2.error; }
+        }
+    };
     /** 添加节点数据 */
     Model.prototype.addNodeData = function (data) {
         if (!data)
             throw new Error('Cannot add null node data');
         if (this.isReadOnly)
             throw new Error('Model is read-only');
+        if (this.containsNodeData(data))
+            return; // 官方 av：重复添加直接 no-op
         this.ensureUniqueKey(data);
         this._nodeDataArray.push(data);
         this._keyMap.add(this.getKeyForNodeData(data), data);
@@ -9153,7 +9209,7 @@ var Model = /** @class */ (function () {
     };
     /** 添加节点数据集合 */
     Model.prototype.addNodeDataCollection = function (coll) {
-        var e_1, _a;
+        var e_3, _a;
         var items = Array.isArray(coll) ? coll : coll.toArray();
         try {
             for (var items_1 = __values(items), items_1_1 = items_1.next(); !items_1_1.done; items_1_1 = items_1.next()) {
@@ -9161,12 +9217,12 @@ var Model = /** @class */ (function () {
                 this.addNodeData(data);
             }
         }
-        catch (e_1_1) { e_1 = { error: e_1_1 }; }
+        catch (e_3_1) { e_3 = { error: e_3_1 }; }
         finally {
             try {
                 if (items_1_1 && !items_1_1.done && (_a = items_1.return)) _a.call(items_1);
             }
-            finally { if (e_1) throw e_1.error; }
+            finally { if (e_3) throw e_3.error; }
         }
     };
     /** 移除节点数据 */
@@ -9185,7 +9241,7 @@ var Model = /** @class */ (function () {
     };
     /** 移除节点数据集合 */
     Model.prototype.removeNodeDataCollection = function (coll) {
-        var e_2, _a;
+        var e_4, _a;
         var items = Array.isArray(coll) ? coll : coll.toArray();
         try {
             for (var items_2 = __values(items), items_2_1 = items_2.next(); !items_2_1.done; items_2_1 = items_2.next()) {
@@ -9193,12 +9249,12 @@ var Model = /** @class */ (function () {
                 this.removeNodeData(data);
             }
         }
-        catch (e_2_1) { e_2 = { error: e_2_1 }; }
+        catch (e_4_1) { e_4 = { error: e_4_1 }; }
         finally {
             try {
                 if (items_2_1 && !items_2_1.done && (_a = items_2.return)) _a.call(items_2);
             }
-            finally { if (e_2) throw e_2.error; }
+            finally { if (e_4) throw e_4.error; }
         }
     };
     /** 是否包含节点数据 */
@@ -9343,23 +9399,9 @@ var Model = /** @class */ (function () {
         arr.splice(index, 1);
         this.raiseChangedEvent(ChangedEventRemove, arr, '', old, null, index);
     };
-    /** 确保 key 唯一 */
+    /** 确保 key 唯一（官方 `Model.addNodeData` → `makeNodeDataKeyUnique`：负数键） */
     Model.prototype.ensureUniqueKey = function (data) {
-        if (this.makeUniqueKeyFunction) {
-            this.makeUniqueKeyFunction(this, data);
-            return;
-        }
-        var key = this.getKeyForNodeData(data);
-        if (key === undefined || this._keyMap.contains(key)) {
-            var newKey = this._nextKey++;
-            while (this._keyMap.contains(newKey)) {
-                newKey = this._nextKey++;
-            }
-            var prop = this.nodeKeyProperty;
-            if (typeof prop === 'string') {
-                data[prop] = newKey;
-            }
-        }
+        this.makeNodeDataKeyUnique(data);
     };
     /** 复制节点数据 */
     Model.prototype.copyNodeData = function (data) {
@@ -9370,7 +9412,7 @@ var Model = /** @class */ (function () {
     };
     /** 深度克隆 */
     Model.prototype.cloneDeep = function (obj) {
-        var e_3, _a;
+        var e_5, _a;
         var _this = this;
         if (obj === null || typeof obj !== 'object')
             return obj;
@@ -9400,12 +9442,12 @@ var Model = /** @class */ (function () {
                 copy[key] = val;
             }
         }
-        catch (e_3_1) { e_3 = { error: e_3_1 }; }
+        catch (e_5_1) { e_5 = { error: e_5_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_3) throw e_3.error; }
+            finally { if (e_5) throw e_5.error; }
         }
         return copy;
     };
@@ -9456,7 +9498,7 @@ var Model = /** @class */ (function () {
             this._changedListeners.splice(idx, 1);
     };
     Model.prototype.raiseChangedEvent = function (change, object, propertyName, oldValue, newValue, index) {
-        var e_4, _a;
+        var e_6, _a;
         var e = new ChangedEvent(change, object, propertyName, oldValue, newValue, index);
         e.isModelChange = true;
         e.model = this;
@@ -9469,17 +9511,17 @@ var Model = /** @class */ (function () {
                 listener(e);
             }
         }
-        catch (e_4_1) { e_4 = { error: e_4_1 }; }
+        catch (e_6_1) { e_6 = { error: e_6_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_4) throw e_4.error; }
+            finally { if (e_6) throw e_6.error; }
         }
         return e;
     };
     Model.prototype.raiseTransactionEvent = function (propertyName, tname, transObj) {
-        var e_5, _a;
+        var e_7, _a;
         var e = new ChangedEvent(ChangedEventTransaction, this, propertyName, tname, transObj);
         e.isModelChange = true;
         e.model = this;
@@ -9490,12 +9532,12 @@ var Model = /** @class */ (function () {
                 listener(e);
             }
         }
-        catch (e_5_1) { e_5 = { error: e_5_1 }; }
+        catch (e_7_1) { e_7 = { error: e_7_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_5) throw e_5.error; }
+            finally { if (e_7) throw e_7.error; }
         }
         return e;
     };
@@ -10524,7 +10566,7 @@ var Model = /** @class */ (function () {
     // ============ 辅助方法 ============
     /** 重建 key 映射 */
     Model.prototype._rebuildKeyMap = function () {
-        var e_6, _a;
+        var e_8, _a;
         this._keyMap.clear();
         try {
             for (var _b = __values(this._nodeDataArray), _c = _b.next(); !_c.done; _c = _b.next()) {
@@ -10535,12 +10577,12 @@ var Model = /** @class */ (function () {
                 }
             }
         }
-        catch (e_6_1) { e_6 = { error: e_6_1 }; }
+        catch (e_8_1) { e_8 = { error: e_8_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_6) throw e_6.error; }
+            finally { if (e_8) throw e_8.error; }
         }
         // 更新 nextKey
         var maxKey = 0;
@@ -10646,7 +10688,8 @@ var GraphLinksModel = /** @class */ (function (_super) {
         }
         // 第二个参数优先；不能覆盖 set(init) 中已通过 linkDataArray 属性设置的值
         if (linkDataArray) {
-            _this._linkDataArray = linkDataArray;
+            // 官方 GraphLinksModel 构造器走 setter（含 key 补齐两趟）
+            _this.linkDataArray = linkDataArray;
         }
         try {
             // set(init) 中属性的赋值顺序不保证 archetypeNodeData 先于 linkDataArray，
@@ -10672,25 +10715,63 @@ var GraphLinksModel = /** @class */ (function (_super) {
             return this._linkDataArray;
         },
         set: function (val) {
-            var e_2, _a;
+            var e_2, _a, e_3, _b, e_4, _c;
             var old = this._linkDataArray;
             if (old === val)
                 return;
             this._linkDataArray = val || [];
+            this._linkKeyMap.clear();
+            if (this.linkKeyProperty) {
+                // 官方 GraphLinksModel.linkDataArray setter 的 key 补齐两趟
+                //（与 Model.nodeDataArray 同构；makeLinkDataKeyUnique 亦为负数键）
+                var rekey = [];
+                try {
+                    for (var _d = __values(this._linkDataArray), _e = _d.next(); !_e.done; _e = _d.next()) {
+                        var r = _e.value;
+                        var l = this.getLinkKeyForData(r);
+                        if (l === undefined || this._linkKeyMap.has(l))
+                            rekey.push(r);
+                        else
+                            this._linkKeyMap.add(l, r);
+                    }
+                }
+                catch (e_2_1) { e_2 = { error: e_2_1 }; }
+                finally {
+                    try {
+                        if (_e && !_e.done && (_a = _d.return)) _a.call(_d);
+                    }
+                    finally { if (e_2) throw e_2.error; }
+                }
+                try {
+                    for (var rekey_1 = __values(rekey), rekey_1_1 = rekey_1.next(); !rekey_1_1.done; rekey_1_1 = rekey_1.next()) {
+                        var o = rekey_1_1.value;
+                        this.makeLinkDataKeyUnique(o);
+                        var l = this.getLinkKeyForData(o);
+                        if (l !== undefined)
+                            this._linkKeyMap.add(l, o);
+                    }
+                }
+                catch (e_3_1) { e_3 = { error: e_3_1 }; }
+                finally {
+                    try {
+                        if (rekey_1_1 && !rekey_1_1.done && (_b = rekey_1.return)) _b.call(rekey_1);
+                    }
+                    finally { if (e_3) throw e_3.error; }
+                }
+            }
             try {
-                for (var _b = __values(this._linkDataArray), _c = _b.next(); !_c.done; _c = _b.next()) {
-                    var ld = _c.value;
+                for (var _f = __values(this._linkDataArray), _g = _f.next(); !_g.done; _g = _f.next()) {
+                    var ld = _g.value;
                     this._ensureArchetypeNodesForLinkData(ld);
                 }
             }
-            catch (e_2_1) { e_2 = { error: e_2_1 }; }
+            catch (e_4_1) { e_4 = { error: e_4_1 }; }
             finally {
                 try {
-                    if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
+                    if (_g && !_g.done && (_c = _f.return)) _c.call(_f);
                 }
-                finally { if (e_2) throw e_2.error; }
+                finally { if (e_4) throw e_4.error; }
             }
-            this._rebuildLinkKeyMap();
             this.raiseChangedEvent(ChangedEventProperty, this, 'linkDataArray', old, this._linkDataArray);
         },
         enumerable: false,
@@ -10701,7 +10782,7 @@ var GraphLinksModel = /** @class */ (function (_super) {
      * 且设置了 archetypeNodeData，则复制 archetype 生成该 key 的节点数据并加入 nodeDataArray。
      */
     GraphLinksModel.prototype._ensureArchetypeNodesForLinkData = function (data) {
-        var e_3, _a;
+        var e_5, _a;
         var _this = this;
         var arch = this._archetypeNodeData;
         if (!arch || !data)
@@ -10727,12 +10808,12 @@ var GraphLinksModel = /** @class */ (function (_super) {
                     ensure(k);
                 }
             }
-            catch (e_3_1) { e_3 = { error: e_3_1 }; }
+            catch (e_5_1) { e_5 = { error: e_5_1 }; }
             finally {
                 try {
                     if (labels_1_1 && !labels_1_1.done && (_a = labels_1.return)) _a.call(labels_1);
                 }
-                finally { if (e_3) throw e_3.error; }
+                finally { if (e_5) throw e_5.error; }
             }
     };
     /** 添加链接数据 */
@@ -10741,9 +10822,13 @@ var GraphLinksModel = /** @class */ (function (_super) {
             throw new Error('Cannot add null link data');
         if (this.isReadOnly)
             throw new Error('Model is read-only');
+        if (this.containsLinkData(data))
+            return; // 官方 mv：重复添加直接 no-op
         this._linkDataArray.push(data);
         this._ensureArchetypeNodesForLinkData(data);
         if (this.linkKeyProperty) {
+            // 官方 mv：key 缺失/重复 → makeLinkDataKeyUnique（负数键）后入 keyMap
+            this.makeLinkDataKeyUnique(data);
             var key = this.getLinkKeyForData(data);
             if (key !== undefined) {
                 this._linkKeyMap.add(key, data);
@@ -11126,7 +11211,7 @@ var GraphLinksModel = /** @class */ (function (_super) {
     };
     // ============ 辅助方法 ============
     GraphLinksModel.prototype._rebuildLinkKeyMap = function () {
-        var e_4, _a;
+        var e_6, _a;
         this._linkKeyMap.clear();
         if (!this.linkKeyProperty)
             return;
@@ -11139,12 +11224,12 @@ var GraphLinksModel = /** @class */ (function (_super) {
                 }
             }
         }
-        catch (e_4_1) { e_4 = { error: e_4_1 }; }
+        catch (e_6_1) { e_6 = { error: e_6_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_4) throw e_4.error; }
+            finally { if (e_6) throw e_6.error; }
         }
     };
     GraphLinksModel.prototype.clear = function () {
@@ -23195,6 +23280,11 @@ var Panel = /** @class */ (function (_super) {
     /** Copy Panel-specific properties to another Panel */
     Panel.prototype._copyPanelPropertiesTo = function (copy) {
         var e_14, _a, e_15, _b, e_16, _c;
+        // 官方 copy 链（cloneProtected）会保留 panel type；以前 type 只靠
+        // `new Node(this._type)` 构造参数传，而官方 copy 是 `new this.constructor`
+        // （无参）——改为无参构造后必须在此显式复制，否则 BarLink/Table 等模板
+        // 复制出的实例丢 type（timeline 的 BarLink 模板退化成基础 Link）。
+        copy._type = this._type;
         copy._data = this._data;
         copy._padding = this._padding.copy();
         copy._defaultAlignment = this._defaultAlignment.copy();
@@ -27790,7 +27880,10 @@ var Part = /** @class */ (function (_super) {
         }
     };
     Part.prototype.copy = function () {
-        var copy = new Part();
+        // 官方 Part.copy：`const t=new this.constructor; cloneProtected(t)` ——
+        // 多态构造，子类模板（BarLink 等）复制后仍是子类。旧实现硬编码
+        // `new Part()`，自定义 Link 子类模板全部退化成基础类。
+        var copy = new this.constructor();
         this._copyPropertiesTo(copy);
         this._copyPanelPropertiesTo(copy);
         this._copyPartPropertiesTo(copy);
@@ -28794,9 +28887,9 @@ var Link = /** @class */ (function (_super) {
             this._points = e;
             this._flattenedLengths = null;
             this._flattenedTotalLength = NaN;
-            this._computeRouteBounds();
-            this._isRouteValid = e.count > 0;
-            this._isGeometryValid = false;
+            this._finalizeRoute();
+            this.invalidateGeometry();
+            this.raiseChanged('points', old, e);
         },
         enumerable: false,
         configurable: true
@@ -30056,34 +30149,82 @@ var Link = /** @class */ (function (_super) {
         enumerable: false,
         configurable: true
     });
-    /** 官方 `Link.cA()`：按点列计算 routeBounds（本项目无 Bezier 控制点外扩，等价于包围盒） */
+    /** 官方 `Link.cA()`（混淆名 nT）：按官方分支计算 routeBounds + routeOffset（BS/Lk） */
     Link.prototype._computeRouteBounds = function () {
         var t = this._routeBounds;
         var n = this.pointsCount;
+        var e = Infinity;
+        var i = Infinity;
         if (n === 0) {
             t.setTo(NaN, NaN, 0, 0);
             this._routeOffset.setTo(0, 0);
             return;
         }
-        var minX = Infinity;
-        var minY = Infinity;
-        var maxX = -Infinity;
-        var maxY = -Infinity;
-        // 官方 cA 用 Math.min/Math.max 累积：**NaN 会传播**（布局前路线点为 NaN 时
-        // routeBounds 变成 NaN 而非 ±Infinity）。若用 `if (p.x < minX)` 比较，
-        // NaN 全部落空 → minX/maxX 保持 ±Infinity → 宽高为 -Infinity →
-        // Panel._measureLink 里 `new Rect(0,0,-Infinity,-Infinity)` 抛错，
-        // 整个 _performLayout 中断、TreeLayout 根本没机会执行（faultTree 全部节点
-        // position=NaN、104 个 Rect 报错）。
-        for (var i = 0; i < n; i++) {
-            var p = this.getPoint(i);
-            minX = Math.min(minX, p.x);
-            minY = Math.min(minY, p.y);
-            maxX = Math.max(maxX, p.x);
-            maxY = Math.max(maxY, p.y);
+        if (n === 1) {
+            var p = this.getPoint(0);
+            e = Math.min(p.x, e);
+            i = Math.min(p.y, i);
+            t.setTo(p.x, p.y, 0, 0);
         }
-        t.setTo(minX, minY, maxX - minX, maxY - minY);
-        this._routeOffset.setTo(0, 0);
+        else if (n === 2) {
+            var p0 = this.getPoint(0);
+            var p1 = this.getPoint(1);
+            e = Math.min(p0.x, p1.x);
+            i = Math.min(p0.y, p1.y);
+            t.setTo(p0.x, p0.y, 0, 0);
+            t.unionPoint(p1);
+        }
+        else if (this.computeCurve() === CurveBezier &&
+            !this.isOrthogonal &&
+            Link._allPointsFinite(this)) {
+            // 官方曲线分支：routeBounds = 递归细分的真实三次贝塞尔包围盒（G.Iu，tol 0.5），
+            // e/i 只跟踪锚点（首点 + 每段终点）；s===3 时也含控制点 p1。
+            // 控制点不进包围盒 —— L1 控制点 x=-46 而曲线仅到 -23，
+            // 旧版按点列 bbox 会把 documentBounds 撑大 8.77px、整图平移（multiNodePathLinks 3.86）。
+            var prev = this.getPoint(0);
+            e = prev.x;
+            i = prev.y;
+            t.setTo(e, i, 0, 0);
+            if (n === 3) {
+                var p1 = this.getPoint(1);
+                e = Math.min(p1.x, e);
+                i = Math.min(p1.y, i);
+                var p2 = this.getPoint(2);
+                e = Math.min(p2.x, e);
+                i = Math.min(p2.y, i);
+                Link._curveBounds(prev, p1, p1, p2, t);
+            }
+            else {
+                for (var o = 3; o < n; o += 3) {
+                    var r = this.getPoint(o - 2);
+                    if (o + 3 >= n)
+                        o = n - 1;
+                    var l = this.getPoint(o - 1);
+                    var a = this.getPoint(o);
+                    Link._curveBounds(prev, r, l, a, t);
+                    e = Math.min(a.x, e);
+                    i = Math.min(a.y, i);
+                    prev = a;
+                }
+            }
+        }
+        else {
+            // 官方 else：点列并集（含 Bezier 但点含非有限值时的降级 ——
+            // 官方对 NaN 控制点会无限细分栈溢出，这里保持 Math.min 的 NaN 传播语义）
+            var p0 = this.getPoint(0);
+            var p1 = this.getPoint(1);
+            e = Math.min(p0.x, p1.x);
+            i = Math.min(p0.y, p1.y);
+            t.setTo(p0.x, p0.y, 0, 0);
+            t.unionPoint(p1);
+            for (var k = 2; k < n; k++) {
+                var p = this.getPoint(k);
+                e = Math.min(p.x, e);
+                i = Math.min(p.y, i);
+                t.unionPoint(p);
+            }
+        }
+        this._routeOffset.setTo(e - t.x, i - t.y);
         // 官方 `Link.cA()` 只写 routeBounds + routeOffset（BS），
         // 不碰 position / naturalBounds / measuredBounds / actualBounds ——
         // 这些由 Panel._measureLink（官方 PanelLayoutLink.measure）在测量阶段写入：
@@ -30092,6 +30233,25 @@ var Link = /** @class */ (function (_super) {
         //   actualBounds = (position, measured)（由 Part.ensureBounds 派生）。
         // 早先这里按路线中点居中回写 position/bounds 是错误简化，已移除。
     };
+    /** 路线点是否全部有限（NaN/±Infinity 时降级走点列并集分支） */
+    Link._allPointsFinite = function (link) {
+        var n = link.pointsCount;
+        for (var k = 0; k < n; k++) {
+            var p = link.getPoint(k);
+            if (!isFinite(p.x) || !isFinite(p.y))
+                return false;
+        }
+        return true;
+    };
+    /**
+     * 官方 `G.Iu(p0,c1,c2,p3, 0.5, rect)`：把三次贝塞尔真实包围盒并入 t。
+     * 复用 Geometry._bezierBounds（同一细分算法），经 acc 数组桥接。
+     */
+    Link._curveBounds = function (p0, c1, c2, p3, t) {
+        var acc = [t.x, t.y, t.x + t.width, t.y + t.height];
+        Geometry._bezierBounds(p0.x, p0.y, c1.x, c1.y, c2.x, c2.y, p3.x, p3.y, 0.5, acc, 0);
+        t.setTo(acc[0], acc[1], acc[2] - acc[0], acc[3] - acc[1]);
+    };
     /** 官方 `Link.startRoute()` */
     Link.prototype.startRoute = function () {
         if (this._oldPoints === null) {
@@ -30099,13 +30259,17 @@ var Link = /** @class */ (function (_super) {
             this._points = this._points.copy();
         }
     };
-    /** 官方 `Link.commitRoute()` */
+    /** 官方 `Link.commitRoute()`：`ge()`（invalidateGeometry）→ `zS()`（finalize）→ raiseChanged */
     Link.prototype.commitRoute = function () {
         if (this._oldPoints === null)
             return;
         var old = this._oldPoints;
         var neu = this._points;
         this._oldPoints = null;
+        // 官方 commitRoute 先 invalidateGeometry 再 finalize —— 每次路线提交后几何必然过期。
+        // 漏掉它：路由失效但几何仍"有效"时（rollback 后重试成功等路径），
+        // CN/_syncGeometryToMainShapes 早退 → 拿旧点列的几何（grafcet L17：rb 宽 24、gb 宽 0）。
+        this.invalidateGeometry();
         this._finalizeRoute();
         this.raiseChanged('points', old, neu);
     };
@@ -30230,6 +30394,10 @@ var Link = /** @class */ (function (_super) {
     /** 官方：把 link 的几何同步给 `path` 以及所有 isPanelMain 的 Shape 元素 */
     Link.prototype._syncGeometryToMainShapes = function () {
         var e_1, _a;
+        // 官方 `Link.CN()`：`if (isRouteValid === false) return;` —— 路线无效时绝不重建几何
+        // （否则会拿 rollback/未完成的点列把几何标记为"有效"，之后 commitRoute 也修不回来）。
+        if (!this._isRouteValid)
+            return;
         // 官方 `Link.CN()`：几何无效时先重建（`pointsCount>=2 → bt=makeGeometry()`，
         // 否则也把 jh 置 true），再同步给 path 与各主 Shape。
         // 早先这里直接读可能过期的 `_geometry`，route 重算后主 Shape 拿到旧几何，
@@ -30348,17 +30516,49 @@ var Link = /** @class */ (function (_super) {
         if (n < 2)
             return geo;
         var pts = this._points;
-        // 官方：n = min(points.x) - BS.x，o = min(points.y) - BS.y，所有点减 (n,o) ——
-        // 几何原点是点列 bbox 左上角（route-local 帧），不是文档坐标。
-        // BS = routeOffset（本项目恒 (0,0)，仍按官方参与平移）。
-        var nx = Infinity;
-        var ny = Infinity;
-        for (var i = 0; i < n; i++) {
-            var p = pts.elt(i);
-            if (p.x < nx)
-                nx = p.x;
-            if (p.y < ny)
-                ny = p.y;
+        // 官方平移量 (n,o)：贝塞尔非正交 → 锚点极小值；s===3 → 全 3 点极小；
+        // 其余（正交/非曲线/smoothness≈0）→ 全点极小；再减 routeOffset(Lk)。
+        // 全有限点时恒等于 routeBounds 原点（nT 的 e - Lk = t.x）——
+        // 旧版对贝塞尔恒用全点极小，控制点外扩导致几何原点比官方偏 8~23px。
+        var curve9 = this.computeCurve() === CurveBezier;
+        var smEq0 = Math.abs(this._smoothness) < 5e-8; // 官方 G.G(smoothness, 0)
+        var nx;
+        var ny;
+        if (curve9 && n >= 3 && !smEq0 && !this.isOrthogonal) {
+            var p0 = pts.elt(0);
+            nx = p0.x;
+            ny = p0.y;
+            if (n === 3) {
+                for (var c = 1; c <= 2; c++) {
+                    var p = pts.elt(c);
+                    if (p.x < nx)
+                        nx = p.x;
+                    if (p.y < ny)
+                        ny = p.y;
+                }
+            }
+            else {
+                for (var c = 3; c < n; c += 3) {
+                    if (c + 3 >= n)
+                        c = n - 1;
+                    var p = pts.elt(c);
+                    if (p.x < nx)
+                        nx = p.x;
+                    if (p.y < ny)
+                        ny = p.y;
+                }
+            }
+        }
+        else {
+            nx = Infinity;
+            ny = Infinity;
+            for (var i = 0; i < n; i++) {
+                var p = pts.elt(i);
+                if (p.x < nx)
+                    nx = p.x;
+                if (p.y < ny)
+                    ny = p.y;
+            }
         }
         if (!isFinite(nx) || !isFinite(ny)) {
             nx = 0;
@@ -30382,19 +30582,32 @@ var Link = /** @class */ (function (_super) {
             return i === n - 1 ? last : i === 0 ? first : new Point(pts.elt(i).x - nx, pts.elt(i).y - ny);
         };
         var fig = new PathFigure(first.x, first.y, false);
-        var bezier = this.computeCurve() === CurveBezier;
-        if (bezier && !this.isOrthogonal && n >= 4 && (n - 1) % 3 === 0) {
-            for (var i = 1; i + 2 < n; i += 3) {
-                var p1 = new Point(pts.elt(i).x - nx, pts.elt(i).y - ny);
-                var p2 = new Point(pts.elt(i + 1).x - nx, pts.elt(i + 1).y - ny);
-                var p3 = at(i + 2);
-                fig.add(PathSegment.CubicBezier(p3.x, p3.y, p1.x, p1.y, p2.x, p2.y));
+        if (curve9 && n >= 3 && !smEq0) {
+            if (n === 3) {
+                // 官方 e===3 分支：三次贝塞尔且两控制点都在 p1（非二次曲线）
+                var p1 = new Point(pts.elt(1).x - nx, pts.elt(1).y - ny);
+                var p2 = at(2);
+                fig.add(PathSegment.CubicBezier(p2.x, p2.y, p1.x, p1.y, p1.x, p1.y));
             }
-        }
-        else if (bezier && n === 3) {
-            var p1 = new Point(pts.elt(1).x - nx, pts.elt(1).y - ny);
-            var p2 = at(2);
-            fig.add(PathSegment.QuadraticBezier(p2.x, p2.y, p1.x, p1.y));
+            else if (!this.isOrthogonal) {
+                // 官方 for(f=3;f<e;f+=3)：u 在 f 调整**前**取，d/m 在 f+3>=e → f=e-1 调整后取，
+                // 末段可拉伸跨越非整组点（n-1 不是 3 的倍数时也走贝塞尔而非退化折线）。
+                for (var f = 3; f < n; f += 3) {
+                    var u = pts.elt(f - 2);
+                    if (f + 3 >= n)
+                        f = n - 1;
+                    var d = pts.elt(f - 1);
+                    var m = at(f);
+                    fig.add(PathSegment.CubicBezier(m.x, m.y, u.x - nx, u.y - ny, d.x - nx, d.y - ny));
+                }
+            }
+            else {
+                // 官方贝塞尔+正交 → smoothness 平滑正交曲线（未移植），维持折线
+                for (var i = 1; i < n; i++) {
+                    var p = at(i);
+                    fig.add(PathSegment.Line(p.x, p.y));
+                }
+            }
         }
         else {
             for (var i = 1; i < n; i++) {
@@ -30929,7 +31142,8 @@ var Link = /** @class */ (function (_super) {
     };
     // ============ end official Link members ============
     Link.prototype.copy = function () {
-        var c = new Link(this._type);
+        // 官方：`new this.constructor`（无参，type 由 _copyPanelPropertiesTo 复制）
+        var c = new this.constructor();
         this._copyPropertiesTo(c);
         this._copyPanelPropertiesTo(c);
         this._copyPartPropertiesTo(c);
@@ -32099,7 +32313,8 @@ var Node = /** @class */ (function (_super) {
     // ============ Methods ============
     /** Create a copy of this Node */
     Node.prototype.copy = function () {
-        var c = new Node(this._type);
+        // 官方：`new this.constructor`（无参，type 由 _copyPanelPropertiesTo 复制）
+        var c = new Node(this._type); // WIP-BISECT
         this._copyPropertiesTo(c);
         this._copyPanelPropertiesTo(c);
         this._copyPartPropertiesTo(c);
@@ -33994,7 +34209,8 @@ var Group = /** @class */ (function (_super) {
         }
     };
     Group.prototype.copy = function () {
-        var c = new Group(this._type);
+        // 官方：`new this.constructor`（无参，type 由 _copyPanelPropertiesTo 复制）
+        var c = new Group(this._type); // WIP-BISECT
         this._copyPropertiesTo(c);
         this._copyPanelPropertiesTo(c);
         this._copyPartPropertiesTo(c);
@@ -34124,7 +34340,8 @@ var Adornment = /** @class */ (function (_super) {
         return this.placeholder !== null;
     };
     Adornment.prototype.copy = function () {
-        var a = new Adornment();
+        // 官方：`new this.constructor`（无参，type 由 _copyPanelPropertiesTo 复制）
+        var a = new this.constructor();
         this._copyPropertiesTo(a);
         this._copyPanelPropertiesTo(a);
         this._copyPartPropertiesTo(a);
@@ -42604,6 +42821,7 @@ var CommandHandler = /** @class */ (function () {
         if (!this.canScrollToPart(part))
             return;
         var d = this._diagram;
+        d.ensureBounds();
         var p = part;
         if (!p) {
             var it = d.selection.iterator;
@@ -42612,7 +42830,11 @@ var CommandHandler = /** @class */ (function () {
         }
         if (!p)
             return;
-        var r = (typeof d.computePartsBounds === 'function') ? d.computePartsBounds(p) : p.actualBounds;
+        // 官方 scrollToPart 主路径：直接 centerRect(t.actualBounds)。
+        // 早期实现把单个 part 传给 computePartsBounds——官方 computePartsBounds
+        // 只接受集合，单 part 走迭代器分支拿不到任何项，空集返回 NaN 矩形，
+        // position 变成 NaN（animatedFocus 视口整个丢失）。
+        var r = p.actualBounds;
         if (r)
             d.centerRect(r);
     };
@@ -43213,6 +43435,10 @@ var Animation = /** @class */ (function () {
         this._startTime = 0;
         this._manager = null;
         this._finished = null;
+        /** 官方 `Animation.rf`：start() 时临时挂进 diagram、stop() 时摘除的 Part 列表 */
+        this._tempParts = [];
+        /** 官方 `Animation.a`：addTemporaryPart 记录的目标 Diagram */
+        this._tempDiagram = null;
     }
     Animation.EaseLinear = function (t) {
         return t;
@@ -43342,32 +43568,45 @@ var Animation = /** @class */ (function () {
     };
     Animation.prototype.clear = function () {
         this._animations.length = 0;
+        this._tempParts.length = 0;
+        this._tempDiagram = null;
         this._isRunning = false;
         this._state = exports.AnimationState.Inactive;
     };
+    /**
+     * 官方 `Animation.addTemporaryPart(part, diagram): this`：
+     * 记录临时 Part（官方 `t.Oi()`：Part/Node 为 true，Link/Adornment 为 false），
+     * start() 时 `part.data = null; diagram.add(part)`，stop() 时 `diagram.remove(part)`。
+     */
+    Animation.prototype.addTemporaryPart = function (part, diagram) {
+        if (!part)
+            return this;
+        var cn = part.constructor && part.constructor.className;
+        if (cn === 'Link' || cn === 'Adornment')
+            return this;
+        this._tempParts.push(part);
+        this._tempDiagram = diagram;
+        return this;
+    };
     /** 官方 `Animation.start(): this` —— 自己找到目标对象的 Diagram，取它的 animationManager 注册自己 */
     Animation.prototype.start = function () {
-        var e_1, _a;
+        var e_1, _a, e_2, _b;
         if (this._isRunning)
             return this;
         if (this._animations.length === 0)
             return this;
-        // 先置 isRunning 再注册：官方 start() 里 `this.Re=!0` 早于 `i.oO(this)`。
-        // 顺序反了的话，registerAnimation 触发的第一次同步 tick 会因为
-        // `isRunning===false` 把这个动画从 activeAnimations 里过滤掉，之后再没人 tick。
-        this._isRunning = true;
-        this._state = exports.AnimationState.Running;
-        this._startTime = performance.now();
         // 官方 go.js start()：遍历被动画的对象，取第一个能拿到 diagram 的，
         // 然后 `this.As = t.animationManager` 并注册自己。
         // 以前本项目只在 `animation.manager` 被显式赋值时注册，而样例从不赋值 ——
         // 于是 `new go.Animation() ... start()` 根本没人 tick，
         // belts 的传送带完全不动（`strokeDashOffset` 永远是初值）。
         var diagram = this._manager ? this._manager.diagram : null;
+        if (diagram === null || diagram === undefined)
+            diagram = this._tempDiagram;
         if (diagram === null || diagram === undefined) {
             try {
-                for (var _b = __values(this._animations), _c = _b.next(); !_c.done; _c = _b.next()) {
-                    var config = _c.value;
+                for (var _c = __values(this._animations), _d = _c.next(); !_d.done; _d = _c.next()) {
+                    var config = _d.value;
                     var t = config.target;
                     if (!t)
                         continue;
@@ -43388,11 +43627,36 @@ var Animation = /** @class */ (function () {
             catch (e_1_1) { e_1 = { error: e_1_1 }; }
             finally {
                 try {
-                    if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
+                    if (_d && !_d.done && (_a = _c.return)) _a.call(_c);
                 }
                 finally { if (e_1) throw e_1.error; }
             }
         }
+        // 官方 start() 尾：`this.rf.each(s => { s.data = null; diagram.add(s) })`
+        // （animatedFocus 的 focus1 副本就是此时才进 Tool 层的）
+        if (diagram !== null && diagram !== undefined && this._tempParts.length > 0) {
+            try {
+                for (var _e = __values(this._tempParts), _f = _e.next(); !_f.done; _f = _e.next()) {
+                    var p = _f.value;
+                    p.data = null;
+                    if (!p.diagram)
+                        diagram.add(p);
+                }
+            }
+            catch (e_2_1) { e_2 = { error: e_2_1 }; }
+            finally {
+                try {
+                    if (_f && !_f.done && (_b = _e.return)) _b.call(_e);
+                }
+                finally { if (e_2) throw e_2.error; }
+            }
+        }
+        // 先置 isRunning 再注册：官方 start() 里 `this.Re=!0` 早于 `i.oO(this)`。
+        // 顺序反了的话，registerAnimation 触发的第一次同步 tick 会因为
+        // `isRunning===false` 把这个动画从 activeAnimations 里过滤掉，之后再没人 tick。
+        this._isRunning = true;
+        this._state = exports.AnimationState.Running;
+        this._startTime = performance.now();
         if (diagram !== null && diagram !== undefined) {
             var mgr = diagram.animationManager;
             if (mgr) {
@@ -43410,17 +43674,36 @@ var Animation = /** @class */ (function () {
         return this;
     };
     Animation.prototype.stop = function () {
+        var e_3, _a;
         if (!this._isRunning)
             return this;
         this._isRunning = false;
         this._state = exports.AnimationState.Stopped;
+        // 官方 stop()：`for (rf) diagram.remove(part)`（列表保留，restart 时再挂回）
+        var dgm = this._tempDiagram;
+        if (dgm) {
+            try {
+                for (var _b = __values(this._tempParts), _c = _b.next(); !_c.done; _c = _b.next()) {
+                    var p = _c.value;
+                    if (p.diagram)
+                        dgm.remove(p);
+                }
+            }
+            catch (e_3_1) { e_3 = { error: e_3_1 }; }
+            finally {
+                try {
+                    if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
+                }
+                finally { if (e_3) throw e_3.error; }
+            }
+        }
         if (this._manager && typeof this._manager.unregisterAnimation === 'function') {
             this._manager.unregisterAnimation(this);
         }
         return this;
     };
     Animation.prototype.finish = function () {
-        var e_2, _a;
+        var e_4, _a;
         if (!this._isRunning)
             return;
         try {
@@ -43434,12 +43717,12 @@ var Animation = /** @class */ (function () {
                 }
             }
         }
-        catch (e_2_1) { e_2 = { error: e_2_1 }; }
+        catch (e_4_1) { e_4 = { error: e_4_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_2) throw e_2.error; }
+            finally { if (e_4) throw e_4.error; }
         }
         this._isRunning = false;
         this._state = exports.AnimationState.Finished;
@@ -43451,7 +43734,7 @@ var Animation = /** @class */ (function () {
         }
     };
     Animation.prototype.restart = function () {
-        var e_3, _a;
+        var e_5, _a;
         try {
             for (var _b = __values(this._animations), _c = _b.next(); !_c.done; _c = _b.next()) {
                 var config = _c.value;
@@ -43460,18 +43743,18 @@ var Animation = /** @class */ (function () {
                 }
             }
         }
-        catch (e_3_1) { e_3 = { error: e_3_1 }; }
+        catch (e_5_1) { e_5 = { error: e_5_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_3) throw e_3.error; }
+            finally { if (e_5) throw e_5.error; }
         }
         this._isRunning = false;
         this.start();
     };
     Animation.prototype.update = function (now) {
-        var e_4, _a, e_5, _b;
+        var e_6, _a, e_7, _b;
         if (!this._isRunning)
             return;
         // 官方：`this.Fs = isNaN(this.duration) ? manager.duration : this.duration`
@@ -43488,12 +43771,12 @@ var Animation = /** @class */ (function () {
                 }
             }
         }
-        catch (e_4_1) { e_4 = { error: e_4_1 }; }
+        catch (e_6_1) { e_6 = { error: e_6_1 }; }
         finally {
             try {
                 if (_d && !_d.done && (_a = _c.return)) _a.call(_c);
             }
-            finally { if (e_4) throw e_4.error; }
+            finally { if (e_6) throw e_6.error; }
         }
         if (progress >= 1) {
             // 官方 runCount 语义：>1 就再跑一遍（Infinity 无限循环），减到 0 才算 finished
@@ -43515,12 +43798,12 @@ var Animation = /** @class */ (function () {
                     }
                 }
             }
-            catch (e_5_1) { e_5 = { error: e_5_1 }; }
+            catch (e_7_1) { e_7 = { error: e_7_1 }; }
             finally {
                 try {
                     if (_f && !_f.done && (_b = _e.return)) _b.call(_e);
                 }
-                finally { if (e_5) throw e_5.error; }
+                finally { if (e_7) throw e_7.error; }
             }
             if (this._manager && typeof this._manager.unregisterAnimation === 'function') {
                 this._manager.unregisterAnimation(this);
@@ -43581,7 +43864,7 @@ var AnimationManager = /** @class */ (function () {
         // 导致一批样例丢失官方应有的布局动画（leaflet/circuitDesigner 等 +0.2~2.5% 回退）。
         // 避障末帧问题改在动画收尾处重新触发 _routeInvalidatedLinks 修复。
         this._isEnabled = true;
-        this._duration = 200;
+        this._duration = 600; // 官方 AnimationManager 构造器 `this.Bo=600`
         this._isAnimating = false;
         this._isInitial = true;
         this._isTicking = false;
@@ -45435,12 +45718,15 @@ var Diagram = /** @class */ (function () {
         }
         this.alignDocument(Spot.Center, Spot.Center);
     };
+    // 官方 Diagram.centerRect（@320399 逐字）：viewportBounds 中心对齐，
+    // 且必须走 position setter（触发 ViewportChanged）。旧实现用 viewSize
+    // （900 而非 889——没扣滚动条槽位）并直写 _position，两端各差 5.5px。
     Diagram.prototype.centerRect = function (r) {
-        var vs = this.viewSize;
-        var docW = vs.width / this._scale;
-        var docH = vs.height / this._scale;
-        this._position = new Point(r.x + r.width / 2 - docW / 2, r.y + r.height / 2 - docH / 2);
-        this.requestUpdate();
+        var e = this.viewportBounds;
+        var i = r.center;
+        i.x -= e.width / 2;
+        i.y -= e.height / 2;
+        this.position = i;
     };
     Diagram.prototype.scrollToRect = function (r) {
         // 官方 go.js scrollToRect（逐字）：viewport 已包含 rect 则不动；
@@ -45980,22 +46266,32 @@ var Diagram = /** @class */ (function () {
         var childNode = childKey !== undefined ? this._nodeKeyMap.get(childKey) : null;
         if (!parentNode || !childNode)
             return null;
-        var category = this._model.getCategoryForNodeData(childData);
+        // 官方 PartManager.Gk(parent, child)（go.js @832896）：
+        // 1) 链类别 = 子数据的 **parentLinkCategory**（不是子节点自身的 category！
+        //    旧实现用 getCategoryForNodeData(childData)，子节点带 category 时会取错模板）；
+        // 2) 方向随 diagram.isTreePathToChildren：true → from=parent/to=child；
+        //    **false → from=child/to=parent**（timeline 官方 BarLink 就是反向的，
+        //    旧实现恒为 parent→child）。
+        var linkCat = (typeof this._model.getParentLinkCategoryForNodeData === 'function')
+            ? (this._model.getParentLinkCategoryForNodeData(childData) || '')
+            : '';
         var template = null;
-        var cat = category || '';
+        var cat = linkCat || '';
         template = (_a = this._linkTemplateMap.get(cat)) !== null && _a !== void 0 ? _a : null;
         if (!template && cat !== '')
             template = (_b = this._linkTemplateMap.get('')) !== null && _b !== void 0 ? _b : null;
         if (!template)
             template = this._linkTemplate;
+        var pathToChildren = this._isTreePathToChildren !== false;
         var link = template.copy();
         var linkData = {
-            from: parentKey,
-            to: childKey
+            from: pathToChildren ? parentKey : childKey,
+            to: pathToChildren ? childKey : parentKey
         };
         link.data = linkData;
-        link.fromNode = parentNode;
-        link.toNode = childNode;
+        link.category = cat;
+        link.fromNode = pathToChildren ? parentNode : childNode;
+        link.toNode = pathToChildren ? childNode : parentNode;
         if (childKey !== undefined) {
             this._treeLinkDataByChildKey.set(childKey, linkData);
         }
@@ -46751,8 +47047,18 @@ var Diagram = /** @class */ (function () {
                             continue;
                         if (kind === 2 && !isLink)
                             continue;
-                        if (measure)
+                        if (measure) {
                             part.ensureBounds();
+                        }
+                        else if (isLink && !part._isGeometryValid) {
+                            // 渲染期（measure=false）默认不重测（对齐官方 render 不重新 measure），
+                            // 但 avoid 后处理路由在布局 measure 之后 commit 了新点列并失效几何
+                            // （grafcet L17/L21：commitRoute → invalidateGeometry → gv=false），
+                            // 若不在此重测，path 拿到的是旧几何 → gb 宽 0（几何由旧点列构建）。
+                            // 这里只对「几何已失效」的 link 补一次 measure（ensureBounds 内部走
+                            // _measureLink → _syncGeometryToMainShapes，重 build 并写回 path）。
+                            part.ensureBounds();
+                        }
                         var pos = part.position;
                         var mb = part.measuredBounds;
                         // 官方 Part.ensureBounds/Ht：actualBounds 一律以 position 为左上角。
@@ -47471,7 +47777,13 @@ var Diagram = /** @class */ (function () {
     });
     Object.defineProperty(Diagram.prototype, "scrollMargin", {
         get: function () { return this._scrollMargin; },
-        set: function (val) { this._scrollMargin = val; },
+        set: function (val) {
+            // 官方 setter：`typeof t=="number" && (t=new Margin(t))`（go.js @339334）。
+            // 漏了这层强转时，animatedFocus 的 `scrollMargin: 200`（number）会原样存进
+            // _scrollMargin，clamp 读 `.left` 得 undefined → NaN 比较全走 else 分支
+            // → position 被夹到 documentBounds 左上角 (−5,−5)（scrollToPart 白滚）。
+            this._scrollMargin = typeof val === 'number' ? new Margin(val) : val;
+        },
         enumerable: false,
         configurable: true
     });

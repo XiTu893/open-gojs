@@ -73,8 +73,11 @@ export declare class Geometry {
     private _accumulatePathBounds;
     /** 官方 G.vi：点 (px,py) 是否在容差 tol 内靠近线段 (x0,y0)-(x1,y1)（含包围盒预检） */
     private static _vi;
-    /** 官方 G.Yu：细分三次贝塞尔至平坦后把端点并入 acc=[minX,minY,maxX,maxY] */
-    private static _bezierBounds;
+    /**
+     * 官方 G.Yu/G.Iu：细分三次贝塞尔至平坦后把端点并入 acc=[minX,minY,maxX,maxY]。
+     * 非 private：Link._computeRouteBounds（官方 nT 的曲线包围盒分支）复用同一算法。
+     */
+    static _bezierBounds(x0: number, y0: number, x1: number, y1: number, x2: number, y2: number, x3: number, y3: number, tol: number, acc: number[], depth: number): void;
     copy(): Geometry;
     equals(geo: Geometry): boolean;
     /** 从 SVG 路径字符串解析。isFilled=true 时按官方 Geometry.parse(str,e) 语义

@@ -914,7 +914,8 @@ export class Node extends Part {
 
   /** Create a copy of this Node */
   copy(): Node {
-    const c = new Node(this._type);
+    // 官方：`new this.constructor`（无参，type 由 _copyPanelPropertiesTo 复制）
+    const c = new Node(this._type); // WIP-BISECT
     this._copyPropertiesTo(c as any);
     this._copyPanelPropertiesTo(c as any);
     this._copyPartPropertiesTo(c);

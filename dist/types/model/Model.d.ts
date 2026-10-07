@@ -74,6 +74,15 @@ export declare class Model {
     constructor(init: Partial<Model> | ObjectData[]);
     get nodeDataArray(): ObjectData[];
     set nodeDataArray(val: ObjectData[]);
+    /**
+     * 官方 `Model.nodeDataArray` setter 的 key 补齐两趟：
+     * 第一趟把「key 缺失或与已有条目重复」的数据收进 rekey 列表，其余入 keyMap；
+     * 第二趟对 rekey 逐个 `makeNodeDataKeyUnique`（官方对 undefined/number 生成
+     * **负数键** `-count-1` 递减），成功后再入 keyMap。
+     * 早期实现直接 `_rebuildKeyMap`——keyless 数据全被跳过，`findNodeForData`
+     * 永远返回 null（animatedFocus 的 focusOnNode 静默早退）。
+     */
+    private _rekeyNodeDataArray;
     /** 添加节点数据 */
     addNodeData(data: ObjectData): void;
     /** 添加节点数据集合 */
@@ -114,7 +123,7 @@ export declare class Model {
     insertArrayItem(arr: any[], index: number, item: any): void;
     /** 移除数组项 */
     removeArrayItem(arr: any[], index?: number): void;
-    /** 确保 key 唯一 */
+    /** 确保 key 唯一（官方 `Model.addNodeData` → `makeNodeDataKeyUnique`：负数键） */
     ensureUniqueKey(data: ObjectData): void;
     /** 复制节点数据 */
     copyNodeData(data: ObjectData): ObjectData;

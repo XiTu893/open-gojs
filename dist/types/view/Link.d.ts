@@ -359,11 +359,18 @@ export declare class Link extends Part {
     computeMidAngle(): number;
     /** 官方 `Link.routeBounds` */
     get routeBounds(): Rect;
-    /** 官方 `Link.cA()`：按点列计算 routeBounds（本项目无 Bezier 控制点外扩，等价于包围盒） */
+    /** 官方 `Link.cA()`（混淆名 nT）：按官方分支计算 routeBounds + routeOffset（BS/Lk） */
     private _computeRouteBounds;
+    /** 路线点是否全部有限（NaN/±Infinity 时降级走点列并集分支） */
+    private static _allPointsFinite;
+    /**
+     * 官方 `G.Iu(p0,c1,c2,p3, 0.5, rect)`：把三次贝塞尔真实包围盒并入 t。
+     * 复用 Geometry._bezierBounds（同一细分算法），经 acc 数组桥接。
+     */
+    private static _curveBounds;
     /** 官方 `Link.startRoute()` */
     startRoute(): void;
-    /** 官方 `Link.commitRoute()` */
+    /** 官方 `Link.commitRoute()`：`ge()`（invalidateGeometry）→ `zS()`（finalize）→ raiseChanged */
     commitRoute(): void;
     /** 官方 `Link.rollbackRoute()` */
     rollbackRoute(): void;

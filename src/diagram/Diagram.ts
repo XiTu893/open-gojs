@@ -1076,15 +1076,15 @@ export class Diagram {
     this.alignDocument(Spot.Center, Spot.Center);
   }
 
+  // 官方 Diagram.centerRect（@320399 逐字）：viewportBounds 中心对齐，
+  // 且必须走 position setter（触发 ViewportChanged）。旧实现用 viewSize
+  // （900 而非 889——没扣滚动条槽位）并直写 _position，两端各差 5.5px。
   centerRect(r: Rect): void {
-    const vs = this.viewSize;
-    const docW = vs.width / this._scale;
-    const docH = vs.height / this._scale;
-    this._position = new Point(
-      r.x + r.width / 2 - docW / 2,
-      r.y + r.height / 2 - docH / 2
-    );
-    this.requestUpdate();
+    const e = this.viewportBounds;
+    const i = r.center;
+    i.x -= e.width / 2;
+    i.y -= e.height / 2;
+    this.position = i;
   }
 
   scrollToRect(r: Rect): void {
@@ -1537,21 +1537,31 @@ export class Diagram {
 
     if (!parentNode || !childNode) return null;
 
-    const category = this._model.getCategoryForNodeData(childData);
+    // 官方 PartManager.Gk(parent, child)（go.js @832896）：
+    // 1) 链类别 = 子数据的 **parentLinkCategory**（不是子节点自身的 category！
+    //    旧实现用 getCategoryForNodeData(childData)，子节点带 category 时会取错模板）；
+    // 2) 方向随 diagram.isTreePathToChildren：true → from=parent/to=child；
+    //    **false → from=child/to=parent**（timeline 官方 BarLink 就是反向的，
+    //    旧实现恒为 parent→child）。
+    const linkCat = (typeof (this._model as any).getParentLinkCategoryForNodeData === 'function')
+      ? ((this._model as any).getParentLinkCategoryForNodeData(childData) || '')
+      : '';
     let template: Part | null = null;
-    const cat = category || '';
+    const cat = linkCat || '';
     template = this._linkTemplateMap.get(cat) ?? null;
     if (!template && cat !== '') template = this._linkTemplateMap.get('') ?? null;
     if (!template) template = this._linkTemplate;
 
+    const pathToChildren = this._isTreePathToChildren !== false;
     const link = template!.copy() as Link;
     const linkData: ObjectData = {
-      from: parentKey,
-      to: childKey
+      from: pathToChildren ? parentKey : childKey,
+      to: pathToChildren ? childKey : parentKey
     };
     link.data = linkData;
-    link.fromNode = parentNode;
-    link.toNode = childNode;
+    link.category = cat;
+    link.fromNode = pathToChildren ? parentNode : childNode;
+    link.toNode = pathToChildren ? childNode : parentNode;
 
     if (childKey !== undefined) {
       this._treeLinkDataByChildKey.set(childKey, linkData);
@@ -2103,7 +2113,17 @@ export class Diagram {
           if (kind === 0 && (isLink || isGroup)) continue;
           if (kind === 1 && !isGroup) continue;
           if (kind === 2 && !isLink) continue;
-          if (measure) part.ensureBounds();
+          if (measure) {
+            part.ensureBounds();
+          } else if (isLink && !(part as any)._isGeometryValid) {
+            // 渲染期（measure=false）默认不重测（对齐官方 render 不重新 measure），
+            // 但 avoid 后处理路由在布局 measure 之后 commit 了新点列并失效几何
+            // （grafcet L17/L21：commitRoute → invalidateGeometry → gv=false），
+            // 若不在此重测，path 拿到的是旧几何 → gb 宽 0（几何由旧点列构建）。
+            // 这里只对「几何已失效」的 link 补一次 measure（ensureBounds 内部走
+            // _measureLink → _syncGeometryToMainShapes，重 build 并写回 path）。
+            part.ensureBounds();
+          }
           const pos = part.position;
           const mb = part.measuredBounds;
           // 官方 Part.ensureBounds/Ht：actualBounds 一律以 position 为左上角。
@@ -2724,7 +2744,13 @@ export class Diagram {
   get scrollMode(): any { return this._scrollMode; }
   set scrollMode(val: any) { this._scrollMode = val; }
   get scrollMargin(): Margin { return this._scrollMargin; }
-  set scrollMargin(val: Margin) { this._scrollMargin = val; }
+  set scrollMargin(val: Margin | number) {
+    // 官方 setter：`typeof t=="number" && (t=new Margin(t))`（go.js @339334）。
+    // 漏了这层强转时，animatedFocus 的 `scrollMargin: 200`（number）会原样存进
+    // _scrollMargin，clamp 读 `.left` 得 undefined → NaN 比较全走 else 分支
+    // → position 被夹到 documentBounds 左上角 (−5,−5)（scrollToPart 白滚）。
+    this._scrollMargin = typeof val === 'number' ? new Margin(val) : val;
+  }
   get scrollsPageOnFocus(): boolean { return this._scrollsPageOnFocus; }
   set scrollsPageOnFocus(val: boolean) { this._scrollsPageOnFocus = val; }
   get hasHorizontalScrollbar(): boolean { return this._hasHorizontalScrollbar; }

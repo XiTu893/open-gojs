@@ -42,6 +42,10 @@ export class Animation {
   private _startTime: number = 0;
   private _manager: any = null;
   private _finished: (() => void) | null = null;
+  /** 官方 `Animation.rf`：start() 时临时挂进 diagram、stop() 时摘除的 Part 列表 */
+  private _tempParts: any[] = [];
+  /** 官方 `Animation.a`：addTemporaryPart 记录的目标 Diagram */
+  private _tempDiagram: any = null;
 
   get isRunning(): boolean {
     return this._isRunning;
@@ -129,8 +133,24 @@ export class Animation {
 
   clear(): void {
     this._animations.length = 0;
+    this._tempParts.length = 0;
+    this._tempDiagram = null;
     this._isRunning = false;
     this._state = AnimationState.Inactive;
+  }
+
+  /**
+   * 官方 `Animation.addTemporaryPart(part, diagram): this`：
+   * 记录临时 Part（官方 `t.Oi()`：Part/Node 为 true，Link/Adornment 为 false），
+   * start() 时 `part.data = null; diagram.add(part)`，stop() 时 `diagram.remove(part)`。
+   */
+  addTemporaryPart(part: any, diagram: any): this {
+    if (!part) return this;
+    const cn = part.constructor && part.constructor.className;
+    if (cn === 'Link' || cn === 'Adornment') return this;
+    this._tempParts.push(part);
+    this._tempDiagram = diagram;
+    return this;
   }
 
   /** 官方 `Animation.start(): this` —— 自己找到目标对象的 Diagram，取它的 animationManager 注册自己 */
@@ -138,19 +158,13 @@ export class Animation {
     if (this._isRunning) return this;
     if (this._animations.length === 0) return this;
 
-    // 先置 isRunning 再注册：官方 start() 里 `this.Re=!0` 早于 `i.oO(this)`。
-    // 顺序反了的话，registerAnimation 触发的第一次同步 tick 会因为
-    // `isRunning===false` 把这个动画从 activeAnimations 里过滤掉，之后再没人 tick。
-    this._isRunning = true;
-    this._state = AnimationState.Running;
-    this._startTime = performance.now();
-
     // 官方 go.js start()：遍历被动画的对象，取第一个能拿到 diagram 的，
     // 然后 `this.As = t.animationManager` 并注册自己。
     // 以前本项目只在 `animation.manager` 被显式赋值时注册，而样例从不赋值 ——
     // 于是 `new go.Animation() ... start()` 根本没人 tick，
     // belts 的传送带完全不动（`strokeDashOffset` 永远是初值）。
     let diagram: any = this._manager ? this._manager.diagram : null;
+    if (diagram === null || diagram === undefined) diagram = this._tempDiagram;
     if (diagram === null || diagram === undefined) {
       for (const config of this._animations) {
         const t: any = config.target;
@@ -160,6 +174,23 @@ export class Animation {
         if (t.part && t.part.diagram) { diagram = t.part.diagram; break; }
       }
     }
+
+    // 官方 start() 尾：`this.rf.each(s => { s.data = null; diagram.add(s) })`
+    // （animatedFocus 的 focus1 副本就是此时才进 Tool 层的）
+    if (diagram !== null && diagram !== undefined && this._tempParts.length > 0) {
+      for (const p of this._tempParts) {
+        p.data = null;
+        if (!p.diagram) diagram.add(p);
+      }
+    }
+
+    // 先置 isRunning 再注册：官方 start() 里 `this.Re=!0` 早于 `i.oO(this)`。
+    // 顺序反了的话，registerAnimation 触发的第一次同步 tick 会因为
+    // `isRunning===false` 把这个动画从 activeAnimations 里过滤掉，之后再没人 tick。
+    this._isRunning = true;
+    this._state = AnimationState.Running;
+    this._startTime = performance.now();
+
     if (diagram !== null && diagram !== undefined) {
       const mgr = diagram.animationManager;
       if (mgr) {
@@ -180,6 +211,13 @@ export class Animation {
     if (!this._isRunning) return this;
     this._isRunning = false;
     this._state = AnimationState.Stopped;
+    // 官方 stop()：`for (rf) diagram.remove(part)`（列表保留，restart 时再挂回）
+    const dgm = this._tempDiagram;
+    if (dgm) {
+      for (const p of this._tempParts) {
+        if (p.diagram) dgm.remove(p);
+      }
+    }
     if (this._manager && typeof this._manager.unregisterAnimation === 'function') {
       this._manager.unregisterAnimation(this);
     }

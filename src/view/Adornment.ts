@@ -83,7 +83,8 @@ export class Adornment extends Part {
   }
 
   copy(): Adornment {
-    const a = new Adornment();
+    // 官方：`new this.constructor`（无参，type 由 _copyPanelPropertiesTo 复制）
+    const a = new (this as any).constructor();
     this._copyPropertiesTo(a);
     this._copyPanelPropertiesTo(a as any);
     this._copyPartPropertiesTo(a);

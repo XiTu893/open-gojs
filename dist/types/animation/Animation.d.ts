@@ -21,6 +21,10 @@ export declare class Animation {
     private _startTime;
     private _manager;
     private _finished;
+    /** 官方 `Animation.rf`：start() 时临时挂进 diagram、stop() 时摘除的 Part 列表 */
+    private _tempParts;
+    /** 官方 `Animation.a`：addTemporaryPart 记录的目标 Diagram */
+    private _tempDiagram;
     get isRunning(): boolean;
     get duration(): number;
     set duration(val: number);
@@ -43,6 +47,12 @@ export declare class Animation {
      */
     add(targetOrConfig: object | AnimationConfig, property?: string, fromValue?: any, toValue?: any): this;
     clear(): void;
+    /**
+     * 官方 `Animation.addTemporaryPart(part, diagram): this`：
+     * 记录临时 Part（官方 `t.Oi()`：Part/Node 为 true，Link/Adornment 为 false），
+     * start() 时 `part.data = null; diagram.add(part)`，stop() 时 `diagram.remove(part)`。
+     */
+    addTemporaryPart(part: any, diagram: any): this;
     /** 官方 `Animation.start(): this` —— 自己找到目标对象的 Diagram，取它的 animationManager 注册自己 */
     start(): this;
     stop(): this;

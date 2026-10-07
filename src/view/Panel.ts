@@ -976,6 +976,11 @@ export class Panel extends GraphObject {
 
   /** Copy Panel-specific properties to another Panel */
   protected _copyPanelPropertiesTo(copy: Panel): void {
+    // 官方 copy 链（cloneProtected）会保留 panel type；以前 type 只靠
+    // `new Node(this._type)` 构造参数传，而官方 copy 是 `new this.constructor`
+    // （无参）——改为无参构造后必须在此显式复制，否则 BarLink/Table 等模板
+    // 复制出的实例丢 type（timeline 的 BarLink 模板退化成基础 Link）。
+    copy._type = this._type;
     copy._data = this._data;
     copy._padding = this._padding.copy();
     copy._defaultAlignment = this._defaultAlignment.copy();

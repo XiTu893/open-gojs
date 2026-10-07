@@ -273,8 +273,11 @@ export class Geometry {
     return false;
   }
 
-  /** 官方 G.Yu：细分三次贝塞尔至平坦后把端点并入 acc=[minX,minY,maxX,maxY] */
-  private static _bezierBounds(
+  /**
+   * 官方 G.Yu/G.Iu：细分三次贝塞尔至平坦后把端点并入 acc=[minX,minY,maxX,maxY]。
+   * 非 private：Link._computeRouteBounds（官方 nT 的曲线包围盒分支）复用同一算法。
+   */
+  static _bezierBounds(
     x0: number, y0: number, x1: number, y1: number,
     x2: number, y2: number, x3: number, y3: number,
     tol: number, acc: number[], depth: number

@@ -460,7 +460,7 @@ export declare class Diagram {
     get scrollMode(): any;
     set scrollMode(val: any);
     get scrollMargin(): Margin;
-    set scrollMargin(val: Margin);
+    set scrollMargin(val: Margin | number);
     get scrollsPageOnFocus(): boolean;
     set scrollsPageOnFocus(val: boolean);
     get hasHorizontalScrollbar(): boolean;

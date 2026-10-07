@@ -379,7 +379,8 @@ export class Group extends Node {
   }
 
   copy(): Group {
-    const c = new Group(this._type);
+    // 官方：`new this.constructor`（无参，type 由 _copyPanelPropertiesTo 复制）
+    const c = new Group(this._type); // WIP-BISECT
     this._copyPropertiesTo(c as any);
     this._copyPanelPropertiesTo(c as any);
     this._copyPartPropertiesTo(c);

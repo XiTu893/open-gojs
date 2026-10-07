@@ -92,12 +92,16 @@ export class Model {
   constructor();
   constructor(init: Partial<Model> | ObjectData[]);
   constructor(init?: Partial<Model> | ObjectData[]) {
-    this._nodeDataArray = Array.isArray(init) ? init : [];
+    this._nodeDataArray = [];
     this._undoManager = new UndoManager();
     this._undoManager.model = this;
     this._keyMap = new Map<any, ObjectData>();
     this.modelData = {};
-    if (init && !Array.isArray(init)) {
+    if (Array.isArray(init)) {
+      // 官方 Model 构造器：Array 形参走 nodeDataArray setter（含 key 补齐两趟）
+      this._nodeDataArray = init;
+      this._rekeyNodeDataArray(this._nodeDataArray);
+    } else if (init) {
       this.set(init);
     }
     this._rebuildKeyMap();
@@ -112,16 +116,40 @@ export class Model {
     const old = this._nodeDataArray;
     if (old === val) return;
     this._nodeDataArray = val || [];
-    this._rebuildKeyMap();
+    this._rekeyNodeDataArray(this._nodeDataArray);
     // 官方 Model.nodeDataArray setter：发出 Set 变更（modelChange="nodeDataArray"），
     // Diagram 据此移除旧数组数据的 Parts 并为新数组数据创建 Parts
     this.raiseChangedEvent(ChangedEventProperty, this, 'nodeDataArray', old, this._nodeDataArray);
+  }
+
+  /**
+   * 官方 `Model.nodeDataArray` setter 的 key 补齐两趟：
+   * 第一趟把「key 缺失或与已有条目重复」的数据收进 rekey 列表，其余入 keyMap；
+   * 第二趟对 rekey 逐个 `makeNodeDataKeyUnique`（官方对 undefined/number 生成
+   * **负数键** `-count-1` 递减），成功后再入 keyMap。
+   * 早期实现直接 `_rebuildKeyMap`——keyless 数据全被跳过，`findNodeForData`
+   * 永远返回 null（animatedFocus 的 focusOnNode 静默早退）。
+   */
+  private _rekeyNodeDataArray(arr: ObjectData[]): void {
+    this._keyMap.clear();
+    const rekey: ObjectData[] = [];
+    for (const r of arr) {
+      const l = this.getKeyForNodeData(r);
+      if (l === undefined || this._keyMap.has(l)) rekey.push(r);
+      else this._keyMap.add(l, r);
+    }
+    for (const o of rekey) {
+      this.makeNodeDataKeyUnique(o);
+      const l = this.getKeyForNodeData(o);
+      if (l !== undefined) this._keyMap.add(l, o);
+    }
   }
 
   /** 添加节点数据 */
   addNodeData(data: ObjectData): void {
     if (!data) throw new Error('Cannot add null node data');
     if (this.isReadOnly) throw new Error('Model is read-only');
+    if (this.containsNodeData(data)) return; // 官方 av：重复添加直接 no-op
     this.ensureUniqueKey(data);
     this._nodeDataArray.push(data);
     this._keyMap.add(this.getKeyForNodeData(data), data);
@@ -296,23 +324,9 @@ export class Model {
     this.raiseChangedEvent(ChangedEventRemove, arr, '', old, null, index);
   }
 
-  /** 确保 key 唯一 */
+  /** 确保 key 唯一（官方 `Model.addNodeData` → `makeNodeDataKeyUnique`：负数键） */
   ensureUniqueKey(data: ObjectData): void {
-    if (this.makeUniqueKeyFunction) {
-      this.makeUniqueKeyFunction(this, data);
-      return;
-    }
-    const key = this.getKeyForNodeData(data);
-    if (key === undefined || this._keyMap.contains(key)) {
-      let newKey = this._nextKey++;
-      while (this._keyMap.contains(newKey)) {
-        newKey = this._nextKey++;
-      }
-      const prop = this.nodeKeyProperty;
-      if (typeof prop === 'string') {
-        data[prop] = newKey;
-      }
-    }
+    this.makeNodeDataKeyUnique(data);
   }
 
   /** 复制节点数据 */

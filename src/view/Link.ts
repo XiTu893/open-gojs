@@ -501,9 +501,9 @@ export class Link extends Part {
     this._points = e;
     this._flattenedLengths = null;
     this._flattenedTotalLength = NaN;
-    this._computeRouteBounds();
-    this._isRouteValid = e.count > 0;
-    this._isGeometryValid = false;
+    this._finalizeRoute();
+    this.invalidateGeometry();
+    this.raiseChanged('points', old, e);
   }
 
   get resegmentable(): boolean { return this._resegmentable; }
@@ -1636,34 +1636,79 @@ export class Link extends Part {
     return this._routeBounds;
   }
 
-  /** 官方 `Link.cA()`：按点列计算 routeBounds（本项目无 Bezier 控制点外扩，等价于包围盒） */
+  /** 官方 `Link.cA()`（混淆名 nT）：按官方分支计算 routeBounds + routeOffset（BS/Lk） */
   private _computeRouteBounds(): void {
     const t = this._routeBounds;
     const n = this.pointsCount;
+    let e = Infinity;
+    let i = Infinity;
     if (n === 0) {
       t.setTo(NaN, NaN, 0, 0);
       this._routeOffset.setTo(0, 0);
       return;
     }
-    let minX = Infinity;
-    let minY = Infinity;
-    let maxX = -Infinity;
-    let maxY = -Infinity;
-    // 官方 cA 用 Math.min/Math.max 累积：**NaN 会传播**（布局前路线点为 NaN 时
-    // routeBounds 变成 NaN 而非 ±Infinity）。若用 `if (p.x < minX)` 比较，
-    // NaN 全部落空 → minX/maxX 保持 ±Infinity → 宽高为 -Infinity →
-    // Panel._measureLink 里 `new Rect(0,0,-Infinity,-Infinity)` 抛错，
-    // 整个 _performLayout 中断、TreeLayout 根本没机会执行（faultTree 全部节点
-    // position=NaN、104 个 Rect 报错）。
-    for (let i = 0; i < n; i++) {
-      const p = this.getPoint(i);
-      minX = Math.min(minX, p.x);
-      minY = Math.min(minY, p.y);
-      maxX = Math.max(maxX, p.x);
-      maxY = Math.max(maxY, p.y);
+    if (n === 1) {
+      const p = this.getPoint(0);
+      e = Math.min(p.x, e);
+      i = Math.min(p.y, i);
+      t.setTo(p.x, p.y, 0, 0);
+    } else if (n === 2) {
+      const p0 = this.getPoint(0);
+      const p1 = this.getPoint(1);
+      e = Math.min(p0.x, p1.x);
+      i = Math.min(p0.y, p1.y);
+      t.setTo(p0.x, p0.y, 0, 0);
+      t.unionPoint(p1);
+    } else if (
+      this.computeCurve() === CurveBezier &&
+      !this.isOrthogonal &&
+      Link._allPointsFinite(this)
+    ) {
+      // 官方曲线分支：routeBounds = 递归细分的真实三次贝塞尔包围盒（G.Iu，tol 0.5），
+      // e/i 只跟踪锚点（首点 + 每段终点）；s===3 时也含控制点 p1。
+      // 控制点不进包围盒 —— L1 控制点 x=-46 而曲线仅到 -23，
+      // 旧版按点列 bbox 会把 documentBounds 撑大 8.77px、整图平移（multiNodePathLinks 3.86）。
+      let prev = this.getPoint(0);
+      e = prev.x;
+      i = prev.y;
+      t.setTo(e, i, 0, 0);
+      if (n === 3) {
+        const p1 = this.getPoint(1);
+        e = Math.min(p1.x, e);
+        i = Math.min(p1.y, i);
+        const p2 = this.getPoint(2);
+        e = Math.min(p2.x, e);
+        i = Math.min(p2.y, i);
+        Link._curveBounds(prev, p1, p1, p2, t);
+      } else {
+        for (let o = 3; o < n; o += 3) {
+          const r = this.getPoint(o - 2);
+          if (o + 3 >= n) o = n - 1;
+          const l = this.getPoint(o - 1);
+          const a = this.getPoint(o);
+          Link._curveBounds(prev, r, l, a, t);
+          e = Math.min(a.x, e);
+          i = Math.min(a.y, i);
+          prev = a;
+        }
+      }
+    } else {
+      // 官方 else：点列并集（含 Bezier 但点含非有限值时的降级 ——
+      // 官方对 NaN 控制点会无限细分栈溢出，这里保持 Math.min 的 NaN 传播语义）
+      const p0 = this.getPoint(0);
+      const p1 = this.getPoint(1);
+      e = Math.min(p0.x, p1.x);
+      i = Math.min(p0.y, p1.y);
+      t.setTo(p0.x, p0.y, 0, 0);
+      t.unionPoint(p1);
+      for (let k = 2; k < n; k++) {
+        const p = this.getPoint(k);
+        e = Math.min(p.x, e);
+        i = Math.min(p.y, i);
+        t.unionPoint(p);
+      }
     }
-    t.setTo(minX, minY, maxX - minX, maxY - minY);
-    this._routeOffset.setTo(0, 0);
+    this._routeOffset.setTo(e - t.x, i - t.y);
 
     // 官方 `Link.cA()` 只写 routeBounds + routeOffset（BS），
     // 不碰 position / naturalBounds / measuredBounds / actualBounds ——
@@ -1674,6 +1719,26 @@ export class Link extends Part {
     // 早先这里按路线中点居中回写 position/bounds 是错误简化，已移除。
   }
 
+  /** 路线点是否全部有限（NaN/±Infinity 时降级走点列并集分支） */
+  private static _allPointsFinite(link: Link): boolean {
+    const n = link.pointsCount;
+    for (let k = 0; k < n; k++) {
+      const p = link.getPoint(k);
+      if (!isFinite(p.x) || !isFinite(p.y)) return false;
+    }
+    return true;
+  }
+
+  /**
+   * 官方 `G.Iu(p0,c1,c2,p3, 0.5, rect)`：把三次贝塞尔真实包围盒并入 t。
+   * 复用 Geometry._bezierBounds（同一细分算法），经 acc 数组桥接。
+   */
+  private static _curveBounds(p0: Point, c1: Point, c2: Point, p3: Point, t: Rect): void {
+    const acc = [t.x, t.y, t.x + t.width, t.y + t.height];
+    Geometry._bezierBounds(p0.x, p0.y, c1.x, c1.y, c2.x, c2.y, p3.x, p3.y, 0.5, acc, 0);
+    t.setTo(acc[0], acc[1], acc[2] - acc[0], acc[3] - acc[1]);
+  }
+
   /** 官方 `Link.startRoute()` */
   startRoute(): void {
     if (this._oldPoints === null) {
@@ -1682,12 +1747,16 @@ export class Link extends Part {
     }
   }
 
-  /** 官方 `Link.commitRoute()` */
+  /** 官方 `Link.commitRoute()`：`ge()`（invalidateGeometry）→ `zS()`（finalize）→ raiseChanged */
   commitRoute(): void {
     if (this._oldPoints === null) return;
     const old = this._oldPoints;
     const neu = this._points;
     this._oldPoints = null;
+    // 官方 commitRoute 先 invalidateGeometry 再 finalize —— 每次路线提交后几何必然过期。
+    // 漏掉它：路由失效但几何仍"有效"时（rollback 后重试成功等路径），
+    // CN/_syncGeometryToMainShapes 早退 → 拿旧点列的几何（grafcet L17：rb 宽 24、gb 宽 0）。
+    this.invalidateGeometry();
     this._finalizeRoute();
     this.raiseChanged('points', old, neu);
   }
@@ -1805,6 +1874,9 @@ export class Link extends Part {
 
   /** 官方：把 link 的几何同步给 `path` 以及所有 isPanelMain 的 Shape 元素 */
   private _syncGeometryToMainShapes(): void {
+    // 官方 `Link.CN()`：`if (isRouteValid === false) return;` —— 路线无效时绝不重建几何
+    // （否则会拿 rollback/未完成的点列把几何标记为"有效"，之后 commitRoute 也修不回来）。
+    if (!this._isRouteValid) return;
     // 官方 `Link.CN()`：几何无效时先重建（`pointsCount>=2 → bt=makeGeometry()`，
     // 否则也把 jh 置 true），再同步给 path 与各主 Shape。
     // 早先这里直接读可能过期的 `_geometry`，route 重算后主 Shape 拿到旧几何，
@@ -1900,15 +1972,40 @@ export class Link extends Part {
     const geo = new Geometry();
     if (n < 2) return geo;
     const pts = this._points;
-    // 官方：n = min(points.x) - BS.x，o = min(points.y) - BS.y，所有点减 (n,o) ——
-    // 几何原点是点列 bbox 左上角（route-local 帧），不是文档坐标。
-    // BS = routeOffset（本项目恒 (0,0)，仍按官方参与平移）。
-    let nx = Infinity;
-    let ny = Infinity;
-    for (let i = 0; i < n; i++) {
-      const p = pts.elt(i);
-      if (p.x < nx) nx = p.x;
-      if (p.y < ny) ny = p.y;
+    // 官方平移量 (n,o)：贝塞尔非正交 → 锚点极小值；s===3 → 全 3 点极小；
+    // 其余（正交/非曲线/smoothness≈0）→ 全点极小；再减 routeOffset(Lk)。
+    // 全有限点时恒等于 routeBounds 原点（nT 的 e - Lk = t.x）——
+    // 旧版对贝塞尔恒用全点极小，控制点外扩导致几何原点比官方偏 8~23px。
+    const curve9 = this.computeCurve() === CurveBezier;
+    const smEq0 = Math.abs(this._smoothness) < 5e-8; // 官方 G.G(smoothness, 0)
+    let nx: number;
+    let ny: number;
+    if (curve9 && n >= 3 && !smEq0 && !this.isOrthogonal) {
+      const p0 = pts.elt(0);
+      nx = p0.x;
+      ny = p0.y;
+      if (n === 3) {
+        for (let c = 1; c <= 2; c++) {
+          const p = pts.elt(c);
+          if (p.x < nx) nx = p.x;
+          if (p.y < ny) ny = p.y;
+        }
+      } else {
+        for (let c = 3; c < n; c += 3) {
+          if (c + 3 >= n) c = n - 1;
+          const p = pts.elt(c);
+          if (p.x < nx) nx = p.x;
+          if (p.y < ny) ny = p.y;
+        }
+      }
+    } else {
+      nx = Infinity;
+      ny = Infinity;
+      for (let i = 0; i < n; i++) {
+        const p = pts.elt(i);
+        if (p.x < nx) nx = p.x;
+        if (p.y < ny) ny = p.y;
+      }
     }
     if (!isFinite(nx) || !isFinite(ny)) { nx = 0; ny = 0; }
     const bs = this._routeOffset;
@@ -1924,18 +2021,29 @@ export class Link extends Part {
     const at = (i: number): Point =>
       i === n - 1 ? last : i === 0 ? first : new Point(pts.elt(i).x - nx, pts.elt(i).y - ny);
     const fig = new PathFigure(first.x, first.y, false);
-    const bezier = this.computeCurve() === CurveBezier;
-    if (bezier && !this.isOrthogonal && n >= 4 && (n - 1) % 3 === 0) {
-      for (let i = 1; i + 2 < n; i += 3) {
-        const p1 = new Point(pts.elt(i).x - nx, pts.elt(i).y - ny);
-        const p2 = new Point(pts.elt(i + 1).x - nx, pts.elt(i + 1).y - ny);
-        const p3 = at(i + 2);
-        fig.add(PathSegment.CubicBezier(p3.x, p3.y, p1.x, p1.y, p2.x, p2.y));
+    if (curve9 && n >= 3 && !smEq0) {
+      if (n === 3) {
+        // 官方 e===3 分支：三次贝塞尔且两控制点都在 p1（非二次曲线）
+        const p1 = new Point(pts.elt(1).x - nx, pts.elt(1).y - ny);
+        const p2 = at(2);
+        fig.add(PathSegment.CubicBezier(p2.x, p2.y, p1.x, p1.y, p1.x, p1.y));
+      } else if (!this.isOrthogonal) {
+        // 官方 for(f=3;f<e;f+=3)：u 在 f 调整**前**取，d/m 在 f+3>=e → f=e-1 调整后取，
+        // 末段可拉伸跨越非整组点（n-1 不是 3 的倍数时也走贝塞尔而非退化折线）。
+        for (let f = 3; f < n; f += 3) {
+          const u = pts.elt(f - 2);
+          if (f + 3 >= n) f = n - 1;
+          const d = pts.elt(f - 1);
+          const m = at(f);
+          fig.add(PathSegment.CubicBezier(m.x, m.y, u.x - nx, u.y - ny, d.x - nx, d.y - ny));
+        }
+      } else {
+        // 官方贝塞尔+正交 → smoothness 平滑正交曲线（未移植），维持折线
+        for (let i = 1; i < n; i++) {
+          const p = at(i);
+          fig.add(PathSegment.Line(p.x, p.y));
+        }
       }
-    } else if (bezier && n === 3) {
-      const p1 = new Point(pts.elt(1).x - nx, pts.elt(1).y - ny);
-      const p2 = at(2);
-      fig.add(PathSegment.QuadraticBezier(p2.x, p2.y, p1.x, p1.y));
     } else {
       for (let i = 1; i < n; i++) {
         const p = at(i);
@@ -2386,7 +2494,8 @@ export class Link extends Part {
   // ============ end official Link members ============
 
   copy(): Link {
-    const c = new Link(this._type);
+    // 官方：`new this.constructor`（无参，type 由 _copyPanelPropertiesTo 复制）
+    const c = new (this as any).constructor();
     this._copyPropertiesTo(c as any);
     this._copyPanelPropertiesTo(c as any);
     this._copyPartPropertiesTo(c);

@@ -10,7 +10,7 @@ export class AnimationManager {
   // 导致一批样例丢失官方应有的布局动画（leaflet/circuitDesigner 等 +0.2~2.5% 回退）。
   // 避障末帧问题改在动画收尾处重新触发 _routeInvalidatedLinks 修复。
   private _isEnabled: boolean = true;
-  private _duration: number = 200;
+  private _duration: number = 600; // 官方 AnimationManager 构造器 `this.Bo=600`
   private _isAnimating: boolean = false;
   private _isInitial: boolean = true;
   private _isTicking: boolean = false;

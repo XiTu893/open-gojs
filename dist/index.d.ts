@@ -1680,8 +1680,11 @@ declare class Geometry {
     private _accumulatePathBounds;
     /** 官方 G.vi：点 (px,py) 是否在容差 tol 内靠近线段 (x0,y0)-(x1,y1)（含包围盒预检） */
     private static _vi;
-    /** 官方 G.Yu：细分三次贝塞尔至平坦后把端点并入 acc=[minX,minY,maxX,maxY] */
-    private static _bezierBounds;
+    /**
+     * 官方 G.Yu/G.Iu：细分三次贝塞尔至平坦后把端点并入 acc=[minX,minY,maxX,maxY]。
+     * 非 private：Link._computeRouteBounds（官方 nT 的曲线包围盒分支）复用同一算法。
+     */
+    static _bezierBounds(x0: number, y0: number, x1: number, y1: number, x2: number, y2: number, x3: number, y3: number, tol: number, acc: number[], depth: number): void;
     copy(): Geometry;
     equals(geo: Geometry): boolean;
     /** 从 SVG 路径字符串解析。isFilled=true 时按官方 Geometry.parse(str,e) 语义
@@ -2343,6 +2346,15 @@ declare class Model {
     constructor(init: Partial<Model> | ObjectData[]);
     get nodeDataArray(): ObjectData[];
     set nodeDataArray(val: ObjectData[]);
+    /**
+     * 官方 `Model.nodeDataArray` setter 的 key 补齐两趟：
+     * 第一趟把「key 缺失或与已有条目重复」的数据收进 rekey 列表，其余入 keyMap；
+     * 第二趟对 rekey 逐个 `makeNodeDataKeyUnique`（官方对 undefined/number 生成
+     * **负数键** `-count-1` 递减），成功后再入 keyMap。
+     * 早期实现直接 `_rebuildKeyMap`——keyless 数据全被跳过，`findNodeForData`
+     * 永远返回 null（animatedFocus 的 focusOnNode 静默早退）。
+     */
+    private _rekeyNodeDataArray;
     /** 添加节点数据 */
     addNodeData(data: ObjectData): void;
     /** 添加节点数据集合 */
@@ -2383,7 +2395,7 @@ declare class Model {
     insertArrayItem(arr: any[], index: number, item: any): void;
     /** 移除数组项 */
     removeArrayItem(arr: any[], index?: number): void;
-    /** 确保 key 唯一 */
+    /** 确保 key 唯一（官方 `Model.addNodeData` → `makeNodeDataKeyUnique`：负数键） */
     ensureUniqueKey(data: ObjectData): void;
     /** 复制节点数据 */
     copyNodeData(data: ObjectData): ObjectData;
@@ -4509,11 +4521,18 @@ declare class Link extends Part {
     computeMidAngle(): number;
     /** 官方 `Link.routeBounds` */
     get routeBounds(): Rect;
-    /** 官方 `Link.cA()`：按点列计算 routeBounds（本项目无 Bezier 控制点外扩，等价于包围盒） */
+    /** 官方 `Link.cA()`（混淆名 nT）：按官方分支计算 routeBounds + routeOffset（BS/Lk） */
     private _computeRouteBounds;
+    /** 路线点是否全部有限（NaN/±Infinity 时降级走点列并集分支） */
+    private static _allPointsFinite;
+    /**
+     * 官方 `G.Iu(p0,c1,c2,p3, 0.5, rect)`：把三次贝塞尔真实包围盒并入 t。
+     * 复用 Geometry._bezierBounds（同一细分算法），经 acc 数组桥接。
+     */
+    private static _curveBounds;
     /** 官方 `Link.startRoute()` */
     startRoute(): void;
-    /** 官方 `Link.commitRoute()` */
+    /** 官方 `Link.commitRoute()`：`ge()`（invalidateGeometry）→ `zS()`（finalize）→ raiseChanged */
     commitRoute(): void;
     /** 官方 `Link.rollbackRoute()` */
     rollbackRoute(): void;
@@ -5991,6 +6010,10 @@ declare class Animation {
     private _startTime;
     private _manager;
     private _finished;
+    /** 官方 `Animation.rf`：start() 时临时挂进 diagram、stop() 时摘除的 Part 列表 */
+    private _tempParts;
+    /** 官方 `Animation.a`：addTemporaryPart 记录的目标 Diagram */
+    private _tempDiagram;
     get isRunning(): boolean;
     get duration(): number;
     set duration(val: number);
@@ -6013,6 +6036,12 @@ declare class Animation {
      */
     add(targetOrConfig: object | AnimationConfig, property?: string, fromValue?: any, toValue?: any): this;
     clear(): void;
+    /**
+     * 官方 `Animation.addTemporaryPart(part, diagram): this`：
+     * 记录临时 Part（官方 `t.Oi()`：Part/Node 为 true，Link/Adornment 为 false），
+     * start() 时 `part.data = null; diagram.add(part)`，stop() 时 `diagram.remove(part)`。
+     */
+    addTemporaryPart(part: any, diagram: any): this;
     /** 官方 `Animation.start(): this` —— 自己找到目标对象的 Diagram，取它的 animationManager 注册自己 */
     start(): this;
     stop(): this;
@@ -6567,7 +6596,7 @@ declare class Diagram {
     get scrollMode(): any;
     set scrollMode(val: any);
     get scrollMargin(): Margin;
-    set scrollMargin(val: Margin);
+    set scrollMargin(val: Margin | number);
     get scrollsPageOnFocus(): boolean;
     set scrollsPageOnFocus(val: boolean);
     get hasHorizontalScrollbar(): boolean;

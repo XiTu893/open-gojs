@@ -845,13 +845,18 @@ pasteSelectionAsync(pos?: Point): void {
   scrollToPart(part?: any): void {
     if (!this.canScrollToPart(part)) return;
     const d = this._diagram;
+    d.ensureBounds();
     let p = part;
     if (!p) {
       const it = d.selection.iterator;
       if (it.next()) p = it.value;
     }
     if (!p) return;
-    const r = (typeof d.computePartsBounds === 'function') ? d.computePartsBounds(p) : p.actualBounds;
+    // 官方 scrollToPart 主路径：直接 centerRect(t.actualBounds)。
+    // 早期实现把单个 part 传给 computePartsBounds——官方 computePartsBounds
+    // 只接受集合，单 part 走迭代器分支拿不到任何项，空集返回 NaN 矩形，
+    // position 变成 NaN（animatedFocus 视口整个丢失）。
+    const r = p.actualBounds;
     if (r) d.centerRect(r);
   }
 
