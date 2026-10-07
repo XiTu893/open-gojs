@@ -47818,13 +47818,17 @@ var Diagram = /** @class */ (function () {
         return result;
     };
     // ---- 边界/几何 ----
-    Diagram.prototype.computePartsBounds = function (parts) {
+    // 官方 `Diagram.computePartsBounds(coll, includeLinks=false)`：
+    // 逐个 `p.ensureBounds()` 后 union actualBounds；**Link 默认排除**（除非
+    // includeLinks=true）；空集合返回 `Rect(NaN,NaN,0,0)`（isReal()=false）。
+    // 早期实现从 `new Rect()`(0,0,0,0) 起 union——把原点当成矩形并入，令
+    // sharedStates 的 CustomLayout 拿到 (0,0) 起始的假成员包围盒。
+    Diagram.prototype.computePartsBounds = function (parts, includeLinks) {
         var e_54, _a, e_55, _b, e_56, _c;
-        var result = new Rect();
-        if (parts === null || parts === undefined)
-            return result;
+        var inc = includeLinks === true;
         var items = [];
-        if (Array.isArray(parts)) {
+        if (parts === null || parts === undefined) ;
+        else if (Array.isArray(parts)) {
             try {
                 for (var parts_2 = __values(parts), parts_2_1 = parts_2.next(); !parts_2_1.done; parts_2_1 = parts_2.next()) {
                     var p = parts_2_1.value;
@@ -47875,11 +47879,22 @@ var Diagram = /** @class */ (function () {
                 }
             }
         }
+        var result = null;
         try {
             for (var items_1 = __values(items), items_1_1 = items_1.next(); !items_1_1.done; items_1_1 = items_1.next()) {
                 var p = items_1_1.value;
-                var b = p ? p.actualBounds : null;
-                if (b && b.isReal())
+                if (!p)
+                    continue;
+                if (!inc && p instanceof Link)
+                    continue;
+                if (typeof p.ensureBounds === 'function')
+                    p.ensureBounds();
+                var b = p.actualBounds;
+                if (!b)
+                    continue;
+                if (result === null)
+                    result = b.copy();
+                else
                     result.unionRect(b);
             }
         }
@@ -47890,7 +47905,7 @@ var Diagram = /** @class */ (function () {
             }
             finally { if (e_56) throw e_56.error; }
         }
-        return result;
+        return result === null ? new Rect(NaN, NaN, 0, 0) : result;
     };
     Diagram.prototype.computeBounds = function () { return this.documentBounds; };
     Diagram.prototype.ensureBounds = function () { this.invalidateDocumentBounds(); };

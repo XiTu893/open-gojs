@@ -6630,7 +6630,7 @@ declare class Diagram {
     findTopLevelNodesAndLinks(): any;
     findTopLevelGroups(): any;
     findTreeRoots(): any;
-    computePartsBounds(parts: any): Rect;
+    computePartsBounds(parts: any, includeLinks?: boolean): Rect;
     computeBounds(): Rect;
     ensureBounds(): void;
     invalidateDocumentBounds(): void;

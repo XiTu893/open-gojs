@@ -2944,11 +2944,17 @@ export class Diagram {
   }
 
   // ---- 边界/几何 ----
-  computePartsBounds(parts: any): Rect {
-    const result = new Rect();
-    if (parts === null || parts === undefined) return result;
+  // 官方 `Diagram.computePartsBounds(coll, includeLinks=false)`：
+  // 逐个 `p.ensureBounds()` 后 union actualBounds；**Link 默认排除**（除非
+  // includeLinks=true）；空集合返回 `Rect(NaN,NaN,0,0)`（isReal()=false）。
+  // 早期实现从 `new Rect()`(0,0,0,0) 起 union——把原点当成矩形并入，令
+  // sharedStates 的 CustomLayout 拿到 (0,0) 起始的假成员包围盒。
+  computePartsBounds(parts: any, includeLinks?: boolean): Rect {
+    const inc = includeLinks === true;
     const items: any[] = [];
-    if (Array.isArray(parts)) {
+    if (parts === null || parts === undefined) {
+      // fallthrough to empty result
+    } else if (Array.isArray(parts)) {
       for (const p of parts) items.push(p);
     } else {
       // 官方 `iterator` 是**属性**（返回 go.Iterator），不是方法。
@@ -2970,11 +2976,17 @@ export class Diagram {
         for (const p of parts as any) items.push(p);
       }
     }
+    let result: Rect | null = null;
     for (const p of items) {
-      const b = p ? p.actualBounds : null;
-      if (b && (b as any).isReal()) result.unionRect(b);
+      if (!p) continue;
+      if (!inc && p instanceof Link) continue;
+      if (typeof p.ensureBounds === 'function') p.ensureBounds();
+      const b = p.actualBounds;
+      if (!b) continue;
+      if (result === null) result = b.copy();
+      else result.unionRect(b);
     }
-    return result;
+    return result === null ? new Rect(NaN, NaN, 0, 0) : result;
   }
   computeBounds(): Rect { return this.documentBounds; }
 
