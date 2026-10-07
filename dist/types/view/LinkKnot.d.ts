@@ -43,7 +43,7 @@ export declare class Knot {
     $F(link: any): LinkInfo | null;
     /** 官方 `Knot.P4(rect, spot, angle, orthogonal)`：side-spot 落到哪条边 */
     private P4;
-    /** 端口 → 文档坐标下的 spot 点（官方 `GraphObject.getDocumentPoint(spot, result)` 等价） */
+    /** 端口 → 文档坐标下的 spot 点（官方 `GraphObject.getDocumentPoint(spot)`） */
     private _docPoint;
     /** 官方 `Knot.M4()`：构建 LinkInfo 列表 */
     private M4;

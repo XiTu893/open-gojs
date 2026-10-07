@@ -27948,14 +27948,13 @@ var Knot = /** @class */ (function () {
             return 270;
         return 0;
     };
-    /** 端口 → 文档坐标下的 spot 点（官方 `GraphObject.getDocumentPoint(spot, result)` 等价） */
+    /** 端口 → 文档坐标下的 spot 点（官方 `GraphObject.getDocumentPoint(spot)`） */
     Knot.prototype._docPoint = function (spot) {
-        var b = this._port.getDocumentBounds();
         if (spot === null || spot.isNone()) {
+            var b = this._port.getDocumentBounds();
             return new Point(b.x + b.width / 2, b.y + b.height / 2);
         }
-        var p = spot.positionInRect(b);
-        return new Point(p.x, p.y);
+        return this._port.getDocumentPoint(spot);
     };
     /** 官方 `Knot.M4()`：构建 LinkInfo 列表 */
     Knot.prototype.M4 = function () {
