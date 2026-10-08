@@ -34,10 +34,11 @@ export class ToolManager extends Tool {
   private _mouseMoveTools: List<Tool> = new List<Tool>();
   private _mouseUpTools: List<Tool> = new List<Tool>();
   private _mouseHoverTools: List<Tool> = new List<Tool>();
+  /** null 表示"没有专用工具在跑，由 ToolManager 自己处理"（官方 = currentTool 为 toolManager） */
   private _currentTool: Tool | null = null;
   private _defaultTool: Tool;
-  private _hoverDelay: number = 0;
-  private _holdDelay: number = 0;
+  private _hoverDelay: number = 850;
+  private _holdDelay: number = 850;
   private _lastInput: InputEvent = new InputEvent();
   private _previousInput: InputEvent = new InputEvent();
   private _mouseDownPoint: Point | null = null;
@@ -61,42 +62,37 @@ export class ToolManager extends Tool {
     const clickCreatingTool = new ClickCreatingTool();
     const actionTool = new ActionTool();
 
-    // Default tool is ClickSelectingTool
-    this._defaultTool = clickSelectingTool;
-    this._currentTool = this._defaultTool;
+    // 官方 ToolManager 本身没有 defaultTool；Diagram.defaultTool 初始即 toolManager。
+    // 这里把 defaultTool 设为自身，使得 Tool.stopTool() 归位到"空闲态"（_currentTool = null）。
+    this._defaultTool = this;
+    this._currentTool = null;
 
-    // Mouse-down tools (checked in order on mouse-down)
+    /**
+     * 官方 ToolManager.initializeStandardTools() 的三张表与顺序（go.js 逐字）：
+     *   mouseDown: Action, Relinking, LinkReshaping, Rotating, Resizing
+     *   mouseMove: Linking, Dragging, DragSelecting, Panning
+     *   mouseUp:   ContextMenu, TextEditing, ClickCreating, ClickSelecting
+     *
+     * 以前 Dragging/DragSelecting/Panning/Linking 全塞在 mouseDownTools 里：
+     * mousedown 一按下 DraggingTool 就激活并吞掉事件，ClickSelectingTool 永远
+     * 没机会跑 → 点击选不中；而且 DraggingTool.canStart 缺 isBeyondDragSize 判定，
+     * 点一下不拖也当成拖拽。这一条是"点击选不中"的根因。
+     */
     this._mouseDownTools = new List<Tool>([
       actionTool,
       relinkingTool,
       linkReshapingTool,
-      resizingTool,
       rotatingTool,
-      linkingTool,
-      draggingTool,
-      dragSelectingTool,
-      panningTool,
-      contextMenuTool,
+      resizingTool,
     ]);
 
-    // Mouse-move tools (checked in order on mouse-move)
     this._mouseMoveTools = new List<Tool>([
+      linkingTool,
       draggingTool,
       dragSelectingTool,
-      linkingTool,
-      relinkingTool,
-      linkReshapingTool,
-      resizingTool,
-      rotatingTool,
       panningTool,
     ]);
 
-    // Mouse-up tools (checked in order on mouse-up)
-    // 顺序对齐官方 go.d.ts:5159：ContextMenuTool / TextEditingTool /
-    // ClickCreatingTool / ClickSelectingTool。
-    // 以前 TextEditingTool 根本不在任何一张表里（`toolManager.textEditingTool`
-    // 拿到 undefined，实测 audioEditor 崩），而 ClickSelectingTool 排在最前，
-    // 它 canStart() 恒为 true，会把 ClickCreatingTool 完全挡住。
     this._mouseUpTools = new List<Tool>([
       contextMenuTool,
       textEditingTool,
@@ -131,24 +127,41 @@ export class ToolManager extends Tool {
     this._mouseHoverTools = val instanceof List ? val : new List<Tool>(val);
   }
 
-  get currentTool(): Tool | null { return this._currentTool; }
+  /**
+   * 官方语义：Diagram.currentTool 初始 = defaultTool，而 defaultTool 初始 = toolManager。
+   * 这里 `_currentTool === null` 即"ToolManager 自己是当前工具"，getter 回落到 this。
+   */
+  get currentTool(): Tool { return this._currentTool !== null ? this._currentTool : this; }
   set currentTool(val: Tool | null) {
-    if (this._currentTool && this._currentTool.isActive) {
-      this._currentTool.doDeactivate();
+    // 官方：currentTool 永不为 null（null 归一化成 defaultTool = ToolManager 自身），
+    // 所以"旧的当前工具"是 null 时即 ToolManager 自己，切换时它也要 doDeactivate。
+    const old = this._currentTool !== null ? this._currentTool : this;
+    if (old !== null) {
+      if (old.isActive) old.doDeactivate();
+      old.cancelWaitAfter();
+      old.doStop();
     }
-    this._currentTool = val;
-    if (val) {
-      val.toolManager = this;
-      val.diagram = this.diagram;
-      val.doStart();
+    let v = val;
+    if (v === null || v === undefined) v = this._defaultTool;
+    if (v === this || v === null || v === undefined) {
+      this._currentTool = null;
+      return;
     }
+    this._currentTool = v;
+    v.toolManager = this;
+    v.diagram = this.diagram;
+    v.doStart();
   }
 
   get defaultTool(): Tool { return this._defaultTool; }
   set defaultTool(val: Tool) {
+    const prev = this._defaultTool;
     this._defaultTool = val;
-    if (val) {
+    if (val && val !== this) {
       val.diagram = this.diagram;
+    }
+    if (prev !== val && this._currentTool === null && val && val !== this) {
+      this.currentTool = val;
     }
   }
 
@@ -240,7 +253,7 @@ export class ToolManager extends Tool {
     for (const tool of this._mouseMoveTools) { tool.diagram = val; }
     for (const tool of this._mouseUpTools) { tool.diagram = val; }
     for (const tool of this._mouseHoverTools) { tool.diagram = val; }
-    if (this._defaultTool) { this._defaultTool.diagram = val; }
+    if (this._defaultTool && this._defaultTool !== this) { this._defaultTool.diagram = val; }
     if (this._currentTool) { this._currentTool.diagram = val; }
     this._syncTools();
   }
@@ -265,107 +278,164 @@ export class ToolManager extends Tool {
 
   // ============ Event Dispatch Methods ============
 
-  /** Dispatch mouse-down event to the appropriate tool. */
+  /**
+   * 官方 ToolManager.doMouseDown（go.js 逐字）：
+   * 1. 遍历 mouseDownTools，canStart 的那个成为 currentTool 并激活；
+   * 2. 中键则切换 mouseWheelBehavior（Scroll ↔ Zoom）；
+   * 3. 否则 ToolManager 自己 doActivate()，把这次手势接管过来。
+   */
   doMouseDown(): void {
     const diagram = this.diagram;
     if (!diagram || !(diagram as any).isEnabled) return;
     this._syncTools();
 
-    // Save the previous input
+    const input = this._lastInput;
     this._previousInput = this._lastInput.copy();
+    this._mouseDownPoint = new Point(input.documentPoint.x, input.documentPoint.y);
 
-    // Store the mouse-down point
-    this._mouseDownPoint = new Point(this._lastInput.documentPoint.x, this._lastInput.documentPoint.y);
-
-    // If there is a current active tool, let it handle the event
-    if (this._currentTool && this._currentTool.isActive) {
-      this._currentTool.doMouseDown();
+    // 已有专用工具在跑 → 交给它
+    const cur = this._currentTool;
+    if (cur !== null && cur.isActive) {
+      cur.doMouseDown();
       return;
     }
 
-    // Try each mouse-down tool in order
     for (const tool of this._mouseDownTools) {
       if (!tool.isEnabled) continue;
       if (tool.canStart()) {
+        diagram.doFocus();
         this.currentTool = tool;
-        tool.doActivate();
-        tool.doMouseDown();
+        if (this._currentTool === tool) {
+          if (!tool.isActive) tool.doActivate();
+          if (this._currentTool === tool) tool.doMouseDown();
+        }
         return;
       }
     }
 
-    // No tool could start - use default tool
-    this.currentTool = this._defaultTool;
-    if (this._currentTool) {
-      this._currentTool.doMouseDown();
+    if (input.button === 1) {
+      this.mouseWheelBehavior = this.mouseWheelBehavior === WheelModeScroll
+        ? WheelModeZoom
+        : (this.mouseWheelBehavior === WheelModeZoom ? WheelModeScroll : this.mouseWheelBehavior);
     }
+
+    // 没有工具启动：ToolManager 接管本次手势（官方 this.doActivate()）
+    const stale = this._currentTool;
+    if (stale !== null) {
+      if (stale.isActive) stale.doDeactivate();
+      stale.cancelWaitAfter();
+      stale.doStop();
+    }
+    this._currentTool = null;
+    this.doActivate();
+    this.standardWaitAfter(this.holdDelay, input);
   }
 
-  /** Dispatch mouse-move event to the current tool. */
   doMouseMove(): void {
     const diagram = this.diagram;
     if (!diagram || !(diagram as any).isEnabled) return;
 
     this._previousInput = this._lastInput.copy();
 
-    if (this._currentTool) {
-      this._currentTool.doMouseMove();
+    const cur = this._currentTool;
+    if (cur !== null) {
+      // 专用工具（Dragging/Linking/...）激活时由它自己处理
+      if (cur.isActive) cur.doMouseMove();
+      return;
+    }
+
+    if (this.isActive) {
+      for (const tool of this._mouseMoveTools) {
+        if (!tool.isEnabled) continue;
+        if (tool.canStart()) {
+          diagram.doFocus();
+          this.currentTool = tool;
+          if (this._currentTool === tool) {
+            if (!tool.isActive) tool.doActivate();
+            if (this._currentTool === tool) tool.doMouseMove();
+          }
+          return;
+        }
+      }
+    }
+
+    // 空闲：标准悬停（cursor / mouseEnter / mouseLeave / mouseOver）
+    this.standardMouseOver();
+    if (this.isBeyondDragSize()) {
+      this.standardWaitAfter(this.isActive ? this.holdDelay : this.hoverDelay, this._lastInput);
+    } else {
+      this.cancelWaitAfter();
     }
   }
 
-  /** Dispatch mouse-up event to the current tool. */
   doMouseUp(): void {
     const diagram = this.diagram;
     if (!diagram || !(diagram as any).isEnabled) return;
     this._syncTools();
 
+    this.cancelWaitAfter();
     this._previousInput = this._lastInput.copy();
 
-    // If there is a current active tool, let it handle the event
-    if (this._currentTool && this._currentTool.isActive) {
-      this._currentTool.doMouseUp();
+    const cur = this._currentTool;
+    if (cur !== null) {
+      if (cur.isActive) cur.doMouseUp();
+      else this.currentTool = null;
       return;
     }
 
-    // Try each mouse-up tool in order
-    for (const tool of this._mouseUpTools) {
-      if (!tool.isEnabled) continue;
-      if (tool.canStart()) {
-        this.currentTool = tool;
-        tool.doActivate();
-        tool.doMouseUp();
-        return;
+    if (this.isActive) {
+      for (const tool of this._mouseUpTools) {
+        if (!tool.isEnabled) continue;
+        if (tool.canStart()) {
+          diagram.doFocus();
+          this.currentTool = tool;
+          if (this._currentTool === tool) {
+            if (!tool.isActive) tool.doActivate();
+            if (this._currentTool === tool) tool.doMouseUp();
+          }
+          return;
+        }
       }
+      this.doDeactivate();
     }
+  }
 
-    // No tool could start - use default tool
-    this.currentTool = this._defaultTool;
-    if (this._currentTool) {
-      this._currentTool.doMouseUp();
+  /** 官方 ToolManager.doWaitAfter —— 悬停延迟到点后触发 hover 与 tooltip。 */
+  doWaitAfter(t?: any): void {
+    const d = this.diagram;
+    if (!d) return;
+    const saved = d.lastInput;
+    if (t) d.lastInput = t;
+    this.doMouseHover();
+    if (!this.isActive) this.doToolTip();
+    if (t && t.isTouchEvent && !d.lastInput.handled) {
+      const s = t.copy();
+      s.button = 2;
+      d.lastInput = s;
+      this.doMouseUp();
     }
+    d.lastInput = saved;
   }
 
   /** Dispatch key-down event to the current tool. */
   doKeyDown(): void {
-    if (this._currentTool) {
-      this._currentTool.doKeyDown();
-    }
+    const cur = this._currentTool;
+    if (cur !== null) cur.doKeyDown();
+    else if (this.isActive) Tool.prototype.doKeyDown.call(this);
   }
 
   /** Dispatch key-up event to the current tool. */
   doKeyUp(): void {
-    if (this._currentTool) {
-      this._currentTool.doKeyUp();
-    }
+    const cur = this._currentTool;
+    if (cur !== null) cur.doKeyUp();
+    else if (this.isActive) Tool.prototype.doKeyUp.call(this);
   }
 
   /** Dispatch mouse-wheel event to the current tool. */
   doMouseWheel(): void {
-    if (this._currentTool && this._currentTool.isActive) {
-      this._currentTool.doMouseWheel();
-    } else {
-      this.standardMouseWheel();
-    }
+    const cur = this._currentTool;
+    if (cur !== null && cur.isActive) cur.doMouseWheel();
+    else this.standardMouseWheel();
   }
 
   /**
@@ -380,45 +450,76 @@ export class ToolManager extends Tool {
     });
   }
 
-  /** Standard mouse wheel: zoom in/out centered on mouse position. */
+  /**
+   * 官方 Tool.standardMouseWheel（go.js 逐字，含 mouseWheelBehavior 分支）：
+   *   WheelScroll(1) + ctrl  → 缩放；WheelZoom(2) + 非 shift → 缩放
+   *   WheelZoom(2) + shift   → 滚动；WheelScroll(1) + 非 ctrl → 滚动
+   * 以前无脑"ctrl 或小步长就缩放"，mouseWheelBehavior 形同虚设。
+   */
   standardMouseWheel(): void {
-    const diagram = this.diagram;
-    if (!diagram || !(diagram as any).allowZoom) return;
+    const d = this.diagram;
+    if (!d) return;
+    const i = this._lastInput;
+    let e = i.delta;
+    if (e === 0 || !d.documentBounds.isReal()) return;
+    const s = d.commandHandler;
+    const n = this.mouseWheelBehavior;
 
-    const e = this._lastInput;
-    if (!e || !e.nativeEvent) return;
-
-    const wheelEvent = e.nativeEvent as WheelEvent;
-    const delta = wheelEvent.deltaMode === 1 ? wheelEvent.deltaY * 40 : wheelEvent.deltaY;
-
-    if (wheelEvent.ctrlKey || Math.abs(delta) < 40) {
-      const oldScale = diagram.scale;
-      const factor = delta > 0 ? 0.9 : 1.1;
-      let newScale = oldScale * factor;
-      newScale = Math.max(diagram.minScale, Math.min(diagram.maxScale, newScale));
-
-      const viewPoint = new Point(e.viewPoint.x, e.viewPoint.y);
-      const padding = diagram.padding;
-      const mouseDocX = (viewPoint.x - padding.left) / oldScale + diagram.position.x;
-      const mouseDocY = (viewPoint.y - padding.top) / oldScale + diagram.position.y;
-
-      diagram.scale = newScale;
-      diagram.position = new Point(
-        mouseDocX - (viewPoint.x - padding.left) / newScale,
-        mouseDocY - (viewPoint.y - padding.top) / newScale
-      );
-    } else {
-      const scrollX = wheelEvent.shiftKey ? delta : 0;
-      const scrollY = wheelEvent.shiftKey ? 0 : delta;
-      if ((diagram as any).allowHorizontalScroll || (diagram as any).allowVerticalScroll) {
-        const pos = diagram.position;
-        diagram.position = new Point(
-          pos.x + scrollX / diagram.scale,
-          pos.y + scrollY / diagram.scale
-        );
+    if (s !== null && ((n === WheelModeZoom && !i.shift) || (n === WheelModeScroll && i.control))) {
+      if (e > 0 ? s.canIncreaseZoom() : s.canDecreaseZoom()) {
+        this._zoomAt(new Point(i.viewPoint.x, i.viewPoint.y), e > 0);
       }
+      i.bubbles = false;
+    } else if ((n === WheelModeZoom && i.shift) || (n === WheelModeScroll && !i.control)) {
+      const oldPos = d.position.copy();
+      const ne2: any = i.nativeEvent;
+      const mode = (ne2 && typeof ne2.deltaMode === 'number')
+        ? (ne2.deltaMode === 1 ? 'line' : (ne2.deltaMode === 2 ? 'page' : 'pixel'))
+        : 'pixel';
+      let h = (ne2 && typeof ne2.deltaX === 'number') ? ne2.deltaX : 0;
+      let a = (ne2 && typeof ne2.deltaY === 'number') ? ne2.deltaY : 0;
+      if ((h !== 0 || a !== 0) && !i.shift) {
+        const lh = d.scrollHorizontalLineChange;
+        const lv = d.scrollVerticalLineChange;
+        if (h !== 0 && d.allowHorizontalScroll) {
+          const v = h * (lh / 16);
+          d.scroll(mode, v > 0 ? 'right' : 'left', Math.abs(v));
+        }
+        if (a !== 0 && d.allowVerticalScroll) {
+          const v = a * (lv / 16);
+          d.scroll(mode, v > 0 ? 'down' : 'up', Math.abs(v));
+        }
+      } else if (!i.shift && d.allowVerticalScroll) {
+        const v = e * 3 * d.scrollVerticalLineChange;
+        d.scroll(mode, v > 0 ? 'up' : 'down', Math.abs(v));
+      } else if (i.shift && d.allowHorizontalScroll) {
+        const v = e * 3 * d.scrollHorizontalLineChange;
+        d.scroll(mode, v > 0 ? 'left' : 'right', Math.abs(v));
+      }
+      this.doWheelChange(oldPos, d.position, i);
     }
   }
+
+  /** 以 viewPoint 为锚点缩放（等价官方 `zoomPoint = viewPoint; increaseZoom()`）。 */
+  private _zoomAt(viewPoint: Point, up: boolean): void {
+    const d = this.diagram;
+    if (!d) return;
+    const zf = (d.commandHandler && (d.commandHandler as any).zoomFactor) || 1.05;
+    const f = up ? zf : 1 / zf;
+    const oldScale = d.scale;
+    let ns = oldScale * f;
+    ns = Math.max(d.minScale, Math.min(d.maxScale, ns));
+    if (ns === oldScale) return;
+    const doc = d.transformViewToDoc(new Point(viewPoint.x, viewPoint.y));
+    d.scale = ns;
+    const doc2 = d.transformViewToDoc(new Point(viewPoint.x, viewPoint.y));
+    d.position = new Point(
+      d.position.x + (doc.x - doc2.x),
+      d.position.y + (doc.y - doc2.y)
+    );
+  }
+
+  /** 官方 ToolManager.doMouseWheel = standardMouseWheel。 */
 
   // ============ 官方 ToolManager API 对齐（阶段 6） ============
 

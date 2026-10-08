@@ -65,11 +65,28 @@ export class InputEvent {
     ie.button = e.button;
     ie.timestamp = e.timeStamp;
     ie.clickCount = e.detail || 1;
-    ie.viewPoint = { x: e.offsetX, y: e.offsetY };
-    // 文档坐标需要通过 diagram 转换
-    if (diagram) {
-      const dp = diagram.transformViewToDoc({ x: e.offsetX, y: e.offsetY } as any);
-      ie.documentPoint = { x: dp.x, y: dp.y };
+    /**
+     * 官方 InputEvent.viewPoint = 客户端坐标减去 div 左上角。
+     * 以前直接用 `offsetX/offsetY` —— 但拖拽期间的 mousemove/mouseup 是挂在
+     * `document` 上的，`offsetX` 相对的是**光标下任意元素**（甚至在 canvas 外），
+     * 于是拖动过程中 documentPoint 乱跳、节点被甩到随机位置。
+     */
+    const host: HTMLElement | null = diagram && diagram.div ? diagram.div : null;
+    if (host && typeof (e as any).clientX === 'number') {
+      const r = host.getBoundingClientRect();
+      const vx = e.clientX - r.left;
+      const vy = e.clientY - r.top;
+      ie.viewPoint = { x: vx, y: vy };
+      if (diagram) {
+        const dp = diagram.transformViewToDoc({ x: vx, y: vy } as any);
+        ie.documentPoint = { x: dp.x, y: dp.y };
+      }
+    } else {
+      ie.viewPoint = { x: e.offsetX, y: e.offsetY };
+      if (diagram) {
+        const dp = diagram.transformViewToDoc({ x: e.offsetX, y: e.offsetY } as any);
+        ie.documentPoint = { x: dp.x, y: dp.y };
+      }
     }
     return ie;
   }
@@ -146,7 +163,7 @@ export class InputEvent {
    */
   get left(): boolean {
     const e: any = this.nativeEvent;
-    if (e !== null && (e.type === 'mouseup' || e.type === 'mousedown')) return this.button === 0;
+    if (e !== null && (e.type === 'mouseup' || e.type === 'mousedown' || e.type === 'pointerup' || e.type === 'pointerdown')) return this.button === 0;
     if (e !== null && typeof e.buttons === 'number') return (e.buttons & 1) === 1;
     return this.button === 0;
   }
@@ -163,4 +180,16 @@ export class InputEvent {
 
   /** 官方 InputEvent.up —— 逻辑主键是否处于抬起状态。 */
   public up: boolean = false;
+
+  /**
+   * 官方 InputEvent.isMultiTouch
+   * 是否为多点触控（两个及以上触点同时作用于图）。
+   */
+  get isMultiTouch(): boolean {
+    const e: any = this.nativeEvent;
+    if (e === null) return false;
+    if (typeof e.touches === 'object' && e.touches !== null && e.touches.length > 1) return true;
+    if (typeof e.targetTouches === 'object' && e.targetTouches !== null && e.targetTouches.length > 1) return true;
+    return false;
+  }
 }

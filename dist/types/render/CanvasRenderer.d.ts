@@ -39,7 +39,13 @@ export declare class CanvasRenderer {
     renderLink(link: Link): void;
     /** Render the main link path */
     private _renderLinkPath;
-    private _drawOrthogonalPathWithCorners;
+    /**
+     * 官方 `Link.f3()` 的拐角圆角：把正交点列改写成带「控制点落在拐点」的二次
+     * 贝塞尔圆角的折线（采样成折线点，便于 JumpGap/JumpOver 分支沿用）。
+     * 半径封顶语义与官方一致：`c = min(radius, |拐点-上一拐点|/2)`，
+     * 再 `min(c, |下一拐点-拐点|/2)`，`c < 0.5` 视作不圆角。
+     */
+    private _roundCorners;
     private _findCrossings;
     private _segmentIntersection;
     private _drawPathWithJumpOver;

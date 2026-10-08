@@ -40,13 +40,15 @@ export declare class Tool {
     set transactionResult(val: string | null);
     /** Whether this tool can start operating at the current input event. */
     canStart(): boolean;
+    /** 官方 Tool.canStartButton —— 当前输入是否为主键（左键）按下。 */
+    canStartButton(): boolean;
     /** Called when this tool becomes the current tool. */
     doActivate(): void;
     /** Cancel the tool's operation. */
     doCancel(): void;
     /** Called when this tool is no longer the current tool. */
     doDeactivate(): void;
-    /** Handle key-down events. */
+    /** Handle key-down events. 官方：Escape → doCancel。 */
     doKeyDown(): void;
     /** Handle key-up events. */
     doKeyUp(): void;
@@ -62,20 +64,31 @@ export declare class Tool {
     doStart(): void;
     /** Called when this tool stops. */
     doStop(): void;
-    /** Wait after a period of inactivity (e.g. for hover). */
-    doWaitAfter(): void;
     /** Whether multi-touch gestures can start this tool. */
     canStartMultiTouch(): boolean;
-    /** Cancel any pending wait-after timer. */
-    cancelWaitAfter(): void;
-    /** Find a tool handle at the given document point. */
-    findToolHandleAt(p: Point): any | null;
+    /**
+     * 官方 `Tool.findToolHandleAt(point, category)`：
+     * 取指下最上层对象，沿 `panel` 链走到"其 panel 是 Adornment"的对象（即句柄本身），
+     * 该 Adornment 的 category 必须等于给定 category（缺省用 `this.name`）。
+     * Adornment 层在本项目里是 temporary，`findPartAt` 会跳过，所以直接遍历该层做同样的判定。
+     */
+    findToolHandleAt(p: Point, category?: string): any | null;
+    /** 文档坐标命中测试：自上而下找最顶层元素（官方 Layer/Panel.findObjectAt 的遍历序） */
     private _findHandleInPanel;
-    /** Whether the distance between two points exceeds the drag threshold. */
-    isBeyondDragSize(first: Point, second: Point): boolean;
+    /**
+     * 官方 Tool.isBeyondDragSize(first?, second?)
+     * 默认比较 firstInput/lastInput 的 **viewPoint**，阈值取
+     * `toolManager.dragSize`（默认 2×2），触摸输入额外放宽 6。
+     */
+    isBeyondDragSize(first?: Point, second?: Point): boolean;
     /** Standard mouse click behavior: select and raise click event. */
     standardMouseClick(): void;
-    /** Standard mouse select behavior: select parts on click. */
+    /**
+     * 官方 Tool.standardMouseSelect（逐字对齐 go.js）：
+     * - !allowSelect → 直接返回
+     * - ctrl/meta → 切换选中；shift → 追加选中；否则 → 选中（已选中则不动作）
+     * - 指下无部件时，仅在"主键且无修饰键"时 clearSelection
+     */
     standardMouseSelect(): void;
     /** Standard mouse wheel behavior: zoom in/out. */
     standardMouseWheel(): void;
@@ -83,25 +96,21 @@ export declare class Tool {
     standardPinchZoomStart(): void;
     /** Standard pinch zoom move for multi-touch. */
     standardPinchZoomMove(): void;
-    /** Standard wait-after behavior: schedule a timer. */
-    standardWaitAfter(delay: number): void;
-    /** Start a new transaction. */
+    private _waitTimer;
+    standardWaitAfter(delay: number, input?: any): void;
+    cancelWaitAfter(): void;
+    doWaitAfter(_t?: any): void;
+    /** Start a new transaction. 官方会先把 transactionResult 置空。 */
     startTransaction(tname?: string): boolean;
-    /** Stop this tool and remove it from the ToolManager. */
+    /** Stop this tool and return to the default current tool. */
     stopTool(): void;
-    /** Stop the current transaction. */
+    /** 官方 Tool.stopTransaction —— 有 transactionResult 就 commit，否则 rollback。 */
     stopTransaction(): boolean;
     /** Update adornments for relevant parts. */
     updateAdornments(part: any): void;
     /** 上一次鼠标悬停的对象（用于 mouseEnter/mouseLeave/mouseOver 追踪）。 */
     private _overObject;
     toString(): string;
-    /**
-     * 官方 Tool.canStartButton
-     * 当前工具是否可因主键（左键）按下而启动。
-     * 官方使用 lastInput.left；本项目 InputEvent 提供 leftButton。
-     */
-    canStartButton(): boolean;
     /** 官方 Tool.doUpdateCursor —— 将图表面板光标重置为空。 */
     doUpdateCursor(t: any): void;
     /**

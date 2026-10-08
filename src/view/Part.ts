@@ -298,15 +298,21 @@ export class Part extends Panel {
           this._position = np;
           this._actualBounds.x = np.x;
           this._actualBounds.y = np.y;
+          // 官方 WE() 末尾：`this.t("position", n, i.copy())`
+          this.raiseChanged('position', pos.copy(), np.copy());
         } else {
           const off = this._locationOffset();
-          this._position = new Point(p.x - off.x, p.y - off.y);
-          this._actualBounds.x = this._position.x;
-          this._actualBounds.y = this._position.y;
+          const np2 = new Point(p.x - off.x, p.y - off.y);
+          this._position = np2;
+          this._actualBounds.x = np2.x;
+          this._actualBounds.y = np2.y;
+          this.raiseChanged('position', pos.copy(), np2.copy());
         }
       }
       this._syncGuard = false;
     }
+    // 官方 `Part.set location` 末尾：`this.t("location", s, t.copy())`
+    this.raiseChanged('location', old.copy(), p.copy());
     // 官方 Part.location setter 只有 t4（同步 position）+ raiseChanged，**没有**布局失效 ——
     // 早先在这里 invalidateLayout()（isOngoing 默认 true）让 _performLayout 的动画回写
     // （location=旧值）触发重排 → 重排又回写 → gantt 死循环元凶之二。
@@ -695,6 +701,8 @@ export class Part extends Panel {
 
   /** Add an adornment for the given category */
   addAdornment(category: string, ad: any): void {
+    // 官方 Part.addAdornment(category, ad) 会同步 ad.category
+    if (ad !== null && ad !== undefined) (ad as any).category = category;
     this._adornments.set(category, ad);
   }
 
@@ -1252,7 +1260,11 @@ export class Part extends Panel {
     if (this._isSelected && this._selectionAdorned) {
       if (this._adornments.get('Selection') === null) {
         const ad = this._createSelectionAdornment();
-        if (ad !== null) this.addAdornment('Selection', ad);
+        if (ad !== null) {
+          this.addAdornment('Selection', ad);
+          const lay = d.findLayer('Adornment');
+          if (lay && !(ad as any)._layer) lay.add(ad);
+        }
       }
     } else if (this._adornments.get('Selection') !== null) {
       this.removeAdornment('Selection');
@@ -1322,6 +1334,8 @@ export class Part extends Panel {
     copy._rotationSpot = this._rotationSpot.copy();
     copy._resizeCellSize = this._resizeCellSize.copy();
     copy._selectionObjectName = this._selectionObjectName;
+    copy._selectionAdorned = this._selectionAdorned;
+    copy._selectionAdornmentTemplate = this._selectionAdornmentTemplate;
     copy._resizeObjectName = this._resizeObjectName;
     copy._rotateObjectName = this._rotateObjectName;
     copy._resizeAdornmentTemplate = this._resizeAdornmentTemplate;

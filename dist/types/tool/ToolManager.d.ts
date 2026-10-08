@@ -28,6 +28,7 @@ export declare class ToolManager extends Tool {
     private _mouseMoveTools;
     private _mouseUpTools;
     private _mouseHoverTools;
+    /** null 表示"没有专用工具在跑，由 ToolManager 自己处理"（官方 = currentTool 为 toolManager） */
     private _currentTool;
     private _defaultTool;
     private _hoverDelay;
@@ -44,7 +45,11 @@ export declare class ToolManager extends Tool {
     set mouseUpTools(val: List<Tool> | Tool[] | Iterable<Tool>);
     get mouseHoverTools(): List<Tool>;
     set mouseHoverTools(val: List<Tool> | Tool[] | Iterable<Tool>);
-    get currentTool(): Tool | null;
+    /**
+     * 官方语义：Diagram.currentTool 初始 = defaultTool，而 defaultTool 初始 = toolManager。
+     * 这里 `_currentTool === null` 即"ToolManager 自己是当前工具"，getter 回落到 this。
+     */
+    get currentTool(): Tool;
     set currentTool(val: Tool | null);
     get defaultTool(): Tool;
     set defaultTool(val: Tool);
@@ -93,12 +98,17 @@ export declare class ToolManager extends Tool {
      * 在每次事件分发前统一补齐，避免 `this.diagram` 取到 null。
      */
     private _syncTools;
-    /** Dispatch mouse-down event to the appropriate tool. */
+    /**
+     * 官方 ToolManager.doMouseDown（go.js 逐字）：
+     * 1. 遍历 mouseDownTools，canStart 的那个成为 currentTool 并激活；
+     * 2. 中键则切换 mouseWheelBehavior（Scroll ↔ Zoom）；
+     * 3. 否则 ToolManager 自己 doActivate()，把这次手势接管过来。
+     */
     doMouseDown(): void;
-    /** Dispatch mouse-move event to the current tool. */
     doMouseMove(): void;
-    /** Dispatch mouse-up event to the current tool. */
     doMouseUp(): void;
+    /** 官方 ToolManager.doWaitAfter —— 悬停延迟到点后触发 hover 与 tooltip。 */
+    doWaitAfter(t?: any): void;
     /** Dispatch key-down event to the current tool. */
     doKeyDown(): void;
     /** Dispatch key-up event to the current tool. */
@@ -111,8 +121,16 @@ export declare class ToolManager extends Tool {
      *   `mouseDownTools.each(i => { i.isEnabled && i.updateAdornments(part) })`
      */
     updateAdornments(part: any): void;
-    /** Standard mouse wheel: zoom in/out centered on mouse position. */
+    /**
+     * 官方 Tool.standardMouseWheel（go.js 逐字，含 mouseWheelBehavior 分支）：
+     *   WheelScroll(1) + ctrl  → 缩放；WheelZoom(2) + 非 shift → 缩放
+     *   WheelZoom(2) + shift   → 滚动；WheelScroll(1) + 非 ctrl → 滚动
+     * 以前无脑"ctrl 或小步长就缩放"，mouseWheelBehavior 形同虚设。
+     */
     standardMouseWheel(): void;
+    /** 以 viewPoint 为锚点缩放（等价官方 `zoomPoint = viewPoint; increaseZoom()`）。 */
+    private _zoomAt;
+    /** 官方 ToolManager.doMouseWheel = standardMouseWheel。 */
     static WheelScroll: import("../core/EnumValues").EnumValue;
     static WheelZoom: import("../core/EnumValues").EnumValue;
     static WheelNone: import("../core/EnumValues").EnumValue;

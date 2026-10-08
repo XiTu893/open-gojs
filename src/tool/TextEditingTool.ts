@@ -30,12 +30,11 @@ export class TextEditingTool extends Tool {
 
   canStart(): boolean {
     const diagram = this.diagram;
-    if (!diagram || !this.isEnabled) return false;
-    if (!(diagram as any).allowTextEdit) return false;
+    if (diagram === null || !this.isEnabled) return false;
+    if (diagram.isReadOnly || !diagram.allowTextEdit || !this.canStartButton()) return false;
+    if (this.isBeyondDragSize()) return false;
 
-    const lastInput = (diagram as any).lastInput;
-    if (!lastInput) return false;
-    if (!lastInput.leftButton) return false;
+    const lastInput = diagram.lastInput;
     if (lastInput.clickCount < 2) return false;
 
     const point = new Point(lastInput.documentPoint.x, lastInput.documentPoint.y);

@@ -32,7 +32,11 @@ export class ActionTool extends Tool {
     if (!lastInput) return false;
 
     const point = new Point(lastInput.documentPoint.x, lastInput.documentPoint.y);
-    const obj = diagram.findObjectAt(point);
+    // 官方：从落点向上沿 panel 链找第一个 isActionable 的对象
+    let obj: any = diagram.findObjectAt(point);
+    while (obj !== null && !obj.isActionable) {
+      obj = obj.panel;
+    }
     if (obj && obj.isActionable) {
       this._actionableObject = obj;
       return true;

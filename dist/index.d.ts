@@ -4275,6 +4275,10 @@ declare class Link extends Part {
     private static _approx;
     /** 官方 `G.H`（近似等于 0） */
     private static _approxZero;
+    /** 官方 `G.G`（严格近似相等，|a-b| < 5e-8）——`Link.cT` 用它判定点重合/共线 */
+    private static _gG;
+    /** 官方 `G.c`（宽松近似相等，|a-b| < 0.5）——`Link.f3` 用它判定向量是否为正交 */
+    private static _gC;
     /** 官方 `Link.uA`：把 to 点沿主导方向推到无穷远处，用作正交方向参考 */
     private static _orthogonalize;
     /**
@@ -4567,6 +4571,20 @@ declare class Link extends Part {
      * 经官方坐标系（平移到 min、ref=min/0,0）化简后等价于对原始坐标直接缩短。
      */
     private _wcPoint;
+    /**
+     * 官方 `Link.cT(p, i, flag)`：从下标 i 起跳过与 p 重合、以及沿当前轴共线且单调的点，
+     * 返回下一个「拐点」的下标（不会小于 i）。
+     */
+    private _skipCollinear;
+    /** 官方 `Link.zn(fig, dx, dy, from, to, flag)` 的直线部分（跳过 Line 曲线的挖洞分支） */
+    private _addLine;
+    /**
+     * 官方 `Link.f3(fig, dx, dy, from, corner, after, out, prev, radius, flag)`：
+     * 画 `from→corner` 直线段，再在拐点处朝 `after` 方向做半径 `radius` 的圆角，
+     * 并把 `out` 更新为圆角终点（作为下一段的起点）。圆角是「控制点落在拐点」的二次贝塞尔。
+     * `from` 与 `out` 是同一个对象（官方即如此）。坐标均为未平移原始坐标，平移在内部施加。
+     */
+    private _addCornerSegment;
     /** 官方 `Link.makeGeometry()`（本项目无 Transform 矩阵，按点列构造折线/贝塞尔几何） */
     makeGeometry(): Geometry;
     /** 官方 `Link.adjustPoints(start, p1, end, p2)` */
@@ -5081,7 +5099,13 @@ declare class CanvasRenderer {
     renderLink(link: Link): void;
     /** Render the main link path */
     private _renderLinkPath;
-    private _drawOrthogonalPathWithCorners;
+    /**
+     * 官方 `Link.f3()` 的拐角圆角：把正交点列改写成带「控制点落在拐点」的二次
+     * 贝塞尔圆角的折线（采样成折线点，便于 JumpGap/JumpOver 分支沿用）。
+     * 半径封顶语义与官方一致：`c = min(radius, |拐点-上一拐点|/2)`，
+     * 再 `min(c, |下一拐点-拐点|/2)`，`c < 0.5` 视作不圆角。
+     */
+    private _roundCorners;
     private _findCrossings;
     private _segmentIntersection;
     private _drawPathWithJumpOver;
@@ -5226,6 +5250,11 @@ declare class InputEvent {
     down: boolean;
     /** 官方 InputEvent.up —— 逻辑主键是否处于抬起状态。 */
     up: boolean;
+    /**
+     * 官方 InputEvent.isMultiTouch
+     * 是否为多点触控（两个及以上触点同时作用于图）。
+     */
+    get isMultiTouch(): boolean;
 }
 
 declare class ClickSelectingTool extends Tool {
@@ -5233,6 +5262,12 @@ declare class ClickSelectingTool extends Tool {
     private _lastClickTime;
     private _lastClickObj;
     constructor();
+    /**
+     * 官方 ClickSelectingTool.canStart（go.js 逐字）：
+     *   return !(!this.isEnabled || this.isBeyondDragSize())
+     * 以前缺 isBeyondDragSize 判定；而 ClickSelectingTool 排在 mouseUpTools 末位，
+     * 拖拽后本不该再触发点选。
+     */
     canStart(): boolean;
     doMouseUp(): void;
     private _handleSingleClick;
@@ -5264,7 +5299,29 @@ declare class DraggingTool extends Tool {
     set draggedParts(val: Map$1<Part, Point> | null);
     mayCopy(): boolean;
     mayMove(): boolean;
+    /**
+     * 官方 DraggingTool.canStart（go.js 逐字）：
+     *   !isEnabled / (isReadOnly && !allowDragOut) / (!allowMove && !allowCopy &&
+     *   !allowDragOut) / !allowSelect / !canStartButton() → false
+     *   currentTool !== this 时要求 isBeyondDragSize()（触摸还要过 delay）
+     *   最后 findDraggablePart() !== null
+     * 以前缺 canStartButton + isBeyondDragSize + allowSelect 三条，而且 Dragging
+     * 被排在 mouseDownTools 里，于是"点一下不拖也算拖拽、点选永远轮不到"。
+     */
     canStart(): boolean;
+    /** 官方 DraggingTool.findDraggablePart —— 从 **firstInput** 落点找可拖部件。 */
+    findDraggablePart(): Part | null;
+    /**
+     * 官方 DraggingTool.standardMouseSelect：基于 **firstInput** 落点，
+     * 选中可拖部件并把它设为 currentPart（默认选区被清空成单选）。
+     */
+    standardMouseSelect(): void;
+    private _currentPart;
+    private _delay;
+    get currentPart(): Part | null;
+    set currentPart(val: Part | null);
+    get delay(): number;
+    set delay(val: number);
     doActivate(): void;
     doMouseMove(): void;
     doMouseUp(): void;
@@ -5293,6 +5350,15 @@ declare class DragSelectingTool extends Tool {
     get box(): Rect | null;
     set box(val: Rect | null);
     /** Can start if the user clicks in the background (no part). */
+    private _delay;
+    get delay(): number;
+    set delay(val: number);
+    /**
+     * 官方 DragSelectingTool.canStart（go.js 逐字）：
+     *   !allowSelect / !canStartButton() → false
+     *   currentTool !== this 时要求 isBeyondDragSize()、过 delay、指下无部件
+     * 以前缺 canStartButton 与 isBeyondDragSize，右键一按就开始框选。
+     */
     canStart(): boolean;
     /** Activate and start the box selection. */
     doActivate(): void;
@@ -5382,7 +5448,13 @@ declare class LinkingTool extends LinkingBaseTool {
     static readonly className: string;
     private _originalFromPort;
     constructor();
-    /** Can start if the user clicks on a fromLinkable port. */
+    /**
+     * 官方 LinkingBaseTool.canStart（go.js 逐字）：
+     *   isReadOnly / isModelReadOnly / !allowLink / !canStartButton()
+     *   currentTool !== this && !isBeyondDragSize() → false
+     *   最后 findLinkablePort() !== null（从 **firstInput** 落点找）
+     * Linking 在 mouseMoveTools 里，所以"按下不动"绝不会启动拉线。
+     */
     canStart(): boolean;
     /** Activate the linking tool. */
     doActivate(): void;
@@ -5514,7 +5586,13 @@ declare class PanningTool extends Tool {
     private _originalPosition;
     private _startPoint;
     constructor();
-    /** Can start if the user clicks on the background with no part. */
+    /**
+     * 官方 PanningTool.canStart（go.js 逐字）：
+     *   !(!allowHorizontalScroll && !allowVerticalScroll ||
+     *     !canStartButton() ||
+     *     (currentTool !== this && !isBeyondDragSize() && !isMultiTouch))
+     * 以前完全没有 button / dragSize 判定，右键或轻微点击也会被当成平移手势。
+     */
     canStart(): boolean;
     /** Activate the panning tool. */
     doActivate(): void;
@@ -5602,8 +5680,15 @@ declare class ContextMenuTool extends Tool {
     constructor();
     get currentContextMenu(): Adornment | null;
     set currentContextMenu(val: Adornment | null);
-    /** Can start if the user right-clicks. */
+    /**
+     * 官方 ContextMenuTool.canStart（go.js 逐字）：
+     *   isBeyondDragSize() || !lastInput.right || clickCount > 1 → false
+     *   否则看 touch 的 defaultTouchContextMenu 或 findObjectWithContextMenu()
+     * 注意它排在 mouseUpTools 首位，所以右键菜单在 mouseup 才弹。
+     */
     canStart(): boolean;
+    /** 官方 ContextMenuTool.findObjectWithContextMenu —— 沿 panel 链找 contextMenu。 */
+    findObjectWithContextMenu(): any | null;
     /** Show the context menu on mouse up (right-click). */
     doMouseUp(): void;
     /** Show the context menu at the given position. */
@@ -5625,7 +5710,14 @@ declare class ClickCreatingTool extends Tool {
     set archetypePartData(val: any);
     get isDoubleClick(): boolean;
     set isDoubleClick(val: boolean);
-    /** Can start if the user clicks in the background and archetype data is set. */
+    /**
+     * 官方 ClickCreatingTool.canStart（go.js 逐字）：
+     *   !isEnabled || archetypeNodeData === null → false
+     *   isReadOnly / isModelReadOnly / !allowInsert / !canStartButton() /
+     *   isBeyondDragSize() → false
+     *   clickCount 必须匹配 isDoubleClick 设置
+     *   最后 currentTool !== this && 指下有部件 → false
+     */
     canStart(): boolean;
     /** Create the part on mouse up. */
     doMouseUp(): void;
@@ -5664,6 +5756,7 @@ declare class ToolManager extends Tool {
     private _mouseMoveTools;
     private _mouseUpTools;
     private _mouseHoverTools;
+    /** null 表示"没有专用工具在跑，由 ToolManager 自己处理"（官方 = currentTool 为 toolManager） */
     private _currentTool;
     private _defaultTool;
     private _hoverDelay;
@@ -5680,7 +5773,11 @@ declare class ToolManager extends Tool {
     set mouseUpTools(val: List<Tool> | Tool[] | Iterable<Tool>);
     get mouseHoverTools(): List<Tool>;
     set mouseHoverTools(val: List<Tool> | Tool[] | Iterable<Tool>);
-    get currentTool(): Tool | null;
+    /**
+     * 官方语义：Diagram.currentTool 初始 = defaultTool，而 defaultTool 初始 = toolManager。
+     * 这里 `_currentTool === null` 即"ToolManager 自己是当前工具"，getter 回落到 this。
+     */
+    get currentTool(): Tool;
     set currentTool(val: Tool | null);
     get defaultTool(): Tool;
     set defaultTool(val: Tool);
@@ -5729,12 +5826,17 @@ declare class ToolManager extends Tool {
      * 在每次事件分发前统一补齐，避免 `this.diagram` 取到 null。
      */
     private _syncTools;
-    /** Dispatch mouse-down event to the appropriate tool. */
+    /**
+     * 官方 ToolManager.doMouseDown（go.js 逐字）：
+     * 1. 遍历 mouseDownTools，canStart 的那个成为 currentTool 并激活；
+     * 2. 中键则切换 mouseWheelBehavior（Scroll ↔ Zoom）；
+     * 3. 否则 ToolManager 自己 doActivate()，把这次手势接管过来。
+     */
     doMouseDown(): void;
-    /** Dispatch mouse-move event to the current tool. */
     doMouseMove(): void;
-    /** Dispatch mouse-up event to the current tool. */
     doMouseUp(): void;
+    /** 官方 ToolManager.doWaitAfter —— 悬停延迟到点后触发 hover 与 tooltip。 */
+    doWaitAfter(t?: any): void;
     /** Dispatch key-down event to the current tool. */
     doKeyDown(): void;
     /** Dispatch key-up event to the current tool. */
@@ -5747,8 +5849,16 @@ declare class ToolManager extends Tool {
      *   `mouseDownTools.each(i => { i.isEnabled && i.updateAdornments(part) })`
      */
     updateAdornments(part: any): void;
-    /** Standard mouse wheel: zoom in/out centered on mouse position. */
+    /**
+     * 官方 Tool.standardMouseWheel（go.js 逐字，含 mouseWheelBehavior 分支）：
+     *   WheelScroll(1) + ctrl  → 缩放；WheelZoom(2) + 非 shift → 缩放
+     *   WheelZoom(2) + shift   → 滚动；WheelScroll(1) + 非 ctrl → 滚动
+     * 以前无脑"ctrl 或小步长就缩放"，mouseWheelBehavior 形同虚设。
+     */
     standardMouseWheel(): void;
+    /** 以 viewPoint 为锚点缩放（等价官方 `zoomPoint = viewPoint; increaseZoom()`）。 */
+    private _zoomAt;
+    /** 官方 ToolManager.doMouseWheel = standardMouseWheel。 */
     static WheelScroll: EnumValue;
     static WheelZoom: EnumValue;
     static WheelNone: EnumValue;
@@ -6145,10 +6255,23 @@ declare class ThemeManager {
     private _applyTheme;
     findColor(colorName: string, themeName?: string): string;
     /**
-     * 官方 ThemeManager.findValue(key, path, targetProperty)：
-     * 先按目标属性查类别（stroke/fill→colors、font→fonts…），再在 currentTheme → defaultTheme 里取值。
+     * 官方 `ThemeManager.findValue(key, path, targetProperty)` =
+     * `getValue(themeMap.get(currentTheme), …) || getValue(themeMap.get(defaultTheme), …)`。
      */
-    findValue(sourceKey: string, path: string | null, targetProperty: string): any;
+    findValue(sourceKey: any, path: string | null, targetProperty: string): any;
+    /**
+     * 官方 `ThemeManager.getValue(theme, key, path, targetProperty)`：
+     *  1. 先把 `path` 解析到**主题根**上，再在结果里取 `key`；
+     *  2. 若得到 undefined 且 targetProperty 非空，则按目标属性取类别子对象
+     *     （fill/stroke→colors、font→fonts…，查不到就 colors），**在类别内**重新解析
+     *     `path`，再取 `key`。
+     * `key` 若是 number 且值是数组，按 `key % length` 取下标。
+     *
+     * 以前第 2 步整段没实现：`themeData('fill','portColor','ports')` 的 `path='ports'`
+     * 在主题根上找不到（实际在 `colors.ports`），于是返回 undefined、绑定被跳过，
+     * dynamicPorts 的端口全是默认黑色（官方是 4 种彩色）。
+     */
+    private static _getValue;
     /**
      * 官方 `Diagram.setDivBackground(color)`：把主题的 `colors.div` 写到 div 的
      * background-color 上。官方 `ThemeManager.changesDivBackground`（默认 true）
@@ -6191,6 +6314,8 @@ declare class Diagram {
     private _animationManager;
     private _themeManager;
     private _position;
+    /** 官方 set position 内部的嵌套夹取重入标志（Jt） */
+    private _isClampingPosition;
     private _scale;
     private _minScale;
     private _maxScale;
@@ -6395,6 +6520,7 @@ declare class Diagram {
     findNodesByExample(data: any): List<Node>;
     findLinksByExample(data: any): List<Link>;
     findPartAt(point: Point, selectableOnly?: boolean): Part | null;
+    /** 官方 Diagram.findObjectAt：逐层向下调 Layer.findObjectAt（**不过滤 temporary**，与 findPartAt 不同） */
     findObjectAt(point: Point): GraphObject | null;
     findNodeAt(point: Point): Node | null;
     select(part: Part | null): void;
@@ -6412,6 +6538,13 @@ declare class Diagram {
     transformDocToView(p: Point): Point;
     transformViewToDoc(p: Point): Point;
     requestUpdate(invalidate?: boolean): void;
+    /**
+     * 官方 `Diagram.J2(t,e)`：把一次布局整体包进 "Layout" 事务
+     * （`n === undoManager.transactionLevel` 为 0 时才开事务，嵌套布局不开）。
+     * 这条事务就是 UndoManager.history 的第一条 —— 探针实测官方 idle 时
+     * `history=["Layout"]`、`canUndo=true`，本项目此前恒 false。
+     */
+    private _runLayoutInTransaction;
     layoutDiagram(invalidate?: boolean): void;
     updateAllTargetBindings(propname?: string): void;
     /**
@@ -6535,8 +6668,10 @@ declare class Diagram {
     private _mouseHover;
     private _toolTip;
     get currentCursor(): string;
+    /** 官方 `set currentCursor(t)`: `t==="" && (t=this.defaultCursor)`，并写 div/canvas style */
     set currentCursor(val: string);
     get defaultCursor(): string;
+    /** 官方 `set defaultCursor(t)`: `t==="" && (t="auto")` */
     set defaultCursor(val: string);
     get skipsUndoManager(): boolean;
     set skipsUndoManager(val: boolean);
@@ -6678,9 +6813,21 @@ declare class Diagram {
      * 大图节点全在网格外标不上障碍。
      */
     computeOccupiedArea(place: Rect): Rect;
-    scrollHorizontalLineChange(value: number): void;
-    scrollVerticalLineChange(value: number): void;
-    scroll(): void;
+    /**
+     * 官方 `Diagram.scrollHorizontalLineChange`（数值属性，默认 16）。
+     * 以前这里是 `scrollHorizontalLineChange(value)` 方法，语义与官方完全不同。
+     */
+    private _scrollHorizontalLineChange;
+    get scrollHorizontalLineChange(): number;
+    set scrollHorizontalLineChange(value: number);
+    private _scrollVerticalLineChange;
+    get scrollVerticalLineChange(): number;
+    set scrollVerticalLineChange(value: number);
+    /**
+     * 官方 `Diagram.scroll(mode, dir, amount = 1)`（go.js 逐字）：
+     *   mode ∈ pixel | line | page | document
+     */
+    scroll(mode?: string, dir?: string, amount?: number): void;
     /**
      * 官方 setScrollWidth(elem?)（go.js @261040 逐字移植）：向 div 里塞
      * overflow hidden→scroll 的探针 p，量 `hidden.offsetWidth − scroll.offsetWidth`
@@ -6870,13 +7017,15 @@ declare class Tool {
     set transactionResult(val: string | null);
     /** Whether this tool can start operating at the current input event. */
     canStart(): boolean;
+    /** 官方 Tool.canStartButton —— 当前输入是否为主键（左键）按下。 */
+    canStartButton(): boolean;
     /** Called when this tool becomes the current tool. */
     doActivate(): void;
     /** Cancel the tool's operation. */
     doCancel(): void;
     /** Called when this tool is no longer the current tool. */
     doDeactivate(): void;
-    /** Handle key-down events. */
+    /** Handle key-down events. 官方：Escape → doCancel。 */
     doKeyDown(): void;
     /** Handle key-up events. */
     doKeyUp(): void;
@@ -6892,20 +7041,31 @@ declare class Tool {
     doStart(): void;
     /** Called when this tool stops. */
     doStop(): void;
-    /** Wait after a period of inactivity (e.g. for hover). */
-    doWaitAfter(): void;
     /** Whether multi-touch gestures can start this tool. */
     canStartMultiTouch(): boolean;
-    /** Cancel any pending wait-after timer. */
-    cancelWaitAfter(): void;
-    /** Find a tool handle at the given document point. */
-    findToolHandleAt(p: Point): any | null;
+    /**
+     * 官方 `Tool.findToolHandleAt(point, category)`：
+     * 取指下最上层对象，沿 `panel` 链走到"其 panel 是 Adornment"的对象（即句柄本身），
+     * 该 Adornment 的 category 必须等于给定 category（缺省用 `this.name`）。
+     * Adornment 层在本项目里是 temporary，`findPartAt` 会跳过，所以直接遍历该层做同样的判定。
+     */
+    findToolHandleAt(p: Point, category?: string): any | null;
+    /** 文档坐标命中测试：自上而下找最顶层元素（官方 Layer/Panel.findObjectAt 的遍历序） */
     private _findHandleInPanel;
-    /** Whether the distance between two points exceeds the drag threshold. */
-    isBeyondDragSize(first: Point, second: Point): boolean;
+    /**
+     * 官方 Tool.isBeyondDragSize(first?, second?)
+     * 默认比较 firstInput/lastInput 的 **viewPoint**，阈值取
+     * `toolManager.dragSize`（默认 2×2），触摸输入额外放宽 6。
+     */
+    isBeyondDragSize(first?: Point, second?: Point): boolean;
     /** Standard mouse click behavior: select and raise click event. */
     standardMouseClick(): void;
-    /** Standard mouse select behavior: select parts on click. */
+    /**
+     * 官方 Tool.standardMouseSelect（逐字对齐 go.js）：
+     * - !allowSelect → 直接返回
+     * - ctrl/meta → 切换选中；shift → 追加选中；否则 → 选中（已选中则不动作）
+     * - 指下无部件时，仅在"主键且无修饰键"时 clearSelection
+     */
     standardMouseSelect(): void;
     /** Standard mouse wheel behavior: zoom in/out. */
     standardMouseWheel(): void;
@@ -6913,25 +7073,21 @@ declare class Tool {
     standardPinchZoomStart(): void;
     /** Standard pinch zoom move for multi-touch. */
     standardPinchZoomMove(): void;
-    /** Standard wait-after behavior: schedule a timer. */
-    standardWaitAfter(delay: number): void;
-    /** Start a new transaction. */
+    private _waitTimer;
+    standardWaitAfter(delay: number, input?: any): void;
+    cancelWaitAfter(): void;
+    doWaitAfter(_t?: any): void;
+    /** Start a new transaction. 官方会先把 transactionResult 置空。 */
     startTransaction(tname?: string): boolean;
-    /** Stop this tool and remove it from the ToolManager. */
+    /** Stop this tool and return to the default current tool. */
     stopTool(): void;
-    /** Stop the current transaction. */
+    /** 官方 Tool.stopTransaction —— 有 transactionResult 就 commit，否则 rollback。 */
     stopTransaction(): boolean;
     /** Update adornments for relevant parts. */
     updateAdornments(part: any): void;
     /** 上一次鼠标悬停的对象（用于 mouseEnter/mouseLeave/mouseOver 追踪）。 */
     private _overObject;
     toString(): string;
-    /**
-     * 官方 Tool.canStartButton
-     * 当前工具是否可因主键（左键）按下而启动。
-     * 官方使用 lastInput.left；本项目 InputEvent 提供 leftButton。
-     */
-    canStartButton(): boolean;
     /** 官方 Tool.doUpdateCursor —— 将图表面板光标重置为空。 */
     doUpdateCursor(t: any): void;
     /**

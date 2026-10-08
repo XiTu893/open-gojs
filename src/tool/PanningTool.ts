@@ -16,17 +16,20 @@ export class PanningTool extends Tool {
     this.name = 'Panning';
   }
 
-  /** Can start if the user clicks on the background with no part. */
+  /**
+   * 官方 PanningTool.canStart（go.js 逐字）：
+   *   !(!allowHorizontalScroll && !allowVerticalScroll ||
+   *     !canStartButton() ||
+   *     (currentTool !== this && !isBeyondDragSize() && !isMultiTouch))
+   * 以前完全没有 button / dragSize 判定，右键或轻微点击也会被当成平移手势。
+   */
   canStart(): boolean {
     const diagram = this.diagram;
-    if (!diagram || !this.isEnabled) return false;
-
-    const lastInput = (diagram as any).lastInput;
-    if (!lastInput) return false;
-
-    // Check if the diagram allows scrolling
-    if (!(diagram as any).allowHorizontalScroll && !(diagram as any).allowVerticalScroll) return false;
-
+    if (diagram === null || !this.isEnabled) return false;
+    if (!diagram.allowHorizontalScroll && !diagram.allowVerticalScroll) return false;
+    if (!this.canStartButton()) return false;
+    if (this.toolManager && this.toolManager.currentTool !== this &&
+        !this.isBeyondDragSize() && !diagram.lastInput.isMultiTouch) return false;
     return true;
   }
 

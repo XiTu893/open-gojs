@@ -234,6 +234,18 @@ export class Link extends Part {
     return Math.abs(a) < 1e-7;
   }
 
+  /** 官方 `G.G`（严格近似相等，|a-b| < 5e-8）——`Link.cT` 用它判定点重合/共线 */
+  private static _gG(a: number, b: number): boolean {
+    const d = a - b;
+    return d < 5e-8 && d > -5e-8;
+  }
+
+  /** 官方 `G.c`（宽松近似相等，|a-b| < 0.5）——`Link.f3` 用它判定向量是否为正交 */
+  private static _gC(a: number, b: number): boolean {
+    const d = a - b;
+    return d < 0.5 && d > -0.5;
+  }
+
   /** 官方 `Link.uA`：把 to 点沿主导方向推到无穷远处，用作正交方向参考 */
   private static _orthogonalize(from: Point, to: Point): void {
     if (Math.abs(to.x - from.x) > Math.abs(to.y - from.y)) {
@@ -1966,6 +1978,85 @@ export class Link extends Part {
     t.y += (a * dy) / len;
   }
 
+  /**
+   * 官方 `Link.cT(p, i, flag)`：从下标 i 起跳过与 p 重合、以及沿当前轴共线且单调的点，
+   * 返回下一个「拐点」的下标（不会小于 i）。
+   */
+  private _skipCollinear(p: Point, i: number, flag: boolean): number {
+    const s = this.pointsCount;
+    let e = i;
+    let n = p; // 官方 n 先取 p 自身，保证第一圈必进
+    while (Link._gG(p.x, n.x) && Link._gG(p.y, n.y)) {
+      if (e >= s) return s - 1;
+      n = this.getPoint(e++);
+    }
+    if (!Link._gG(p.x, n.x) && !Link._gG(p.y, n.y)) return e - 1;
+    let o = n;
+    while (
+      (Link._gG(p.x, n.x) && Link._gG(n.x, o.x) &&
+        (!flag || (p.y >= n.y ? n.y >= o.y : n.y <= o.y))) ||
+      (Link._gG(p.y, n.y) && Link._gG(n.y, o.y) &&
+        (!flag || (p.x >= n.x ? n.x >= o.x : n.x <= o.x)))
+    ) {
+      if (e >= s) return s - 1;
+      o = this.getPoint(e++);
+    }
+    return e - 2;
+  }
+
+  /** 官方 `Link.zn(fig, dx, dy, from, to, flag)` 的直线部分（跳过 Line 曲线的挖洞分支） */
+  private _addLine(fig: PathFigure, dx: number, dy: number, to: Point): void {
+    fig.add(PathSegment.Line(to.x + dx, to.y + dy));
+  }
+
+  /**
+   * 官方 `Link.f3(fig, dx, dy, from, corner, after, out, prev, radius, flag)`：
+   * 画 `from→corner` 直线段，再在拐点处朝 `after` 方向做半径 `radius` 的圆角，
+   * 并把 `out` 更新为圆角终点（作为下一段的起点）。圆角是「控制点落在拐点」的二次贝塞尔。
+   * `from` 与 `out` 是同一个对象（官方即如此）。坐标均为未平移原始坐标，平移在内部施加。
+   */
+  private _addCornerSegment(
+    fig: PathFigure, dx: number, dy: number,
+    s: Point, n: Point, o: Point, r: Point, l: Point, a: number,
+  ): void {
+    if (Link._gC(s.y, n.y) && Link._gC(n.x, o.x)) {
+      // 水平段 → 垂直段
+      let c = Math.min(a, Math.abs(n.x - l.x) / 2);
+      const f = Math.min(c, Math.abs(o.y - n.y) / 2);
+      c = f;
+      if (Link._gC(c, 0)) { this._addLine(fig, dx, dy, n); r.set(n); return; }
+      let u = n.x;
+      const d = n.y;
+      let m = u;
+      let g = d;
+      if (n.x > s.x) u = n.x - c;
+      else u = n.x + c;
+      g = o.y > n.y ? n.y + f : n.y - f;
+      this._addLine(fig, dx, dy, new Point(u, d));
+      fig.add(PathSegment.QuadraticBezier(m + dx, g + dy, n.x + dx, n.y + dy));
+      r.setTo(m, g);
+    } else if (Link._gC(s.x, n.x) && Link._gC(n.y, o.y)) {
+      // 垂直段 → 水平段
+      let c = Math.min(a, Math.abs(n.y - l.y) / 2);
+      const f = Math.min(c, Math.abs(o.x - n.x) / 2);
+      c = f;
+      if (Link._gC(c, 0)) { this._addLine(fig, dx, dy, n); r.set(n); return; }
+      const u = n.x;
+      let d = n.y;
+      let m = u;
+      const g = d;
+      if (n.y > s.y) d = n.y - c;
+      else d = n.y + c;
+      m = o.x > n.x ? n.x + f : n.x - f;
+      this._addLine(fig, dx, dy, new Point(u, d));
+      fig.add(PathSegment.QuadraticBezier(m + dx, g + dy, n.x + dx, n.y + dy));
+      r.setTo(m, g);
+    } else {
+      this._addLine(fig, dx, dy, n);
+      r.set(n);
+    }
+  }
+
   /** 官方 `Link.makeGeometry()`（本项目无 Transform 矩阵，按点列构造折线/贝塞尔几何） */
   makeGeometry(): Geometry {
     const n = this.pointsCount;
@@ -2044,12 +2135,46 @@ export class Link extends Part {
           fig.add(PathSegment.Line(p.x, p.y));
         }
       }
-    } else {
-      for (let i = 1; i < n; i++) {
-        const p = at(i);
-        fig.add(PathSegment.Line(p.x, p.y));
+      } else {
+        // 官方 `isOrthogonal || e===2` 分支：用 cT 跳过共线点，并在拐点处按
+        // `computeCorner()` 做圆角（控制点落在拐点的二次贝塞尔）。
+        // f=当前点、d=上一拐点、u=当前拐点，都是未平移的原始坐标，平移在内部以 -nx,-ny 施加。
+        if (this.isOrthogonal && n > 2) {
+          const f = pts.elt(0).copy();
+          const d = f.copy();
+          const u = new Point();
+          const radius = this.computeCorner();
+          let g = 1;
+          let q = 0;
+          for (; g < n; ) {
+            g = this._skipCollinear(f, g, g > 1);
+            u.set(pts.elt(g));
+            if (g >= n - 1) {
+              if (!f.equals(u)) {
+                if (this.computeShortLength(false) !== 0) this._wcPoint(u, false);
+                this._addLine(fig, -nx, -ny, u);
+              } else if (q === 0) {
+                for (g = 1; g < n; ) {
+                  d.set(f);
+                  u.set(pts.elt(g++));
+                  this._addLine(fig, -nx, -ny, u);
+                  f.set(u);
+                }
+              }
+              break;
+            }
+            q = this._skipCollinear(u, g + 1, g < n - 3);
+            this._addCornerSegment(fig, -nx, -ny, f, u, pts.elt(q), f, d, radius);
+            d.set(u);
+            g = q;
+          }
+        } else {
+          for (let i = 1; i < n; i++) {
+            const p = at(i);
+            fig.add(PathSegment.Line(p.x, p.y));
+          }
+        }
       }
-    }
     geo.add(fig);
     return geo;
   }

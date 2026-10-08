@@ -152,30 +152,58 @@ set(themeName: string, themeData: any): this {
   }
 
   /**
-   * 官方 ThemeManager.findValue(key, path, targetProperty)：
-   * 先按目标属性查类别（stroke/fill→colors、font→fonts…），再在 currentTheme → defaultTheme 里取值。
+   * 官方 `ThemeManager.findValue(key, path, targetProperty)` =
+   * `getValue(themeMap.get(currentTheme), …) || getValue(themeMap.get(defaultTheme), …)`。
    */
-  findValue(sourceKey: string, path: string | null, targetProperty: string): any {
-    const cat = ThemeManager._categoryOf(targetProperty);
-    const names = this._currentTheme === this._defaultTheme
-      ? [this._currentTheme]
-      : [this._currentTheme, this._defaultTheme];
-    for (const name of names) {
-      const theme = this._themes.get(name);
-      if (!theme) continue;
-      let scope: any = theme;
-      if (path) {
-        for (const p of path.split('.')) {
-          scope = scope ? scope[p] : undefined;
+  findValue(sourceKey: any, path: string | null, targetProperty: string): any {
+    return ThemeManager._getValue(this.findTheme(this._currentTheme), sourceKey, path, targetProperty)
+      || ThemeManager._getValue(this.findTheme(this._defaultTheme), sourceKey, path, targetProperty);
+  }
+
+  /**
+   * 官方 `ThemeManager.getValue(theme, key, path, targetProperty)`：
+   *  1. 先把 `path` 解析到**主题根**上，再在结果里取 `key`；
+   *  2. 若得到 undefined 且 targetProperty 非空，则按目标属性取类别子对象
+   *     （fill/stroke→colors、font→fonts…，查不到就 colors），**在类别内**重新解析
+   *     `path`，再取 `key`。
+   * `key` 若是 number 且值是数组，按 `key % length` 取下标。
+   *
+   * 以前第 2 步整段没实现：`themeData('fill','portColor','ports')` 的 `path='ports'`
+   * 在主题根上找不到（实际在 `colors.ports`），于是返回 undefined、绑定被跳过，
+   * dynamicPorts 的端口全是默认黑色（官方是 4 种彩色）。
+   */
+  private static _getValue(theme: any, key: any, path: string | null, targetProperty: string): any {
+    if (!theme) return undefined;
+    const p = path === null || path === undefined ? '' : path;
+    let n: any = theme;
+    /** 官方 `o(l)`：在当前 n 上解析 l；点号串/数组会**改写 n**，单段则只读 */
+    const resolve = (l: any): any => {
+      if (n === undefined || n === null || l === '' || l === null || l === undefined) return undefined;
+      if (typeof l === 'number' || !(Array.isArray(l) || String(l).indexOf('.') >= 0)) return n[l];
+      const a: string[] = Array.isArray(l) ? l : String(l).split('.');
+      for (let h = 0; h < a.length; h++) {
+        const c = a[h];
+        if (c !== '') {
+          n = n[c];
+          if (n === undefined) return undefined;
         }
-        if (scope === undefined || scope === null) continue;
-      } else {
-        scope = cat && theme[cat] !== undefined ? theme[cat] : theme;
       }
-      if (scope && typeof scope === 'object') {
-        const v = scope[sourceKey];
-        if (v !== undefined) return v;
+      return n;
+    };
+    /** 官方 `r()`：先解析 path（若有），再取 key（数组 + 数字 key → 下标） */
+    const resolveKey = (): any => {
+      if (p !== '') {
+        n = resolve(p);
+        if (n === undefined) return undefined;
       }
+      n = Array.isArray(n) && typeof key === 'number' ? n[key % n.length] : resolve(key);
+      return n;
+    };
+    if ((n = resolveKey(), n !== undefined)) return n;
+    if (typeof targetProperty === 'string' && targetProperty.length > 0) {
+      const cat = ThemeManager._categoryOf(targetProperty) || 'colors';
+      n = theme[cat] !== undefined ? theme[cat] : theme.colors;
+      if ((n = resolveKey(), n !== undefined)) return n;
     }
     return undefined;
   }

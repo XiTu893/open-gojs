@@ -55,6 +55,8 @@ export declare class Diagram {
     private _animationManager;
     private _themeManager;
     private _position;
+    /** 官方 set position 内部的嵌套夹取重入标志（Jt） */
+    private _isClampingPosition;
     private _scale;
     private _minScale;
     private _maxScale;
@@ -259,6 +261,7 @@ export declare class Diagram {
     findNodesByExample(data: any): List<Node>;
     findLinksByExample(data: any): List<Link>;
     findPartAt(point: Point, selectableOnly?: boolean): Part | null;
+    /** 官方 Diagram.findObjectAt：逐层向下调 Layer.findObjectAt（**不过滤 temporary**，与 findPartAt 不同） */
     findObjectAt(point: Point): GraphObject | null;
     findNodeAt(point: Point): Node | null;
     select(part: Part | null): void;
@@ -276,6 +279,13 @@ export declare class Diagram {
     transformDocToView(p: Point): Point;
     transformViewToDoc(p: Point): Point;
     requestUpdate(invalidate?: boolean): void;
+    /**
+     * 官方 `Diagram.J2(t,e)`：把一次布局整体包进 "Layout" 事务
+     * （`n === undoManager.transactionLevel` 为 0 时才开事务，嵌套布局不开）。
+     * 这条事务就是 UndoManager.history 的第一条 —— 探针实测官方 idle 时
+     * `history=["Layout"]`、`canUndo=true`，本项目此前恒 false。
+     */
+    private _runLayoutInTransaction;
     layoutDiagram(invalidate?: boolean): void;
     updateAllTargetBindings(propname?: string): void;
     /**
@@ -399,8 +409,10 @@ export declare class Diagram {
     private _mouseHover;
     private _toolTip;
     get currentCursor(): string;
+    /** 官方 `set currentCursor(t)`: `t==="" && (t=this.defaultCursor)`，并写 div/canvas style */
     set currentCursor(val: string);
     get defaultCursor(): string;
+    /** 官方 `set defaultCursor(t)`: `t==="" && (t="auto")` */
     set defaultCursor(val: string);
     get skipsUndoManager(): boolean;
     set skipsUndoManager(val: boolean);
@@ -542,9 +554,21 @@ export declare class Diagram {
      * 大图节点全在网格外标不上障碍。
      */
     computeOccupiedArea(place: Rect): Rect;
-    scrollHorizontalLineChange(value: number): void;
-    scrollVerticalLineChange(value: number): void;
-    scroll(): void;
+    /**
+     * 官方 `Diagram.scrollHorizontalLineChange`（数值属性，默认 16）。
+     * 以前这里是 `scrollHorizontalLineChange(value)` 方法，语义与官方完全不同。
+     */
+    private _scrollHorizontalLineChange;
+    get scrollHorizontalLineChange(): number;
+    set scrollHorizontalLineChange(value: number);
+    private _scrollVerticalLineChange;
+    get scrollVerticalLineChange(): number;
+    set scrollVerticalLineChange(value: number);
+    /**
+     * 官方 `Diagram.scroll(mode, dir, amount = 1)`（go.js 逐字）：
+     *   mode ∈ pixel | line | page | document
+     */
+    scroll(mode?: string, dir?: string, amount?: number): void;
     /**
      * 官方 setScrollWidth(elem?)（go.js @261040 逐字移植）：向 div 里塞
      * overflow hidden→scroll 的探针 p，量 `hidden.offsetWidth − scroll.offsetWidth`

@@ -110,6 +110,8 @@ export class Diagram {
   private _themeManager: ThemeManager;
 
   private _position: Point = Point.Zero.copy();
+  /** 官方 set position 内部的嵌套夹取重入标志（Jt） */
+  private _isClampingPosition: boolean = false;
   private _scale: number = 1;
   // 官方 Mb/Cb 默认（ctor @254692）：minScale=1e-4、maxScale=100
   private _minScale: number = 1e-4;
@@ -396,6 +398,13 @@ export class Diagram {
   set position(val: Point) {
     if (this._position.equals(val)) return;
     this._position = val.copy();
+    // 官方 `set position` 尾部：未在嵌套夹取中且(div 存在或 documentBounds 已成形)时
+    // 立刻 H2/clampViewportPosition —— 否则滚轮能把 position 拖出文档范围(实测 flowchart)。
+    if (!this._isClampingPosition && (this._div !== null || this.documentBounds.isReal())) {
+      this._isClampingPosition = true;
+      this._clampViewportPosition(this.documentBounds, this.viewSize.width / this._scale, this.viewSize.height / this._scale, this._contentAlignment);
+      this._isClampingPosition = false;
+    }
     this._raiseDiagramEvent('ViewportChanged');
     this.requestUpdate();
   }
@@ -884,12 +893,13 @@ export class Diagram {
     return null;
   }
 
+  /** 官方 Diagram.findObjectAt：逐层向下调 Layer.findObjectAt（**不过滤 temporary**，与 findPartAt 不同） */
   findObjectAt(point: Point): GraphObject | null {
-    const part = this.findPartAt(point);
-    if (part) {
-      const loc = part.location;
-      const localPoint = new Point(point.x - loc.x, point.y - loc.y);
-      return this._findObjectInPanel(part, localPoint);
+    for (let i = this._layers.length - 1; i >= 0; i--) {
+      const layer = this._layers[i];
+      if (!layer.visible) continue;
+      const hit = layer.findObjectAt(point);
+      if (hit !== null) return hit;
     }
     return null;
   }
@@ -1010,17 +1020,20 @@ export class Diagram {
 
   // ============ Coordinate Conversion ============
 
+  // 官方 transformDocToView = `p.T(this.T)`，T 只有 translate(-position)+scale，
+  // **不含 padding**（padding 只参与 documentBounds/viewportBounds）。早先掺进 padding
+  // 会让所有鼠标 documentPoint 偏移 5 文档单位（探针实测 flowchart 全量偏移）。
   transformDocToView(p: Point): Point {
     return new Point(
-      (p.x - this._position.x) * this._scale + this._padding.left,
-      (p.y - this._position.y) * this._scale + this._padding.top
+      (p.x - this._position.x) * this._scale,
+      (p.y - this._position.y) * this._scale
     );
   }
 
   transformViewToDoc(p: Point): Point {
     return new Point(
-      (p.x - this._padding.left) / this._scale + this._position.x,
-      (p.y - this._padding.top) / this._scale + this._position.y
+      p.x / this._scale + this._position.x,
+      p.y / this._scale + this._position.y
     );
   }
 
@@ -1031,6 +1044,23 @@ export class Diagram {
     if (!this._needsRender) {
       this._needsRender = true;
       this._animationFrameId = requestAnimationFrame(() => this._renderLoop());
+    }
+  }
+
+  /**
+   * 官方 `Diagram.J2(t,e)`：把一次布局整体包进 "Layout" 事务
+   * （`n === undoManager.transactionLevel` 为 0 时才开事务，嵌套布局不开）。
+   * 这条事务就是 UndoManager.history 的第一条 —— 探针实测官方 idle 时
+   * `history=["Layout"]`、`canUndo=true`，本项目此前恒 false。
+   */
+  private _runLayoutInTransaction(fn: () => void): void {
+    const um: any = this._model ? (this._model as any).undoManager : null;
+    const nested: number = um ? um.transactionLevel : 1;
+    if (nested === 0) this.startTransaction('Layout');
+    try {
+      fn();
+    } finally {
+      if (nested === 0) this.commitTransaction('Layout');
     }
   }
 
@@ -1045,7 +1075,7 @@ export class Diagram {
         if (gl) gl.isValidLayout = false;
       }
     }
-    this._performLayout();
+    this._runLayoutInTransaction(() => this._performLayout());
     this._layoutInvalid = false;
     this.requestUpdate(invalidate);
   }
@@ -2003,6 +2033,19 @@ export class Diagram {
     // 官方语义：model 非空时 diagram 为空
     if (!e.model) e.model = this._model;
     if (!e.model) e.diagram = this;
+    // 官方 `Diagram.iC(t)`：`!skipsUndoManager && !model.skipsUndoManager`
+    // && `model.undoManager.handleChanged(t)` —— 这是 Part/GraphObject 层变更
+    // （位置、选中、文本……）进入 UndoManager 的**唯一**入口。此前缺失，导致
+    // 事务（layout / Move）永远是空事务，canUndo 恒 false（探针实测）。
+    // Model 层变更已在 Model.raiseChangedEvent 里记过账，这里跳过避免重复。
+    if (
+      !e.isModelChange &&
+      !this._skipsUndoManager &&
+      this._model !== null &&
+      !this._model.skipsUndoManager
+    ) {
+      this._model.undoManager.handleChanged(e);
+    }
     for (const listener of this._changedListeners) {
       listener(e);
     }
@@ -2052,7 +2095,7 @@ export class Diagram {
     this._checkResize();
 
     if (this._layoutInvalid) {
-      this._performLayout();
+      this._runLayoutInTransaction(() => this._performLayout());
       // 布局期间发生的级联失效不再触发新一轮（对齐官方：单次 layoutDiagram 通过）
       this._layoutInvalid = false;
     } else if (this._invalidRoutes.count > 0) {
@@ -2527,50 +2570,128 @@ export class Diagram {
     const canvas = this._renderer ? this._renderer.canvas : null;
     const target = canvas || this._div;
 
-    target.addEventListener('mousedown', (e: any) => {
-      if (e.button !== 0 && e.button !== 2) return;
-      this.focus();
+    /** 本次 mousedown 手势是否仍在进行（用于区分"拖拽手势"与"悬停"） */
+    let gestureActive = false;
 
+    const dispatchDown = (e: any) => {
       const inputEvent = InputEvent.fromMouseEvent(e, this);
       inputEvent.eventType = 'mousedown';
+      inputEvent.down = true;
+      if (e.button === 2) inputEvent.isContextMenu = true;
       this._toolManager.lastInput = inputEvent;
+      this._firstInput = inputEvent.copy();
       this._toolManager.doMouseDown();
+    };
 
-      if (e.button === 2) {
-        inputEvent.isContextMenu = true;
-      }
+    const dispatchMove = (e: MouseEvent) => {
+      const moveEvent = InputEvent.fromMouseEvent(e, this);
+      moveEvent.eventType = 'mousemove';
+      this._toolManager.lastInput = moveEvent;
+      this._toolManager.doMouseMove();
+    };
 
-      const onMove = (ev: MouseEvent) => {
-        const moveEvent = InputEvent.fromMouseEvent(ev, this);
-        moveEvent.eventType = 'mousemove';
-        this._toolManager.lastInput = moveEvent;
-        this._toolManager.doMouseMove();
-      };
+    const dispatchUp = (e: MouseEvent) => {
+      if (!gestureActive) return;
+      gestureActive = false;
+      document.removeEventListener('pointermove', dispatchMove, true);
+      document.removeEventListener('pointerup', dispatchUp, true);
+      document.removeEventListener('pointercancel', dispatchUp, true);
+      const upEvent = InputEvent.fromMouseEvent(e, this);
+      upEvent.eventType = 'mouseup';
+      upEvent.up = true;
+      this._toolManager.lastInput = upEvent;
+      this._toolManager.doMouseUp();
+    };
 
-      const onUp = (ev: MouseEvent) => {
-        document.removeEventListener('mousemove', onMove);
-        document.removeEventListener('mouseup', onUp);
+    /**
+     * 官方 `Diagram.IO()` 只注册**指针事件**：
+     *   pointerdown / pointermove / pointerup / pointerout / pointercancel /
+     *   pointerenter / pointerleave / wheel / keydown / keyup / blur / focus /
+     *   selectstart / contextmenu（+ window resize）
+     * 这不只是命名问题：**pointer 事件的 `clientX` 是浮点**，而 mouse 事件被截成整数。
+     * 实测同一坐标 pointermove.clientX=182.9106903、mousemove.clientX=182，
+     * 于是用 mouse 事件算出的 viewPoint 恒差 0.8px（探针 fi/li 全量偏移的根因）。
+     * 拖拽期间改挂 document 捕获监听（等价于官方 isMouseCaptured 的 root 捕获）。
+     */
+    const onDown = (e: any) => {
+      // 官方对左/中/右三个键都派发（中键稍后被 ToolManager 用来切换滚轮模式）
+      if (e.button !== 0 && e.button !== 1 && e.button !== 2) return;
+      if (gestureActive) return;
+      this.focus();
 
-        const upEvent = InputEvent.fromMouseEvent(ev, this);
-        upEvent.eventType = 'mouseup';
-        this._toolManager.lastInput = upEvent;
-        this._toolManager.doMouseUp();
-      };
+      gestureActive = true;
+      dispatchDown(e);
+      if (e.button === 1) e.preventDefault();
 
-      document.addEventListener('mousemove', onMove);
-      document.addEventListener('mouseup', onUp);
+      document.addEventListener('pointermove', dispatchMove, true);
+      document.addEventListener('pointerup', dispatchUp, true);
+      document.addEventListener('pointercancel', dispatchUp, true);
+    };
+
+    /**
+     * 常驻悬停派发：官方 canvas 上永远挂着 pointermove，即使没有按住鼠标，
+     * mouseHover/cursor/tooltip 也要能更新。有手势时交给 document 捕获监听器，
+     * 这里直接跳过以避免同一次移动派发两次。
+     */
+    target.addEventListener('pointerdown', onDown);
+
+    target.addEventListener('pointermove', (e: any) => {
+      if (gestureActive) return;
+      dispatchMove(e);
     });
+
+    /**
+     * 官方 `Diagram.UO`（pointerleave）/ pointerout：`kd(t, true)` 会**从离开边界
+     * 的原生事件重算 viewPoint/documentPoint** 并落到 lastInput 上。
+     * 实测：探针从节点中心移到画布外的空地点，官方 `li` 变成
+     * `[-18.9,-25.7,-347,-68.1]` —— 正好是光标轨迹与画布左边界交点
+     * （clientX=72.89, clientY=-25.66）；本项目此前不处理 out/leave，
+     * lastInput 停在上一次点击 → 探针 `li.clickBg` 恒不匹配。
+     */
+    const dispatchLeave = (e: any) => {
+      if (gestureActive) return;
+      const leaveEvent = InputEvent.fromMouseEvent(e, this);
+      leaveEvent.eventType = e.type;
+      this._toolManager.lastInput = leaveEvent;
+      this._toolManager.cancelWaitAfter();
+    };
+    target.addEventListener('pointerout', dispatchLeave);
+    target.addEventListener('pointerleave', dispatchLeave);
 
     target.addEventListener('wheel', (e: any) => {
       e.preventDefault();
 
       const inputEvent = InputEvent.fromMouseEvent(e, this);
       inputEvent.eventType = 'wheel';
+      // 官方 InputEvent.delta：有 deltaX/deltaY 时取绝对值较大的那个（带方向）
+      const de: any = e;
+      if (typeof de.deltaY === 'number' && de.deltaY !== 0) {
+        const dx = typeof de.deltaX === 'number' ? de.deltaX : 0;
+        const d = Math.abs(de.deltaX) > Math.abs(de.deltaY) ? -Math.sign(dx) : -Math.sign(de.deltaY);
+        inputEvent.delta = d;
+      } else if (typeof de.deltaX === 'number' && de.deltaX !== 0) {
+        inputEvent.delta = -Math.sign(de.deltaX);
+      }
       this._toolManager.lastInput = inputEvent;
       this._toolManager.doMouseWheel();
+      // 官方滚轮事件的 `documentPoint` 是**滚动之后**的值（探针实测
+      // wheel 后 li.doc = 250 + position.y' = 160.6，而构造时算出来是 207.5）。
+      // 滚动改的是 position，viewPoint 不变 → 滚完重算一次即可对齐。
+      const li: any = this._toolManager.lastInput;
+      if (li && li.viewPoint) {
+        const dp = this.transformViewToDoc(li.viewPoint);
+        li.documentPoint = { x: dp.x, y: dp.y };
+      }
+      // 官方滚轮后光标会重算（探针 wheelAfter：官方 "auto"，本项目滞留 "pointer"）
+      this._toolManager.standardMouseOver();
     }, { passive: false });
 
     target.addEventListener('contextmenu', (e: Event) => {
+      e.preventDefault();
+    });
+
+    // 官方 `selectstart`：拖选/拖拽期间禁止页面选中文字
+    target.addEventListener('selectstart', (e: any) => {
       e.preventDefault();
     });
 
@@ -2589,6 +2710,7 @@ export class Diagram {
         inputEvent.timestamp = Date.now();
         inputEvent.nativeEvent = e;
         this._toolManager.lastInput = inputEvent;
+        this._firstInput = inputEvent.copy();
         this._toolManager.doMouseDown();
       }
     }, { passive: true });
@@ -2651,8 +2773,8 @@ export class Diagram {
 
   // ============ 官方 Diagram API 对齐（阶段 6，增量字段） ============
 
-  private _currentCursor: string = '';
-  private _defaultCursor: string = '';
+  private _currentCursor: string = 'auto';
+  private _defaultCursor: string = 'auto';
   private _skipsUndoManager: boolean = false;
   private _mouseOver: ((e: InputEvent, diagram: Diagram) => void) | null = null;
   private _mouseEnter: ((e: InputEvent, diagram: Diagram) => void) | null = null;
@@ -2662,10 +2784,31 @@ export class Diagram {
   private _toolTip: GraphObject | string | null = null;
 
   get currentCursor(): string { return this._currentCursor; }
-  set currentCursor(val: string) { this._currentCursor = val; }
+  /** 官方 `set currentCursor(t)`: `t==="" && (t=this.defaultCursor)`，并写 div/canvas style */
+  set currentCursor(val: string) {
+    const t = val === '' ? this._defaultCursor : val;
+    if (this._currentCursor === t) return;
+    this._currentCursor = t;
+    const canvas = this._renderer ? this._renderer.canvas : null;
+    const nodes: Array<HTMLElement | null> = [this._div, canvas];
+    for (const n of nodes) {
+      if (!n || !n.style) continue;
+      n.style.cursor = t;
+      if (n.style.cursor === t) continue;
+      n.style.cursor = '-webkit-' + t;
+      if (n.style.cursor === '-webkit-' + t) continue;
+      n.style.cursor = t;
+    }
+  }
 
   get defaultCursor(): string { return this._defaultCursor; }
-  set defaultCursor(val: string) { this._defaultCursor = val; }
+  /** 官方 `set defaultCursor(t)`: `t==="" && (t="auto")` */
+  set defaultCursor(val: string) {
+    const t = val === '' ? 'auto' : val;
+    if (this._defaultCursor === t) return;
+    this._defaultCursor = t;
+    if (this._currentCursor === '' || this._currentCursor === t) this.currentCursor = t;
+  }
 
   get skipsUndoManager(): boolean { return this._skipsUndoManager; }
   set skipsUndoManager(val: boolean) { this._skipsUndoManager = val; }
@@ -3092,18 +3235,64 @@ export class Diagram {
   }
 
   // ---- 滚动/自动滚动 ----
-  scrollHorizontalLineChange(value: number): void {
-    this.position = new Point(this._position.x + value, this._position.y);
-  }
-  scrollVerticalLineChange(value: number): void {
-    this.position = new Point(this._position.x, this._position.y + value);
-  }
-  scroll(): void {
-    const d = this.documentBounds;
-    const vb = this.viewportBounds;
-    if (!vb.containsRect(d)) {
-      this.position = new Point(Math.min(this._position.x, d.x), Math.min(this._position.y, d.y));
+  /**
+   * 官方 `Diagram.scrollHorizontalLineChange`（数值属性，默认 16）。
+   * 以前这里是 `scrollHorizontalLineChange(value)` 方法，语义与官方完全不同。
+   */
+  private _scrollHorizontalLineChange: number = 16;
+  get scrollHorizontalLineChange(): number { return this._scrollHorizontalLineChange; }
+  set scrollHorizontalLineChange(value: number) { this._scrollHorizontalLineChange = value; }
+
+  private _scrollVerticalLineChange: number = 16;
+  get scrollVerticalLineChange(): number { return this._scrollVerticalLineChange; }
+  set scrollVerticalLineChange(value: number) { this._scrollVerticalLineChange = value; }
+
+  /**
+   * 官方 `Diagram.scroll(mode, dir, amount = 1)`（go.js 逐字）：
+   *   mode ∈ pixel | line | page | document
+   */
+  scroll(mode?: string, dir?: string, amount?: number): void {
+    if (mode === undefined || dir === undefined) {
+      // 兼容旧的无参用法：把文档拉回视口内
+      const d = this.documentBounds;
+      const vb = this.viewportBounds;
+      if (!vb.containsRect(d)) {
+        this.position = new Point(Math.min(this._position.x, d.x), Math.min(this._position.y, d.y));
+      }
+      this.requestUpdate();
+      return;
     }
+    const i = amount !== undefined ? amount : 1;
+    const s = dir === 'up' || dir === 'down';
+    let n = 0;
+    if (mode === 'pixel') {
+      n = i;
+    } else if (mode === 'line') {
+      n = i * (s ? this._scrollVerticalLineChange : this._scrollHorizontalLineChange);
+    } else if (mode === 'page') {
+      let l = s ? this.viewportBounds.height : this.viewportBounds.width;
+      l *= this.scale;
+      if (l !== 0) {
+        const a = Math.max(l - (s ? this._scrollVerticalLineChange : this._scrollHorizontalLineChange), 0);
+        n = i * a;
+      }
+    } else if (mode === 'document') {
+      const l = this.documentBounds;
+      const a = this.viewportBounds;
+      if (dir === 'up') this.position = new Point(a.x, l.y);
+      else if (dir === 'left') this.position = new Point(l.x, a.y);
+      else if (dir === 'down') this.position = new Point(a.x, l.bottom - a.height);
+      else if (dir === 'right') this.position = new Point(l.right - a.width, a.y);
+      return;
+    } else {
+      throw new Error("scrolling unit must be 'pixel', 'line', 'page', or 'document', not: " + mode);
+    }
+    n /= this.scale;
+    const r = this.position;
+    if (dir === 'up') this.position = new Point(r.x, r.y - n);
+    else if (dir === 'down') this.position = new Point(r.x, r.y + n);
+    else if (dir === 'left') this.position = new Point(r.x - n, r.y);
+    else this.position = new Point(r.x + n, r.y);
     this.requestUpdate();
   }
   /**
@@ -3612,7 +3801,14 @@ export class Diagram {
       if (p instanceof Link) linkSet.add(p);
     }
     const visit = (r: any): void => {
-      if (!r || typeof r.canRoute !== 'function') return;
+      if (!r) return;
+      // 官方在 `StartingFirstTransaction` 里统一 `this.routers.each(o => o.diagram = this)`，
+      // 此后扩展（如 AvoidsLinksRouter）的 routeLinks 才拿得到 diagram。
+      // 本项目样例是 init() 里就 `routers.add(...)`、而首个事务时机不保证，
+      // 这里补一次赋值：没有 diagram 的路由器会直接 `if (diagram === null) return;` 空转，
+      // 实测 dynamicPorts 两根平行 link 叠在一起官方会按 linkSpacing 错开、我们完全不动。
+      if (r.diagram === null || r.diagram === undefined) r.diagram = this;
+      if (typeof r.canRoute !== 'function') return;
       if (!r.canRoute(c)) return;
       if (typeof r.routeLinks === 'function') r.routeLinks(linkSet, c);
     };

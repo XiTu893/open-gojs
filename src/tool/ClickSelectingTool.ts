@@ -14,11 +14,15 @@ export class ClickSelectingTool extends Tool {
     this.name = 'ClickSelecting';
   }
 
+  /**
+   * 官方 ClickSelectingTool.canStart（go.js 逐字）：
+   *   return !(!this.isEnabled || this.isBeyondDragSize())
+   * 以前缺 isBeyondDragSize 判定；而 ClickSelectingTool 排在 mouseUpTools 末位，
+   * 拖拽后本不该再触发点选。
+   */
   canStart(): boolean {
-    const diagram = this.diagram;
-    if (!diagram || !this.isEnabled) return false;
-    if (!(diagram as any).allowSelect) return false;
-    return true;
+    if (!this.isEnabled) return false;
+    return !this.isBeyondDragSize();
   }
 
   doMouseUp(): void {
@@ -93,14 +97,17 @@ export class ClickSelectingTool extends Tool {
   standardMouseSelect(): void {
     const diagram = this.diagram;
     if (!diagram) return;
+    if (!(diagram as any).allowSelect) return;
     const lastInput = (diagram as any).lastInput;
     if (!lastInput) return;
 
     const docPoint = new Point(lastInput.documentPoint.x, lastInput.documentPoint.y);
     const part = diagram.findPartAt(docPoint, true);
+    let changed = false;
 
     if (part) {
       if (lastInput.control || lastInput.meta) {
+        diagram.raiseDiagramEvent('ChangingSelection', diagram.selection);
         if (part.isSelected) {
           diagram.selection.remove(part);
           part.isSelected = false;
@@ -108,17 +115,24 @@ export class ClickSelectingTool extends Tool {
           part.isSelected = true;
           diagram.selection.add(part);
         }
-      } else {
+        changed = true;
+      } else if (lastInput.shift) {
         if (!part.isSelected) {
-          diagram.clearSelection();
+          diagram.raiseDiagramEvent('ChangingSelection', diagram.selection);
           part.isSelected = true;
           diagram.selection.add(part);
+          changed = true;
         }
+      } else if (!part.isSelected) {
+        diagram.select(part);
+        changed = true;
       }
-    } else {
+    } else if (this.canStartButton() && !lastInput.control && !lastInput.meta && !lastInput.shift) {
+      // 官方：指下没有部件且主键无修饰键时才清空选择（右键不许清）
       diagram.clearSelection();
+      changed = true;
     }
-    diagram.raiseDiagramEvent('ChangedSelection', diagram.selection);
+    if (changed) diagram.raiseDiagramEvent('ChangedSelection', diagram.selection);
     diagram.requestUpdate();
   }
 }

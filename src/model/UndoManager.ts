@@ -174,9 +174,11 @@ export class UndoManager {
   }
 
   handleChanged(change: ChangedEvent): void {
+    // 官方 UndoManager.handleChanged：
+    // `if (!isEnabled || isUndoingRedoing || skipsEvent(t)) return;`
     if (!this._isEnabled) return;
-    if (!this._handlesModelChanges) return;
-    if (this._skipsUndoManager) return;
+    if (this.isUndoingRedoing) return;
+    if (this.skipsEvent(change)) return;
     if (this._transactionLevel > 0) {
       this._changes.push(change);
     }

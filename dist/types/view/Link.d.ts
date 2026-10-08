@@ -113,6 +113,10 @@ export declare class Link extends Part {
     private static _approx;
     /** 官方 `G.H`（近似等于 0） */
     private static _approxZero;
+    /** 官方 `G.G`（严格近似相等，|a-b| < 5e-8）——`Link.cT` 用它判定点重合/共线 */
+    private static _gG;
+    /** 官方 `G.c`（宽松近似相等，|a-b| < 0.5）——`Link.f3` 用它判定向量是否为正交 */
+    private static _gC;
     /** 官方 `Link.uA`：把 to 点沿主导方向推到无穷远处，用作正交方向参考 */
     private static _orthogonalize;
     /**
@@ -405,6 +409,20 @@ export declare class Link extends Part {
      * 经官方坐标系（平移到 min、ref=min/0,0）化简后等价于对原始坐标直接缩短。
      */
     private _wcPoint;
+    /**
+     * 官方 `Link.cT(p, i, flag)`：从下标 i 起跳过与 p 重合、以及沿当前轴共线且单调的点，
+     * 返回下一个「拐点」的下标（不会小于 i）。
+     */
+    private _skipCollinear;
+    /** 官方 `Link.zn(fig, dx, dy, from, to, flag)` 的直线部分（跳过 Line 曲线的挖洞分支） */
+    private _addLine;
+    /**
+     * 官方 `Link.f3(fig, dx, dy, from, corner, after, out, prev, radius, flag)`：
+     * 画 `from→corner` 直线段，再在拐点处朝 `after` 方向做半径 `radius` 的圆角，
+     * 并把 `out` 更新为圆角终点（作为下一段的起点）。圆角是「控制点落在拐点」的二次贝塞尔。
+     * `from` 与 `out` 是同一个对象（官方即如此）。坐标均为未平移原始坐标，平移在内部施加。
+     */
+    private _addCornerSegment;
     /** 官方 `Link.makeGeometry()`（本项目无 Transform 矩阵，按点列构造折线/贝塞尔几何） */
     makeGeometry(): Geometry;
     /** 官方 `Link.adjustPoints(start, p1, end, p2)` */

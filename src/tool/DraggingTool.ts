@@ -40,44 +40,114 @@ export class DraggingTool extends Tool {
     const diagram = this.diagram;
     if (!diagram) return false;
     if (!this._isCopyEnabled) return false;
-    if (!(diagram as any).allowCopy) return false;
-    const lastInput = (diagram as any).lastInput;
+    if (diagram.isReadOnly || diagram.isModelReadOnly) return false;
+    if (!diagram.allowInsert || !diagram.allowCopy) return false;
+    const lastInput = diagram.lastInput;
     if (!lastInput) return false;
-    return lastInput.control || lastInput.meta;
+    if (!(lastInput.meta || lastInput.control)) return false;
+    const sel = diagram.selection;
+    const it = sel.iterator;
+    while (it.next()) {
+      const p = it.value as Part;
+      if ((p as any).copyable) return true;
+    }
+    return false;
   }
 
   mayMove(): boolean {
     const diagram = this.diagram;
     if (!diagram) return false;
-    if (!(diagram as any).allowMove) return false;
-    return true;
+    if (diagram.isReadOnly || !diagram.allowMove) return false;
+    const sel = diagram.selection;
+    const it = sel.iterator;
+    while (it.next()) {
+      const p = it.value as Part;
+      if ((p as any).movable) return true;
+    }
+    return false;
   }
 
+  /**
+   * 官方 DraggingTool.canStart（go.js 逐字）：
+   *   !isEnabled / (isReadOnly && !allowDragOut) / (!allowMove && !allowCopy &&
+   *   !allowDragOut) / !allowSelect / !canStartButton() → false
+   *   currentTool !== this 时要求 isBeyondDragSize()（触摸还要过 delay）
+   *   最后 findDraggablePart() !== null
+   * 以前缺 canStartButton + isBeyondDragSize + allowSelect 三条，而且 Dragging
+   * 被排在 mouseDownTools 里，于是"点一下不拖也算拖拽、点选永远轮不到"。
+   */
   canStart(): boolean {
     const diagram = this.diagram;
-    if (!diagram || !this.isEnabled) return false;
-    if (!(diagram as any).allowMove && !(diagram as any).allowCopy && !(diagram as any).allowDragOut) return false;
-    const lastInput = (diagram as any).lastInput;
-    if (!lastInput) return false;
-    const part = diagram.findPartAt(new Point(lastInput.documentPoint.x, lastInput.documentPoint.y), true);
-    if (!part) return false;
-    if (!part.movable && !part.copyable) return false;
-    return true;
+    if (diagram === null || !this.isEnabled) return false;
+    if ((diagram.isReadOnly && !diagram.allowDragOut) ||
+        (!diagram.allowMove && !diagram.allowCopy && !diagram.allowDragOut) ||
+        !diagram.allowSelect || !this.canStartButton()) return false;
+    if (this.toolManager ? this.toolManager.currentTool !== this : false) {
+      if (!this.isBeyondDragSize()) return false;
+      const i = diagram.lastInput;
+      if (i.isTouchEvent && i.timestamp - diagram.firstInput.timestamp < this._delay) return false;
+    }
+    return this.findDraggablePart() !== null;
   }
+
+  /** 官方 DraggingTool.findDraggablePart —— 从 **firstInput** 落点找可拖部件。 */
+  findDraggablePart(): Part | null {
+    const diagram = this.diagram;
+    if (!diagram) return null;
+    let e: any = diagram.findPartAt(diagram.firstInput.documentPoint as any, false);
+    if (e === null) return null;
+    for (; e !== null && !(e as any).canSelect(); ) e = e.containingGroup;
+    if (e !== null && ((e as any).canMove() || (e as any).canCopy())) return e;
+    return null;
+  }
+
+  /**
+   * 官方 DraggingTool.standardMouseSelect：基于 **firstInput** 落点，
+   * 选中可拖部件并把它设为 currentPart（默认选区被清空成单选）。
+   */
+  standardMouseSelect(): void {
+    const t = this.diagram;
+    if (!t || !t.allowSelect) return;
+    let e: any = t.findPartAt(t.firstInput.documentPoint as any, false);
+    if (e === null) return;
+    for (; e !== null && !(e as any).canSelect(); ) e = e.containingGroup;
+    this._currentPart = e;
+    if (this._currentPart !== null && !(this._currentPart as any).isSelected) {
+      t.raiseDiagramEvent('ChangingSelection', t.selection);
+      const i = t.lastInput;
+      if (!(i.meta || i.control) && !i.shift) t.clearSelection();
+      (this._currentPart as any).isSelected = true;
+      t.raiseDiagramEvent('ChangedSelection', t.selection);
+    }
+  }
+
+  private _currentPart: Part | null = null;
+  private _delay: number = 100;
+
+  get currentPart(): Part | null { return this._currentPart; }
+  set currentPart(val: Part | null) { this._currentPart = val; }
+  get delay(): number { return this._delay; }
+  set delay(val: number) { this._delay = val; }
 
   doActivate(): void {
     const diagram = this.diagram;
     if (!diagram) return;
 
+    // 官方：先做 standardMouseSelect（当前选区为空时才选），再判断能不能拖
+    this._currentPart = null;
+    if (this._currentPart === null) this.standardMouseSelect();
+    const part = this._currentPart;
+    if (part === null || (!(part as any).canMove() && !(part as any).canCopy())) return;
+
     this._isActive = true;
     this._isDragOut = false;
     this._targetDiagram = null;
     this._dragOutParts = null;
-    const lastInput = (diagram as any).lastInput;
-    this._startPoint = new Point(lastInput.documentPoint.x, lastInput.documentPoint.y);
+    const firstInput = diagram.firstInput;
+    this._startPoint = new Point(firstInput.documentPoint.x, firstInput.documentPoint.y);
 
     this._draggedParts = new Map<Part, Point>();
-    const selection = (diagram as any).selection;
+    const selection = diagram.selection;
     if (selection) {
       const selectedSet = new Set<Part>();
       const it0 = selection.iterator;
@@ -86,17 +156,17 @@ export class DraggingTool extends Tool {
       }
       const it = selection.iterator;
       while (it.next()) {
-        const part = it.value as Part;
-        const isDragOutSource = (diagram as any).allowDragOut && !part.movable;
-        if (!part.movable && !part.copyable && !isDragOutSource) continue;
-        let cg = part.containingGroup;
+        const p = it.value as Part;
+        const isDragOutSource = (diagram as any).allowDragOut && !(p as any).movable;
+        if (!(p as any).movable && !(p as any).copyable && !isDragOutSource) continue;
+        let cg = (p as any).containingGroup;
         let skip = false;
         while (cg) {
           if (selectedSet.contains(cg)) { skip = true; break; }
           cg = cg.containingGroup;
         }
         if (skip) continue;
-        this._draggedParts.add(part, part.location.copy());
+        this._draggedParts.add(p, p.location.copy());
       }
     }
 
@@ -174,8 +244,11 @@ export class DraggingTool extends Tool {
         const origLoc = it.value;
         const dx = point.x - this._startPoint.x;
         const dy = point.y - this._startPoint.y;
+        // 官方 Diagram.moveParts：算完 computeMove 后一律写 **location**
+        //（`move(pt, true)`）。写 position 会把 bounds 原点当 locationSpot，
+        // locationSpot=Center 的样例整体偏半个节点（flowchart 实测 +35,+19.6）。
         const newLoc = this.computeMove(part, new Point(origLoc.x + dx, origLoc.y + dy));
-        part.move(newLoc);
+        part.move(newLoc, true);
       }
     }
 
@@ -196,7 +269,9 @@ export class DraggingTool extends Tool {
       this._copiedParts = null;
     }
 
-    this.transactionResult = this._isCopy ? 'Copy' : this.name;
+    // 官方 DraggingTool.doMouseUp：`this.transactionResult = n ? "Copy" : "Move"`
+    // （不是 this.name；事务名就是靠它提交的 —— 官方 history 里那条叫 "Move"）
+    this.transactionResult = this._isCopy ? 'Copy' : 'Move';
     this.stopTool();
 
     const diagram = this.diagram;
@@ -207,7 +282,9 @@ export class DraggingTool extends Tool {
 
   doDeactivate(): void {
     this._removeGlobalListeners();
+    this.stopTransaction();
     this._startPoint = null;
+    this._currentPart = null;
     this._draggedParts = null;
     this._copiedParts = null;
     this._isCopy = false;

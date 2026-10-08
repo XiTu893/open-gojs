@@ -25,7 +25,29 @@ export declare class DraggingTool extends Tool {
     set draggedParts(val: Map<Part, Point> | null);
     mayCopy(): boolean;
     mayMove(): boolean;
+    /**
+     * 官方 DraggingTool.canStart（go.js 逐字）：
+     *   !isEnabled / (isReadOnly && !allowDragOut) / (!allowMove && !allowCopy &&
+     *   !allowDragOut) / !allowSelect / !canStartButton() → false
+     *   currentTool !== this 时要求 isBeyondDragSize()（触摸还要过 delay）
+     *   最后 findDraggablePart() !== null
+     * 以前缺 canStartButton + isBeyondDragSize + allowSelect 三条，而且 Dragging
+     * 被排在 mouseDownTools 里，于是"点一下不拖也算拖拽、点选永远轮不到"。
+     */
     canStart(): boolean;
+    /** 官方 DraggingTool.findDraggablePart —— 从 **firstInput** 落点找可拖部件。 */
+    findDraggablePart(): Part | null;
+    /**
+     * 官方 DraggingTool.standardMouseSelect：基于 **firstInput** 落点，
+     * 选中可拖部件并把它设为 currentPart（默认选区被清空成单选）。
+     */
+    standardMouseSelect(): void;
+    private _currentPart;
+    private _delay;
+    get currentPart(): Part | null;
+    set currentPart(val: Part | null);
+    get delay(): number;
+    set delay(val: number);
     doActivate(): void;
     doMouseMove(): void;
     doMouseUp(): void;

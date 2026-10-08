@@ -27,20 +27,32 @@ export class ClickCreatingTool extends Tool {
 
   // ============ Methods ============
 
-  /** Can start if the user clicks in the background and archetype data is set. */
+  /**
+   * 官方 ClickCreatingTool.canStart（go.js 逐字）：
+   *   !isEnabled || archetypeNodeData === null → false
+   *   isReadOnly / isModelReadOnly / !allowInsert / !canStartButton() /
+   *   isBeyondDragSize() → false
+   *   clickCount 必须匹配 isDoubleClick 设置
+   *   最后 currentTool !== this && 指下有部件 → false
+   */
   canStart(): boolean {
     const diagram = this.diagram;
-    if (!diagram || !this.isEnabled) return false;
-    if (!(diagram as any).allowInsert) return false;
-    if (!this._archetypePartData) return false;
+    if (diagram === null || !this.isEnabled || this._archetypePartData === null) return false;
+    if (diagram.isReadOnly || diagram.isModelReadOnly || !diagram.allowInsert ||
+        !this.canStartButton() || this.isBeyondDragSize()) return false;
 
-    const lastInput = (diagram as any).lastInput;
-    if (!lastInput) return false;
+    const lastInput = diagram.lastInput;
+    if (this._isDoubleClick) {
+      if (lastInput.clickCount !== 2) return false;
+    } else if (lastInput.clickCount !== 1) {
+      return false;
+    }
 
     // Only start if clicking on the background
     const point = new Point(lastInput.documentPoint.x, lastInput.documentPoint.y);
-    const part = diagram.findPartAt(point, true);
-    return part === null;
+    if (this.toolManager && this.toolManager.currentTool !== this &&
+        diagram.findPartAt(point, true) !== null) return false;
+    return true;
   }
 
   /** Create the part on mouse up. */
@@ -51,8 +63,10 @@ export class ClickCreatingTool extends Tool {
     const lastInput = (diagram as any).lastInput;
     if (!lastInput) return;
 
-    const point = new Point(lastInput.documentPoint.x, lastInput.documentPoint.y);
-    this.insertPart(point);
+    if (this.isActive) {
+      const point = new Point(lastInput.documentPoint.x, lastInput.documentPoint.y);
+      this.insertPart(point);
+    }
     this.stopTool();
   }
 

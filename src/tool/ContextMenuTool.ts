@@ -24,15 +24,38 @@ export class ContextMenuTool extends Tool {
 
   // ============ Methods ============
 
-  /** Can start if the user right-clicks. */
+  /**
+   * 官方 ContextMenuTool.canStart（go.js 逐字）：
+   *   isBeyondDragSize() || !lastInput.right || clickCount > 1 → false
+   *   否则看 touch 的 defaultTouchContextMenu 或 findObjectWithContextMenu()
+   * 注意它排在 mouseUpTools 首位，所以右键菜单在 mouseup 才弹。
+   */
   canStart(): boolean {
     const diagram = this.diagram;
-    if (!diagram || !this.isEnabled) return false;
+    if (diagram === null || !this.isEnabled) return false;
 
-    const lastInput = (diagram as any).lastInput;
-    if (!lastInput) return false;
+    const lastInput = diagram.lastInput;
+    if (this.isBeyondDragSize() || !lastInput.rightButton || lastInput.clickCount > 1) return false;
+    if (lastInput.isTouchEvent && (this as any).defaultTouchContextMenu !== null) return true;
+    return this.findObjectWithContextMenu() !== null;
+  }
 
-    return lastInput.isContextMenu || lastInput.button === 2;
+  /** 官方 ContextMenuTool.findObjectWithContextMenu —— 沿 panel 链找 contextMenu。 */
+  findObjectWithContextMenu(): any | null {
+    const diagram = this.diagram;
+    if (!diagram) return null;
+    const hit = diagram.findObjectAt(new Point(diagram.lastInput.documentPoint.x, diagram.lastInput.documentPoint.y));
+    const s: any = (hit !== null && hit.layer && hit.layer.isTemporary) ? null : hit;
+    if (s !== null) {
+      let n: any = s;
+      while (n !== null) {
+        if (n.contextMenu !== null && n.contextMenu !== undefined) return n;
+        n = n.panel;
+      }
+    }
+    const dm: any = diagram.contextMenu;
+    if (dm !== null && dm !== undefined) return diagram;
+    return null;
   }
 
   /** Show the context menu on mouse up (right-click). */

@@ -25,15 +25,27 @@ export class DragSelectingTool extends Tool {
   // ============ Methods ============
 
   /** Can start if the user clicks in the background (no part). */
+  private _delay: number = 0;
+  get delay(): number { return this._delay; }
+  set delay(val: number) { this._delay = val; }
+
+  /**
+   * 官方 DragSelectingTool.canStart（go.js 逐字）：
+   *   !allowSelect / !canStartButton() → false
+   *   currentTool !== this 时要求 isBeyondDragSize()、过 delay、指下无部件
+   * 以前缺 canStartButton 与 isBeyondDragSize，右键一按就开始框选。
+   */
   canStart(): boolean {
     const diagram = this.diagram;
-    if (!diagram || !this.isEnabled) return false;
-    if (!(diagram as any).allowSelect) return false;
-    const lastInput = (diagram as any).lastInput;
-    if (!lastInput) return false;
-    // Only start if clicking on the background
-    const part = diagram.findPartAt(new Point(lastInput.documentPoint.x, lastInput.documentPoint.y), true);
-    return part === null;
+    if (diagram === null || !this.isEnabled) return false;
+    if (!diagram.allowSelect || !this.canStartButton()) return false;
+    if (this.toolManager && this.toolManager.currentTool !== this) {
+      if (!this.isBeyondDragSize()) return false;
+      const e = diagram.lastInput;
+      if (e.timestamp - diagram.firstInput.timestamp < this._delay) return false;
+      if (diagram.findPartAt(new Point(e.documentPoint.x, e.documentPoint.y), true) !== null) return false;
+    }
+    return true;
   }
 
   /** Activate and start the box selection. */
@@ -82,6 +94,7 @@ export class DragSelectingTool extends Tool {
 
   /** Clean up on deactivate. */
   doDeactivate(): void {
+    this.stopTransaction();
     this._box = null;
     this._startPoint = null;
     super.doDeactivate();

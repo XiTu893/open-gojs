@@ -77,4 +77,9 @@ export declare class InputEvent {
     down: boolean;
     /** 官方 InputEvent.up —— 逻辑主键是否处于抬起状态。 */
     up: boolean;
+    /**
+     * 官方 InputEvent.isMultiTouch
+     * 是否为多点触控（两个及以上触点同时作用于图）。
+     */
+    get isMultiTouch(): boolean;
 }

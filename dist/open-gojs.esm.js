@@ -8293,11 +8293,13 @@ var UndoManager = /** @class */ (function () {
         return true;
     };
     UndoManager.prototype.handleChanged = function (change) {
+        // 官方 UndoManager.handleChanged：
+        // `if (!isEnabled || isUndoingRedoing || skipsEvent(t)) return;`
         if (!this._isEnabled)
             return;
-        if (!this._handlesModelChanges)
+        if (this.isUndoingRedoing)
             return;
-        if (this._skipsUndoManager)
+        if (this.skipsEvent(change))
             return;
         if (this._transactionLevel > 0) {
             this._changes.push(change);
@@ -12167,10 +12169,14 @@ var GraphObject = /** @class */ (function () {
         get: function () { return this._position; },
         set: function (val) {
             var p = val && typeof val.copy === 'function' ? val.copy() : (val ? new Point(val.x || 0, val.y || 0) : Point.Zero.copy());
-            if (this._position.equals(p))
+            var old = this._position;
+            if (old.equals(p))
                 return;
             this._position = p;
             this._invalidateArrange();
+            // 官方 GraphObject.set position 尾部 `this.t("position", e, t)` ——
+            // UndoManager 里 "Move" 事务的 position 条目就是它
+            this.raiseChanged('position', old.copy(), p.copy());
         },
         enumerable: false,
         configurable: true
@@ -26658,16 +26664,22 @@ var Part = /** @class */ (function (_super) {
                         this._position = np;
                         this._actualBounds.x = np.x;
                         this._actualBounds.y = np.y;
+                        // 官方 WE() 末尾：`this.t("position", n, i.copy())`
+                        this.raiseChanged('position', pos.copy(), np.copy());
                     }
                     else {
                         var off = this._locationOffset();
-                        this._position = new Point(p.x - off.x, p.y - off.y);
-                        this._actualBounds.x = this._position.x;
-                        this._actualBounds.y = this._position.y;
+                        var np2 = new Point(p.x - off.x, p.y - off.y);
+                        this._position = np2;
+                        this._actualBounds.x = np2.x;
+                        this._actualBounds.y = np2.y;
+                        this.raiseChanged('position', pos.copy(), np2.copy());
                     }
                 }
                 this._syncGuard = false;
             }
+            // 官方 `Part.set location` 末尾：`this.t("location", s, t.copy())`
+            this.raiseChanged('location', old.copy(), p.copy());
             // 官方 Part.location setter 只有 t4（同步 position）+ raiseChanged，**没有**布局失效 ——
             // 早先在这里 invalidateLayout()（isOngoing 默认 true）让 _performLayout 的动画回写
             // （location=旧值）触发重排 → 重排又回写 → gantt 死循环元凶之二。
@@ -27167,6 +27179,9 @@ var Part = /** @class */ (function (_super) {
     };
     /** Add an adornment for the given category */
     Part.prototype.addAdornment = function (category, ad) {
+        // 官方 Part.addAdornment(category, ad) 会同步 ad.category
+        if (ad !== null && ad !== undefined)
+            ad.category = category;
         this._adornments.set(category, ad);
     };
     /** Remove the adornment for the given category */
@@ -27855,8 +27870,12 @@ var Part = /** @class */ (function (_super) {
         if (this._isSelected && this._selectionAdorned) {
             if (this._adornments.get('Selection') === null) {
                 var ad = this._createSelectionAdornment();
-                if (ad !== null)
+                if (ad !== null) {
                     this.addAdornment('Selection', ad);
+                    var lay = d.findLayer('Adornment');
+                    if (lay && !ad._layer)
+                        lay.add(ad);
+                }
             }
         }
         else if (this._adornments.get('Selection') !== null) {
@@ -27925,6 +27944,8 @@ var Part = /** @class */ (function (_super) {
         copy._rotationSpot = this._rotationSpot.copy();
         copy._resizeCellSize = this._resizeCellSize.copy();
         copy._selectionObjectName = this._selectionObjectName;
+        copy._selectionAdorned = this._selectionAdorned;
+        copy._selectionAdornmentTemplate = this._selectionAdornmentTemplate;
         copy._resizeObjectName = this._resizeObjectName;
         copy._rotateObjectName = this._rotateObjectName;
         copy._resizeAdornmentTemplate = this._resizeAdornmentTemplate;
@@ -28613,6 +28634,16 @@ var Link = /** @class */ (function (_super) {
     /** 官方 `G.H`（近似等于 0） */
     Link._approxZero = function (a) {
         return Math.abs(a) < 1e-7;
+    };
+    /** 官方 `G.G`（严格近似相等，|a-b| < 5e-8）——`Link.cT` 用它判定点重合/共线 */
+    Link._gG = function (a, b) {
+        var d = a - b;
+        return d < 5e-8 && d > -5e-8;
+    };
+    /** 官方 `G.c`（宽松近似相等，|a-b| < 0.5）——`Link.f3` 用它判定向量是否为正交 */
+    Link._gC = function (a, b) {
+        var d = a - b;
+        return d < 0.5 && d > -0.5;
     };
     /** 官方 `Link.uA`：把 to 点沿主导方向推到无穷远处，用作正交方向参考 */
     Link._orthogonalize = function (from, to) {
@@ -30510,6 +30541,94 @@ var Link = /** @class */ (function (_super) {
         t.x += (a * dx) / len;
         t.y += (a * dy) / len;
     };
+    /**
+     * 官方 `Link.cT(p, i, flag)`：从下标 i 起跳过与 p 重合、以及沿当前轴共线且单调的点，
+     * 返回下一个「拐点」的下标（不会小于 i）。
+     */
+    Link.prototype._skipCollinear = function (p, i, flag) {
+        var s = this.pointsCount;
+        var e = i;
+        var n = p; // 官方 n 先取 p 自身，保证第一圈必进
+        while (Link._gG(p.x, n.x) && Link._gG(p.y, n.y)) {
+            if (e >= s)
+                return s - 1;
+            n = this.getPoint(e++);
+        }
+        if (!Link._gG(p.x, n.x) && !Link._gG(p.y, n.y))
+            return e - 1;
+        var o = n;
+        while ((Link._gG(p.x, n.x) && Link._gG(n.x, o.x) &&
+            (!flag || (p.y >= n.y ? n.y >= o.y : n.y <= o.y))) ||
+            (Link._gG(p.y, n.y) && Link._gG(n.y, o.y) &&
+                (!flag || (p.x >= n.x ? n.x >= o.x : n.x <= o.x)))) {
+            if (e >= s)
+                return s - 1;
+            o = this.getPoint(e++);
+        }
+        return e - 2;
+    };
+    /** 官方 `Link.zn(fig, dx, dy, from, to, flag)` 的直线部分（跳过 Line 曲线的挖洞分支） */
+    Link.prototype._addLine = function (fig, dx, dy, to) {
+        fig.add(PathSegment.Line(to.x + dx, to.y + dy));
+    };
+    /**
+     * 官方 `Link.f3(fig, dx, dy, from, corner, after, out, prev, radius, flag)`：
+     * 画 `from→corner` 直线段，再在拐点处朝 `after` 方向做半径 `radius` 的圆角，
+     * 并把 `out` 更新为圆角终点（作为下一段的起点）。圆角是「控制点落在拐点」的二次贝塞尔。
+     * `from` 与 `out` 是同一个对象（官方即如此）。坐标均为未平移原始坐标，平移在内部施加。
+     */
+    Link.prototype._addCornerSegment = function (fig, dx, dy, s, n, o, r, l, a) {
+        if (Link._gC(s.y, n.y) && Link._gC(n.x, o.x)) {
+            // 水平段 → 垂直段
+            var c = Math.min(a, Math.abs(n.x - l.x) / 2);
+            var f = Math.min(c, Math.abs(o.y - n.y) / 2);
+            c = f;
+            if (Link._gC(c, 0)) {
+                this._addLine(fig, dx, dy, n);
+                r.set(n);
+                return;
+            }
+            var u = n.x;
+            var d = n.y;
+            var m = u;
+            var g = d;
+            if (n.x > s.x)
+                u = n.x - c;
+            else
+                u = n.x + c;
+            g = o.y > n.y ? n.y + f : n.y - f;
+            this._addLine(fig, dx, dy, new Point(u, d));
+            fig.add(PathSegment.QuadraticBezier(m + dx, g + dy, n.x + dx, n.y + dy));
+            r.setTo(m, g);
+        }
+        else if (Link._gC(s.x, n.x) && Link._gC(n.y, o.y)) {
+            // 垂直段 → 水平段
+            var c = Math.min(a, Math.abs(n.y - l.y) / 2);
+            var f = Math.min(c, Math.abs(o.x - n.x) / 2);
+            c = f;
+            if (Link._gC(c, 0)) {
+                this._addLine(fig, dx, dy, n);
+                r.set(n);
+                return;
+            }
+            var u = n.x;
+            var d = n.y;
+            var m = u;
+            var g = d;
+            if (n.y > s.y)
+                d = n.y - c;
+            else
+                d = n.y + c;
+            m = o.x > n.x ? n.x + f : n.x - f;
+            this._addLine(fig, dx, dy, new Point(u, d));
+            fig.add(PathSegment.QuadraticBezier(m + dx, g + dy, n.x + dx, n.y + dy));
+            r.setTo(m, g);
+        }
+        else {
+            this._addLine(fig, dx, dy, n);
+            r.set(n);
+        }
+    };
     /** 官方 `Link.makeGeometry()`（本项目无 Transform 矩阵，按点列构造折线/贝塞尔几何） */
     Link.prototype.makeGeometry = function () {
         var n = this.pointsCount;
@@ -30611,9 +30730,46 @@ var Link = /** @class */ (function (_super) {
             }
         }
         else {
-            for (var i = 1; i < n; i++) {
-                var p = at(i);
-                fig.add(PathSegment.Line(p.x, p.y));
+            // 官方 `isOrthogonal || e===2` 分支：用 cT 跳过共线点，并在拐点处按
+            // `computeCorner()` 做圆角（控制点落在拐点的二次贝塞尔）。
+            // f=当前点、d=上一拐点、u=当前拐点，都是未平移的原始坐标，平移在内部以 -nx,-ny 施加。
+            if (this.isOrthogonal && n > 2) {
+                var f = pts.elt(0).copy();
+                var d = f.copy();
+                var u = new Point();
+                var radius = this.computeCorner();
+                var g = 1;
+                var q = 0;
+                for (; g < n;) {
+                    g = this._skipCollinear(f, g, g > 1);
+                    u.set(pts.elt(g));
+                    if (g >= n - 1) {
+                        if (!f.equals(u)) {
+                            if (this.computeShortLength(false) !== 0)
+                                this._wcPoint(u, false);
+                            this._addLine(fig, -nx, -ny, u);
+                        }
+                        else if (q === 0) {
+                            for (g = 1; g < n;) {
+                                d.set(f);
+                                u.set(pts.elt(g++));
+                                this._addLine(fig, -nx, -ny, u);
+                                f.set(u);
+                            }
+                        }
+                        break;
+                    }
+                    q = this._skipCollinear(u, g + 1, g < n - 3);
+                    this._addCornerSegment(fig, -nx, -ny, f, u, pts.elt(q), f, d, radius);
+                    d.set(u);
+                    g = q;
+                }
+            }
+            else {
+                for (var i = 1; i < n; i++) {
+                    var p = at(i);
+                    fig.add(PathSegment.Line(p.x, p.y));
+                }
             }
         }
         geo.add(fig);
@@ -33745,7 +33901,21 @@ var Layout = /** @class */ (function () {
      * Update the positions of parts after the layout has been computed.
      */
     Layout.prototype.updateParts = function () {
-        this.commitLayout();
+        // 官方 `Layout.updateParts()`：
+        //   try { t!==null && t.startTransaction("Layout"), this.commitLayout(); }
+        //   finally { t!==null && t.commitTransaction("Layout"); }
+        // 这个 "Layout" 事务是 UndoManager.history 的第一条（探针实测官方 idle
+        // 时 history=["Layout"]、canUndo=true）。
+        var t = this._diagram;
+        try {
+            if (t !== null && t !== undefined)
+                t.startTransaction('Layout');
+            this.commitLayout();
+        }
+        finally {
+            if (t !== null && t !== undefined)
+                t.commitTransaction('Layout');
+        }
     };
     Layout.className = "Layout";
     return Layout;
@@ -36445,6 +36615,17 @@ var CanvasRenderer = /** @class */ (function () {
         ctx.save();
         var arr = points.toArray();
         var curve = link._curve;
+        // 官方 `Link.makeGeometry()`：正交（或点数===2）且非贝塞尔曲线时，
+        // 在每个拐点处按 `computeCorner()` 画「控制点落在拐点」的二次贝塞尔圆角。
+        // 早先 JumpOver/JumpGap 分支直接拿 points 折线绘制，完全绕过圆角 ——
+        // dynamicPorts 官方是圆滑拐角、我们全是直角折线就是这么来的。
+        if (curve !== CurveBezier && (link.isOrthogonal || arr.length === 2)) {
+            var radius = typeof link.computeCorner === 'function'
+                ? link.computeCorner()
+                : 0;
+            if (radius > 0)
+                arr = this._roundCorners(arr, radius);
+        }
         if (curve === CurveJumpOver || curve === CurveJumpGap) {
             var crossings = this._findCrossings(link);
             if (curve === CurveJumpOver) {
@@ -36495,17 +36676,10 @@ var CanvasRenderer = /** @class */ (function () {
             }
         }
         else {
-            var corner = link._corner || 0;
-            var isOrthogonal = link._routing === RoutingOrthogonal;
             ctx.beginPath();
             ctx.moveTo(arr[0].x, arr[0].y);
-            if (isOrthogonal && corner > 0 && arr.length > 2) {
-                this._drawOrthogonalPathWithCorners(ctx, arr, corner);
-            }
-            else {
-                for (var i = 1; i < arr.length; i++) {
-                    ctx.lineTo(arr[i].x, arr[i].y);
-                }
+            for (var i = 1; i < arr.length; i++) {
+                ctx.lineTo(arr[i].x, arr[i].y);
             }
         }
         if (shape.stroke && shape.strokeWidth > 0) {
@@ -36518,34 +36692,71 @@ var CanvasRenderer = /** @class */ (function () {
         }
         ctx.restore();
     };
-    CanvasRenderer.prototype._drawOrthogonalPathWithCorners = function (ctx, arr, corner) {
-        for (var i = 1; i < arr.length - 1; i++) {
-            var prev = arr[i - 1];
-            var curr = arr[i];
-            var next = arr[i + 1];
-            var dx1 = curr.x - prev.x;
-            var dy1 = curr.y - prev.y;
-            var dx2 = next.x - curr.x;
-            var dy2 = next.y - curr.y;
-            var len1 = Math.sqrt(dx1 * dx1 + dy1 * dy1);
-            var len2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
-            var r = Math.min(corner, len1 / 2, len2 / 2);
-            if (r <= 0) {
-                ctx.lineTo(curr.x, curr.y);
-                continue;
+    /**
+     * 官方 `Link.f3()` 的拐角圆角：把正交点列改写成带「控制点落在拐点」的二次
+     * 贝塞尔圆角的折线（采样成折线点，便于 JumpGap/JumpOver 分支沿用）。
+     * 半径封顶语义与官方一致：`c = min(radius, |拐点-上一拐点|/2)`，
+     * 再 `min(c, |下一拐点-拐点|/2)`，`c < 0.5` 视作不圆角。
+     */
+    CanvasRenderer.prototype._roundCorners = function (src, radius) {
+        var n = src.length;
+        if (!(radius > 0) || n < 3)
+            return src;
+        var out = [src[0]];
+        // dirPrev = 上一拐角的圆角终点（官方 `s`/`f`），capPrev = 上一拐点（官方 `l`/`d`）
+        var dirPrev = src[0];
+        var capPrev = src[0];
+        for (var i = 1; i < n - 1; i++) {
+            var nn = src[i];
+            var after = src[i + 1];
+            var start = null;
+            var end = null;
+            if (Math.abs(dirPrev.y - nn.y) < 0.5 && Math.abs(nn.x - after.x) < 0.5) {
+                // 水平段 → 垂直段
+                var c = Math.min(radius, Math.abs(nn.x - capPrev.x) / 2);
+                c = Math.min(c, Math.abs(after.y - nn.y) / 2);
+                if (c >= 0.5) {
+                    var u = nn.x > dirPrev.x ? nn.x - c : nn.x + c;
+                    var gy = after.y > nn.y ? nn.y + c : nn.y - c;
+                    start = new Point(u, nn.y);
+                    end = new Point(nn.x, gy);
+                }
             }
-            var ux1 = dx1 / len1;
-            var uy1 = dy1 / len1;
-            var ux2 = dx2 / len2;
-            var uy2 = dy2 / len2;
-            var beforeX = curr.x - ux1 * r;
-            var beforeY = curr.y - uy1 * r;
-            var afterX = curr.x + ux2 * r;
-            var afterY = curr.y + uy2 * r;
-            ctx.lineTo(beforeX, beforeY);
-            ctx.arcTo(curr.x, curr.y, afterX, afterY, r);
+            else if (Math.abs(dirPrev.x - nn.x) < 0.5 && Math.abs(nn.y - after.y) < 0.5) {
+                // 垂直段 → 水平段
+                var c = Math.min(radius, Math.abs(nn.y - capPrev.y) / 2);
+                c = Math.min(c, Math.abs(after.x - nn.x) / 2);
+                if (c >= 0.5) {
+                    var u = nn.y > dirPrev.y ? nn.y - c : nn.y + c;
+                    var mx = after.x > nn.x ? nn.x + c : nn.x - c;
+                    start = new Point(nn.x, u);
+                    end = new Point(mx, nn.y);
+                }
+            }
+            if (start && end) {
+                out.push(start);
+                for (var k = 1; k <= 3; k++) {
+                    var t = k / 4;
+                    var m = 1 - t;
+                    out.push(new Point(m * m * start.x + 2 * m * t * nn.x + t * t * end.x, m * m * start.y + 2 * m * t * nn.y + t * t * end.y));
+                }
+                out.push(end);
+                dirPrev = end;
+                capPrev = nn;
+            }
+            else {
+                out.push(nn);
+                // 官方 `Link.cT()` 会跳过共线点：半径封顶要用「上一拐点」而不是共线中间点，
+                // 否则连续两个拐点之间夹着共线点时 |拐点-上一拐点| 会被算成 0 → 圆角消失。
+                var collinearV = Math.abs(dirPrev.x - nn.x) < 0.5 && Math.abs(nn.x - after.x) < 0.5;
+                var collinearH = Math.abs(dirPrev.y - nn.y) < 0.5 && Math.abs(nn.y - after.y) < 0.5;
+                if (!collinearV && !collinearH)
+                    capPrev = nn;
+                dirPrev = nn;
+            }
         }
-        ctx.lineTo(arr[arr.length - 1].x, arr[arr.length - 1].y);
+        out.push(src[n - 1]);
+        return out;
     };
     CanvasRenderer.prototype._findCrossings = function (link) {
         var e_5, _a;
@@ -38200,6 +38411,8 @@ var Tool = /** @class */ (function () {
          * `toolManager.diagram`。
          */
         this._toolManager = null;
+        // ---- 官方 Tool.standardWaitAfter / cancelWaitAfter / doWaitAfter ----
+        this._waitTimer = -1;
         // ============ 官方 Tool API 对齐（阶段 6） ============
         /** 上一次鼠标悬停的对象（用于 mouseEnter/mouseLeave/mouseOver 追踪）。 */
         this._overObject = null;
@@ -38251,71 +38464,82 @@ var Tool = /** @class */ (function () {
     Tool.prototype.canStart = function () {
         return false;
     };
+    /** 官方 Tool.canStartButton —— 当前输入是否为主键（左键）按下。 */
+    Tool.prototype.canStartButton = function () {
+        var d = this.diagram;
+        if (!d)
+            return false;
+        return d.lastInput.left;
+    };
     /** Called when this tool becomes the current tool. */
-    Tool.prototype.doActivate = function () { };
+    Tool.prototype.doActivate = function () {
+        this._isActive = true;
+    };
     /** Cancel the tool's operation. */
     Tool.prototype.doCancel = function () {
-        this.doDeactivate();
+        this.transactionResult = null;
+        this.stopTool();
     };
     /** Called when this tool is no longer the current tool. */
     Tool.prototype.doDeactivate = function () {
         this._isActive = false;
     };
-    /** Handle key-down events. */
-    Tool.prototype.doKeyDown = function () { };
+    /** Handle key-down events. 官方：Escape → doCancel。 */
+    Tool.prototype.doKeyDown = function () {
+        var d = this.diagram;
+        if (d && d.lastInput.key === 'Escape')
+            this.doCancel();
+    };
     /** Handle key-up events. */
     Tool.prototype.doKeyUp = function () { };
     /** Handle mouse-down events. */
-    Tool.prototype.doMouseDown = function () { };
+    Tool.prototype.doMouseDown = function () {
+        if (!this.isActive && this.canStart())
+            this.doActivate();
+    };
     /** Handle mouse-move events. */
     Tool.prototype.doMouseMove = function () { };
     /** Handle mouse-up events. */
-    Tool.prototype.doMouseUp = function () { };
+    Tool.prototype.doMouseUp = function () {
+        this.stopTool();
+    };
     /** Handle mouse-wheel events. */
     Tool.prototype.doMouseWheel = function () { };
     /** Called when this tool first starts. */
     Tool.prototype.doStart = function () { };
     /** Called when this tool stops. */
     Tool.prototype.doStop = function () { };
-    /** Wait after a period of inactivity (e.g. for hover). */
-    Tool.prototype.doWaitAfter = function () { };
     /** Whether multi-touch gestures can start this tool. */
     Tool.prototype.canStartMultiTouch = function () {
         return false;
     };
-    /** Cancel any pending wait-after timer. */
-    Tool.prototype.cancelWaitAfter = function () { };
-    /** Find a tool handle at the given document point. */
-    Tool.prototype.findToolHandleAt = function (p) {
+    /**
+     * 官方 `Tool.findToolHandleAt(point, category)`：
+     * 取指下最上层对象，沿 `panel` 链走到"其 panel 是 Adornment"的对象（即句柄本身），
+     * 该 Adornment 的 category 必须等于给定 category（缺省用 `this.name`）。
+     * Adornment 层在本项目里是 temporary，`findPartAt` 会跳过，所以直接遍历该层做同样的判定。
+     */
+    Tool.prototype.findToolHandleAt = function (p, category) {
         var diagram = this._diagram;
         if (!diagram)
             return null;
         var adornmentLayer = diagram.findLayer('Adornment');
         if (!adornmentLayer)
             return null;
-        var toolName = this._name;
-        var partsIt = adornmentLayer.parts;
-        var partsArray = iteratorToArray(partsIt);
+        var cat = category !== undefined ? category : this._name;
+        var partsArray = iteratorToArray(adornmentLayer.parts);
         for (var i = partsArray.length - 1; i >= 0; i--) {
             var ad = partsArray[i];
             if (!ad.visible)
                 continue;
-            var cat = ad.category;
-            if (cat && cat !== toolName)
-                continue;
-            var adornedPart = ad.adornedPart;
-            if (!adornedPart)
-                continue;
-            var adornedBounds = adornedPart.getDocumentBounds();
-            var localX = p.x - adornedBounds.x;
-            var localY = p.y - adornedBounds.y;
-            var found = this._findHandleInPanel(ad, localX, localY);
-            if (found)
-                return found;
+            var found = this._findHandleInPanel(ad, p);
+            if (found !== null)
+                return ad.category === cat ? found : null;
         }
         return null;
     };
-    Tool.prototype._findHandleInPanel = function (panel, x, y) {
+    /** 文档坐标命中测试：自上而下找最顶层元素（官方 Layer/Panel.findObjectAt 的遍历序） */
+    Tool.prototype._findHandleInPanel = function (panel, p) {
         var elements = panel._elements;
         if (!elements)
             return null;
@@ -38323,10 +38547,10 @@ var Tool = /** @class */ (function () {
             var elem = elements[i];
             if (!elem.visible)
                 continue;
-            var bounds = elem.actualBounds;
-            if (bounds.containsPoint(new Point(x, y))) {
+            var bounds = elem.getDocumentBounds ? elem.getDocumentBounds() : elem.actualBounds;
+            if (bounds && bounds.containsPoint(p)) {
                 if (elem._elements && elem._elements.length > 0) {
-                    var inner = this._findHandleInPanel(elem, x - bounds.x, y - bounds.y);
+                    var inner = this._findHandleInPanel(elem, p);
                     if (inner)
                         return inner;
                 }
@@ -38335,51 +38559,132 @@ var Tool = /** @class */ (function () {
         }
         return null;
     };
-    /** Whether the distance between two points exceeds the drag threshold. */
+    /**
+     * 官方 Tool.isBeyondDragSize(first?, second?)
+     * 默认比较 firstInput/lastInput 的 **viewPoint**，阈值取
+     * `toolManager.dragSize`（默认 2×2），触摸输入额外放宽 6。
+     */
     Tool.prototype.isBeyondDragSize = function (first, second) {
-        var dx = Math.abs(first.x - second.x);
-        var dy = Math.abs(first.y - second.y);
-        return dx > 2 || dy > 2;
+        var d = this.diagram;
+        if (!d)
+            return false;
+        var f = first !== undefined ? first : d.firstInput.viewPoint;
+        var s = second !== undefined ? second : d.lastInput.viewPoint;
+        var ds = this.toolManager ? this.toolManager.dragSize : null;
+        var w = ds ? ds.width : 2;
+        var h = ds ? ds.height : 2;
+        if (d.firstInput.isTouchEvent) {
+            w += 6;
+            h += 6;
+        }
+        return Math.abs(s.x - f.x) > w || Math.abs(s.y - f.y) > h;
     };
     /** Standard mouse click behavior: select and raise click event. */
     Tool.prototype.standardMouseClick = function () { };
-    /** Standard mouse select behavior: select parts on click. */
-    Tool.prototype.standardMouseSelect = function () { };
+    /**
+     * 官方 Tool.standardMouseSelect（逐字对齐 go.js）：
+     * - !allowSelect → 直接返回
+     * - ctrl/meta → 切换选中；shift → 追加选中；否则 → 选中（已选中则不动作）
+     * - 指下无部件时，仅在"主键且无修饰键"时 clearSelection
+     */
+    Tool.prototype.standardMouseSelect = function () {
+        var t = this.diagram;
+        if (!t || !t.allowSelect)
+            return;
+        var i = t.lastInput;
+        var e = t.findPartAt(i.documentPoint, false);
+        if (e !== null) {
+            if (i.meta || i.control) {
+                t.raiseDiagramEvent('ChangingSelection', t.selection);
+                var s = e;
+                for (; s !== null && !s.canSelect();)
+                    s = s.containingGroup;
+                if (s !== null)
+                    s.isSelected = !s.isSelected;
+                t.raiseDiagramEvent('ChangedSelection', t.selection);
+            }
+            else if (i.shift) {
+                if (!e.isSelected) {
+                    t.raiseDiagramEvent('ChangingSelection', t.selection);
+                    var s = e;
+                    for (; s !== null && !s.canSelect();)
+                        s = s.containingGroup;
+                    if (s !== null)
+                        s.isSelected = true;
+                    t.raiseDiagramEvent('ChangedSelection', t.selection);
+                }
+            }
+            else if (!e.isSelected) {
+                var s = e;
+                for (; s !== null && !s.canSelect();)
+                    s = s.containingGroup;
+                if (s !== null)
+                    t.select(s);
+            }
+        }
+        else if (this.canStartButton() && !(i.meta || i.control) && !i.shift) {
+            t.clearSelection();
+        }
+    };
     /** Standard mouse wheel behavior: zoom in/out. */
     Tool.prototype.standardMouseWheel = function () { };
     /** Standard pinch zoom start for multi-touch. */
     Tool.prototype.standardPinchZoomStart = function () { };
     /** Standard pinch zoom move for multi-touch. */
     Tool.prototype.standardPinchZoomMove = function () { };
-    /** Standard wait-after behavior: schedule a timer. */
-    Tool.prototype.standardWaitAfter = function (delay) { };
+    Tool.prototype.standardWaitAfter = function (delay, input) {
+        if (typeof delay !== 'number')
+            return;
+        this.cancelWaitAfter();
+        var d = this.diagram;
+        if (!d)
+            return;
+        var src = input !== undefined && input !== null ? input : d.lastInput;
+        var saved = src.copy();
+        var self = this;
+        this._waitTimer = setTimeout(function () {
+            self._waitTimer = -1;
+            self.doWaitAfter(saved);
+        }, delay);
+    };
+    Tool.prototype.cancelWaitAfter = function () {
+        if (this._waitTimer !== -1 && this._waitTimer !== null) {
+            clearTimeout(this._waitTimer);
+            this._waitTimer = -1;
+        }
+    };
+    Tool.prototype.doWaitAfter = function (_t) { };
     // ============ Transaction Methods ============
-    /** Start a new transaction. */
+    /** Start a new transaction. 官方会先把 transactionResult 置空。 */
     Tool.prototype.startTransaction = function (tname) {
-        if (this._diagram) {
-            return this._diagram.startTransaction(tname || this._name);
+        var d = this.diagram;
+        this._transactionResult = null;
+        if (d) {
+            return d.startTransaction(tname !== undefined && tname !== null ? tname : this._name);
         }
         return false;
     };
-    /** Stop this tool and remove it from the ToolManager. */
+    /** Stop this tool and return to the default current tool. */
     Tool.prototype.stopTool = function () {
-        this.doStop();
-        if (this._diagram) {
-            var tm = this._diagram.toolManager;
-            if (tm) {
-                tm.currentTool = tm.defaultTool;
-            }
-        }
+        // 官方 Tool.stopTool: `t.currentTool===this && (t.currentTool=null, t.currentCursor="")`
+        var d = this.diagram;
+        if (!d)
+            return;
+        if (d.currentTool !== this)
+            return;
+        d.currentTool = null;
+        d.currentCursor = '';
     };
-    /** Stop the current transaction. */
+    /** 官方 Tool.stopTransaction —— 有 transactionResult 就 commit，否则 rollback。 */
     Tool.prototype.stopTransaction = function () {
-        if (this._diagram) {
+        var d = this.diagram;
+        if (d) {
             var result = this._transactionResult;
             if (result !== null) {
-                return this._diagram.commitTransaction(this._name);
+                return d.commitTransaction(result);
             }
             else {
-                return this._diagram.rollbackTransaction();
+                return d.rollbackTransaction();
             }
         }
         return false;
@@ -38394,17 +38699,6 @@ var Tool = /** @class */ (function () {
             return ctor.className + ' Tool';
         var n = this.constructor && this.constructor.name;
         return (typeof n === 'string' && n.length > 0) ? n : 'Tool';
-    };
-    /**
-     * 官方 Tool.canStartButton
-     * 当前工具是否可因主键（左键）按下而启动。
-     * 官方使用 lastInput.left；本项目 InputEvent 提供 leftButton。
-     */
-    Tool.prototype.canStartButton = function () {
-        var d = this.diagram;
-        if (!d)
-            return false;
-        return d.lastInput.leftButton;
     };
     /** 官方 Tool.doUpdateCursor —— 将图表面板光标重置为空。 */
     Tool.prototype.doUpdateCursor = function (t) {
@@ -38446,12 +38740,12 @@ var Tool = /** @class */ (function () {
             var dp = new Point(input.documentPoint.x, input.documentPoint.y);
             var targ = d.viewportBounds.containsPoint(dp) ? d.findObjectAt(dp) : null;
             input.targetObject = targ;
-            // 沿 panel 链向上找第一个带 cursor 的对象
-            while (targ && !targ.cursor) {
-                targ = targ.panel;
+            // 沿 panel 链向上找第一个带 cursor 的对象；找不到则回落到默认光标
+            var cur = targ;
+            while (cur && (cur.cursor === '' || cur.cursor === undefined || cur.cursor === null)) {
+                cur = cur.panel;
             }
-            if (targ)
-                d.currentCursor = targ.cursor;
+            d.currentCursor = (cur && cur.cursor) ? cur.cursor : '';
             var evType = input.nativeEvent ? input.nativeEvent.type : '';
             var isOver = evType === 'mouseover';
             var isMove = evType === 'mousemove';
@@ -38546,11 +38840,29 @@ var InputEvent = /** @class */ (function () {
         ie.button = e.button;
         ie.timestamp = e.timeStamp;
         ie.clickCount = e.detail || 1;
-        ie.viewPoint = { x: e.offsetX, y: e.offsetY };
-        // 文档坐标需要通过 diagram 转换
-        if (diagram) {
-            var dp = diagram.transformViewToDoc({ x: e.offsetX, y: e.offsetY });
-            ie.documentPoint = { x: dp.x, y: dp.y };
+        /**
+         * 官方 InputEvent.viewPoint = 客户端坐标减去 div 左上角。
+         * 以前直接用 `offsetX/offsetY` —— 但拖拽期间的 mousemove/mouseup 是挂在
+         * `document` 上的，`offsetX` 相对的是**光标下任意元素**（甚至在 canvas 外），
+         * 于是拖动过程中 documentPoint 乱跳、节点被甩到随机位置。
+         */
+        var host = diagram && diagram.div ? diagram.div : null;
+        if (host && typeof e.clientX === 'number') {
+            var r = host.getBoundingClientRect();
+            var vx = e.clientX - r.left;
+            var vy = e.clientY - r.top;
+            ie.viewPoint = { x: vx, y: vy };
+            if (diagram) {
+                var dp = diagram.transformViewToDoc({ x: vx, y: vy });
+                ie.documentPoint = { x: dp.x, y: dp.y };
+            }
+        }
+        else {
+            ie.viewPoint = { x: e.offsetX, y: e.offsetY };
+            if (diagram) {
+                var dp = diagram.transformViewToDoc({ x: e.offsetX, y: e.offsetY });
+                ie.documentPoint = { x: dp.x, y: dp.y };
+            }
         }
         return ie;
     };
@@ -38617,7 +38929,7 @@ var InputEvent = /** @class */ (function () {
          */
         get: function () {
             var e = this.nativeEvent;
-            if (e !== null && (e.type === 'mouseup' || e.type === 'mousedown'))
+            if (e !== null && (e.type === 'mouseup' || e.type === 'mousedown' || e.type === 'pointerup' || e.type === 'pointerdown'))
                 return this.button === 0;
             if (e !== null && typeof e.buttons === 'number')
                 return (e.buttons & 1) === 1;
@@ -38630,6 +38942,24 @@ var InputEvent = /** @class */ (function () {
             }
             if (value && this.button !== 0)
                 this.button = 0;
+        },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(InputEvent.prototype, "isMultiTouch", {
+        /**
+         * 官方 InputEvent.isMultiTouch
+         * 是否为多点触控（两个及以上触点同时作用于图）。
+         */
+        get: function () {
+            var e = this.nativeEvent;
+            if (e === null)
+                return false;
+            if (typeof e.touches === 'object' && e.touches !== null && e.touches.length > 1)
+                return true;
+            if (typeof e.targetTouches === 'object' && e.targetTouches !== null && e.targetTouches.length > 1)
+                return true;
+            return false;
         },
         enumerable: false,
         configurable: true
@@ -38647,13 +38977,16 @@ var ClickSelectingTool = /** @class */ (function (_super) {
         _this.name = 'ClickSelecting';
         return _this;
     }
+    /**
+     * 官方 ClickSelectingTool.canStart（go.js 逐字）：
+     *   return !(!this.isEnabled || this.isBeyondDragSize())
+     * 以前缺 isBeyondDragSize 判定；而 ClickSelectingTool 排在 mouseUpTools 末位，
+     * 拖拽后本不该再触发点选。
+     */
     ClickSelectingTool.prototype.canStart = function () {
-        var diagram = this.diagram;
-        if (!diagram || !this.isEnabled)
+        if (!this.isEnabled)
             return false;
-        if (!diagram.allowSelect)
-            return false;
-        return true;
+        return !this.isBeyondDragSize();
     };
     ClickSelectingTool.prototype.doMouseUp = function () {
         var diagram = this.diagram;
@@ -38720,13 +39053,17 @@ var ClickSelectingTool = /** @class */ (function (_super) {
         var diagram = this.diagram;
         if (!diagram)
             return;
+        if (!diagram.allowSelect)
+            return;
         var lastInput = diagram.lastInput;
         if (!lastInput)
             return;
         var docPoint = new Point(lastInput.documentPoint.x, lastInput.documentPoint.y);
         var part = diagram.findPartAt(docPoint, true);
+        var changed = false;
         if (part) {
             if (lastInput.control || lastInput.meta) {
+                diagram.raiseDiagramEvent('ChangingSelection', diagram.selection);
                 if (part.isSelected) {
                     diagram.selection.remove(part);
                     part.isSelected = false;
@@ -38735,19 +39072,28 @@ var ClickSelectingTool = /** @class */ (function (_super) {
                     part.isSelected = true;
                     diagram.selection.add(part);
                 }
+                changed = true;
             }
-            else {
+            else if (lastInput.shift) {
                 if (!part.isSelected) {
-                    diagram.clearSelection();
+                    diagram.raiseDiagramEvent('ChangingSelection', diagram.selection);
                     part.isSelected = true;
                     diagram.selection.add(part);
+                    changed = true;
                 }
             }
+            else if (!part.isSelected) {
+                diagram.select(part);
+                changed = true;
+            }
         }
-        else {
+        else if (this.canStartButton() && !lastInput.control && !lastInput.meta && !lastInput.shift) {
+            // 官方：指下没有部件且主键无修饰键时才清空选择（右键不许清）
             diagram.clearSelection();
+            changed = true;
         }
-        diagram.raiseDiagramEvent('ChangedSelection', diagram.selection);
+        if (changed)
+            diagram.raiseDiagramEvent('ChangedSelection', diagram.selection);
         diagram.requestUpdate();
     };
     ClickSelectingTool.className = "ClickSelectingTool";
@@ -38768,6 +39114,8 @@ var DraggingTool = /** @class */ (function (_super) {
         _this._dragOutParts = null;
         _this._globalMouseMoveHandler = null;
         _this._globalMouseUpHandler = null;
+        _this._currentPart = null;
+        _this._delay = 100;
         _this.name = 'Dragging';
         return _this;
     }
@@ -38801,47 +39149,131 @@ var DraggingTool = /** @class */ (function (_super) {
             return false;
         if (!this._isCopyEnabled)
             return false;
-        if (!diagram.allowCopy)
+        if (diagram.isReadOnly || diagram.isModelReadOnly)
+            return false;
+        if (!diagram.allowInsert || !diagram.allowCopy)
             return false;
         var lastInput = diagram.lastInput;
         if (!lastInput)
             return false;
-        return lastInput.control || lastInput.meta;
+        if (!(lastInput.meta || lastInput.control))
+            return false;
+        var sel = diagram.selection;
+        var it = sel.iterator;
+        while (it.next()) {
+            var p = it.value;
+            if (p.copyable)
+                return true;
+        }
+        return false;
     };
     DraggingTool.prototype.mayMove = function () {
         var diagram = this.diagram;
         if (!diagram)
             return false;
-        if (!diagram.allowMove)
+        if (diagram.isReadOnly || !diagram.allowMove)
             return false;
-        return true;
+        var sel = diagram.selection;
+        var it = sel.iterator;
+        while (it.next()) {
+            var p = it.value;
+            if (p.movable)
+                return true;
+        }
+        return false;
     };
+    /**
+     * 官方 DraggingTool.canStart（go.js 逐字）：
+     *   !isEnabled / (isReadOnly && !allowDragOut) / (!allowMove && !allowCopy &&
+     *   !allowDragOut) / !allowSelect / !canStartButton() → false
+     *   currentTool !== this 时要求 isBeyondDragSize()（触摸还要过 delay）
+     *   最后 findDraggablePart() !== null
+     * 以前缺 canStartButton + isBeyondDragSize + allowSelect 三条，而且 Dragging
+     * 被排在 mouseDownTools 里，于是"点一下不拖也算拖拽、点选永远轮不到"。
+     */
     DraggingTool.prototype.canStart = function () {
         var diagram = this.diagram;
-        if (!diagram || !this.isEnabled)
+        if (diagram === null || !this.isEnabled)
             return false;
-        if (!diagram.allowMove && !diagram.allowCopy && !diagram.allowDragOut)
+        if ((diagram.isReadOnly && !diagram.allowDragOut) ||
+            (!diagram.allowMove && !diagram.allowCopy && !diagram.allowDragOut) ||
+            !diagram.allowSelect || !this.canStartButton())
             return false;
-        var lastInput = diagram.lastInput;
-        if (!lastInput)
-            return false;
-        var part = diagram.findPartAt(new Point(lastInput.documentPoint.x, lastInput.documentPoint.y), true);
-        if (!part)
-            return false;
-        if (!part.movable && !part.copyable)
-            return false;
-        return true;
+        if (this.toolManager ? this.toolManager.currentTool !== this : false) {
+            if (!this.isBeyondDragSize())
+                return false;
+            var i = diagram.lastInput;
+            if (i.isTouchEvent && i.timestamp - diagram.firstInput.timestamp < this._delay)
+                return false;
+        }
+        return this.findDraggablePart() !== null;
     };
+    /** 官方 DraggingTool.findDraggablePart —— 从 **firstInput** 落点找可拖部件。 */
+    DraggingTool.prototype.findDraggablePart = function () {
+        var diagram = this.diagram;
+        if (!diagram)
+            return null;
+        var e = diagram.findPartAt(diagram.firstInput.documentPoint, false);
+        if (e === null)
+            return null;
+        for (; e !== null && !e.canSelect();)
+            e = e.containingGroup;
+        if (e !== null && (e.canMove() || e.canCopy()))
+            return e;
+        return null;
+    };
+    /**
+     * 官方 DraggingTool.standardMouseSelect：基于 **firstInput** 落点，
+     * 选中可拖部件并把它设为 currentPart（默认选区被清空成单选）。
+     */
+    DraggingTool.prototype.standardMouseSelect = function () {
+        var t = this.diagram;
+        if (!t || !t.allowSelect)
+            return;
+        var e = t.findPartAt(t.firstInput.documentPoint, false);
+        if (e === null)
+            return;
+        for (; e !== null && !e.canSelect();)
+            e = e.containingGroup;
+        this._currentPart = e;
+        if (this._currentPart !== null && !this._currentPart.isSelected) {
+            t.raiseDiagramEvent('ChangingSelection', t.selection);
+            var i = t.lastInput;
+            if (!(i.meta || i.control) && !i.shift)
+                t.clearSelection();
+            this._currentPart.isSelected = true;
+            t.raiseDiagramEvent('ChangedSelection', t.selection);
+        }
+    };
+    Object.defineProperty(DraggingTool.prototype, "currentPart", {
+        get: function () { return this._currentPart; },
+        set: function (val) { this._currentPart = val; },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(DraggingTool.prototype, "delay", {
+        get: function () { return this._delay; },
+        set: function (val) { this._delay = val; },
+        enumerable: false,
+        configurable: true
+    });
     DraggingTool.prototype.doActivate = function () {
         var diagram = this.diagram;
         if (!diagram)
+            return;
+        // 官方：先做 standardMouseSelect（当前选区为空时才选），再判断能不能拖
+        this._currentPart = null;
+        if (this._currentPart === null)
+            this.standardMouseSelect();
+        var part = this._currentPart;
+        if (part === null || (!part.canMove() && !part.canCopy()))
             return;
         this._isActive = true;
         this._isDragOut = false;
         this._targetDiagram = null;
         this._dragOutParts = null;
-        var lastInput = diagram.lastInput;
-        this._startPoint = new Point(lastInput.documentPoint.x, lastInput.documentPoint.y);
+        var firstInput = diagram.firstInput;
+        this._startPoint = new Point(firstInput.documentPoint.x, firstInput.documentPoint.y);
         this._draggedParts = new Map$1();
         var selection = diagram.selection;
         if (selection) {
@@ -38852,11 +39284,11 @@ var DraggingTool = /** @class */ (function (_super) {
             }
             var it = selection.iterator;
             while (it.next()) {
-                var part = it.value;
-                var isDragOutSource = diagram.allowDragOut && !part.movable;
-                if (!part.movable && !part.copyable && !isDragOutSource)
+                var p = it.value;
+                var isDragOutSource = diagram.allowDragOut && !p.movable;
+                if (!p.movable && !p.copyable && !isDragOutSource)
                     continue;
-                var cg = part.containingGroup;
+                var cg = p.containingGroup;
                 var skip = false;
                 while (cg) {
                     if (selectedSet.contains(cg)) {
@@ -38867,7 +39299,7 @@ var DraggingTool = /** @class */ (function (_super) {
                 }
                 if (skip)
                     continue;
-                this._draggedParts.add(part, part.location.copy());
+                this._draggedParts.add(p, p.location.copy());
             }
         }
         this._isCopy = false;
@@ -38938,8 +39370,11 @@ var DraggingTool = /** @class */ (function (_super) {
                 var origLoc = it.value;
                 var dx = point.x - this._startPoint.x;
                 var dy = point.y - this._startPoint.y;
+                // 官方 Diagram.moveParts：算完 computeMove 后一律写 **location**
+                //（`move(pt, true)`）。写 position 会把 bounds 原点当 locationSpot，
+                // locationSpot=Center 的样例整体偏半个节点（flowchart 实测 +35,+19.6）。
                 var newLoc = this.computeMove(part, new Point(origLoc.x + dx, origLoc.y + dy));
-                part.move(newLoc);
+                part.move(newLoc, true);
             }
         }
         diagram.requestUpdate();
@@ -38955,7 +39390,9 @@ var DraggingTool = /** @class */ (function (_super) {
         if (this._isCopy && this._copiedParts) {
             this._copiedParts = null;
         }
-        this.transactionResult = this._isCopy ? 'Copy' : this.name;
+        // 官方 DraggingTool.doMouseUp：`this.transactionResult = n ? "Copy" : "Move"`
+        // （不是 this.name；事务名就是靠它提交的 —— 官方 history 里那条叫 "Move"）
+        this.transactionResult = this._isCopy ? 'Copy' : 'Move';
         this.stopTool();
         var diagram = this.diagram;
         if (diagram) {
@@ -38964,7 +39401,9 @@ var DraggingTool = /** @class */ (function (_super) {
     };
     DraggingTool.prototype.doDeactivate = function () {
         this._removeGlobalListeners();
+        this.stopTransaction();
         this._startPoint = null;
+        this._currentPart = null;
         this._draggedParts = null;
         this._copiedParts = null;
         this._isCopy = false;
@@ -39171,6 +39610,9 @@ var DragSelectingTool = /** @class */ (function (_super) {
         var _this = _super.call(this) || this;
         _this._box = null;
         _this._startPoint = null;
+        // ============ Methods ============
+        /** Can start if the user clicks in the background (no part). */
+        _this._delay = 0;
         _this.name = 'DragSelecting';
         return _this;
     }
@@ -39181,20 +39623,34 @@ var DragSelectingTool = /** @class */ (function (_super) {
         enumerable: false,
         configurable: true
     });
-    // ============ Methods ============
-    /** Can start if the user clicks in the background (no part). */
+    Object.defineProperty(DragSelectingTool.prototype, "delay", {
+        get: function () { return this._delay; },
+        set: function (val) { this._delay = val; },
+        enumerable: false,
+        configurable: true
+    });
+    /**
+     * 官方 DragSelectingTool.canStart（go.js 逐字）：
+     *   !allowSelect / !canStartButton() → false
+     *   currentTool !== this 时要求 isBeyondDragSize()、过 delay、指下无部件
+     * 以前缺 canStartButton 与 isBeyondDragSize，右键一按就开始框选。
+     */
     DragSelectingTool.prototype.canStart = function () {
         var diagram = this.diagram;
-        if (!diagram || !this.isEnabled)
+        if (diagram === null || !this.isEnabled)
             return false;
-        if (!diagram.allowSelect)
+        if (!diagram.allowSelect || !this.canStartButton())
             return false;
-        var lastInput = diagram.lastInput;
-        if (!lastInput)
-            return false;
-        // Only start if clicking on the background
-        var part = diagram.findPartAt(new Point(lastInput.documentPoint.x, lastInput.documentPoint.y), true);
-        return part === null;
+        if (this.toolManager && this.toolManager.currentTool !== this) {
+            if (!this.isBeyondDragSize())
+                return false;
+            var e = diagram.lastInput;
+            if (e.timestamp - diagram.firstInput.timestamp < this._delay)
+                return false;
+            if (diagram.findPartAt(new Point(e.documentPoint.x, e.documentPoint.y), true) !== null)
+                return false;
+        }
+        return true;
     };
     /** Activate and start the box selection. */
     DragSelectingTool.prototype.doActivate = function () {
@@ -39237,6 +39693,7 @@ var DragSelectingTool = /** @class */ (function (_super) {
     };
     /** Clean up on deactivate. */
     DragSelectingTool.prototype.doDeactivate = function () {
+        this.stopTransaction();
         this._box = null;
         this._startPoint = null;
         _super.prototype.doDeactivate.call(this);
@@ -39562,17 +40019,22 @@ var LinkingTool = /** @class */ (function (_super) {
         _this.name = 'Linking';
         return _this;
     }
-    /** Can start if the user clicks on a fromLinkable port. */
+    /**
+     * 官方 LinkingBaseTool.canStart（go.js 逐字）：
+     *   isReadOnly / isModelReadOnly / !allowLink / !canStartButton()
+     *   currentTool !== this && !isBeyondDragSize() → false
+     *   最后 findLinkablePort() !== null（从 **firstInput** 落点找）
+     * Linking 在 mouseMoveTools 里，所以"按下不动"绝不会启动拉线。
+     */
     LinkingTool.prototype.canStart = function () {
         var diagram = this.diagram;
-        if (!diagram || !this.isEnabled)
+        if (diagram === null || !this.isEnabled)
             return false;
-        if (!diagram.allowLink)
+        if (diagram.isReadOnly || diagram.isModelReadOnly || !diagram.allowLink || !this.canStartButton())
             return false;
-        var lastInput = diagram.lastInput;
-        if (!lastInput)
+        if (this.toolManager && this.toolManager.currentTool !== this && !this.isBeyondDragSize())
             return false;
-        var point = new Point(lastInput.documentPoint.x, lastInput.documentPoint.y);
+        var point = new Point(diagram.firstInput.documentPoint.x, diagram.firstInput.documentPoint.y);
         var obj = diagram.findObjectAt(point);
         if (!obj)
             return false;
@@ -39767,15 +40229,13 @@ var RelinkingTool = /** @class */ (function (_super) {
     });
     RelinkingTool.prototype.canStart = function () {
         var diagram = this.diagram;
-        if (!diagram || !this.isEnabled)
+        if (diagram === null || !this.isEnabled)
             return false;
-        if (!diagram.allowRelink)
+        // 官方：t.isReadOnly || t.isModelReadOnly || !t.allowRelink || !canStartButton() → false
+        if (diagram.isReadOnly || diagram.isModelReadOnly || !diagram.allowRelink || !this.canStartButton())
             return false;
-        var lastInput = diagram.lastInput;
-        if (!lastInput)
-            return false;
-        var point = new Point(lastInput.documentPoint.x, lastInput.documentPoint.y);
-        var handle = this.findToolHandleAt(point);
+        var point = new Point(diagram.firstInput.documentPoint.x, diagram.firstInput.documentPoint.y);
+        var handle = this.findToolHandleAt(point, this.name);
         if (handle)
             return true;
         return false;
@@ -39785,9 +40245,8 @@ var RelinkingTool = /** @class */ (function (_super) {
         if (!diagram)
             return;
         this._isActive = true;
-        var lastInput = diagram.lastInput;
-        var point = new Point(lastInput.documentPoint.x, lastInput.documentPoint.y);
-        var handle = this.findToolHandleAt(point);
+        var point = new Point(diagram.firstInput.documentPoint.x, diagram.firstInput.documentPoint.y);
+        var handle = this.findToolHandleAt(point, this.name);
         if (handle) {
             var adornment = handle.panel;
             if (adornment) {
@@ -39839,7 +40298,7 @@ var RelinkingTool = /** @class */ (function (_super) {
             return;
         var category = 'Relinking';
         var existingAd = part.getAdornment(category);
-        if (!(part instanceof Link) || !part.isSelected || !diagram.allowRelink) {
+        if (!(part instanceof Link) || !part.isSelected) {
             if (existingAd) {
                 part.removeAdornment(category);
                 var adLayer_1 = diagram.findLayer('Adornment');
@@ -39936,15 +40395,13 @@ var LinkReshapingTool = /** @class */ (function (_super) {
     });
     LinkReshapingTool.prototype.canStart = function () {
         var diagram = this.diagram;
-        if (!diagram || !this.isEnabled)
+        if (diagram === null || !this.isEnabled)
             return false;
-        if (!diagram.allowReshape)
+        // 官方：t.isReadOnly || !t.allowReshape || !this.canStartButton() → false
+        if (diagram.isReadOnly || !diagram.allowReshape || !this.canStartButton())
             return false;
-        var lastInput = diagram.lastInput;
-        if (!lastInput)
-            return false;
-        var point = new Point(lastInput.documentPoint.x, lastInput.documentPoint.y);
-        var handle = this.findToolHandleAt(point);
+        var point = new Point(diagram.firstInput.documentPoint.x, diagram.firstInput.documentPoint.y);
+        var handle = this.findToolHandleAt(point, this.name);
         return handle !== null;
     };
     LinkReshapingTool.prototype.doActivate = function () {
@@ -39952,9 +40409,8 @@ var LinkReshapingTool = /** @class */ (function (_super) {
         if (!diagram)
             return;
         this._isActive = true;
-        var lastInput = diagram.lastInput;
-        var point = new Point(lastInput.documentPoint.x, lastInput.documentPoint.y);
-        this._handle = this.findToolHandleAt(point);
+        var point = new Point(diagram.firstInput.documentPoint.x, diagram.firstInput.documentPoint.y);
+        this._handle = this.findToolHandleAt(point, this.name);
         if (this._handle) {
             var adornment = this._handle.panel;
             if (adornment) {
@@ -39990,6 +40446,7 @@ var LinkReshapingTool = /** @class */ (function (_super) {
         }
     };
     LinkReshapingTool.prototype.doDeactivate = function () {
+        this.stopTransaction();
         this._handle = null;
         this._adornedLink = null;
         this._handleIndex = -1;
@@ -40003,7 +40460,7 @@ var LinkReshapingTool = /** @class */ (function (_super) {
             return;
         var category = 'LinkReshaping';
         var existingAd = part.getAdornment(category);
-        if (!(part instanceof Link) || !part.isSelected || !diagram.allowReshape) {
+        if (!(part instanceof Link) || !part.isSelected || typeof part.canReshape !== 'function' || !part.canReshape()) {
             if (existingAd) {
                 part.removeAdornment(category);
                 var adLayer_1 = diagram.findLayer('Adornment');
@@ -40111,15 +40568,13 @@ var ResizingTool = /** @class */ (function (_super) {
     });
     ResizingTool.prototype.canStart = function () {
         var diagram = this.diagram;
-        if (!diagram || !this.isEnabled)
+        if (diagram === null || !this.isEnabled)
             return false;
-        if (!diagram.allowResize)
+        // 官方：t.isReadOnly || !t.allowResize || !this.canStartButton() → false
+        if (diagram.isReadOnly || !diagram.allowResize || !this.canStartButton())
             return false;
-        var lastInput = diagram.lastInput;
-        if (!lastInput)
-            return false;
-        var point = new Point(lastInput.documentPoint.x, lastInput.documentPoint.y);
-        var handle = this.findToolHandleAt(point);
+        var point = new Point(diagram.firstInput.documentPoint.x, diagram.firstInput.documentPoint.y);
+        var handle = this.findToolHandleAt(point, this.name);
         return handle !== null;
     };
     ResizingTool.prototype.doActivate = function () {
@@ -40127,9 +40582,8 @@ var ResizingTool = /** @class */ (function (_super) {
         if (!diagram)
             return;
         this._isActive = true;
-        var lastInput = diagram.lastInput;
-        var point = new Point(lastInput.documentPoint.x, lastInput.documentPoint.y);
-        this._handle = this.findToolHandleAt(point);
+        var point = new Point(diagram.firstInput.documentPoint.x, diagram.firstInput.documentPoint.y);
+        this._handle = this.findToolHandleAt(point, this.name);
         if (this._handle) {
             var adornment = this._handle.panel;
             if (adornment) {
@@ -40164,6 +40618,7 @@ var ResizingTool = /** @class */ (function (_super) {
         }
     };
     ResizingTool.prototype.doDeactivate = function () {
+        this.stopTransaction();
         this._handle = null;
         this._adornedElement = null;
         this._originalBounds = null;
@@ -40191,7 +40646,7 @@ var ResizingTool = /** @class */ (function (_super) {
             return;
         var category = 'Resizing';
         var existingAd = part.getAdornment(category);
-        if (!part.isSelected || !diagram.allowResize) {
+        if (!part.isSelected || typeof part.canResize !== 'function' || !part.canResize()) {
             if (existingAd) {
                 part.removeAdornment(category);
                 var adLayer_1 = diagram.findLayer('Adornment');
@@ -40323,15 +40778,13 @@ var RotatingTool = /** @class */ (function (_super) {
     });
     RotatingTool.prototype.canStart = function () {
         var diagram = this.diagram;
-        if (!diagram || !this.isEnabled)
+        if (diagram === null || !this.isEnabled)
             return false;
-        if (!diagram.allowRotate)
+        // 官方：t.isReadOnly || !t.allowRotate || !this.canStartButton() → false
+        if (diagram.isReadOnly || !diagram.allowRotate || !this.canStartButton())
             return false;
-        var lastInput = diagram.lastInput;
-        if (!lastInput)
-            return false;
-        var point = new Point(lastInput.documentPoint.x, lastInput.documentPoint.y);
-        var handle = this.findToolHandleAt(point);
+        var point = new Point(diagram.firstInput.documentPoint.x, diagram.firstInput.documentPoint.y);
+        var handle = this.findToolHandleAt(point, this.name);
         return handle !== null;
     };
     RotatingTool.prototype.doActivate = function () {
@@ -40339,9 +40792,8 @@ var RotatingTool = /** @class */ (function (_super) {
         if (!diagram)
             return;
         this._isActive = true;
-        var lastInput = diagram.lastInput;
-        var point = new Point(lastInput.documentPoint.x, lastInput.documentPoint.y);
-        this._handle = this.findToolHandleAt(point);
+        var point = new Point(diagram.firstInput.documentPoint.x, diagram.firstInput.documentPoint.y);
+        this._handle = this.findToolHandleAt(point, this.name);
         if (this._handle) {
             var adornment = this._handle.panel;
             if (adornment) {
@@ -40374,6 +40826,7 @@ var RotatingTool = /** @class */ (function (_super) {
         }
     };
     RotatingTool.prototype.doDeactivate = function () {
+        this.stopTransaction();
         this._handle = null;
         this._adornedElement = null;
         _super.prototype.doDeactivate.call(this);
@@ -40395,7 +40848,7 @@ var RotatingTool = /** @class */ (function (_super) {
             return;
         var category = 'Rotating';
         var existingAd = part.getAdornment(category);
-        if (!part.isSelected || !diagram.allowRotate) {
+        if (!part.isSelected || typeof part.canRotate !== 'function' || !part.canRotate()) {
             if (existingAd) {
                 part.removeAdornment(category);
                 var adLayer_1 = diagram.findLayer('Adornment');
@@ -40482,15 +40935,13 @@ var TextEditingTool = /** @class */ (function (_super) {
     });
     TextEditingTool.prototype.canStart = function () {
         var diagram = this.diagram;
-        if (!diagram || !this.isEnabled)
+        if (diagram === null || !this.isEnabled)
             return false;
-        if (!diagram.allowTextEdit)
+        if (diagram.isReadOnly || !diagram.allowTextEdit || !this.canStartButton())
+            return false;
+        if (this.isBeyondDragSize())
             return false;
         var lastInput = diagram.lastInput;
-        if (!lastInput)
-            return false;
-        if (!lastInput.leftButton)
-            return false;
         if (lastInput.clickCount < 2)
             return false;
         var point = new Point(lastInput.documentPoint.x, lastInput.documentPoint.y);
@@ -40656,16 +41107,23 @@ var PanningTool = /** @class */ (function (_super) {
         _this.name = 'Panning';
         return _this;
     }
-    /** Can start if the user clicks on the background with no part. */
+    /**
+     * 官方 PanningTool.canStart（go.js 逐字）：
+     *   !(!allowHorizontalScroll && !allowVerticalScroll ||
+     *     !canStartButton() ||
+     *     (currentTool !== this && !isBeyondDragSize() && !isMultiTouch))
+     * 以前完全没有 button / dragSize 判定，右键或轻微点击也会被当成平移手势。
+     */
     PanningTool.prototype.canStart = function () {
         var diagram = this.diagram;
-        if (!diagram || !this.isEnabled)
+        if (diagram === null || !this.isEnabled)
             return false;
-        var lastInput = diagram.lastInput;
-        if (!lastInput)
-            return false;
-        // Check if the diagram allows scrolling
         if (!diagram.allowHorizontalScroll && !diagram.allowVerticalScroll)
+            return false;
+        if (!this.canStartButton())
+            return false;
+        if (this.toolManager && this.toolManager.currentTool !== this &&
+            !this.isBeyondDragSize() && !diagram.lastInput.isMultiTouch)
             return false;
         return true;
     };
@@ -40728,15 +41186,42 @@ var ContextMenuTool = /** @class */ (function (_super) {
         configurable: true
     });
     // ============ Methods ============
-    /** Can start if the user right-clicks. */
+    /**
+     * 官方 ContextMenuTool.canStart（go.js 逐字）：
+     *   isBeyondDragSize() || !lastInput.right || clickCount > 1 → false
+     *   否则看 touch 的 defaultTouchContextMenu 或 findObjectWithContextMenu()
+     * 注意它排在 mouseUpTools 首位，所以右键菜单在 mouseup 才弹。
+     */
     ContextMenuTool.prototype.canStart = function () {
         var diagram = this.diagram;
-        if (!diagram || !this.isEnabled)
+        if (diagram === null || !this.isEnabled)
             return false;
         var lastInput = diagram.lastInput;
-        if (!lastInput)
+        if (this.isBeyondDragSize() || !lastInput.rightButton || lastInput.clickCount > 1)
             return false;
-        return lastInput.isContextMenu || lastInput.button === 2;
+        if (lastInput.isTouchEvent && this.defaultTouchContextMenu !== null)
+            return true;
+        return this.findObjectWithContextMenu() !== null;
+    };
+    /** 官方 ContextMenuTool.findObjectWithContextMenu —— 沿 panel 链找 contextMenu。 */
+    ContextMenuTool.prototype.findObjectWithContextMenu = function () {
+        var diagram = this.diagram;
+        if (!diagram)
+            return null;
+        var hit = diagram.findObjectAt(new Point(diagram.lastInput.documentPoint.x, diagram.lastInput.documentPoint.y));
+        var s = (hit !== null && hit.layer && hit.layer.isTemporary) ? null : hit;
+        if (s !== null) {
+            var n = s;
+            while (n !== null) {
+                if (n.contextMenu !== null && n.contextMenu !== undefined)
+                    return n;
+                n = n.panel;
+            }
+        }
+        var dm = diagram.contextMenu;
+        if (dm !== null && dm !== undefined)
+            return diagram;
+        return null;
     };
     /** Show the context menu on mouse up (right-click). */
     ContextMenuTool.prototype.doMouseUp = function () {
@@ -40821,22 +41306,35 @@ var ClickCreatingTool = /** @class */ (function (_super) {
         configurable: true
     });
     // ============ Methods ============
-    /** Can start if the user clicks in the background and archetype data is set. */
+    /**
+     * 官方 ClickCreatingTool.canStart（go.js 逐字）：
+     *   !isEnabled || archetypeNodeData === null → false
+     *   isReadOnly / isModelReadOnly / !allowInsert / !canStartButton() /
+     *   isBeyondDragSize() → false
+     *   clickCount 必须匹配 isDoubleClick 设置
+     *   最后 currentTool !== this && 指下有部件 → false
+     */
     ClickCreatingTool.prototype.canStart = function () {
         var diagram = this.diagram;
-        if (!diagram || !this.isEnabled)
+        if (diagram === null || !this.isEnabled || this._archetypePartData === null)
             return false;
-        if (!diagram.allowInsert)
-            return false;
-        if (!this._archetypePartData)
+        if (diagram.isReadOnly || diagram.isModelReadOnly || !diagram.allowInsert ||
+            !this.canStartButton() || this.isBeyondDragSize())
             return false;
         var lastInput = diagram.lastInput;
-        if (!lastInput)
+        if (this._isDoubleClick) {
+            if (lastInput.clickCount !== 2)
+                return false;
+        }
+        else if (lastInput.clickCount !== 1) {
             return false;
+        }
         // Only start if clicking on the background
         var point = new Point(lastInput.documentPoint.x, lastInput.documentPoint.y);
-        var part = diagram.findPartAt(point, true);
-        return part === null;
+        if (this.toolManager && this.toolManager.currentTool !== this &&
+            diagram.findPartAt(point, true) !== null)
+            return false;
+        return true;
     };
     /** Create the part on mouse up. */
     ClickCreatingTool.prototype.doMouseUp = function () {
@@ -40846,8 +41344,10 @@ var ClickCreatingTool = /** @class */ (function (_super) {
         var lastInput = diagram.lastInput;
         if (!lastInput)
             return;
-        var point = new Point(lastInput.documentPoint.x, lastInput.documentPoint.y);
-        this.insertPart(point);
+        if (this.isActive) {
+            var point = new Point(lastInput.documentPoint.x, lastInput.documentPoint.y);
+            this.insertPart(point);
+        }
         this.stopTool();
     };
     /** Insert a new part at the given location. */
@@ -40904,7 +41404,11 @@ var ActionTool = /** @class */ (function (_super) {
         if (!lastInput)
             return false;
         var point = new Point(lastInput.documentPoint.x, lastInput.documentPoint.y);
+        // 官方：从落点向上沿 panel 链找第一个 isActionable 的对象
         var obj = diagram.findObjectAt(point);
+        while (obj !== null && !obj.isActionable) {
+            obj = obj.panel;
+        }
         if (obj && obj.isActionable) {
             this._actionableObject = obj;
             return true;
@@ -40967,9 +41471,10 @@ var ToolManager = /** @class */ (function (_super) {
         _this._mouseMoveTools = new List();
         _this._mouseUpTools = new List();
         _this._mouseHoverTools = new List();
+        /** null 表示"没有专用工具在跑，由 ToolManager 自己处理"（官方 = currentTool 为 toolManager） */
         _this._currentTool = null;
-        _this._hoverDelay = 0;
-        _this._holdDelay = 0;
+        _this._hoverDelay = 850;
+        _this._holdDelay = 850;
         _this._lastInput = new InputEvent();
         _this._previousInput = new InputEvent();
         _this._mouseDownPoint = null;
@@ -40995,39 +41500,34 @@ var ToolManager = /** @class */ (function (_super) {
         var contextMenuTool = new ContextMenuTool();
         var clickCreatingTool = new ClickCreatingTool();
         var actionTool = new ActionTool();
-        // Default tool is ClickSelectingTool
-        _this._defaultTool = clickSelectingTool;
-        _this._currentTool = _this._defaultTool;
-        // Mouse-down tools (checked in order on mouse-down)
+        // 官方 ToolManager 本身没有 defaultTool；Diagram.defaultTool 初始即 toolManager。
+        // 这里把 defaultTool 设为自身，使得 Tool.stopTool() 归位到"空闲态"（_currentTool = null）。
+        _this._defaultTool = _this;
+        _this._currentTool = null;
+        /**
+         * 官方 ToolManager.initializeStandardTools() 的三张表与顺序（go.js 逐字）：
+         *   mouseDown: Action, Relinking, LinkReshaping, Rotating, Resizing
+         *   mouseMove: Linking, Dragging, DragSelecting, Panning
+         *   mouseUp:   ContextMenu, TextEditing, ClickCreating, ClickSelecting
+         *
+         * 以前 Dragging/DragSelecting/Panning/Linking 全塞在 mouseDownTools 里：
+         * mousedown 一按下 DraggingTool 就激活并吞掉事件，ClickSelectingTool 永远
+         * 没机会跑 → 点击选不中；而且 DraggingTool.canStart 缺 isBeyondDragSize 判定，
+         * 点一下不拖也当成拖拽。这一条是"点击选不中"的根因。
+         */
         _this._mouseDownTools = new List([
             actionTool,
             relinkingTool,
             linkReshapingTool,
-            resizingTool,
             rotatingTool,
-            linkingTool,
-            draggingTool,
-            dragSelectingTool,
-            panningTool,
-            contextMenuTool,
+            resizingTool,
         ]);
-        // Mouse-move tools (checked in order on mouse-move)
         _this._mouseMoveTools = new List([
+            linkingTool,
             draggingTool,
             dragSelectingTool,
-            linkingTool,
-            relinkingTool,
-            linkReshapingTool,
-            resizingTool,
-            rotatingTool,
             panningTool,
         ]);
-        // Mouse-up tools (checked in order on mouse-up)
-        // 顺序对齐官方 go.d.ts:5159：ContextMenuTool / TextEditingTool /
-        // ClickCreatingTool / ClickSelectingTool。
-        // 以前 TextEditingTool 根本不在任何一张表里（`toolManager.textEditingTool`
-        // 拿到 undefined，实测 audioEditor 崩），而 ClickSelectingTool 排在最前，
-        // 它 canStart() 恒为 true，会把 ClickCreatingTool 完全挡住。
         _this._mouseUpTools = new List([
             contextMenuTool,
             textEditingTool,
@@ -41073,17 +41573,32 @@ var ToolManager = /** @class */ (function (_super) {
         configurable: true
     });
     Object.defineProperty(ToolManager.prototype, "currentTool", {
-        get: function () { return this._currentTool; },
+        /**
+         * 官方语义：Diagram.currentTool 初始 = defaultTool，而 defaultTool 初始 = toolManager。
+         * 这里 `_currentTool === null` 即"ToolManager 自己是当前工具"，getter 回落到 this。
+         */
+        get: function () { return this._currentTool !== null ? this._currentTool : this; },
         set: function (val) {
-            if (this._currentTool && this._currentTool.isActive) {
-                this._currentTool.doDeactivate();
+            // 官方：currentTool 永不为 null（null 归一化成 defaultTool = ToolManager 自身），
+            // 所以"旧的当前工具"是 null 时即 ToolManager 自己，切换时它也要 doDeactivate。
+            var old = this._currentTool !== null ? this._currentTool : this;
+            if (old !== null) {
+                if (old.isActive)
+                    old.doDeactivate();
+                old.cancelWaitAfter();
+                old.doStop();
             }
-            this._currentTool = val;
-            if (val) {
-                val.toolManager = this;
-                val.diagram = this.diagram;
-                val.doStart();
+            var v = val;
+            if (v === null || v === undefined)
+                v = this._defaultTool;
+            if (v === this || v === null || v === undefined) {
+                this._currentTool = null;
+                return;
             }
+            this._currentTool = v;
+            v.toolManager = this;
+            v.diagram = this.diagram;
+            v.doStart();
         },
         enumerable: false,
         configurable: true
@@ -41091,9 +41606,13 @@ var ToolManager = /** @class */ (function (_super) {
     Object.defineProperty(ToolManager.prototype, "defaultTool", {
         get: function () { return this._defaultTool; },
         set: function (val) {
+            var prev = this._defaultTool;
             this._defaultTool = val;
-            if (val) {
+            if (val && val !== this) {
                 val.diagram = this.diagram;
+            }
+            if (prev !== val && this._currentTool === null && val && val !== this) {
+                this.currentTool = val;
             }
         },
         enumerable: false,
@@ -41320,7 +41839,7 @@ var ToolManager = /** @class */ (function (_super) {
                 }
                 finally { if (e_6) throw e_6.error; }
             }
-            if (this._defaultTool) {
+            if (this._defaultTool && this._defaultTool !== this) {
                 this._defaultTool.diagram = val;
             }
             if (this._currentTool) {
@@ -41350,32 +41869,41 @@ var ToolManager = /** @class */ (function (_super) {
         link(this._mouseHoverTools);
     };
     // ============ Event Dispatch Methods ============
-    /** Dispatch mouse-down event to the appropriate tool. */
+    /**
+     * 官方 ToolManager.doMouseDown（go.js 逐字）：
+     * 1. 遍历 mouseDownTools，canStart 的那个成为 currentTool 并激活；
+     * 2. 中键则切换 mouseWheelBehavior（Scroll ↔ Zoom）；
+     * 3. 否则 ToolManager 自己 doActivate()，把这次手势接管过来。
+     */
     ToolManager.prototype.doMouseDown = function () {
         var e_7, _a;
         var diagram = this.diagram;
         if (!diagram || !diagram.isEnabled)
             return;
         this._syncTools();
-        // Save the previous input
+        var input = this._lastInput;
         this._previousInput = this._lastInput.copy();
-        // Store the mouse-down point
-        this._mouseDownPoint = new Point(this._lastInput.documentPoint.x, this._lastInput.documentPoint.y);
-        // If there is a current active tool, let it handle the event
-        if (this._currentTool && this._currentTool.isActive) {
-            this._currentTool.doMouseDown();
+        this._mouseDownPoint = new Point(input.documentPoint.x, input.documentPoint.y);
+        // 已有专用工具在跑 → 交给它
+        var cur = this._currentTool;
+        if (cur !== null && cur.isActive) {
+            cur.doMouseDown();
             return;
         }
         try {
-            // Try each mouse-down tool in order
             for (var _b = __values(this._mouseDownTools), _c = _b.next(); !_c.done; _c = _b.next()) {
                 var tool = _c.value;
                 if (!tool.isEnabled)
                     continue;
                 if (tool.canStart()) {
+                    diagram.doFocus();
                     this.currentTool = tool;
-                    tool.doActivate();
-                    tool.doMouseDown();
+                    if (this._currentTool === tool) {
+                        if (!tool.isActive)
+                            tool.doActivate();
+                        if (this._currentTool === tool)
+                            tool.doMouseDown();
+                    }
                     return;
                 }
             }
@@ -41387,82 +41915,159 @@ var ToolManager = /** @class */ (function (_super) {
             }
             finally { if (e_7) throw e_7.error; }
         }
-        // No tool could start - use default tool
-        this.currentTool = this._defaultTool;
-        if (this._currentTool) {
-            this._currentTool.doMouseDown();
+        if (input.button === 1) {
+            this.mouseWheelBehavior = this.mouseWheelBehavior === WheelModeScroll
+                ? WheelModeZoom
+                : (this.mouseWheelBehavior === WheelModeZoom ? WheelModeScroll : this.mouseWheelBehavior);
         }
+        // 没有工具启动：ToolManager 接管本次手势（官方 this.doActivate()）
+        var stale = this._currentTool;
+        if (stale !== null) {
+            if (stale.isActive)
+                stale.doDeactivate();
+            stale.cancelWaitAfter();
+            stale.doStop();
+        }
+        this._currentTool = null;
+        this.doActivate();
+        this.standardWaitAfter(this.holdDelay, input);
     };
-    /** Dispatch mouse-move event to the current tool. */
     ToolManager.prototype.doMouseMove = function () {
-        var diagram = this.diagram;
-        if (!diagram || !diagram.isEnabled)
-            return;
-        this._previousInput = this._lastInput.copy();
-        if (this._currentTool) {
-            this._currentTool.doMouseMove();
-        }
-    };
-    /** Dispatch mouse-up event to the current tool. */
-    ToolManager.prototype.doMouseUp = function () {
         var e_8, _a;
         var diagram = this.diagram;
         if (!diagram || !diagram.isEnabled)
             return;
-        this._syncTools();
         this._previousInput = this._lastInput.copy();
-        // If there is a current active tool, let it handle the event
-        if (this._currentTool && this._currentTool.isActive) {
-            this._currentTool.doMouseUp();
+        var cur = this._currentTool;
+        if (cur !== null) {
+            // 专用工具（Dragging/Linking/...）激活时由它自己处理
+            if (cur.isActive)
+                cur.doMouseMove();
             return;
         }
-        try {
-            // Try each mouse-up tool in order
-            for (var _b = __values(this._mouseUpTools), _c = _b.next(); !_c.done; _c = _b.next()) {
-                var tool = _c.value;
-                if (!tool.isEnabled)
-                    continue;
-                if (tool.canStart()) {
-                    this.currentTool = tool;
-                    tool.doActivate();
-                    tool.doMouseUp();
-                    return;
+        if (this.isActive) {
+            try {
+                for (var _b = __values(this._mouseMoveTools), _c = _b.next(); !_c.done; _c = _b.next()) {
+                    var tool = _c.value;
+                    if (!tool.isEnabled)
+                        continue;
+                    if (tool.canStart()) {
+                        diagram.doFocus();
+                        this.currentTool = tool;
+                        if (this._currentTool === tool) {
+                            if (!tool.isActive)
+                                tool.doActivate();
+                            if (this._currentTool === tool)
+                                tool.doMouseMove();
+                        }
+                        return;
+                    }
                 }
             }
-        }
-        catch (e_8_1) { e_8 = { error: e_8_1 }; }
-        finally {
-            try {
-                if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
+            catch (e_8_1) { e_8 = { error: e_8_1 }; }
+            finally {
+                try {
+                    if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
+                }
+                finally { if (e_8) throw e_8.error; }
             }
-            finally { if (e_8) throw e_8.error; }
         }
-        // No tool could start - use default tool
-        this.currentTool = this._defaultTool;
-        if (this._currentTool) {
-            this._currentTool.doMouseUp();
+        // 空闲：标准悬停（cursor / mouseEnter / mouseLeave / mouseOver）
+        this.standardMouseOver();
+        if (this.isBeyondDragSize()) {
+            this.standardWaitAfter(this.isActive ? this.holdDelay : this.hoverDelay, this._lastInput);
         }
+        else {
+            this.cancelWaitAfter();
+        }
+    };
+    ToolManager.prototype.doMouseUp = function () {
+        var e_9, _a;
+        var diagram = this.diagram;
+        if (!diagram || !diagram.isEnabled)
+            return;
+        this._syncTools();
+        this.cancelWaitAfter();
+        this._previousInput = this._lastInput.copy();
+        var cur = this._currentTool;
+        if (cur !== null) {
+            if (cur.isActive)
+                cur.doMouseUp();
+            else
+                this.currentTool = null;
+            return;
+        }
+        if (this.isActive) {
+            try {
+                for (var _b = __values(this._mouseUpTools), _c = _b.next(); !_c.done; _c = _b.next()) {
+                    var tool = _c.value;
+                    if (!tool.isEnabled)
+                        continue;
+                    if (tool.canStart()) {
+                        diagram.doFocus();
+                        this.currentTool = tool;
+                        if (this._currentTool === tool) {
+                            if (!tool.isActive)
+                                tool.doActivate();
+                            if (this._currentTool === tool)
+                                tool.doMouseUp();
+                        }
+                        return;
+                    }
+                }
+            }
+            catch (e_9_1) { e_9 = { error: e_9_1 }; }
+            finally {
+                try {
+                    if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
+                }
+                finally { if (e_9) throw e_9.error; }
+            }
+            this.doDeactivate();
+        }
+    };
+    /** 官方 ToolManager.doWaitAfter —— 悬停延迟到点后触发 hover 与 tooltip。 */
+    ToolManager.prototype.doWaitAfter = function (t) {
+        var d = this.diagram;
+        if (!d)
+            return;
+        var saved = d.lastInput;
+        if (t)
+            d.lastInput = t;
+        this.doMouseHover();
+        if (!this.isActive)
+            this.doToolTip();
+        if (t && t.isTouchEvent && !d.lastInput.handled) {
+            var s = t.copy();
+            s.button = 2;
+            d.lastInput = s;
+            this.doMouseUp();
+        }
+        d.lastInput = saved;
     };
     /** Dispatch key-down event to the current tool. */
     ToolManager.prototype.doKeyDown = function () {
-        if (this._currentTool) {
-            this._currentTool.doKeyDown();
-        }
+        var cur = this._currentTool;
+        if (cur !== null)
+            cur.doKeyDown();
+        else if (this.isActive)
+            Tool.prototype.doKeyDown.call(this);
     };
     /** Dispatch key-up event to the current tool. */
     ToolManager.prototype.doKeyUp = function () {
-        if (this._currentTool) {
-            this._currentTool.doKeyUp();
-        }
+        var cur = this._currentTool;
+        if (cur !== null)
+            cur.doKeyUp();
+        else if (this.isActive)
+            Tool.prototype.doKeyUp.call(this);
     };
     /** Dispatch mouse-wheel event to the current tool. */
     ToolManager.prototype.doMouseWheel = function () {
-        if (this._currentTool && this._currentTool.isActive) {
-            this._currentTool.doMouseWheel();
-        }
-        else {
+        var cur = this._currentTool;
+        if (cur !== null && cur.isActive)
+            cur.doMouseWheel();
+        else
             this.standardMouseWheel();
-        }
     };
     /**
      * Update adornments for all relevant parts.
@@ -41476,36 +42081,75 @@ var ToolManager = /** @class */ (function (_super) {
                 tool.updateAdornments(part);
         });
     };
-    /** Standard mouse wheel: zoom in/out centered on mouse position. */
+    /**
+     * 官方 Tool.standardMouseWheel（go.js 逐字，含 mouseWheelBehavior 分支）：
+     *   WheelScroll(1) + ctrl  → 缩放；WheelZoom(2) + 非 shift → 缩放
+     *   WheelZoom(2) + shift   → 滚动；WheelScroll(1) + 非 ctrl → 滚动
+     * 以前无脑"ctrl 或小步长就缩放"，mouseWheelBehavior 形同虚设。
+     */
     ToolManager.prototype.standardMouseWheel = function () {
-        var diagram = this.diagram;
-        if (!diagram || !diagram.allowZoom)
+        var d = this.diagram;
+        if (!d)
             return;
-        var e = this._lastInput;
-        if (!e || !e.nativeEvent)
+        var i = this._lastInput;
+        var e = i.delta;
+        if (e === 0 || !d.documentBounds.isReal())
             return;
-        var wheelEvent = e.nativeEvent;
-        var delta = wheelEvent.deltaMode === 1 ? wheelEvent.deltaY * 40 : wheelEvent.deltaY;
-        if (wheelEvent.ctrlKey || Math.abs(delta) < 40) {
-            var oldScale = diagram.scale;
-            var factor = delta > 0 ? 0.9 : 1.1;
-            var newScale = oldScale * factor;
-            newScale = Math.max(diagram.minScale, Math.min(diagram.maxScale, newScale));
-            var viewPoint = new Point(e.viewPoint.x, e.viewPoint.y);
-            var padding = diagram.padding;
-            var mouseDocX = (viewPoint.x - padding.left) / oldScale + diagram.position.x;
-            var mouseDocY = (viewPoint.y - padding.top) / oldScale + diagram.position.y;
-            diagram.scale = newScale;
-            diagram.position = new Point(mouseDocX - (viewPoint.x - padding.left) / newScale, mouseDocY - (viewPoint.y - padding.top) / newScale);
-        }
-        else {
-            var scrollX_1 = wheelEvent.shiftKey ? delta : 0;
-            var scrollY_1 = wheelEvent.shiftKey ? 0 : delta;
-            if (diagram.allowHorizontalScroll || diagram.allowVerticalScroll) {
-                var pos = diagram.position;
-                diagram.position = new Point(pos.x + scrollX_1 / diagram.scale, pos.y + scrollY_1 / diagram.scale);
+        var s = d.commandHandler;
+        var n = this.mouseWheelBehavior;
+        if (s !== null && ((n === WheelModeZoom && !i.shift) || (n === WheelModeScroll && i.control))) {
+            if (e > 0 ? s.canIncreaseZoom() : s.canDecreaseZoom()) {
+                this._zoomAt(new Point(i.viewPoint.x, i.viewPoint.y), e > 0);
             }
+            i.bubbles = false;
         }
+        else if ((n === WheelModeZoom && i.shift) || (n === WheelModeScroll && !i.control)) {
+            var oldPos = d.position.copy();
+            var ne2 = i.nativeEvent;
+            var mode = (ne2 && typeof ne2.deltaMode === 'number')
+                ? (ne2.deltaMode === 1 ? 'line' : (ne2.deltaMode === 2 ? 'page' : 'pixel'))
+                : 'pixel';
+            var h = (ne2 && typeof ne2.deltaX === 'number') ? ne2.deltaX : 0;
+            var a = (ne2 && typeof ne2.deltaY === 'number') ? ne2.deltaY : 0;
+            if ((h !== 0 || a !== 0) && !i.shift) {
+                var lh = d.scrollHorizontalLineChange;
+                var lv = d.scrollVerticalLineChange;
+                if (h !== 0 && d.allowHorizontalScroll) {
+                    var v = h * (lh / 16);
+                    d.scroll(mode, v > 0 ? 'right' : 'left', Math.abs(v));
+                }
+                if (a !== 0 && d.allowVerticalScroll) {
+                    var v = a * (lv / 16);
+                    d.scroll(mode, v > 0 ? 'down' : 'up', Math.abs(v));
+                }
+            }
+            else if (!i.shift && d.allowVerticalScroll) {
+                var v = e * 3 * d.scrollVerticalLineChange;
+                d.scroll(mode, v > 0 ? 'up' : 'down', Math.abs(v));
+            }
+            else if (i.shift && d.allowHorizontalScroll) {
+                var v = e * 3 * d.scrollHorizontalLineChange;
+                d.scroll(mode, v > 0 ? 'left' : 'right', Math.abs(v));
+            }
+            this.doWheelChange(oldPos, d.position, i);
+        }
+    };
+    /** 以 viewPoint 为锚点缩放（等价官方 `zoomPoint = viewPoint; increaseZoom()`）。 */
+    ToolManager.prototype._zoomAt = function (viewPoint, up) {
+        var d = this.diagram;
+        if (!d)
+            return;
+        var zf = (d.commandHandler && d.commandHandler.zoomFactor) || 1.05;
+        var f = up ? zf : 1 / zf;
+        var oldScale = d.scale;
+        var ns = oldScale * f;
+        ns = Math.max(d.minScale, Math.min(d.maxScale, ns));
+        if (ns === oldScale)
+            return;
+        var doc = d.transformViewToDoc(new Point(viewPoint.x, viewPoint.y));
+        d.scale = ns;
+        var doc2 = d.transformViewToDoc(new Point(viewPoint.x, viewPoint.y));
+        d.position = new Point(d.position.x + (doc.x - doc2.x), d.position.y + (doc.y - doc2.y));
     };
     Object.defineProperty(ToolManager.prototype, "mouseWheelBehavior", {
         get: function () { return this._mouseWheelBehavior; },
@@ -41558,7 +42202,7 @@ var ToolManager = /** @class */ (function (_super) {
         return this._findToolIn(this._mouseUpTools, name);
     };
     ToolManager.prototype._findToolIn = function (list, name) {
-        var e_9, _a;
+        var e_10, _a;
         try {
             for (var list_1 = __values(list), list_1_1 = list_1.next(); !list_1_1.done; list_1_1 = list_1.next()) {
                 var tool = list_1_1.value;
@@ -41566,12 +42210,12 @@ var ToolManager = /** @class */ (function (_super) {
                     return tool;
             }
         }
-        catch (e_9_1) { e_9 = { error: e_9_1 }; }
+        catch (e_10_1) { e_10 = { error: e_10_1 }; }
         finally {
             try {
                 if (list_1_1 && !list_1_1.done && (_a = list_1.return)) _a.call(list_1);
             }
-            finally { if (e_9) throw e_9.error; }
+            finally { if (e_10) throw e_10.error; }
         }
         return null;
     };
@@ -41752,6 +42396,7 @@ var ToolManager = /** @class */ (function (_super) {
         }
     };
     ToolManager.className = "ToolManager";
+    /** 官方 ToolManager.doMouseWheel = standardMouseWheel。 */
     // ============ 官方 ToolManager API 对齐（阶段 6） ============
     ToolManager.WheelScroll = WheelModeScroll;
     ToolManager.WheelZoom = WheelModeZoom;
@@ -44264,55 +44909,64 @@ var ThemeManager = /** @class */ (function () {
         return theme.colors[colorName] || '';
     };
     /**
-     * 官方 ThemeManager.findValue(key, path, targetProperty)：
-     * 先按目标属性查类别（stroke/fill→colors、font→fonts…），再在 currentTheme → defaultTheme 里取值。
+     * 官方 `ThemeManager.findValue(key, path, targetProperty)` =
+     * `getValue(themeMap.get(currentTheme), …) || getValue(themeMap.get(defaultTheme), …)`。
      */
     ThemeManager.prototype.findValue = function (sourceKey, path, targetProperty) {
-        var e_2, _a, e_3, _b;
-        var cat = ThemeManager._categoryOf(targetProperty);
-        var names = this._currentTheme === this._defaultTheme
-            ? [this._currentTheme]
-            : [this._currentTheme, this._defaultTheme];
-        try {
-            for (var names_1 = __values(names), names_1_1 = names_1.next(); !names_1_1.done; names_1_1 = names_1.next()) {
-                var name_1 = names_1_1.value;
-                var theme = this._themes.get(name_1);
-                if (!theme)
-                    continue;
-                var scope = theme;
-                if (path) {
-                    try {
-                        for (var _c = (e_3 = void 0, __values(path.split('.'))), _d = _c.next(); !_d.done; _d = _c.next()) {
-                            var p = _d.value;
-                            scope = scope ? scope[p] : undefined;
-                        }
-                    }
-                    catch (e_3_1) { e_3 = { error: e_3_1 }; }
-                    finally {
-                        try {
-                            if (_d && !_d.done && (_b = _c.return)) _b.call(_c);
-                        }
-                        finally { if (e_3) throw e_3.error; }
-                    }
-                    if (scope === undefined || scope === null)
-                        continue;
-                }
-                else {
-                    scope = cat && theme[cat] !== undefined ? theme[cat] : theme;
-                }
-                if (scope && typeof scope === 'object') {
-                    var v = scope[sourceKey];
-                    if (v !== undefined)
-                        return v;
+        return ThemeManager._getValue(this.findTheme(this._currentTheme), sourceKey, path, targetProperty)
+            || ThemeManager._getValue(this.findTheme(this._defaultTheme), sourceKey, path, targetProperty);
+    };
+    /**
+     * 官方 `ThemeManager.getValue(theme, key, path, targetProperty)`：
+     *  1. 先把 `path` 解析到**主题根**上，再在结果里取 `key`；
+     *  2. 若得到 undefined 且 targetProperty 非空，则按目标属性取类别子对象
+     *     （fill/stroke→colors、font→fonts…，查不到就 colors），**在类别内**重新解析
+     *     `path`，再取 `key`。
+     * `key` 若是 number 且值是数组，按 `key % length` 取下标。
+     *
+     * 以前第 2 步整段没实现：`themeData('fill','portColor','ports')` 的 `path='ports'`
+     * 在主题根上找不到（实际在 `colors.ports`），于是返回 undefined、绑定被跳过，
+     * dynamicPorts 的端口全是默认黑色（官方是 4 种彩色）。
+     */
+    ThemeManager._getValue = function (theme, key, path, targetProperty) {
+        if (!theme)
+            return undefined;
+        var p = path === null || path === undefined ? '' : path;
+        var n = theme;
+        /** 官方 `o(l)`：在当前 n 上解析 l；点号串/数组会**改写 n**，单段则只读 */
+        var resolve = function (l) {
+            if (n === undefined || n === null || l === '' || l === null || l === undefined)
+                return undefined;
+            if (typeof l === 'number' || !(Array.isArray(l) || String(l).indexOf('.') >= 0))
+                return n[l];
+            var a = Array.isArray(l) ? l : String(l).split('.');
+            for (var h = 0; h < a.length; h++) {
+                var c = a[h];
+                if (c !== '') {
+                    n = n[c];
+                    if (n === undefined)
+                        return undefined;
                 }
             }
-        }
-        catch (e_2_1) { e_2 = { error: e_2_1 }; }
-        finally {
-            try {
-                if (names_1_1 && !names_1_1.done && (_a = names_1.return)) _a.call(names_1);
+            return n;
+        };
+        /** 官方 `r()`：先解析 path（若有），再取 key（数组 + 数字 key → 下标） */
+        var resolveKey = function () {
+            if (p !== '') {
+                n = resolve(p);
+                if (n === undefined)
+                    return undefined;
             }
-            finally { if (e_2) throw e_2.error; }
+            n = Array.isArray(n) && typeof key === 'number' ? n[key % n.length] : resolve(key);
+            return n;
+        };
+        if ((n = resolveKey(), n !== undefined))
+            return n;
+        if (typeof targetProperty === 'string' && targetProperty.length > 0) {
+            var cat = ThemeManager._categoryOf(targetProperty) || 'colors';
+            n = theme[cat] !== undefined ? theme[cat] : theme.colors;
+            if ((n = resolveKey(), n !== undefined))
+                return n;
         }
         return undefined;
     };
@@ -44416,6 +45070,8 @@ var Diagram = /** @class */ (function () {
         this._model = new GraphLinksModel();
         this._modelChangeListener = null;
         this._position = Point.Zero.copy();
+        /** 官方 set position 内部的嵌套夹取重入标志（Jt） */
+        this._isClampingPosition = false;
         this._scale = 1;
         // 官方 Mb/Cb 默认（ctor @254692）：minScale=1e-4、maxScale=100
         this._minScale = 1e-4;
@@ -44496,8 +45152,8 @@ var Diagram = /** @class */ (function () {
         this._autoScale = null;
         this._hasPerformedInitialLayout = false;
         // ============ 官方 Diagram API 对齐（阶段 6，增量字段） ============
-        this._currentCursor = '';
-        this._defaultCursor = '';
+        this._currentCursor = 'auto';
+        this._defaultCursor = 'auto';
         this._skipsUndoManager = false;
         this._mouseOver = null;
         this._mouseEnter = null;
@@ -44533,6 +45189,13 @@ var Diagram = /** @class */ (function () {
         this._isModified = false;
         this._draggedLink = null;
         this._modelChangeListeners = [];
+        // ---- 滚动/自动滚动 ----
+        /**
+         * 官方 `Diagram.scrollHorizontalLineChange`（数值属性，默认 16）。
+         * 以前这里是 `scrollHorizontalLineChange(value)` 方法，语义与官方完全不同。
+         */
+        this._scrollHorizontalLineChange = 16;
+        this._scrollVerticalLineChange = 16;
         // ---- 选择/高亮 ----
         this._nodeSelectionAdornmentTemplate = null;
         this._linkSelectionAdornmentTemplate = null;
@@ -44839,6 +45502,13 @@ var Diagram = /** @class */ (function () {
             if (this._position.equals(val))
                 return;
             this._position = val.copy();
+            // 官方 `set position` 尾部：未在嵌套夹取中且(div 存在或 documentBounds 已成形)时
+            // 立刻 H2/clampViewportPosition —— 否则滚轮能把 position 拖出文档范围(实测 flowchart)。
+            if (!this._isClampingPosition && (this._div !== null || this.documentBounds.isReal())) {
+                this._isClampingPosition = true;
+                this._clampViewportPosition(this.documentBounds, this.viewSize.width / this._scale, this.viewSize.height / this._scale, this._contentAlignment);
+                this._isClampingPosition = false;
+            }
             this._raiseDiagramEvent('ViewportChanged');
             this.requestUpdate();
         },
@@ -45520,12 +46190,15 @@ var Diagram = /** @class */ (function () {
         }
         return null;
     };
+    /** 官方 Diagram.findObjectAt：逐层向下调 Layer.findObjectAt（**不过滤 temporary**，与 findPartAt 不同） */
     Diagram.prototype.findObjectAt = function (point) {
-        var part = this.findPartAt(point);
-        if (part) {
-            var loc = part.location;
-            var localPoint = new Point(point.x - loc.x, point.y - loc.y);
-            return this._findObjectInPanel(part, localPoint);
+        for (var i = this._layers.length - 1; i >= 0; i--) {
+            var layer = this._layers[i];
+            if (!layer.visible)
+                continue;
+            var hit = layer.findObjectAt(point);
+            if (hit !== null)
+                return hit;
         }
         return null;
     };
@@ -45650,11 +46323,14 @@ var Diagram = /** @class */ (function () {
             this._changedListeners.splice(idx, 1);
     };
     // ============ Coordinate Conversion ============
+    // 官方 transformDocToView = `p.T(this.T)`，T 只有 translate(-position)+scale，
+    // **不含 padding**（padding 只参与 documentBounds/viewportBounds）。早先掺进 padding
+    // 会让所有鼠标 documentPoint 偏移 5 文档单位（探针实测 flowchart 全量偏移）。
     Diagram.prototype.transformDocToView = function (p) {
-        return new Point((p.x - this._position.x) * this._scale + this._padding.left, (p.y - this._position.y) * this._scale + this._padding.top);
+        return new Point((p.x - this._position.x) * this._scale, (p.y - this._position.y) * this._scale);
     };
     Diagram.prototype.transformViewToDoc = function (p) {
-        return new Point((p.x - this._padding.left) / this._scale + this._position.x, (p.y - this._padding.top) / this._scale + this._position.y);
+        return new Point(p.x / this._scale + this._position.x, p.y / this._scale + this._position.y);
     };
     // ============ Update Methods ============
     Diagram.prototype.requestUpdate = function (invalidate) {
@@ -45666,8 +46342,28 @@ var Diagram = /** @class */ (function () {
             this._animationFrameId = requestAnimationFrame(function () { return _this._renderLoop(); });
         }
     };
+    /**
+     * 官方 `Diagram.J2(t,e)`：把一次布局整体包进 "Layout" 事务
+     * （`n === undoManager.transactionLevel` 为 0 时才开事务，嵌套布局不开）。
+     * 这条事务就是 UndoManager.history 的第一条 —— 探针实测官方 idle 时
+     * `history=["Layout"]`、`canUndo=true`，本项目此前恒 false。
+     */
+    Diagram.prototype._runLayoutInTransaction = function (fn) {
+        var um = this._model ? this._model.undoManager : null;
+        var nested = um ? um.transactionLevel : 1;
+        if (nested === 0)
+            this.startTransaction('Layout');
+        try {
+            fn();
+        }
+        finally {
+            if (nested === 0)
+                this.commitTransaction('Layout');
+        }
+    };
     Diagram.prototype.layoutDiagram = function (invalidate) {
         var e_11, _a;
+        var _this = this;
         if (invalidate === void 0) { invalidate = true; }
         if (invalidate) {
             this._layoutInvalid = true;
@@ -45691,7 +46387,7 @@ var Diagram = /** @class */ (function () {
                 finally { if (e_11) throw e_11.error; }
             }
         }
-        this._performLayout();
+        this._runLayoutInTransaction(function () { return _this._performLayout(); });
         this._layoutInvalid = false;
         this.requestUpdate(invalidate);
     };
@@ -46899,6 +47595,17 @@ var Diagram = /** @class */ (function () {
             e.model = this._model;
         if (!e.model)
             e.diagram = this;
+        // 官方 `Diagram.iC(t)`：`!skipsUndoManager && !model.skipsUndoManager`
+        // && `model.undoManager.handleChanged(t)` —— 这是 Part/GraphObject 层变更
+        // （位置、选中、文本……）进入 UndoManager 的**唯一**入口。此前缺失，导致
+        // 事务（layout / Move）永远是空事务，canUndo 恒 false（探针实测）。
+        // Model 层变更已在 Model.raiseChangedEvent 里记过账，这里跳过避免重复。
+        if (!e.isModelChange &&
+            !this._skipsUndoManager &&
+            this._model !== null &&
+            !this._model.skipsUndoManager) {
+            this._model.undoManager.handleChanged(e);
+        }
         try {
             for (var _b = __values(this._changedListeners), _c = _b.next(); !_c.done; _c = _b.next()) {
                 var listener = _c.value;
@@ -46978,13 +47685,14 @@ var Diagram = /** @class */ (function () {
         return null;
     };
     Diagram.prototype._renderLoop = function () {
+        var _this = this;
         this._needsRender = false;
         this._animationFrameId = 0;
         if (this._updateSuspended)
             return; // 官方 Ar 入口的 vs 守卫（冻结期挂起帧直接丢弃）
         this._checkResize();
         if (this._layoutInvalid) {
-            this._performLayout();
+            this._runLayoutInTransaction(function () { return _this._performLayout(); });
             // 布局期间发生的级联失效不再触发新一轮（对齐官方：单次 layoutDiagram 通过）
             this._layoutInvalid = false;
         }
@@ -47551,42 +48259,123 @@ var Diagram = /** @class */ (function () {
             return;
         var canvas = this._renderer ? this._renderer.canvas : null;
         var target = canvas || this._div;
-        target.addEventListener('mousedown', function (e) {
-            if (e.button !== 0 && e.button !== 2)
-                return;
-            _this.focus();
+        /** 本次 mousedown 手势是否仍在进行（用于区分"拖拽手势"与"悬停"） */
+        var gestureActive = false;
+        var dispatchDown = function (e) {
             var inputEvent = InputEvent.fromMouseEvent(e, _this);
             inputEvent.eventType = 'mousedown';
-            _this._toolManager.lastInput = inputEvent;
-            _this._toolManager.doMouseDown();
-            if (e.button === 2) {
+            inputEvent.down = true;
+            if (e.button === 2)
                 inputEvent.isContextMenu = true;
-            }
-            var onMove = function (ev) {
-                var moveEvent = InputEvent.fromMouseEvent(ev, _this);
-                moveEvent.eventType = 'mousemove';
-                _this._toolManager.lastInput = moveEvent;
-                _this._toolManager.doMouseMove();
-            };
-            var onUp = function (ev) {
-                document.removeEventListener('mousemove', onMove);
-                document.removeEventListener('mouseup', onUp);
-                var upEvent = InputEvent.fromMouseEvent(ev, _this);
-                upEvent.eventType = 'mouseup';
-                _this._toolManager.lastInput = upEvent;
-                _this._toolManager.doMouseUp();
-            };
-            document.addEventListener('mousemove', onMove);
-            document.addEventListener('mouseup', onUp);
+            _this._toolManager.lastInput = inputEvent;
+            _this._firstInput = inputEvent.copy();
+            _this._toolManager.doMouseDown();
+        };
+        var dispatchMove = function (e) {
+            var moveEvent = InputEvent.fromMouseEvent(e, _this);
+            moveEvent.eventType = 'mousemove';
+            _this._toolManager.lastInput = moveEvent;
+            _this._toolManager.doMouseMove();
+        };
+        var dispatchUp = function (e) {
+            if (!gestureActive)
+                return;
+            gestureActive = false;
+            document.removeEventListener('pointermove', dispatchMove, true);
+            document.removeEventListener('pointerup', dispatchUp, true);
+            document.removeEventListener('pointercancel', dispatchUp, true);
+            var upEvent = InputEvent.fromMouseEvent(e, _this);
+            upEvent.eventType = 'mouseup';
+            upEvent.up = true;
+            _this._toolManager.lastInput = upEvent;
+            _this._toolManager.doMouseUp();
+        };
+        /**
+         * 官方 `Diagram.IO()` 只注册**指针事件**：
+         *   pointerdown / pointermove / pointerup / pointerout / pointercancel /
+         *   pointerenter / pointerleave / wheel / keydown / keyup / blur / focus /
+         *   selectstart / contextmenu（+ window resize）
+         * 这不只是命名问题：**pointer 事件的 `clientX` 是浮点**，而 mouse 事件被截成整数。
+         * 实测同一坐标 pointermove.clientX=182.9106903、mousemove.clientX=182，
+         * 于是用 mouse 事件算出的 viewPoint 恒差 0.8px（探针 fi/li 全量偏移的根因）。
+         * 拖拽期间改挂 document 捕获监听（等价于官方 isMouseCaptured 的 root 捕获）。
+         */
+        var onDown = function (e) {
+            // 官方对左/中/右三个键都派发（中键稍后被 ToolManager 用来切换滚轮模式）
+            if (e.button !== 0 && e.button !== 1 && e.button !== 2)
+                return;
+            if (gestureActive)
+                return;
+            _this.focus();
+            gestureActive = true;
+            dispatchDown(e);
+            if (e.button === 1)
+                e.preventDefault();
+            document.addEventListener('pointermove', dispatchMove, true);
+            document.addEventListener('pointerup', dispatchUp, true);
+            document.addEventListener('pointercancel', dispatchUp, true);
+        };
+        /**
+         * 常驻悬停派发：官方 canvas 上永远挂着 pointermove，即使没有按住鼠标，
+         * mouseHover/cursor/tooltip 也要能更新。有手势时交给 document 捕获监听器，
+         * 这里直接跳过以避免同一次移动派发两次。
+         */
+        target.addEventListener('pointerdown', onDown);
+        target.addEventListener('pointermove', function (e) {
+            if (gestureActive)
+                return;
+            dispatchMove(e);
         });
+        /**
+         * 官方 `Diagram.UO`（pointerleave）/ pointerout：`kd(t, true)` 会**从离开边界
+         * 的原生事件重算 viewPoint/documentPoint** 并落到 lastInput 上。
+         * 实测：探针从节点中心移到画布外的空地点，官方 `li` 变成
+         * `[-18.9,-25.7,-347,-68.1]` —— 正好是光标轨迹与画布左边界交点
+         * （clientX=72.89, clientY=-25.66）；本项目此前不处理 out/leave，
+         * lastInput 停在上一次点击 → 探针 `li.clickBg` 恒不匹配。
+         */
+        var dispatchLeave = function (e) {
+            if (gestureActive)
+                return;
+            var leaveEvent = InputEvent.fromMouseEvent(e, _this);
+            leaveEvent.eventType = e.type;
+            _this._toolManager.lastInput = leaveEvent;
+            _this._toolManager.cancelWaitAfter();
+        };
+        target.addEventListener('pointerout', dispatchLeave);
+        target.addEventListener('pointerleave', dispatchLeave);
         target.addEventListener('wheel', function (e) {
             e.preventDefault();
             var inputEvent = InputEvent.fromMouseEvent(e, _this);
             inputEvent.eventType = 'wheel';
+            // 官方 InputEvent.delta：有 deltaX/deltaY 时取绝对值较大的那个（带方向）
+            var de = e;
+            if (typeof de.deltaY === 'number' && de.deltaY !== 0) {
+                var dx = typeof de.deltaX === 'number' ? de.deltaX : 0;
+                var d = Math.abs(de.deltaX) > Math.abs(de.deltaY) ? -Math.sign(dx) : -Math.sign(de.deltaY);
+                inputEvent.delta = d;
+            }
+            else if (typeof de.deltaX === 'number' && de.deltaX !== 0) {
+                inputEvent.delta = -Math.sign(de.deltaX);
+            }
             _this._toolManager.lastInput = inputEvent;
             _this._toolManager.doMouseWheel();
+            // 官方滚轮事件的 `documentPoint` 是**滚动之后**的值（探针实测
+            // wheel 后 li.doc = 250 + position.y' = 160.6，而构造时算出来是 207.5）。
+            // 滚动改的是 position，viewPoint 不变 → 滚完重算一次即可对齐。
+            var li = _this._toolManager.lastInput;
+            if (li && li.viewPoint) {
+                var dp = _this.transformViewToDoc(li.viewPoint);
+                li.documentPoint = { x: dp.x, y: dp.y };
+            }
+            // 官方滚轮后光标会重算（探针 wheelAfter：官方 "auto"，本项目滞留 "pointer"）
+            _this._toolManager.standardMouseOver();
         }, { passive: false });
         target.addEventListener('contextmenu', function (e) {
+            e.preventDefault();
+        });
+        // 官方 `selectstart`：拖选/拖拽期间禁止页面选中文字
+        target.addEventListener('selectstart', function (e) {
             e.preventDefault();
         });
         target.addEventListener('touchstart', function (e) {
@@ -47603,6 +48392,7 @@ var Diagram = /** @class */ (function () {
                 inputEvent.timestamp = Date.now();
                 inputEvent.nativeEvent = e;
                 _this._toolManager.lastInput = inputEvent;
+                _this._firstInput = inputEvent.copy();
                 _this._toolManager.doMouseDown();
             }
         }, { passive: true });
@@ -47657,13 +48447,51 @@ var Diagram = /** @class */ (function () {
     };
     Object.defineProperty(Diagram.prototype, "currentCursor", {
         get: function () { return this._currentCursor; },
-        set: function (val) { this._currentCursor = val; },
+        /** 官方 `set currentCursor(t)`: `t==="" && (t=this.defaultCursor)`，并写 div/canvas style */
+        set: function (val) {
+            var e_49, _a;
+            var t = val === '' ? this._defaultCursor : val;
+            if (this._currentCursor === t)
+                return;
+            this._currentCursor = t;
+            var canvas = this._renderer ? this._renderer.canvas : null;
+            var nodes = [this._div, canvas];
+            try {
+                for (var nodes_1 = __values(nodes), nodes_1_1 = nodes_1.next(); !nodes_1_1.done; nodes_1_1 = nodes_1.next()) {
+                    var n = nodes_1_1.value;
+                    if (!n || !n.style)
+                        continue;
+                    n.style.cursor = t;
+                    if (n.style.cursor === t)
+                        continue;
+                    n.style.cursor = '-webkit-' + t;
+                    if (n.style.cursor === '-webkit-' + t)
+                        continue;
+                    n.style.cursor = t;
+                }
+            }
+            catch (e_49_1) { e_49 = { error: e_49_1 }; }
+            finally {
+                try {
+                    if (nodes_1_1 && !nodes_1_1.done && (_a = nodes_1.return)) _a.call(nodes_1);
+                }
+                finally { if (e_49) throw e_49.error; }
+            }
+        },
         enumerable: false,
         configurable: true
     });
     Object.defineProperty(Diagram.prototype, "defaultCursor", {
         get: function () { return this._defaultCursor; },
-        set: function (val) { this._defaultCursor = val; },
+        /** 官方 `set defaultCursor(t)`: `t==="" && (t="auto")` */
+        set: function (val) {
+            var t = val === '' ? 'auto' : val;
+            if (this._defaultCursor === t)
+                return;
+            this._defaultCursor = t;
+            if (this._currentCursor === '' || this._currentCursor === t)
+                this.currentCursor = t;
+        },
         enumerable: false,
         configurable: true
     });
@@ -47949,7 +48777,7 @@ var Diagram = /** @class */ (function () {
         return this.findPartForData(data);
     };
     Diagram.prototype.findLinkForKey = function (key) {
-        var e_49, _a;
+        var e_50, _a;
         var model = this._model;
         if (!model || typeof model.getLinkDataForKey !== 'function')
             return null;
@@ -47969,12 +48797,12 @@ var Diagram = /** @class */ (function () {
                 }
             }
         }
-        catch (e_49_1) { e_49 = { error: e_49_1 }; }
+        catch (e_50_1) { e_50 = { error: e_50_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_49) throw e_49.error; }
+            finally { if (e_50) throw e_50.error; }
         }
         return null;
     };
@@ -47993,7 +48821,7 @@ var Diagram = /** @class */ (function () {
         return result;
     };
     Diagram.prototype.findPartsIn = function (rect, partial) {
-        var e_50, _a;
+        var e_51, _a;
         if (partial === void 0) { partial = false; }
         var result = new List();
         var layers = this._layers;
@@ -48011,12 +48839,12 @@ var Diagram = /** @class */ (function () {
                 }
             }
         }
-        catch (e_50_1) { e_50 = { error: e_50_1 }; }
+        catch (e_51_1) { e_51 = { error: e_51_1 }; }
         finally {
             try {
                 if (layers_2_1 && !layers_2_1.done && (_a = layers_2.return)) _a.call(layers_2);
             }
-            finally { if (e_50) throw e_50.error; }
+            finally { if (e_51) throw e_51.error; }
         }
         return result;
     };
@@ -48030,7 +48858,7 @@ var Diagram = /** @class */ (function () {
         return result;
     };
     Diagram.prototype.findPartsNear = function (center, dist, partial) {
-        var e_51, _a;
+        var e_52, _a;
         var result = new List();
         var layers = this._layers;
         try {
@@ -48051,12 +48879,12 @@ var Diagram = /** @class */ (function () {
                 }
             }
         }
-        catch (e_51_1) { e_51 = { error: e_51_1 }; }
+        catch (e_52_1) { e_52 = { error: e_52_1 }; }
         finally {
             try {
                 if (layers_3_1 && !layers_3_1.done && (_a = layers_3.return)) _a.call(layers_3);
             }
-            finally { if (e_51) throw e_51.error; }
+            finally { if (e_52) throw e_52.error; }
         }
         return result;
     };
@@ -48069,7 +48897,7 @@ var Diagram = /** @class */ (function () {
         return result;
     };
     Diagram.prototype.findTopLevelNodesAndLinks = function () {
-        var e_52, _a;
+        var e_53, _a;
         var result = new List();
         var layers = this._layers;
         try {
@@ -48085,17 +48913,17 @@ var Diagram = /** @class */ (function () {
                 }
             }
         }
-        catch (e_52_1) { e_52 = { error: e_52_1 }; }
+        catch (e_53_1) { e_53 = { error: e_53_1 }; }
         finally {
             try {
                 if (layers_4_1 && !layers_4_1.done && (_a = layers_4.return)) _a.call(layers_4);
             }
-            finally { if (e_52) throw e_52.error; }
+            finally { if (e_53) throw e_53.error; }
         }
         return result;
     };
     Diagram.prototype.findTopLevelGroups = function () {
-        var e_53, _a;
+        var e_54, _a;
         var result = new List();
         var layers = this._layers;
         try {
@@ -48111,12 +48939,12 @@ var Diagram = /** @class */ (function () {
                 }
             }
         }
-        catch (e_53_1) { e_53 = { error: e_53_1 }; }
+        catch (e_54_1) { e_54 = { error: e_54_1 }; }
         finally {
             try {
                 if (layers_5_1 && !layers_5_1.done && (_a = layers_5.return)) _a.call(layers_5);
             }
-            finally { if (e_53) throw e_53.error; }
+            finally { if (e_54) throw e_54.error; }
         }
         return result;
     };
@@ -48138,7 +48966,7 @@ var Diagram = /** @class */ (function () {
     // 早期实现从 `new Rect()`(0,0,0,0) 起 union——把原点当成矩形并入，令
     // sharedStates 的 CustomLayout 拿到 (0,0) 起始的假成员包围盒。
     Diagram.prototype.computePartsBounds = function (parts, includeLinks) {
-        var e_54, _a, e_55, _b, e_56, _c;
+        var e_55, _a, e_56, _b, e_57, _c;
         var inc = includeLinks === true;
         var items = [];
         if (parts === null || parts === undefined) ;
@@ -48149,12 +48977,12 @@ var Diagram = /** @class */ (function () {
                     items.push(p);
                 }
             }
-            catch (e_54_1) { e_54 = { error: e_54_1 }; }
+            catch (e_55_1) { e_55 = { error: e_55_1 }; }
             finally {
                 try {
                     if (parts_2_1 && !parts_2_1.done && (_a = parts_2.return)) _a.call(parts_2);
                 }
-                finally { if (e_54) throw e_54.error; }
+                finally { if (e_55) throw e_55.error; }
             }
         }
         else {
@@ -48184,12 +49012,12 @@ var Diagram = /** @class */ (function () {
                         items.push(p);
                     }
                 }
-                catch (e_55_1) { e_55 = { error: e_55_1 }; }
+                catch (e_56_1) { e_56 = { error: e_56_1 }; }
                 finally {
                     try {
                         if (_e && !_e.done && (_b = _d.return)) _b.call(_d);
                     }
-                    finally { if (e_55) throw e_55.error; }
+                    finally { if (e_56) throw e_56.error; }
                 }
             }
         }
@@ -48212,12 +49040,12 @@ var Diagram = /** @class */ (function () {
                     result.unionRect(b);
             }
         }
-        catch (e_56_1) { e_56 = { error: e_56_1 }; }
+        catch (e_57_1) { e_57 = { error: e_57_1 }; }
         finally {
             try {
                 if (items_1_1 && !items_1_1.done && (_c = items_1.return)) _c.call(items_1);
             }
-            finally { if (e_56) throw e_56.error; }
+            finally { if (e_57) throw e_57.error; }
         }
         return result === null ? new Rect(NaN, NaN, 0, 0) : result;
     };
@@ -48288,19 +49116,76 @@ var Diagram = /** @class */ (function () {
         place.height = db.height;
         return place;
     };
-    // ---- 滚动/自动滚动 ----
-    Diagram.prototype.scrollHorizontalLineChange = function (value) {
-        this.position = new Point(this._position.x + value, this._position.y);
-    };
-    Diagram.prototype.scrollVerticalLineChange = function (value) {
-        this.position = new Point(this._position.x, this._position.y + value);
-    };
-    Diagram.prototype.scroll = function () {
-        var d = this.documentBounds;
-        var vb = this.viewportBounds;
-        if (!vb.containsRect(d)) {
-            this.position = new Point(Math.min(this._position.x, d.x), Math.min(this._position.y, d.y));
+    Object.defineProperty(Diagram.prototype, "scrollHorizontalLineChange", {
+        get: function () { return this._scrollHorizontalLineChange; },
+        set: function (value) { this._scrollHorizontalLineChange = value; },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(Diagram.prototype, "scrollVerticalLineChange", {
+        get: function () { return this._scrollVerticalLineChange; },
+        set: function (value) { this._scrollVerticalLineChange = value; },
+        enumerable: false,
+        configurable: true
+    });
+    /**
+     * 官方 `Diagram.scroll(mode, dir, amount = 1)`（go.js 逐字）：
+     *   mode ∈ pixel | line | page | document
+     */
+    Diagram.prototype.scroll = function (mode, dir, amount) {
+        if (mode === undefined || dir === undefined) {
+            // 兼容旧的无参用法：把文档拉回视口内
+            var d = this.documentBounds;
+            var vb = this.viewportBounds;
+            if (!vb.containsRect(d)) {
+                this.position = new Point(Math.min(this._position.x, d.x), Math.min(this._position.y, d.y));
+            }
+            this.requestUpdate();
+            return;
         }
+        var i = amount !== undefined ? amount : 1;
+        var s = dir === 'up' || dir === 'down';
+        var n = 0;
+        if (mode === 'pixel') {
+            n = i;
+        }
+        else if (mode === 'line') {
+            n = i * (s ? this._scrollVerticalLineChange : this._scrollHorizontalLineChange);
+        }
+        else if (mode === 'page') {
+            var l = s ? this.viewportBounds.height : this.viewportBounds.width;
+            l *= this.scale;
+            if (l !== 0) {
+                var a = Math.max(l - (s ? this._scrollVerticalLineChange : this._scrollHorizontalLineChange), 0);
+                n = i * a;
+            }
+        }
+        else if (mode === 'document') {
+            var l = this.documentBounds;
+            var a = this.viewportBounds;
+            if (dir === 'up')
+                this.position = new Point(a.x, l.y);
+            else if (dir === 'left')
+                this.position = new Point(l.x, a.y);
+            else if (dir === 'down')
+                this.position = new Point(a.x, l.bottom - a.height);
+            else if (dir === 'right')
+                this.position = new Point(l.right - a.width, a.y);
+            return;
+        }
+        else {
+            throw new Error("scrolling unit must be 'pixel', 'line', 'page', or 'document', not: " + mode);
+        }
+        n /= this.scale;
+        var r = this.position;
+        if (dir === 'up')
+            this.position = new Point(r.x, r.y - n);
+        else if (dir === 'down')
+            this.position = new Point(r.x, r.y + n);
+        else if (dir === 'left')
+            this.position = new Point(r.x - n, r.y);
+        else
+            this.position = new Point(r.x + n, r.y);
         this.requestUpdate();
     };
     /**
@@ -48390,7 +49275,7 @@ var Diagram = /** @class */ (function () {
         part._diagram = null;
     };
     Diagram.prototype.clear = function () {
-        var e_57, _a, e_58, _b;
+        var e_58, _a, e_59, _b;
         this.clearSelection();
         try {
             for (var _c = __values(this._layers), _d = _c.next(); !_d.done; _d = _c.next()) {
@@ -48399,33 +49284,33 @@ var Diagram = /** @class */ (function () {
                     continue;
                 var parts = iteratorToArray(layer.parts);
                 try {
-                    for (var parts_3 = (e_58 = void 0, __values(parts)), parts_3_1 = parts_3.next(); !parts_3_1.done; parts_3_1 = parts_3.next()) {
+                    for (var parts_3 = (e_59 = void 0, __values(parts)), parts_3_1 = parts_3.next(); !parts_3_1.done; parts_3_1 = parts_3.next()) {
                         var p = parts_3_1.value;
                         if (p._className !== 'Node' && p._className !== 'Link' && p._className !== 'Group')
                             continue;
                         layer.remove(p);
                     }
                 }
-                catch (e_58_1) { e_58 = { error: e_58_1 }; }
+                catch (e_59_1) { e_59 = { error: e_59_1 }; }
                 finally {
                     try {
                         if (parts_3_1 && !parts_3_1.done && (_b = parts_3.return)) _b.call(parts_3);
                     }
-                    finally { if (e_58) throw e_58.error; }
+                    finally { if (e_59) throw e_59.error; }
                 }
             }
         }
-        catch (e_57_1) { e_57 = { error: e_57_1 }; }
+        catch (e_58_1) { e_58 = { error: e_58_1 }; }
         finally {
             try {
                 if (_d && !_d.done && (_a = _c.return)) _a.call(_c);
             }
-            finally { if (e_57) throw e_57.error; }
+            finally { if (e_58) throw e_58.error; }
         }
         this.requestUpdate();
     };
     Diagram.prototype.removeParts = function (coll, ensureBounds) {
-        var e_59, _a, e_60, _b;
+        var e_60, _a, e_61, _b;
         if (ensureBounds === void 0) { ensureBounds = true; }
         var model = this._model;
         var iter = this._iterateParts(coll);
@@ -48449,25 +49334,25 @@ var Diagram = /** @class */ (function () {
                     model.removeLinkData(ld);
             }
         }
-        catch (e_59_1) { e_59 = { error: e_59_1 }; }
+        catch (e_60_1) { e_60 = { error: e_60_1 }; }
         finally {
             try {
                 if (links_1_1 && !links_1_1.done && (_a = links_1.return)) _a.call(links_1);
             }
-            finally { if (e_59) throw e_59.error; }
+            finally { if (e_60) throw e_60.error; }
         }
         try {
-            for (var nodes_1 = __values(nodes), nodes_1_1 = nodes_1.next(); !nodes_1_1.done; nodes_1_1 = nodes_1.next()) {
-                var nd = nodes_1_1.value;
+            for (var nodes_2 = __values(nodes), nodes_2_1 = nodes_2.next(); !nodes_2_1.done; nodes_2_1 = nodes_2.next()) {
+                var nd = nodes_2_1.value;
                 model.removeNodeData(nd);
             }
         }
-        catch (e_60_1) { e_60 = { error: e_60_1 }; }
+        catch (e_61_1) { e_61 = { error: e_61_1 }; }
         finally {
             try {
-                if (nodes_1_1 && !nodes_1_1.done && (_b = nodes_1.return)) _b.call(nodes_1);
+                if (nodes_2_1 && !nodes_2_1.done && (_b = nodes_2.return)) _b.call(nodes_2);
             }
-            finally { if (e_60) throw e_60.error; }
+            finally { if (e_61) throw e_61.error; }
         }
         if (ensureBounds)
             this.invalidateDocumentBounds();
@@ -48518,7 +49403,7 @@ var Diagram = /** @class */ (function () {
         this.requestUpdate();
     };
     Diagram.prototype.copyParts = function (coll, targetDiagram, check) {
-        var e_61, _a, e_62, _b;
+        var e_62, _a, e_63, _b;
         var result = new Map$1();
         var srcModel = this._model;
         var dstModel = targetDiagram ? targetDiagram.model : srcModel;
@@ -48550,12 +49435,12 @@ var Diagram = /** @class */ (function () {
                     dataMap.add(oldKey, dstModel.getKeyForNodeData(d));
             }
         }
-        catch (e_61_1) { e_61 = { error: e_61_1 }; }
+        catch (e_62_1) { e_62 = { error: e_62_1 }; }
         finally {
             try {
                 if (items_2_1 && !items_2_1.done && (_a = items_2.return)) _a.call(items_2);
             }
-            finally { if (e_61) throw e_61.error; }
+            finally { if (e_62) throw e_62.error; }
         }
         if (targetDiagram)
             targetDiagram.rebuildParts();
@@ -48569,12 +49454,12 @@ var Diagram = /** @class */ (function () {
                 result.add(p, dstPart);
             }
         }
-        catch (e_62_1) { e_62 = { error: e_62_1 }; }
+        catch (e_63_1) { e_63 = { error: e_63_1 }; }
         finally {
             try {
                 if (items_3_1 && !items_3_1.done && (_b = items_3.return)) _b.call(items_3);
             }
-            finally { if (e_62) throw e_62.error; }
+            finally { if (e_63) throw e_63.error; }
         }
         return result;
     };
@@ -48911,7 +49796,8 @@ var Diagram = /** @class */ (function () {
     };
     /** 官方 `Diagram.doLinkRouting(container)`：遍历 routers，canRoute 过滤后 routeLinks(本图 links 集合, container) */
     Diagram.prototype.doLinkRouting = function (container) {
-        var e_63, _a;
+        var e_64, _a;
+        var _this = this;
         var c = container !== undefined && container !== null ? container : this;
         var routers = this._routers;
         if (!routers)
@@ -48928,7 +49814,16 @@ var Diagram = /** @class */ (function () {
                 linkSet.add(p);
         }
         var visit = function (r) {
-            if (!r || typeof r.canRoute !== 'function')
+            if (!r)
+                return;
+            // 官方在 `StartingFirstTransaction` 里统一 `this.routers.each(o => o.diagram = this)`，
+            // 此后扩展（如 AvoidsLinksRouter）的 routeLinks 才拿得到 diagram。
+            // 本项目样例是 init() 里就 `routers.add(...)`、而首个事务时机不保证，
+            // 这里补一次赋值：没有 diagram 的路由器会直接 `if (diagram === null) return;` 空转，
+            // 实测 dynamicPorts 两根平行 link 叠在一起官方会按 linkSpacing 错开、我们完全不动。
+            if (r.diagram === null || r.diagram === undefined)
+                r.diagram = _this;
+            if (typeof r.canRoute !== 'function')
                 return;
             if (!r.canRoute(c))
                 return;
@@ -48948,12 +49843,12 @@ var Diagram = /** @class */ (function () {
                         visit(r);
                     }
                 }
-                catch (e_63_1) { e_63 = { error: e_63_1 }; }
+                catch (e_64_1) { e_64 = { error: e_64_1 }; }
                 finally {
                     try {
                         if (routers_1_1 && !routers_1_1.done && (_a = routers_1.return)) _a.call(routers_1);
                     }
-                    finally { if (e_63) throw e_63.error; }
+                    finally { if (e_64) throw e_64.error; }
                 }
             }
         }

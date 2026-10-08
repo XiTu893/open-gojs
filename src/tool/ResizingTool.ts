@@ -53,14 +53,12 @@ export class ResizingTool extends Tool {
 
   canStart(): boolean {
     const diagram = this.diagram;
-    if (!diagram || !this.isEnabled) return false;
-    if (!(diagram as any).allowResize) return false;
+    if (diagram === null || !this.isEnabled) return false;
+    // 官方：t.isReadOnly || !t.allowResize || !this.canStartButton() → false
+    if (diagram.isReadOnly || !diagram.allowResize || !this.canStartButton()) return false;
 
-    const lastInput = (diagram as any).lastInput;
-    if (!lastInput) return false;
-
-    const point = new Point(lastInput.documentPoint.x, lastInput.documentPoint.y);
-    const handle = this.findToolHandleAt(point);
+    const point = new Point(diagram.firstInput.documentPoint.x, diagram.firstInput.documentPoint.y);
+    const handle = this.findToolHandleAt(point, this.name);
     return handle !== null;
   }
 
@@ -69,9 +67,8 @@ export class ResizingTool extends Tool {
     if (!diagram) return;
 
     this._isActive = true;
-    const lastInput = (diagram as any).lastInput;
-    const point = new Point(lastInput.documentPoint.x, lastInput.documentPoint.y);
-    this._handle = this.findToolHandleAt(point);
+    const point = new Point(diagram.firstInput.documentPoint.x, diagram.firstInput.documentPoint.y);
+    this._handle = this.findToolHandleAt(point, this.name);
 
     if (this._handle) {
       const adornment = (this._handle as any).panel;
@@ -111,6 +108,7 @@ export class ResizingTool extends Tool {
   }
 
   doDeactivate(): void {
+    this.stopTransaction();
     this._handle = null;
     this._adornedElement = null;
     this._originalBounds = null;
@@ -143,7 +141,7 @@ export class ResizingTool extends Tool {
     const category = 'Resizing';
     const existingAd = part.getAdornment(category);
 
-    if (!part.isSelected || !(diagram as any).allowResize) {
+    if (!part.isSelected || typeof part.canResize !== 'function' || !part.canResize()) {
       if (existingAd) {
         part.removeAdornment(category);
         const adLayer = (diagram as any).findLayer('Adornment');

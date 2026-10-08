@@ -533,6 +533,17 @@ invalidateLayout(): void {
    * Update the positions of parts after the layout has been computed.
    */
   updateParts(): void {
-    this.commitLayout();
+    // 官方 `Layout.updateParts()`：
+    //   try { t!==null && t.startTransaction("Layout"), this.commitLayout(); }
+    //   finally { t!==null && t.commitTransaction("Layout"); }
+    // 这个 "Layout" 事务是 UndoManager.history 的第一条（探针实测官方 idle
+    // 时 history=["Layout"]、canUndo=true）。
+    const t: any = this._diagram;
+    try {
+      if (t !== null && t !== undefined) t.startTransaction('Layout');
+      this.commitLayout();
+    } finally {
+      if (t !== null && t !== undefined) t.commitTransaction('Layout');
+    }
   }
 }

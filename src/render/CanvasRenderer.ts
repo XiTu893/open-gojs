@@ -342,8 +342,19 @@ export class CanvasRenderer {
 
     ctx.save();
 
-    const arr = points.toArray();
+    let arr = points.toArray();
     const curve = (link as any)._curve;
+
+    // 官方 `Link.makeGeometry()`：正交（或点数===2）且非贝塞尔曲线时，
+    // 在每个拐点处按 `computeCorner()` 画「控制点落在拐点」的二次贝塞尔圆角。
+    // 早先 JumpOver/JumpGap 分支直接拿 points 折线绘制，完全绕过圆角 ——
+    // dynamicPorts 官方是圆滑拐角、我们全是直角折线就是这么来的。
+    if (curve !== CurveBezier && ((link as any).isOrthogonal || arr.length === 2)) {
+      const radius = typeof (link as any).computeCorner === 'function'
+        ? (link as any).computeCorner()
+        : 0;
+      if (radius > 0) arr = this._roundCorners(arr, radius);
+    }
 
     if (curve === CurveJumpOver || curve === CurveJumpGap) {
       const crossings = this._findCrossings(link);
@@ -389,16 +400,10 @@ export class CanvasRenderer {
         }
       }
     } else {
-      const corner = (link as any)._corner || 0;
-      const isOrthogonal = (link as any)._routing === RoutingOrthogonal;
       ctx.beginPath();
       ctx.moveTo(arr[0].x, arr[0].y);
-      if (isOrthogonal && corner > 0 && arr.length > 2) {
-        this._drawOrthogonalPathWithCorners(ctx, arr, corner);
-      } else {
-        for (let i = 1; i < arr.length; i++) {
-          ctx.lineTo(arr[i].x, arr[i].y);
-        }
+      for (let i = 1; i < arr.length; i++) {
+        ctx.lineTo(arr[i].x, arr[i].y);
       }
     }
 
@@ -414,40 +419,73 @@ export class CanvasRenderer {
     ctx.restore();
   }
 
-  private _drawOrthogonalPathWithCorners(ctx: CanvasRenderingContext2D, arr: Point[], corner: number): void {
-    for (let i = 1; i < arr.length - 1; i++) {
-      const prev = arr[i - 1];
-      const curr = arr[i];
-      const next = arr[i + 1];
+  /**
+   * 官方 `Link.f3()` 的拐角圆角：把正交点列改写成带「控制点落在拐点」的二次
+   * 贝塞尔圆角的折线（采样成折线点，便于 JumpGap/JumpOver 分支沿用）。
+   * 半径封顶语义与官方一致：`c = min(radius, |拐点-上一拐点|/2)`，
+   * 再 `min(c, |下一拐点-拐点|/2)`，`c < 0.5` 视作不圆角。
+   */
+  private _roundCorners(src: Point[], radius: number): Point[] {
+    const n = src.length;
+    if (!(radius > 0) || n < 3) return src;
 
-      const dx1 = curr.x - prev.x;
-      const dy1 = curr.y - prev.y;
-      const dx2 = next.x - curr.x;
-      const dy2 = next.y - curr.y;
+    const out: Point[] = [src[0]];
+    // dirPrev = 上一拐角的圆角终点（官方 `s`/`f`），capPrev = 上一拐点（官方 `l`/`d`）
+    let dirPrev = src[0];
+    let capPrev = src[0];
+    for (let i = 1; i < n - 1; i++) {
+      const nn = src[i];
+      const after = src[i + 1];
+      let start: Point | null = null;
+      let end: Point | null = null;
 
-      const len1 = Math.sqrt(dx1 * dx1 + dy1 * dy1);
-      const len2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
-
-      const r = Math.min(corner, len1 / 2, len2 / 2);
-      if (r <= 0) {
-        ctx.lineTo(curr.x, curr.y);
-        continue;
+      if (Math.abs(dirPrev.y - nn.y) < 0.5 && Math.abs(nn.x - after.x) < 0.5) {
+        // 水平段 → 垂直段
+        let c = Math.min(radius, Math.abs(nn.x - capPrev.x) / 2);
+        c = Math.min(c, Math.abs(after.y - nn.y) / 2);
+        if (c >= 0.5) {
+          const u = nn.x > dirPrev.x ? nn.x - c : nn.x + c;
+          const gy = after.y > nn.y ? nn.y + c : nn.y - c;
+          start = new Point(u, nn.y);
+          end = new Point(nn.x, gy);
+        }
+      } else if (Math.abs(dirPrev.x - nn.x) < 0.5 && Math.abs(nn.y - after.y) < 0.5) {
+        // 垂直段 → 水平段
+        let c = Math.min(radius, Math.abs(nn.y - capPrev.y) / 2);
+        c = Math.min(c, Math.abs(after.x - nn.x) / 2);
+        if (c >= 0.5) {
+          const u = nn.y > dirPrev.y ? nn.y - c : nn.y + c;
+          const mx = after.x > nn.x ? nn.x + c : nn.x - c;
+          start = new Point(nn.x, u);
+          end = new Point(mx, nn.y);
+        }
       }
 
-      const ux1 = dx1 / len1;
-      const uy1 = dy1 / len1;
-      const ux2 = dx2 / len2;
-      const uy2 = dy2 / len2;
-
-      const beforeX = curr.x - ux1 * r;
-      const beforeY = curr.y - uy1 * r;
-      const afterX = curr.x + ux2 * r;
-      const afterY = curr.y + uy2 * r;
-
-      ctx.lineTo(beforeX, beforeY);
-      ctx.arcTo(curr.x, curr.y, afterX, afterY, r);
+      if (start && end) {
+        out.push(start);
+        for (let k = 1; k <= 3; k++) {
+          const t = k / 4;
+          const m = 1 - t;
+          out.push(new Point(
+            m * m * start.x + 2 * m * t * nn.x + t * t * end.x,
+            m * m * start.y + 2 * m * t * nn.y + t * t * end.y,
+          ));
+        }
+        out.push(end);
+        dirPrev = end;
+        capPrev = nn;
+      } else {
+        out.push(nn);
+        // 官方 `Link.cT()` 会跳过共线点：半径封顶要用「上一拐点」而不是共线中间点，
+        // 否则连续两个拐点之间夹着共线点时 |拐点-上一拐点| 会被算成 0 → 圆角消失。
+        const collinearV = Math.abs(dirPrev.x - nn.x) < 0.5 && Math.abs(nn.x - after.x) < 0.5;
+        const collinearH = Math.abs(dirPrev.y - nn.y) < 0.5 && Math.abs(nn.y - after.y) < 0.5;
+        if (!collinearV && !collinearH) capPrev = nn;
+        dirPrev = nn;
+      }
     }
-    ctx.lineTo(arr[arr.length - 1].x, arr[arr.length - 1].y);
+    out.push(src[n - 1]);
+    return out;
   }
 
   private _findCrossings(link: Link): number[] {

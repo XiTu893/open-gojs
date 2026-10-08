@@ -14,7 +14,14 @@ export declare class ClickCreatingTool extends Tool {
     set archetypePartData(val: any);
     get isDoubleClick(): boolean;
     set isDoubleClick(val: boolean);
-    /** Can start if the user clicks in the background and archetype data is set. */
+    /**
+     * 官方 ClickCreatingTool.canStart（go.js 逐字）：
+     *   !isEnabled || archetypeNodeData === null → false
+     *   isReadOnly / isModelReadOnly / !allowInsert / !canStartButton() /
+     *   isBeyondDragSize() → false
+     *   clickCount 必须匹配 isDoubleClick 设置
+     *   最后 currentTool !== this && 指下有部件 → false
+     */
     canStart(): boolean;
     /** Create the part on mouse up. */
     doMouseUp(): void;

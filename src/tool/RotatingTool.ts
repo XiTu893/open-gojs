@@ -48,14 +48,12 @@ export class RotatingTool extends Tool {
 
   canStart(): boolean {
     const diagram = this.diagram;
-    if (!diagram || !this.isEnabled) return false;
-    if (!(diagram as any).allowRotate) return false;
+    if (diagram === null || !this.isEnabled) return false;
+    // 官方：t.isReadOnly || !t.allowRotate || !this.canStartButton() → false
+    if (diagram.isReadOnly || !diagram.allowRotate || !this.canStartButton()) return false;
 
-    const lastInput = (diagram as any).lastInput;
-    if (!lastInput) return false;
-
-    const point = new Point(lastInput.documentPoint.x, lastInput.documentPoint.y);
-    const handle = this.findToolHandleAt(point);
+    const point = new Point(diagram.firstInput.documentPoint.x, diagram.firstInput.documentPoint.y);
+    const handle = this.findToolHandleAt(point, this.name);
     return handle !== null;
   }
 
@@ -64,9 +62,8 @@ export class RotatingTool extends Tool {
     if (!diagram) return;
 
     this._isActive = true;
-    const lastInput = (diagram as any).lastInput;
-    const point = new Point(lastInput.documentPoint.x, lastInput.documentPoint.y);
-    this._handle = this.findToolHandleAt(point);
+    const point = new Point(diagram.firstInput.documentPoint.x, diagram.firstInput.documentPoint.y);
+    this._handle = this.findToolHandleAt(point, this.name);
 
     if (this._handle) {
       const adornment = (this._handle as any).panel;
@@ -104,6 +101,7 @@ export class RotatingTool extends Tool {
   }
 
   doDeactivate(): void {
+    this.stopTransaction();
     this._handle = null;
     this._adornedElement = null;
     super.doDeactivate();
@@ -127,7 +125,7 @@ export class RotatingTool extends Tool {
     const category = 'Rotating';
     const existingAd = part.getAdornment(category);
 
-    if (!part.isSelected || !(diagram as any).allowRotate) {
+    if (!part.isSelected || typeof part.canRotate !== 'function' || !part.canRotate()) {
       if (existingAd) {
         part.removeAdornment(category);
         const adLayer = (diagram as any).findLayer('Adornment');

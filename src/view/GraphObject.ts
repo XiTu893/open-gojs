@@ -249,9 +249,13 @@ export class GraphObject {
   get position(): Point { return this._position; }
   set position(val: Point) {
     const p = val && typeof val.copy === 'function' ? val.copy() : (val ? new Point(val.x || 0, val.y || 0) : Point.Zero.copy());
-    if (this._position.equals(p)) return;
+    const old = this._position;
+    if (old.equals(p)) return;
     this._position = p;
     this._invalidateArrange();
+    // 官方 GraphObject.set position 尾部 `this.t("position", e, t)` ——
+    // UndoManager 里 "Move" 事务的 position 条目就是它
+    this.raiseChanged('position', old.copy(), p.copy());
   }
 
   get column(): number { return this._column; }

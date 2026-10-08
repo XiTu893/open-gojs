@@ -9,7 +9,13 @@ export declare class LinkingTool extends LinkingBaseTool {
     static readonly className: string;
     private _originalFromPort;
     constructor();
-    /** Can start if the user clicks on a fromLinkable port. */
+    /**
+     * 官方 LinkingBaseTool.canStart（go.js 逐字）：
+     *   isReadOnly / isModelReadOnly / !allowLink / !canStartButton()
+     *   currentTool !== this && !isBeyondDragSize() → false
+     *   最后 findLinkablePort() !== null（从 **firstInput** 落点找）
+     * Linking 在 mouseMoveTools 里，所以"按下不动"绝不会启动拉线。
+     */
     canStart(): boolean;
     /** Activate the linking tool. */
     doActivate(): void;

@@ -51,14 +51,12 @@ export class RelinkingTool extends LinkingBaseTool {
 
   canStart(): boolean {
     const diagram = this.diagram;
-    if (!diagram || !this.isEnabled) return false;
-    if (!(diagram as any).allowRelink) return false;
+    if (diagram === null || !this.isEnabled) return false;
+    // 官方：t.isReadOnly || t.isModelReadOnly || !t.allowRelink || !canStartButton() → false
+    if (diagram.isReadOnly || diagram.isModelReadOnly || !diagram.allowRelink || !this.canStartButton()) return false;
 
-    const lastInput = (diagram as any).lastInput;
-    if (!lastInput) return false;
-
-    const point = new Point(lastInput.documentPoint.x, lastInput.documentPoint.y);
-    const handle = this.findToolHandleAt(point);
+    const point = new Point(diagram.firstInput.documentPoint.x, diagram.firstInput.documentPoint.y);
+    const handle = this.findToolHandleAt(point, this.name);
     if (handle) return true;
 
     return false;
@@ -69,9 +67,8 @@ export class RelinkingTool extends LinkingBaseTool {
     if (!diagram) return;
 
     this._isActive = true;
-    const lastInput = (diagram as any).lastInput;
-    const point = new Point(lastInput.documentPoint.x, lastInput.documentPoint.y);
-    const handle = this.findToolHandleAt(point);
+    const point = new Point(diagram.firstInput.documentPoint.x, diagram.firstInput.documentPoint.y);
+    const handle = this.findToolHandleAt(point, this.name);
 
     if (handle) {
       const adornment = (handle as any).panel;
@@ -130,7 +127,7 @@ export class RelinkingTool extends LinkingBaseTool {
     const category = 'Relinking';
     const existingAd = part.getAdornment(category);
 
-    if (!(part instanceof Link) || !part.isSelected || !(diagram as any).allowRelink) {
+    if (!(part instanceof Link) || !part.isSelected) {
       if (existingAd) {
         part.removeAdornment(category);
         const adLayer = (diagram as any).findLayer('Adornment');

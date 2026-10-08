@@ -19,16 +19,20 @@ export class LinkingTool extends LinkingBaseTool {
     this.name = 'Linking';
   }
 
-  /** Can start if the user clicks on a fromLinkable port. */
+  /**
+   * 官方 LinkingBaseTool.canStart（go.js 逐字）：
+   *   isReadOnly / isModelReadOnly / !allowLink / !canStartButton()
+   *   currentTool !== this && !isBeyondDragSize() → false
+   *   最后 findLinkablePort() !== null（从 **firstInput** 落点找）
+   * Linking 在 mouseMoveTools 里，所以"按下不动"绝不会启动拉线。
+   */
   canStart(): boolean {
     const diagram = this.diagram;
-    if (!diagram || !this.isEnabled) return false;
-    if (!(diagram as any).allowLink) return false;
+    if (diagram === null || !this.isEnabled) return false;
+    if (diagram.isReadOnly || diagram.isModelReadOnly || !diagram.allowLink || !this.canStartButton()) return false;
+    if (this.toolManager && this.toolManager.currentTool !== this && !this.isBeyondDragSize()) return false;
 
-    const lastInput = (diagram as any).lastInput;
-    if (!lastInput) return false;
-
-    const point = new Point(lastInput.documentPoint.x, lastInput.documentPoint.y);
+    const point = new Point(diagram.firstInput.documentPoint.x, diagram.firstInput.documentPoint.y);
     const obj = diagram.findObjectAt(point);
     if (!obj) return false;
 

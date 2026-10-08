@@ -65,12 +65,22 @@ export class Tool {
     return false;
   }
 
+  /** 官方 Tool.canStartButton —— 当前输入是否为主键（左键）按下。 */
+  canStartButton(): boolean {
+    const d = this.diagram;
+    if (!d) return false;
+    return d.lastInput.left;
+  }
+
   /** Called when this tool becomes the current tool. */
-  doActivate(): void { }
+  doActivate(): void {
+    this._isActive = true;
+  }
 
   /** Cancel the tool's operation. */
   doCancel(): void {
-    this.doDeactivate();
+    this.transactionResult = null;
+    this.stopTool();
   }
 
   /** Called when this tool is no longer the current tool. */
@@ -78,20 +88,27 @@ export class Tool {
     this._isActive = false;
   }
 
-  /** Handle key-down events. */
-  doKeyDown(): void { }
+  /** Handle key-down events. 官方：Escape → doCancel。 */
+  doKeyDown(): void {
+    const d = this.diagram;
+    if (d && d.lastInput.key === 'Escape') this.doCancel();
+  }
 
   /** Handle key-up events. */
   doKeyUp(): void { }
 
   /** Handle mouse-down events. */
-  doMouseDown(): void { }
+  doMouseDown(): void {
+    if (!this.isActive && this.canStart()) this.doActivate();
+  }
 
   /** Handle mouse-move events. */
   doMouseMove(): void { }
 
   /** Handle mouse-up events. */
-  doMouseUp(): void { }
+  doMouseUp(): void {
+    this.stopTool();
+  }
 
   /** Handle mouse-wheel events. */
   doMouseWheel(): void { }
@@ -102,57 +119,46 @@ export class Tool {
   /** Called when this tool stops. */
   doStop(): void { }
 
-  /** Wait after a period of inactivity (e.g. for hover). */
-  doWaitAfter(): void { }
-
   /** Whether multi-touch gestures can start this tool. */
   canStartMultiTouch(): boolean {
     return false;
   }
 
-  /** Cancel any pending wait-after timer. */
-  cancelWaitAfter(): void { }
-
-  /** Find a tool handle at the given document point. */
-  findToolHandleAt(p: Point): any | null {
+  /**
+   * 官方 `Tool.findToolHandleAt(point, category)`：
+   * 取指下最上层对象，沿 `panel` 链走到"其 panel 是 Adornment"的对象（即句柄本身），
+   * 该 Adornment 的 category 必须等于给定 category（缺省用 `this.name`）。
+   * Adornment 层在本项目里是 temporary，`findPartAt` 会跳过，所以直接遍历该层做同样的判定。
+   */
+  findToolHandleAt(p: Point, category?: string): any | null {
     const diagram = this._diagram;
     if (!diagram) return null;
 
     const adornmentLayer = (diagram as any).findLayer('Adornment');
     if (!adornmentLayer) return null;
 
-    const toolName = this._name;
-    const partsIt = adornmentLayer.parts;
-    const partsArray = iteratorToArray<any>(partsIt);
+    const cat = category !== undefined ? category : this._name;
+    const partsArray = iteratorToArray<any>(adornmentLayer.parts);
     for (let i = partsArray.length - 1; i >= 0; i--) {
       const ad: Adornment = partsArray[i];
       if (!ad.visible) continue;
-      const cat = (ad as any).category;
-      if (cat && cat !== toolName) continue;
-
-      const adornedPart = ad.adornedPart;
-      if (!adornedPart) continue;
-
-      const adornedBounds = adornedPart.getDocumentBounds();
-      const localX = p.x - adornedBounds.x;
-      const localY = p.y - adornedBounds.y;
-
-      const found = this._findHandleInPanel(ad, localX, localY);
-      if (found) return found;
+      const found = this._findHandleInPanel(ad, p);
+      if (found !== null) return (ad as any).category === cat ? found : null;
     }
     return null;
   }
 
-  private _findHandleInPanel(panel: any, x: number, y: number): GraphObject | null {
+  /** 文档坐标命中测试：自上而下找最顶层元素（官方 Layer/Panel.findObjectAt 的遍历序） */
+  private _findHandleInPanel(panel: any, p: Point): GraphObject | null {
     const elements = panel._elements;
     if (!elements) return null;
     for (let i = elements.length - 1; i >= 0; i--) {
       const elem = elements[i];
       if (!elem.visible) continue;
-      const bounds = elem.actualBounds;
-      if (bounds.containsPoint(new Point(x, y))) {
+      const bounds = elem.getDocumentBounds ? elem.getDocumentBounds() : elem.actualBounds;
+      if (bounds && bounds.containsPoint(p)) {
         if ((elem as any)._elements && (elem as any)._elements.length > 0) {
-          const inner = this._findHandleInPanel(elem, x - bounds.x, y - bounds.y);
+          const inner = this._findHandleInPanel(elem, p);
           if (inner) return inner;
         }
         return elem;
@@ -161,18 +167,61 @@ export class Tool {
     return null;
   }
 
-  /** Whether the distance between two points exceeds the drag threshold. */
-  isBeyondDragSize(first: Point, second: Point): boolean {
-    const dx = Math.abs(first.x - second.x);
-    const dy = Math.abs(first.y - second.y);
-    return dx > 2 || dy > 2;
+  /**
+   * 官方 Tool.isBeyondDragSize(first?, second?)
+   * 默认比较 firstInput/lastInput 的 **viewPoint**，阈值取
+   * `toolManager.dragSize`（默认 2×2），触摸输入额外放宽 6。
+   */
+  isBeyondDragSize(first?: Point, second?: Point): boolean {
+    const d = this.diagram;
+    if (!d) return false;
+    const f = first !== undefined ? first : d.firstInput.viewPoint;
+    const s = second !== undefined ? second : d.lastInput.viewPoint;
+    const ds = this.toolManager ? this.toolManager.dragSize : null;
+    let w = ds ? ds.width : 2;
+    let h = ds ? ds.height : 2;
+    if (d.firstInput.isTouchEvent) { w += 6; h += 6; }
+    return Math.abs(s.x - f.x) > w || Math.abs(s.y - f.y) > h;
   }
 
   /** Standard mouse click behavior: select and raise click event. */
   standardMouseClick(): void { }
 
-  /** Standard mouse select behavior: select parts on click. */
-  standardMouseSelect(): void { }
+  /**
+   * 官方 Tool.standardMouseSelect（逐字对齐 go.js）：
+   * - !allowSelect → 直接返回
+   * - ctrl/meta → 切换选中；shift → 追加选中；否则 → 选中（已选中则不动作）
+   * - 指下无部件时，仅在"主键且无修饰键"时 clearSelection
+   */
+  standardMouseSelect(): void {
+    const t = this.diagram;
+    if (!t || !t.allowSelect) return;
+    const i = t.lastInput;
+    const e = t.findPartAt(i.documentPoint as any, false);
+    if (e !== null) {
+      if (i.meta || i.control) {
+        t.raiseDiagramEvent('ChangingSelection', t.selection);
+        let s: any = e;
+        for (; s !== null && !s.canSelect(); ) s = s.containingGroup;
+        if (s !== null) s.isSelected = !s.isSelected;
+        t.raiseDiagramEvent('ChangedSelection', t.selection);
+      } else if (i.shift) {
+        if (!e.isSelected) {
+          t.raiseDiagramEvent('ChangingSelection', t.selection);
+          let s: any = e;
+          for (; s !== null && !s.canSelect(); ) s = s.containingGroup;
+          if (s !== null) s.isSelected = true;
+          t.raiseDiagramEvent('ChangedSelection', t.selection);
+        }
+      } else if (!e.isSelected) {
+        let s: any = e;
+        for (; s !== null && !s.canSelect(); ) s = s.containingGroup;
+        if (s !== null) t.select(s);
+      }
+    } else if (this.canStartButton() && !(i.meta || i.control) && !i.shift) {
+      t.clearSelection();
+    }
+  }
 
   /** Standard mouse wheel behavior: zoom in/out. */
   standardMouseWheel(): void { }
@@ -183,38 +232,64 @@ export class Tool {
   /** Standard pinch zoom move for multi-touch. */
   standardPinchZoomMove(): void { }
 
-  /** Standard wait-after behavior: schedule a timer. */
-  standardWaitAfter(delay: number): void { }
+  // ---- 官方 Tool.standardWaitAfter / cancelWaitAfter / doWaitAfter ----
+
+  private _waitTimer: any = -1;
+
+  standardWaitAfter(delay: number, input?: any): void {
+    if (typeof delay !== 'number') return;
+    this.cancelWaitAfter();
+    const d = this.diagram;
+    if (!d) return;
+    const src = input !== undefined && input !== null ? input : d.lastInput;
+    const saved = src.copy();
+    const self = this;
+    this._waitTimer = setTimeout(() => {
+      self._waitTimer = -1;
+      self.doWaitAfter(saved);
+    }, delay);
+  }
+
+  cancelWaitAfter(): void {
+    if (this._waitTimer !== -1 && this._waitTimer !== null) {
+      clearTimeout(this._waitTimer);
+      this._waitTimer = -1;
+    }
+  }
+
+  doWaitAfter(_t?: any): void { }
 
   // ============ Transaction Methods ============
 
-  /** Start a new transaction. */
+  /** Start a new transaction. 官方会先把 transactionResult 置空。 */
   startTransaction(tname?: string): boolean {
-    if (this._diagram) {
-      return this._diagram.startTransaction(tname || this._name);
+    const d = this.diagram;
+    this._transactionResult = null;
+    if (d) {
+      return d.startTransaction(tname !== undefined && tname !== null ? tname : this._name);
     }
     return false;
   }
 
-  /** Stop this tool and remove it from the ToolManager. */
+  /** Stop this tool and return to the default current tool. */
   stopTool(): void {
-    this.doStop();
-    if (this._diagram) {
-      const tm = (this._diagram as any).toolManager;
-      if (tm) {
-        tm.currentTool = tm.defaultTool;
-      }
-    }
+    // 官方 Tool.stopTool: `t.currentTool===this && (t.currentTool=null, t.currentCursor="")`
+    const d = this.diagram;
+    if (!d) return;
+    if (d.currentTool !== this) return;
+    d.currentTool = null;
+    d.currentCursor = '';
   }
 
-  /** Stop the current transaction. */
+  /** 官方 Tool.stopTransaction —— 有 transactionResult 就 commit，否则 rollback。 */
   stopTransaction(): boolean {
-    if (this._diagram) {
+    const d = this.diagram;
+    if (d) {
       const result = this._transactionResult;
       if (result !== null) {
-        return this._diagram.commitTransaction(this._name);
+        return d.commitTransaction(result);
       } else {
-        return this._diagram.rollbackTransaction();
+        return d.rollbackTransaction();
       }
     }
     return false;
@@ -234,17 +309,6 @@ export class Tool {
     if (ctor && typeof ctor.className === 'string') return ctor.className + ' Tool';
     const n = this.constructor && (this.constructor as any).name;
     return (typeof n === 'string' && n.length > 0) ? n : 'Tool';
-  }
-
-  /**
-   * 官方 Tool.canStartButton
-   * 当前工具是否可因主键（左键）按下而启动。
-   * 官方使用 lastInput.left；本项目 InputEvent 提供 leftButton。
-   */
-  canStartButton(): boolean {
-    const d = this.diagram;
-    if (!d) return false;
-    return d.lastInput.leftButton;
   }
 
   /** 官方 Tool.doUpdateCursor —— 将图表面板光标重置为空。 */
@@ -289,9 +353,10 @@ export class Tool {
         d.viewportBounds.containsPoint(dp) ? d.findObjectAt(dp) : null;
       input.targetObject = targ;
 
-      // 沿 panel 链向上找第一个带 cursor 的对象
-      while (targ && !targ.cursor) { targ = targ.panel; }
-      if (targ) d.currentCursor = targ.cursor;
+      // 沿 panel 链向上找第一个带 cursor 的对象；找不到则回落到默认光标
+      let cur = targ;
+      while (cur && (cur.cursor === '' || cur.cursor === undefined || cur.cursor === null)) { cur = cur.panel; }
+      d.currentCursor = (cur && cur.cursor) ? cur.cursor : '';
 
       const evType = input.nativeEvent ? input.nativeEvent.type : '';
       const isOver = evType === 'mouseover';

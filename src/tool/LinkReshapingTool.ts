@@ -43,14 +43,12 @@ export class LinkReshapingTool extends Tool {
 
   canStart(): boolean {
     const diagram = this.diagram;
-    if (!diagram || !this.isEnabled) return false;
-    if (!(diagram as any).allowReshape) return false;
+    if (diagram === null || !this.isEnabled) return false;
+    // 官方：t.isReadOnly || !t.allowReshape || !this.canStartButton() → false
+    if (diagram.isReadOnly || !diagram.allowReshape || !this.canStartButton()) return false;
 
-    const lastInput = (diagram as any).lastInput;
-    if (!lastInput) return false;
-
-    const point = new Point(lastInput.documentPoint.x, lastInput.documentPoint.y);
-    const handle = this.findToolHandleAt(point);
+    const point = new Point(diagram.firstInput.documentPoint.x, diagram.firstInput.documentPoint.y);
+    const handle = this.findToolHandleAt(point, this.name);
     return handle !== null;
   }
 
@@ -59,9 +57,8 @@ export class LinkReshapingTool extends Tool {
     if (!diagram) return;
 
     this._isActive = true;
-    const lastInput = (diagram as any).lastInput;
-    const point = new Point(lastInput.documentPoint.x, lastInput.documentPoint.y);
-    this._handle = this.findToolHandleAt(point);
+    const point = new Point(diagram.firstInput.documentPoint.x, diagram.firstInput.documentPoint.y);
+    this._handle = this.findToolHandleAt(point, this.name);
 
     if (this._handle) {
       const adornment = (this._handle as any).panel;
@@ -103,6 +100,7 @@ export class LinkReshapingTool extends Tool {
   }
 
   doDeactivate(): void {
+    this.stopTransaction();
     this._handle = null;
     this._adornedLink = null;
     this._handleIndex = -1;
@@ -117,7 +115,7 @@ export class LinkReshapingTool extends Tool {
     const category = 'LinkReshaping';
     const existingAd = part.getAdornment(category);
 
-    if (!(part instanceof Link) || !part.isSelected || !(diagram as any).allowReshape) {
+    if (!(part instanceof Link) || !part.isSelected || typeof part.canReshape !== 'function' || !part.canReshape()) {
       if (existingAd) {
         part.removeAdornment(category);
         const adLayer = (diagram as any).findLayer('Adornment');

@@ -39,10 +39,23 @@ export declare class ThemeManager {
     private _applyTheme;
     findColor(colorName: string, themeName?: string): string;
     /**
-     * 官方 ThemeManager.findValue(key, path, targetProperty)：
-     * 先按目标属性查类别（stroke/fill→colors、font→fonts…），再在 currentTheme → defaultTheme 里取值。
+     * 官方 `ThemeManager.findValue(key, path, targetProperty)` =
+     * `getValue(themeMap.get(currentTheme), …) || getValue(themeMap.get(defaultTheme), …)`。
      */
-    findValue(sourceKey: string, path: string | null, targetProperty: string): any;
+    findValue(sourceKey: any, path: string | null, targetProperty: string): any;
+    /**
+     * 官方 `ThemeManager.getValue(theme, key, path, targetProperty)`：
+     *  1. 先把 `path` 解析到**主题根**上，再在结果里取 `key`；
+     *  2. 若得到 undefined 且 targetProperty 非空，则按目标属性取类别子对象
+     *     （fill/stroke→colors、font→fonts…，查不到就 colors），**在类别内**重新解析
+     *     `path`，再取 `key`。
+     * `key` 若是 number 且值是数组，按 `key % length` 取下标。
+     *
+     * 以前第 2 步整段没实现：`themeData('fill','portColor','ports')` 的 `path='ports'`
+     * 在主题根上找不到（实际在 `colors.ports`），于是返回 undefined、绑定被跳过，
+     * dynamicPorts 的端口全是默认黑色（官方是 4 种彩色）。
+     */
+    private static _getValue;
     /**
      * 官方 `Diagram.setDivBackground(color)`：把主题的 `colors.div` 写到 div 的
      * background-color 上。官方 `ThemeManager.changesDivBackground`（默认 true）
