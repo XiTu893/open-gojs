@@ -12724,7 +12724,7 @@ var GraphObject = /** @class */ (function () {
     };
     /** 官方 `GraphObject.bindTwoWay(targetprop, sourceprop?, conv?, backconv?)`：第 3 参为 source→target 转换 */
     GraphObject.prototype.bindTwoWay = function (targetProperty, sourceProperty, conversion, backConversion) {
-        var binding = new Binding(targetProperty, sourceProperty || targetProperty, conversion || undefined);
+        var binding = new Binding(targetProperty, sourceProperty !== undefined ? sourceProperty : targetProperty, conversion || undefined);
         binding.makeTwoWay(backConversion || undefined);
         this._bindings.push(binding);
         return this;
