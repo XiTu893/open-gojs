@@ -88,7 +88,7 @@ export declare class Part extends Panel {
      * r 用于：① po 求 measuredBounds 包围盒；② WD 的 Fi 旋转；③ 渲染器旋转枢轴；④ 文档坐标变换。
      */
     protected _rotPivot: Point | null;
-    /** 官方 locationObject：Adornment/Group→placeholder；否则 locationObjectName 指定对象（不可见回退 this） */
+    /** 官方 locationObject：`locationObjectName` 指定对象优先；否则 Group/Adornment→placeholder（不可见回退 this） */
     private _resolveLocationObject;
     /**
      * 官方 Part.op 的 r：

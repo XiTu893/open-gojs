@@ -128,15 +128,18 @@ export class Part extends Panel {
    */
   protected _rotPivot: Point | null = null;
 
-  /** 官方 locationObject：Adornment/Group→placeholder；否则 locationObjectName 指定对象（不可见回退 this） */
+  /** 官方 locationObject：`locationObjectName` 指定对象优先；否则 Group/Adornment→placeholder（不可见回退 this） */
   private _resolveLocationObject(): any {
     let locObj: any = this;
-    if ((this as any)._className === 'Group') {
-      const ph = (this as any).placeholder;
-      if (ph) locObj = ph;
-    } else if (this._locationObjectName !== '') {
+    if (this._locationObjectName !== '') {
+      // 官方：locationObjectName 优先（Group 也用它，不因 isGroup 走 placeholder）——
+      // sequenceDiagram 的 group `locationObjectName:'HEADER'` 若被 placeholder 顶掉，
+      // locationOffset 按占位符(高度=成员区)算 → position.y 整体上移 231px。
       const o = this.findObject(this._locationObjectName);
       if (o !== null && o !== undefined) locObj = o.visible ? o : this;
+    } else if ((this as any)._className === 'Group' || (this as any)._className === 'Adornment') {
+      const ph = (this as any).placeholder;
+      if (ph) locObj = ph;
     }
     return locObj;
   }
