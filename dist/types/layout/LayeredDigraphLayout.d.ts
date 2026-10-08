@@ -70,10 +70,12 @@ export declare class LayeredDigraphLayout extends Layout {
     private get _isVertical();
     /** 是否与正方向相反（向上/向左） */
     private get _isReversed();
-    /** 官方 protected nodeMinLayerSpace(v, topleft)：默认预留的层内空间 */
+    /** 官方 protected nodeMinLayerSpace(v, topleft)：焦点前/后沿推进轴预留的空间（各 +10） */
     nodeMinLayerSpace(v: LayoutVertex, topleft: boolean): number;
-    /** 官方 protected nodeMinColumnSpace(v, topleft)：默认按 columnSpacing 折算列空间 */
+    /** 官方 protected nodeMinColumnSpace(v, topleft)：焦点前/后沿列轴占用的列数（单位 columnSpacing） */
     nodeMinColumnSpace(v: LayoutVertex, topleft: boolean): number;
+    /** 官方 LayoutVertex.node setter：算 focus = locationObject 中心 − bounds 左上 */
+    private _applyVertexFocus;
     /** 官方 protected removeCycles()：基于网络移除环 */
     removeCycles(): void;
     /** 官方 protected assignLayers()：按当前 layeringOption 为网络分配层 */
@@ -113,11 +115,14 @@ export declare class LayeredDigraphLayout extends Layout {
     /**
      * Position nodes within each layer.
      *
-     * v.x is the coordinate along the within-layer axis and v.y along the
-     * layer-progression axis; both are measured from 0. Official GoJS advances
-     * the layer axis by the previous layer's maximum thickness plus
-     * layerSpacing, and spaces nodes inside a layer by their own breadth plus
-     * columnSpacing - so nodes never overlap.
+     * 移植官方 `LayeredDigraphLayout.commitNodes()` 的坐标生成：
+     * 1) 推进轴（direction 决定 x/y）：每层取 `nodeMinLayerSpace(v, before/after)`
+     *    的最大值（焦点前/后各 +10），再按 `layerSpacing/2` 两侧累加，
+     *    得到该层的「焦点线」——这正是官方层间距 = layerSpacing + 20 的来源。
+     * 2) 列轴：层内按 `columnSpacing` 逐个排开，再把该层的**焦点跨度**居中
+     *    （`centered=true` 时官方文档原话："aligned in the center of its layer
+     *    according to its LayoutVertex.focus"）。
+     * 3) 两轴各自归一化到 0，由 doLayout 的 commit 再加 arrangementOrigin。
      */
     private _positionNodes;
     static CycleDepthFirst: EnumValue;

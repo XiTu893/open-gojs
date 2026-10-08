@@ -1,4 +1,5 @@
 import { Point } from '../core/Point';
+import { Spot } from '../core/Spot';
 import { EnumValue } from '../core/EnumValues';
 import {
   LayeredDigraphDirectionDown, LayeredDigraphDirectionUp,
@@ -15,6 +16,7 @@ import {
   LayeredDigraphAlignLowerLeft, LayeredDigraphAlignLowerRight, LayeredDigraphAlignAll
 } from '../core/EnumValues';
 import { Node } from '../view/Node';
+import { Group } from '../view/Group';
 import { Layout } from './Layout';
 import { LayoutNetwork } from './LayoutNetwork';
 import { LayoutVertex } from './LayoutVertex';
@@ -44,8 +46,8 @@ export class LayeredDigraphLayout extends Layout {
   }
 
   private _direction: number = LayeredDigraphDirectionRight;
-  private _layerSpacing: number = 50;
-  private _columnSpacing: number = 30;
+  private _layerSpacing: number = 25;
+  private _columnSpacing: number = 25;
   private _setsPortSpots: boolean = true;
   private _aggressiveOption: EnumValue = LayeredDigraphAggressiveNone;
   private _packOption: EnumValue = LayeredDigraphPackAll;
@@ -134,22 +136,50 @@ export class LayeredDigraphLayout extends Layout {
     return this._direction === LayeredDigraphDirectionUp || this._direction === LayeredDigraphDirectionLeft;
   }
 
-  /** 官方 protected nodeMinLayerSpace(v, topleft)：默认预留的层内空间 */
+  /** 官方 protected nodeMinLayerSpace(v, topleft)：焦点前/后沿推进轴预留的空间（各 +10） */
   nodeMinLayerSpace(v: LayoutVertex, topleft: boolean): number {
     if (v.node === null) return 0;
-    const horizontal = this._isVertical;
-    return topleft
-      ? (horizontal ? v.focusX + 10 : v.focusY + 10)
-      : (horizontal ? v.bounds.width - v.focusX + 10 : v.bounds.height - v.focusY + 10);
+    if (this._isVertical) {
+      return topleft ? v.focus.y + 10 : v.bounds.height - v.focus.y + 10;
+    }
+    return topleft ? v.focus.x + 10 : v.bounds.width - v.focus.x + 10;
   }
 
-  /** 官方 protected nodeMinColumnSpace(v, topleft)：默认按 columnSpacing 折算列空间 */
+  /** 官方 protected nodeMinColumnSpace(v, topleft)：焦点前/后沿列轴占用的列数（单位 columnSpacing） */
   nodeMinColumnSpace(v: LayoutVertex, topleft: boolean): number {
     if (v.node === null) return 0;
-    const horizontal = this._isVertical;
+    const cs = this._columnSpacing;
+    if (cs <= 0) return 0;
+    if (this._isVertical) {
+      return topleft
+        ? Math.floor(v.focus.x / cs) + 1
+        : Math.floor((v.bounds.width - v.focus.x) / cs) + 1;
+    }
     return topleft
-      ? (horizontal ? Math.ceil(v.focusX / this._columnSpacing) : Math.ceil(v.focusY / this._columnSpacing))
-      : (horizontal ? Math.ceil((v.bounds.width - v.focusX) / this._columnSpacing) : Math.ceil((v.bounds.height - v.focusY) / this._columnSpacing));
+      ? Math.floor(v.focus.y / cs) + 1
+      : Math.floor((v.bounds.height - v.focus.y) / cs) + 1;
+  }
+
+  /** 官方 LayoutVertex.node setter：算 focus = locationObject 中心 − bounds 左上 */
+  private _applyVertexFocus(vertexes: LayoutVertex[]): void {
+    for (const v of vertexes) {
+      const n = v.node;
+      if (n === null || n === undefined) continue;
+      const b = v.bounds;
+      let fx = b.width / 2;
+      let fy = b.height / 2;
+      if (!(n instanceof Group)) {
+        const lo = n.locationObject;
+        if (lo !== null && lo !== undefined) {
+          const p = lo.getDocumentPoint(Spot.Center);
+          if (p !== null && isFinite(p.x) && isFinite(p.y)) {
+            fx = p.x - b.x;
+            fy = p.y - b.y;
+          }
+        }
+      }
+      v.focus = new Point(fx, fy);
+    }
   }
 
   /** 官方 protected removeCycles()：基于网络移除环 */
@@ -354,6 +384,11 @@ export class LayeredDigraphLayout extends Layout {
     }
 
     if (vertexes.length === 0) return;
+
+    // 官方在 LayoutVertex 的 node setter 里就定好 focus：
+    //   非 Group → locationObject.getDocumentPoint(Spot.Center) − bounds.topLeft
+    //   否则/取不到 → bounds 中心
+    this._applyVertexFocus(vertexes);
 
     // Assign indices
     for (let i = 0; i < vertexes.length; i++) {
@@ -567,39 +602,92 @@ export class LayeredDigraphLayout extends Layout {
   /**
    * Position nodes within each layer.
    *
-   * v.x is the coordinate along the within-layer axis and v.y along the
-   * layer-progression axis; both are measured from 0. Official GoJS advances
-   * the layer axis by the previous layer's maximum thickness plus
-   * layerSpacing, and spaces nodes inside a layer by their own breadth plus
-   * columnSpacing - so nodes never overlap.
+   * 移植官方 `LayeredDigraphLayout.commitNodes()` 的坐标生成：
+   * 1) 推进轴（direction 决定 x/y）：每层取 `nodeMinLayerSpace(v, before/after)`
+   *    的最大值（焦点前/后各 +10），再按 `layerSpacing/2` 两侧累加，
+   *    得到该层的「焦点线」——这正是官方层间距 = layerSpacing + 20 的来源。
+   * 2) 列轴：层内按 `columnSpacing` 逐个排开，再把该层的**焦点跨度**居中
+   *    （`centered=true` 时官方文档原话："aligned in the center of its layer
+   *    according to its LayoutVertex.focus"）。
+   * 3) 两轴各自归一化到 0，由 doLayout 的 commit 再加 arrangementOrigin。
    */
   private _positionNodes(layers: LayoutVertex[][]): void {
-    // Layer axis: cumulative, so each layer clears the previous one.
-    let layerOffset = 0;
-    for (const layer of layers) {
-      let layerThick = 0;
-      for (const v of layer) {
-        const t = this._isVertical ? v.bounds.height : v.bounds.width;
-        if (t > layerThick) layerThick = t;
-        v.y = layerOffset;
+    const nL = layers.length;
+    if (nL === 0) return;
+    const vertical = this._isVertical;
+    const colSpace = this._columnSpacing;
+    const layerSpace = this._layerSpacing;
+
+    // ---- 推进轴：焦点线 ----
+    const before: number[] = [];
+    const after: number[] = [];
+    for (let d = 0; d < nL; d++) {
+      let b = 0;
+      let a = 0;
+      for (const v of layers[d]) {
+        const sb = this.nodeMinLayerSpace(v, true);
+        const sa = this.nodeMinLayerSpace(v, false);
+        if (sb > b) b = sb;
+        if (sa > a) a = sa;
       }
-      layerOffset += layerThick + this._layerSpacing;
+      before[d] = b;
+      after[d] = a;
+    }
+    const line: number[] = [];
+    let acc = 0;
+    for (let d = 0; d < nL; d++) {
+      let m = layerSpace;
+      if (before[d] + after[d] <= 0) m = 0;
+      if (d > 0) acc += m / 2;
+      acc += after[d];
+      line[d] = acc;
+      acc += before[d];
+      if (d < nL - 1) acc += m / 2;
     }
 
-    // Within-layer axis: laid out left-to-right, then the whole thing is
-    // shifted so the leftmost node starts at 0.
-    let maxAcross = 0;
+    // ---- 列轴：层内排开 + 焦点跨度居中 ----
+    const across = new Map<LayoutVertex, number>();
+    let minAcross = Infinity;
     for (const layer of layers) {
-      let across = 0;
+      let cursor = 0;
+      let minFocus = Infinity;
+      let maxFocus = -Infinity;
       for (const v of layer) {
-        const size = this._isVertical ? v.bounds.width : v.bounds.height;
-        v.x = across + size / 2;
-        across += size + this._columnSpacing;
+        const size = vertical ? v.bounds.width : v.bounds.height;
+        const f = vertical ? v.focus.x : v.focus.y;
+        across.set(v, cursor);
+        const lo = cursor + f;
+        if (lo < minFocus) minFocus = lo;
+        if (lo > maxFocus) maxFocus = lo;
+        cursor += size + colSpace;
       }
-      if (across > maxAcross) maxAcross = across;
+      if (minFocus === Infinity) continue;
+      const shift = -(minFocus + maxFocus) / 2;
+      for (const v of layer) {
+        const p = across.get(v)! + shift;
+        across.set(v, p);
+        if (p < minAcross) minAcross = p;
+      }
     }
-    for (const layer of layers) {
-      for (const v of layer) v.x -= maxAcross / 2;
+    if (!isFinite(minAcross)) minAcross = 0;
+
+    // ---- 归一化到 0 后写回 ----
+    let minProg = Infinity;
+    for (let d = 0; d < nL; d++) {
+      for (const v of layers[d]) {
+        const f = vertical ? v.focus.y : v.focus.x;
+        const prog = this._centered ? line[d] - f : line[d];
+        if (prog < minProg) minProg = prog;
+      }
+    }
+    if (!isFinite(minProg)) minProg = 0;
+
+    for (let d = 0; d < nL; d++) {
+      for (const v of layers[d]) {
+        const f = vertical ? v.focus.y : v.focus.x;
+        v.y = (this._centered ? line[d] - f : line[d]) - minProg;
+        v.x = (across.get(v) || 0) - minAcross;
+      }
     }
   }
 

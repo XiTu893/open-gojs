@@ -54376,8 +54376,8 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
     function LayeredDigraphLayout(init) {
         var _this = _super.call(this) || this;
         _this._direction = LayeredDigraphDirectionRight;
-        _this._layerSpacing = 50;
-        _this._columnSpacing = 30;
+        _this._layerSpacing = 25;
+        _this._columnSpacing = 25;
         _this._setsPortSpots = true;
         _this._aggressiveOption = LayeredDigraphAggressiveNone;
         _this._packOption = LayeredDigraphPackAll;
@@ -54530,27 +54530,67 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
         enumerable: false,
         configurable: true
     });
-    /** 官方 protected nodeMinLayerSpace(v, topleft)：默认预留的层内空间 */
+    /** 官方 protected nodeMinLayerSpace(v, topleft)：焦点前/后沿推进轴预留的空间（各 +10） */
     LayeredDigraphLayout.prototype.nodeMinLayerSpace = function (v, topleft) {
         if (v.node === null)
             return 0;
-        var horizontal = this._isVertical;
-        return topleft
-            ? (horizontal ? v.focusX + 10 : v.focusY + 10)
-            : (horizontal ? v.bounds.width - v.focusX + 10 : v.bounds.height - v.focusY + 10);
+        if (this._isVertical) {
+            return topleft ? v.focus.y + 10 : v.bounds.height - v.focus.y + 10;
+        }
+        return topleft ? v.focus.x + 10 : v.bounds.width - v.focus.x + 10;
     };
-    /** 官方 protected nodeMinColumnSpace(v, topleft)：默认按 columnSpacing 折算列空间 */
+    /** 官方 protected nodeMinColumnSpace(v, topleft)：焦点前/后沿列轴占用的列数（单位 columnSpacing） */
     LayeredDigraphLayout.prototype.nodeMinColumnSpace = function (v, topleft) {
         if (v.node === null)
             return 0;
-        var horizontal = this._isVertical;
+        var cs = this._columnSpacing;
+        if (cs <= 0)
+            return 0;
+        if (this._isVertical) {
+            return topleft
+                ? Math.floor(v.focus.x / cs) + 1
+                : Math.floor((v.bounds.width - v.focus.x) / cs) + 1;
+        }
         return topleft
-            ? (horizontal ? Math.ceil(v.focusX / this._columnSpacing) : Math.ceil(v.focusY / this._columnSpacing))
-            : (horizontal ? Math.ceil((v.bounds.width - v.focusX) / this._columnSpacing) : Math.ceil((v.bounds.height - v.focusY) / this._columnSpacing));
+            ? Math.floor(v.focus.y / cs) + 1
+            : Math.floor((v.bounds.height - v.focus.y) / cs) + 1;
+    };
+    /** 官方 LayoutVertex.node setter：算 focus = locationObject 中心 − bounds 左上 */
+    LayeredDigraphLayout.prototype._applyVertexFocus = function (vertexes) {
+        var e_1, _a;
+        try {
+            for (var vertexes_1 = __values(vertexes), vertexes_1_1 = vertexes_1.next(); !vertexes_1_1.done; vertexes_1_1 = vertexes_1.next()) {
+                var v = vertexes_1_1.value;
+                var n = v.node;
+                if (n === null || n === undefined)
+                    continue;
+                var b = v.bounds;
+                var fx = b.width / 2;
+                var fy = b.height / 2;
+                if (!(n instanceof Group)) {
+                    var lo = n.locationObject;
+                    if (lo !== null && lo !== undefined) {
+                        var p = lo.getDocumentPoint(Spot.Center);
+                        if (p !== null && isFinite(p.x) && isFinite(p.y)) {
+                            fx = p.x - b.x;
+                            fy = p.y - b.y;
+                        }
+                    }
+                }
+                v.focus = new Point(fx, fy);
+            }
+        }
+        catch (e_1_1) { e_1 = { error: e_1_1 }; }
+        finally {
+            try {
+                if (vertexes_1_1 && !vertexes_1_1.done && (_a = vertexes_1.return)) _a.call(vertexes_1);
+            }
+            finally { if (e_1) throw e_1.error; }
+        }
     };
     /** 官方 protected removeCycles()：基于网络移除环 */
     LayeredDigraphLayout.prototype.removeCycles = function () {
-        var e_1, _a;
+        var e_2, _a;
         var net = this.network;
         if (net === null || net.vertexes.count === 0)
             return;
@@ -54573,17 +54613,17 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
                 edge.toVertex = temp;
             }
         }
-        catch (e_1_1) { e_1 = { error: e_1_1 }; }
+        catch (e_2_1) { e_2 = { error: e_2_1 }; }
         finally {
             try {
                 if (reversedEdges_1_1 && !reversedEdges_1_1.done && (_a = reversedEdges_1.return)) _a.call(reversedEdges_1);
             }
-            finally { if (e_1) throw e_1.error; }
+            finally { if (e_2) throw e_2.error; }
         }
     };
     /** 官方 protected assignLayers()：按当前 layeringOption 为网络分配层 */
     LayeredDigraphLayout.prototype.assignLayers = function () {
-        var e_2, _a, e_3, _b;
+        var e_3, _a, e_4, _b;
         var net = this.network;
         if (net === null || net.vertexes.count === 0)
             return;
@@ -54601,34 +54641,34 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
         var max = -1;
         for (var l = 0; l < layers.length; l++) {
             try {
-                for (var _c = (e_2 = void 0, __values(layers[l])), _d = _c.next(); !_d.done; _d = _c.next()) {
+                for (var _c = (e_3 = void 0, __values(layers[l])), _d = _c.next(); !_d.done; _d = _c.next()) {
                     var v = _d.value;
                     v.layer = l;
                 }
             }
-            catch (e_2_1) { e_2 = { error: e_2_1 }; }
+            catch (e_3_1) { e_3 = { error: e_3_1 }; }
             finally {
                 try {
                     if (_d && !_d.done && (_a = _c.return)) _a.call(_c);
                 }
-                finally { if (e_2) throw e_2.error; }
+                finally { if (e_3) throw e_3.error; }
             }
             if (l > max)
                 max = l;
         }
         try {
-            for (var vertexes_1 = __values(vertexes), vertexes_1_1 = vertexes_1.next(); !vertexes_1_1.done; vertexes_1_1 = vertexes_1.next()) {
-                var v = vertexes_1_1.value;
+            for (var vertexes_2 = __values(vertexes), vertexes_2_1 = vertexes_2.next(); !vertexes_2_1.done; vertexes_2_1 = vertexes_2.next()) {
+                var v = vertexes_2_1.value;
                 if (v.layer === undefined)
                     v.layer = 0;
             }
         }
-        catch (e_3_1) { e_3 = { error: e_3_1 }; }
+        catch (e_4_1) { e_4 = { error: e_4_1 }; }
         finally {
             try {
-                if (vertexes_1_1 && !vertexes_1_1.done && (_b = vertexes_1.return)) _b.call(vertexes_1);
+                if (vertexes_2_1 && !vertexes_2_1.done && (_b = vertexes_2.return)) _b.call(vertexes_2);
             }
-            finally { if (e_3) throw e_3.error; }
+            finally { if (e_4) throw e_4.error; }
         }
         this._maxLayer = max;
     };
@@ -54701,7 +54741,7 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
     };
     /** 官方 protected reduceCrossings()：减少同层节点间的连线交叉 */
     LayeredDigraphLayout.prototype.reduceCrossings = function () {
-        var e_4, _a;
+        var e_5, _a;
         var net = this.network;
         if (net === null || net.vertexes.count === 0)
             return;
@@ -54716,38 +54756,10 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
         var maxLayer = this._maxLayer;
         var layers = createArrayOfArrays(maxLayer + 1);
         try {
-            for (var vertexes_2 = __values(vertexes), vertexes_2_1 = vertexes_2.next(); !vertexes_2_1.done; vertexes_2_1 = vertexes_2.next()) {
-                var v = vertexes_2_1.value;
-                var l = v.layer;
-                if (l >= 0 && l <= maxLayer)
-                    layers[l].push(v);
-            }
-        }
-        catch (e_4_1) { e_4 = { error: e_4_1 }; }
-        finally {
-            try {
-                if (vertexes_2_1 && !vertexes_2_1.done && (_a = vertexes_2.return)) _a.call(vertexes_2);
-            }
-            finally { if (e_4) throw e_4.error; }
-        }
-        this._reduceCrossings(layers, edges);
-    };
-    /** 官方 protected straightenAndPack()：调整列位置以拉直连线并紧凑排列 */
-    LayeredDigraphLayout.prototype.straightenAndPack = function () {
-        var e_5, _a;
-        var net = this.network;
-        if (net === null || net.vertexes.count === 0)
-            return;
-        var vertexes = [];
-        var vit = net.vertexes.iterator;
-        while (vit.next())
-            vertexes.push(vit.value);
-        var layers = createArrayOfArrays(this._maxLayer + 1);
-        try {
             for (var vertexes_3 = __values(vertexes), vertexes_3_1 = vertexes_3.next(); !vertexes_3_1.done; vertexes_3_1 = vertexes_3.next()) {
                 var v = vertexes_3_1.value;
                 var l = v.layer;
-                if (l >= 0 && l <= this._maxLayer)
+                if (l >= 0 && l <= maxLayer)
                     layers[l].push(v);
             }
         }
@@ -54757,6 +54769,34 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
                 if (vertexes_3_1 && !vertexes_3_1.done && (_a = vertexes_3.return)) _a.call(vertexes_3);
             }
             finally { if (e_5) throw e_5.error; }
+        }
+        this._reduceCrossings(layers, edges);
+    };
+    /** 官方 protected straightenAndPack()：调整列位置以拉直连线并紧凑排列 */
+    LayeredDigraphLayout.prototype.straightenAndPack = function () {
+        var e_6, _a;
+        var net = this.network;
+        if (net === null || net.vertexes.count === 0)
+            return;
+        var vertexes = [];
+        var vit = net.vertexes.iterator;
+        while (vit.next())
+            vertexes.push(vit.value);
+        var layers = createArrayOfArrays(this._maxLayer + 1);
+        try {
+            for (var vertexes_4 = __values(vertexes), vertexes_4_1 = vertexes_4.next(); !vertexes_4_1.done; vertexes_4_1 = vertexes_4.next()) {
+                var v = vertexes_4_1.value;
+                var l = v.layer;
+                if (l >= 0 && l <= this._maxLayer)
+                    layers[l].push(v);
+            }
+        }
+        catch (e_6_1) { e_6 = { error: e_6_1 }; }
+        finally {
+            try {
+                if (vertexes_4_1 && !vertexes_4_1.done && (_a = vertexes_4.return)) _a.call(vertexes_4);
+            }
+            finally { if (e_6) throw e_6.error; }
         }
         this._positionNodes(layers);
     };
@@ -54808,7 +54848,7 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
         return copy;
     };
     LayeredDigraphLayout.prototype.doLayout = function (coll) {
-        var e_6, _a, e_7, _b;
+        var e_7, _a, e_8, _b;
         var parts = this.collectParts(coll);
         if (parts.count === 0)
             return;
@@ -54828,6 +54868,10 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
         }
         if (vertexes.length === 0)
             return;
+        // 官方在 LayoutVertex 的 node setter 里就定好 focus：
+        //   非 Group → locationObject.getDocumentPoint(Spot.Center) − bounds.topLeft
+        //   否则/取不到 → bounds 中心
+        this._applyVertexFocus(vertexes);
         // Assign indices
         for (var i = 0; i < vertexes.length; i++) {
             vertexes[i]._index = i;
@@ -54849,20 +54893,20 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
                 edge.toVertex = temp;
             }
         }
-        catch (e_6_1) { e_6 = { error: e_6_1 }; }
+        catch (e_7_1) { e_7 = { error: e_7_1 }; }
         finally {
             try {
                 if (reversedEdges_2_1 && !reversedEdges_2_1.done && (_a = reversedEdges_2.return)) _a.call(reversedEdges_2);
             }
-            finally { if (e_6) throw e_6.error; }
+            finally { if (e_7) throw e_7.error; }
         }
         // Commit positions
         var origin = this.arrangementOrigin;
         var isVertical = this._isVertical;
         var isReversed = this._isReversed;
         try {
-            for (var vertexes_4 = __values(vertexes), vertexes_4_1 = vertexes_4.next(); !vertexes_4_1.done; vertexes_4_1 = vertexes_4.next()) {
-                var v = vertexes_4_1.value;
+            for (var vertexes_5 = __values(vertexes), vertexes_5_1 = vertexes_5.next(); !vertexes_5_1.done; vertexes_5_1 = vertexes_5.next()) {
+                var v = vertexes_5_1.value;
                 if (v.node && !v._isArtificial) {
                     var x = void 0, y = void 0;
                     if (isVertical) {
@@ -54877,12 +54921,12 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
                 }
             }
         }
-        catch (e_7_1) { e_7 = { error: e_7_1 }; }
+        catch (e_8_1) { e_8 = { error: e_8_1 }; }
         finally {
             try {
-                if (vertexes_4_1 && !vertexes_4_1.done && (_b = vertexes_4.return)) _b.call(vertexes_4);
+                if (vertexes_5_1 && !vertexes_5_1.done && (_b = vertexes_5.return)) _b.call(vertexes_5);
             }
-            finally { if (e_7) throw e_7.error; }
+            finally { if (e_8) throw e_8.error; }
         }
         this.isValidLayout = true;
     };
@@ -54890,7 +54934,7 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
      * Remove cycles by reversing back edges in a DFS traversal.
      */
     LayeredDigraphLayout.prototype._removeCycles = function (vertexes, edges) {
-        var e_8, _a;
+        var e_9, _a;
         var reversedEdges = [];
         var visited = new Uint8Array(vertexes.length); // 0=white, 1=gray, 2=black
         var adjList = createArrayOfArrays(vertexes.length);
@@ -54902,15 +54946,15 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
                 }
             }
         }
-        catch (e_8_1) { e_8 = { error: e_8_1 }; }
+        catch (e_9_1) { e_9 = { error: e_9_1 }; }
         finally {
             try {
                 if (edges_1_1 && !edges_1_1.done && (_a = edges_1.return)) _a.call(edges_1);
             }
-            finally { if (e_8) throw e_8.error; }
+            finally { if (e_9) throw e_9.error; }
         }
         var dfs = function (vIdx) {
-            var e_9, _a;
+            var e_10, _a;
             visited[vIdx] = 1; // gray (in progress)
             try {
                 for (var _b = __values(adjList[vIdx]), _c = _b.next(); !_c.done; _c = _b.next()) {
@@ -54931,12 +54975,12 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
                     }
                 }
             }
-            catch (e_9_1) { e_9 = { error: e_9_1 }; }
+            catch (e_10_1) { e_10 = { error: e_10_1 }; }
             finally {
                 try {
                     if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
                 }
-                finally { if (e_9) throw e_9.error; }
+                finally { if (e_10) throw e_10.error; }
             }
             visited[vIdx] = 2; // black (done)
         };
@@ -54951,7 +54995,7 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
      * Assign layers to vertexes using longest path from source.
      */
     LayeredDigraphLayout.prototype._assignLayers = function (vertexes, edges) {
-        var e_10, _a, e_11, _b;
+        var e_11, _a, e_12, _b;
         var inDegree = new Int32Array(vertexes.length);
         var adjList = createArrayOfArrays(vertexes.length);
         try {
@@ -54963,12 +55007,12 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
                 }
             }
         }
-        catch (e_10_1) { e_10 = { error: e_10_1 }; }
+        catch (e_11_1) { e_11 = { error: e_11_1 }; }
         finally {
             try {
                 if (edges_2_1 && !edges_2_1.done && (_a = edges_2.return)) _a.call(edges_2);
             }
-            finally { if (e_10) throw e_10.error; }
+            finally { if (e_11) throw e_11.error; }
         }
         // Compute layer using longest path from sources
         var layer = new Int32Array(vertexes.length).fill(-1);
@@ -54983,7 +55027,7 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
         while (queue.length > 0) {
             var v = queue.shift();
             try {
-                for (var _c = (e_11 = void 0, __values(adjList[v])), _d = _c.next(); !_d.done; _d = _c.next()) {
+                for (var _c = (e_12 = void 0, __values(adjList[v])), _d = _c.next(); !_d.done; _d = _c.next()) {
                     var toIdx = _d.value;
                     layer[toIdx] = Math.max(layer[toIdx], layer[v] + 1);
                     inDegree[toIdx]--;
@@ -54992,12 +55036,12 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
                     }
                 }
             }
-            catch (e_11_1) { e_11 = { error: e_11_1 }; }
+            catch (e_12_1) { e_12 = { error: e_12_1 }; }
             finally {
                 try {
                     if (_d && !_d.done && (_b = _c.return)) _b.call(_c);
                 }
-                finally { if (e_11) throw e_11.error; }
+                finally { if (e_12) throw e_12.error; }
             }
         }
         // Handle any remaining unassigned (from cycles that weren't fully broken)
@@ -55021,7 +55065,7 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
      * Reduce edge crossings using barycenter heuristic.
      */
     LayeredDigraphLayout.prototype._reduceCrossings = function (layers, edges) {
-        var e_12, _a;
+        var e_13, _a;
         // Build adjacency info
         var vertexIndex = new Map$1();
         try {
@@ -55032,12 +55076,12 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
                 }
             }
         }
-        catch (e_12_1) { e_12 = { error: e_12_1 }; }
+        catch (e_13_1) { e_13 = { error: e_13_1 }; }
         finally {
             try {
                 if (layers_1_1 && !layers_1_1.done && (_a = layers_1.return)) _a.call(layers_1);
             }
-            finally { if (e_12) throw e_12.error; }
+            finally { if (e_13) throw e_13.error; }
         }
         // Multiple passes of barycenter ordering
         for (var pass = 0; pass < 4; pass++) {
@@ -55055,7 +55099,7 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
      * Reorder a layer based on barycenter of neighbors.
      */
     LayeredDigraphLayout.prototype._barycenterOrder = function (layer, neighborLayer, edges, isDownward) {
-        var e_13, _a, e_14, _b;
+        var e_14, _a, e_15, _b;
         var neighborPos = new Map$1();
         for (var i = 0; i < neighborLayer.length; i++) {
             neighborPos.set(neighborLayer[i], i);
@@ -55068,7 +55112,7 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
                 var sum = 0;
                 var count = 0;
                 try {
-                    for (var edges_3 = (e_14 = void 0, __values(edges)), edges_3_1 = edges_3.next(); !edges_3_1.done; edges_3_1 = edges_3.next()) {
+                    for (var edges_3 = (e_15 = void 0, __values(edges)), edges_3_1 = edges_3.next(); !edges_3_1.done; edges_3_1 = edges_3.next()) {
                         var edge = edges_3_1.value;
                         var source = isDownward ? edge.fromVertex : edge.toVertex;
                         var target = isDownward ? edge.toVertex : edge.fromVertex;
@@ -55078,22 +55122,22 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
                         }
                     }
                 }
-                catch (e_14_1) { e_14 = { error: e_14_1 }; }
+                catch (e_15_1) { e_15 = { error: e_15_1 }; }
                 finally {
                     try {
                         if (edges_3_1 && !edges_3_1.done && (_b = edges_3.return)) _b.call(edges_3);
                     }
-                    finally { if (e_14) throw e_14.error; }
+                    finally { if (e_15) throw e_15.error; }
                 }
                 barycenters.set(v, count > 0 ? sum / count : 0);
             }
         }
-        catch (e_13_1) { e_13 = { error: e_13_1 }; }
+        catch (e_14_1) { e_14 = { error: e_14_1 }; }
         finally {
             try {
                 if (layer_1_1 && !layer_1_1.done && (_a = layer_1.return)) _a.call(layer_1);
             }
-            finally { if (e_13) throw e_13.error; }
+            finally { if (e_14) throw e_14.error; }
         }
         // Sort by barycenter
         layer.sort(function (a, b) { return (barycenters.get(a) || 0) - (barycenters.get(b) || 0); });
@@ -55101,103 +55145,162 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
     /**
      * Position nodes within each layer.
      *
-     * v.x is the coordinate along the within-layer axis and v.y along the
-     * layer-progression axis; both are measured from 0. Official GoJS advances
-     * the layer axis by the previous layer's maximum thickness plus
-     * layerSpacing, and spaces nodes inside a layer by their own breadth plus
-     * columnSpacing - so nodes never overlap.
+     * 移植官方 `LayeredDigraphLayout.commitNodes()` 的坐标生成：
+     * 1) 推进轴（direction 决定 x/y）：每层取 `nodeMinLayerSpace(v, before/after)`
+     *    的最大值（焦点前/后各 +10），再按 `layerSpacing/2` 两侧累加，
+     *    得到该层的「焦点线」——这正是官方层间距 = layerSpacing + 20 的来源。
+     * 2) 列轴：层内按 `columnSpacing` 逐个排开，再把该层的**焦点跨度**居中
+     *    （`centered=true` 时官方文档原话："aligned in the center of its layer
+     *    according to its LayoutVertex.focus"）。
+     * 3) 两轴各自归一化到 0，由 doLayout 的 commit 再加 arrangementOrigin。
      */
     LayeredDigraphLayout.prototype._positionNodes = function (layers) {
-        var e_15, _a, e_16, _b, e_17, _c, e_18, _d, e_19, _e, e_20, _f;
-        // Layer axis: cumulative, so each layer clears the previous one.
-        var layerOffset = 0;
+        var e_16, _a, e_17, _b, e_18, _c, e_19, _d, e_20, _e, e_21, _f;
+        var nL = layers.length;
+        if (nL === 0)
+            return;
+        var vertical = this._isVertical;
+        var colSpace = this._columnSpacing;
+        var layerSpace = this._layerSpacing;
+        // ---- 推进轴：焦点线 ----
+        var before = [];
+        var after = [];
+        for (var d = 0; d < nL; d++) {
+            var b = 0;
+            var a = 0;
+            try {
+                for (var _g = (e_16 = void 0, __values(layers[d])), _h = _g.next(); !_h.done; _h = _g.next()) {
+                    var v = _h.value;
+                    var sb = this.nodeMinLayerSpace(v, true);
+                    var sa = this.nodeMinLayerSpace(v, false);
+                    if (sb > b)
+                        b = sb;
+                    if (sa > a)
+                        a = sa;
+                }
+            }
+            catch (e_16_1) { e_16 = { error: e_16_1 }; }
+            finally {
+                try {
+                    if (_h && !_h.done && (_a = _g.return)) _a.call(_g);
+                }
+                finally { if (e_16) throw e_16.error; }
+            }
+            before[d] = b;
+            after[d] = a;
+        }
+        var line = [];
+        var acc = 0;
+        for (var d = 0; d < nL; d++) {
+            var m = layerSpace;
+            if (before[d] + after[d] <= 0)
+                m = 0;
+            if (d > 0)
+                acc += m / 2;
+            acc += after[d];
+            line[d] = acc;
+            acc += before[d];
+            if (d < nL - 1)
+                acc += m / 2;
+        }
+        // ---- 列轴：层内排开 + 焦点跨度居中 ----
+        var across = new Map$1();
+        var minAcross = Infinity;
         try {
             for (var layers_2 = __values(layers), layers_2_1 = layers_2.next(); !layers_2_1.done; layers_2_1 = layers_2.next()) {
                 var layer = layers_2_1.value;
-                var layerThick = 0;
+                var cursor = 0;
+                var minFocus = Infinity;
+                var maxFocus = -Infinity;
                 try {
-                    for (var layer_2 = (e_16 = void 0, __values(layer)), layer_2_1 = layer_2.next(); !layer_2_1.done; layer_2_1 = layer_2.next()) {
+                    for (var layer_2 = (e_18 = void 0, __values(layer)), layer_2_1 = layer_2.next(); !layer_2_1.done; layer_2_1 = layer_2.next()) {
                         var v = layer_2_1.value;
-                        var t = this._isVertical ? v.bounds.height : v.bounds.width;
-                        if (t > layerThick)
-                            layerThick = t;
-                        v.y = layerOffset;
-                    }
-                }
-                catch (e_16_1) { e_16 = { error: e_16_1 }; }
-                finally {
-                    try {
-                        if (layer_2_1 && !layer_2_1.done && (_b = layer_2.return)) _b.call(layer_2);
-                    }
-                    finally { if (e_16) throw e_16.error; }
-                }
-                layerOffset += layerThick + this._layerSpacing;
-            }
-        }
-        catch (e_15_1) { e_15 = { error: e_15_1 }; }
-        finally {
-            try {
-                if (layers_2_1 && !layers_2_1.done && (_a = layers_2.return)) _a.call(layers_2);
-            }
-            finally { if (e_15) throw e_15.error; }
-        }
-        // Within-layer axis: laid out left-to-right, then the whole thing is
-        // shifted so the leftmost node starts at 0.
-        var maxAcross = 0;
-        try {
-            for (var layers_3 = __values(layers), layers_3_1 = layers_3.next(); !layers_3_1.done; layers_3_1 = layers_3.next()) {
-                var layer = layers_3_1.value;
-                var across = 0;
-                try {
-                    for (var layer_3 = (e_18 = void 0, __values(layer)), layer_3_1 = layer_3.next(); !layer_3_1.done; layer_3_1 = layer_3.next()) {
-                        var v = layer_3_1.value;
-                        var size = this._isVertical ? v.bounds.width : v.bounds.height;
-                        v.x = across + size / 2;
-                        across += size + this._columnSpacing;
+                        var size = vertical ? v.bounds.width : v.bounds.height;
+                        var f = vertical ? v.focus.x : v.focus.y;
+                        across.set(v, cursor);
+                        var lo = cursor + f;
+                        if (lo < minFocus)
+                            minFocus = lo;
+                        if (lo > maxFocus)
+                            maxFocus = lo;
+                        cursor += size + colSpace;
                     }
                 }
                 catch (e_18_1) { e_18 = { error: e_18_1 }; }
                 finally {
                     try {
-                        if (layer_3_1 && !layer_3_1.done && (_d = layer_3.return)) _d.call(layer_3);
+                        if (layer_2_1 && !layer_2_1.done && (_c = layer_2.return)) _c.call(layer_2);
                     }
                     finally { if (e_18) throw e_18.error; }
                 }
-                if (across > maxAcross)
-                    maxAcross = across;
+                if (minFocus === Infinity)
+                    continue;
+                var shift = -(minFocus + maxFocus) / 2;
+                try {
+                    for (var layer_3 = (e_19 = void 0, __values(layer)), layer_3_1 = layer_3.next(); !layer_3_1.done; layer_3_1 = layer_3.next()) {
+                        var v = layer_3_1.value;
+                        var p = across.get(v) + shift;
+                        across.set(v, p);
+                        if (p < minAcross)
+                            minAcross = p;
+                    }
+                }
+                catch (e_19_1) { e_19 = { error: e_19_1 }; }
+                finally {
+                    try {
+                        if (layer_3_1 && !layer_3_1.done && (_d = layer_3.return)) _d.call(layer_3);
+                    }
+                    finally { if (e_19) throw e_19.error; }
+                }
             }
         }
         catch (e_17_1) { e_17 = { error: e_17_1 }; }
         finally {
             try {
-                if (layers_3_1 && !layers_3_1.done && (_c = layers_3.return)) _c.call(layers_3);
+                if (layers_2_1 && !layers_2_1.done && (_b = layers_2.return)) _b.call(layers_2);
             }
             finally { if (e_17) throw e_17.error; }
         }
-        try {
-            for (var layers_4 = __values(layers), layers_4_1 = layers_4.next(); !layers_4_1.done; layers_4_1 = layers_4.next()) {
-                var layer = layers_4_1.value;
+        if (!isFinite(minAcross))
+            minAcross = 0;
+        // ---- 归一化到 0 后写回 ----
+        var minProg = Infinity;
+        for (var d = 0; d < nL; d++) {
+            try {
+                for (var _j = (e_20 = void 0, __values(layers[d])), _k = _j.next(); !_k.done; _k = _j.next()) {
+                    var v = _k.value;
+                    var f = vertical ? v.focus.y : v.focus.x;
+                    var prog = this._centered ? line[d] - f : line[d];
+                    if (prog < minProg)
+                        minProg = prog;
+                }
+            }
+            catch (e_20_1) { e_20 = { error: e_20_1 }; }
+            finally {
                 try {
-                    for (var layer_4 = (e_20 = void 0, __values(layer)), layer_4_1 = layer_4.next(); !layer_4_1.done; layer_4_1 = layer_4.next()) {
-                        var v = layer_4_1.value;
-                        v.x -= maxAcross / 2;
-                    }
+                    if (_k && !_k.done && (_e = _j.return)) _e.call(_j);
                 }
-                catch (e_20_1) { e_20 = { error: e_20_1 }; }
-                finally {
-                    try {
-                        if (layer_4_1 && !layer_4_1.done && (_f = layer_4.return)) _f.call(layer_4);
-                    }
-                    finally { if (e_20) throw e_20.error; }
-                }
+                finally { if (e_20) throw e_20.error; }
             }
         }
-        catch (e_19_1) { e_19 = { error: e_19_1 }; }
-        finally {
+        if (!isFinite(minProg))
+            minProg = 0;
+        for (var d = 0; d < nL; d++) {
             try {
-                if (layers_4_1 && !layers_4_1.done && (_e = layers_4.return)) _e.call(layers_4);
+                for (var _l = (e_21 = void 0, __values(layers[d])), _m = _l.next(); !_m.done; _m = _l.next()) {
+                    var v = _m.value;
+                    var f = vertical ? v.focus.y : v.focus.x;
+                    v.y = (this._centered ? line[d] - f : line[d]) - minProg;
+                    v.x = (across.get(v) || 0) - minAcross;
+                }
             }
-            finally { if (e_19) throw e_19.error; }
+            catch (e_21_1) { e_21 = { error: e_21_1 }; }
+            finally {
+                try {
+                    if (_m && !_m.done && (_f = _l.return)) _f.call(_l);
+                }
+                finally { if (e_21) throw e_21.error; }
+            }
         }
     };
     LayeredDigraphLayout.className = "LayeredDigraphLayout";
