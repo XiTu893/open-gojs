@@ -204,14 +204,25 @@ export declare class Part extends Panel {
     move(newLoc: Point, isLocation?: boolean): void;
     /** 官方 Part.moveTo(x, y, isLocation?) */
     moveTo(x: number, y: number, isLocation?: boolean): void;
-    /** Add an adornment for the given category */
+    /**
+     * 官方 `Part.addAdornment(category, ad)`：
+     * 同类别旧装饰先从图中移除；同步 `ad.category`；把装饰加入 diagram；
+     * 最后用 `adornedObject.findBindingPanel().data` 作为装饰的数据上下文
+     * （选择装饰里所有 data 绑定都靠这一句拿到节点数据）。
+     */
     addAdornment(category: string, ad: any): void;
-    /** Remove the adornment for the given category */
+    /** 官方 `Part.removeAdornment(category)`：从 diagram 摘除并清空 data */
     removeAdornment(category: string): void;
     /** Get the adornment for the given category */
     getAdornment(category: string): any | null;
     /** Remove all adornments */
     clearAdornments(): void;
+    /**
+     * 官方默认选择装饰（diagram.nodeSelectionAdornmentTemplate 缺省时的兜底）：
+     * `Adornment(Auto, Shape(fill:null, stroke:dodgerblue, strokeWidth:2, isPanelMain, stretch:Fill), Placeholder())。
+     * 只负责造模板，**不设 adornedObject / 不预设 bounds** —— 由 `_updateSelectionAdornment` 统一挂载，
+     * 尺寸与位置由 Placeholder.measure 按被装饰对象推出。
+     */
     _createSelectionAdornment(): any;
     /** 官方 Part.canCopy() */
     canCopy(): boolean;
@@ -324,8 +335,10 @@ export declare class Part extends Panel {
     private _canInvalidateLayout;
     /** 官方 `Part.invalidateAdornments()`：标记装饰失效并立刻按需重建 */
     invalidateAdornments(): void;
-    /** 官方 `Part.updateAdornments()` */
+    /** 官方 `Part.updateAdornments()` = `YE`（选择装饰）+ 各装饰 invalidateMeasure + updateTargetBindings */
     updateAdornments(): void;
+    /** 官方 `Part.YE(diagram)`：按 selectionAdornmentTemplate / diagram 默认模板创建 "Selection" 装饰 */
+    private _updateSelectionAdornment;
     /** 官方 `Part.updateRelationshipsFromData()` */
     updateRelationshipsFromData(): void;
     copy(): Part;

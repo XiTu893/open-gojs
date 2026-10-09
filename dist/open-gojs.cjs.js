@@ -11280,6 +11280,8 @@ Model.registerClass('GraphLinksModel', GraphLinksModel, function (m, d) {
         g.linkToPortIdProperty = d.linkToPortIdProperty;
     if (d.linkCategoryProperty !== undefined)
         g.linkCategoryProperty = d.linkCategoryProperty;
+    if (d.linkLabelKeysProperty !== undefined)
+        g.linkLabelKeysProperty = d.linkLabelKeysProperty;
     if (d.archetypeNodeData !== undefined)
         g.archetypeNodeData = d.archetypeNodeData;
     if (d.archetypeLinkData !== undefined)
@@ -22192,10 +22194,40 @@ var Panel = /** @class */ (function (_super) {
     });
     Object.defineProperty(Panel.prototype, "data", {
         get: function () { return this._data; },
+        /**
+         * 官方 `Panel.set data`：
+         * - 非 Adornment 的 Part 会把 data 变更**传播到自身装饰**（装饰的上下文 = adornedObject.findBindingPanel().data）；
+         * - 变更后立刻 `updateTargetBindings()`（undo/redo 重放时除外）。
+         * 选择装饰里所有 data 绑定都依赖这一步。
+         */
         set: function (val) {
             if (this._data === val)
                 return;
+            var old = this._data;
             this._data = val;
+            var d = this.diagram;
+            var ads = this._adornments;
+            if (ads !== null && ads !== undefined && typeof ads.iteratorValues !== 'undefined') {
+                var it = ads.iteratorValues;
+                while (it.next()) {
+                    var ad = it.value;
+                    if (ad === null || ad === undefined)
+                        continue;
+                    var r = ad.adornedObject;
+                    if (r !== null && r !== undefined) {
+                        var p = typeof r.findBindingPanel === 'function' ? r.findBindingPanel() : null;
+                        if (p !== null)
+                            ad.data = p.data;
+                    }
+                }
+            }
+            var rc = this.raiseChanged;
+            if (typeof rc === 'function')
+                rc.call(this, 'data', old, val);
+            if (d !== null && d.undoManager && d.undoManager.isUndoingRedoing)
+                return;
+            if (val !== null && val !== undefined)
+                this.updateTargetBindings();
         },
         enumerable: false,
         configurable: true
@@ -26035,6 +26067,17 @@ var Panel = /** @class */ (function (_super) {
                 finally { if (e_50) throw e_50.error; }
             }
         }
+        // 官方 PanelLayoutLink.arrange 收尾：`r instanceof Link` 且 pointsCount>=2 时逐个 hE。
+        // host===panel 才是 Link（否则是 Adornment）。
+        if (host !== null && host !== undefined && host === panel && host.pointsCount >= 2) {
+            var it = host.labelNodes;
+            while (it.next()) {
+                var nd = it.value;
+                if (nd && typeof host.positionLabelNode === 'function') {
+                    host.positionLabelNode(nd);
+                }
+            }
+        }
         // 官方：t.location.e(t.position.x + WD.x, t.position.y + WD.y)
         var pos = panel.position;
         if (pos && !isNaN(pos.x) && !isNaN(pos.y) && typeof panel._locationOffset === 'function') {
@@ -26851,34 +26894,15 @@ var Part = /** @class */ (function (_super) {
             if (this._isSelected === val)
                 return;
             this._isSelected = val;
-            if (val && this._selectionAdorned) {
-                var ad = this._createSelectionAdornment();
-                this.addAdornment('Selection', ad);
-                if (this._diagram) {
-                    var adornmentLayer = this._diagram.findLayer('Adornment');
-                    if (adornmentLayer) {
-                        adornmentLayer.add(ad);
-                    }
-                    this._diagram.selection.add(this);
-                }
-            }
-            else {
-                var ad = this.getAdornment('Selection');
-                if (ad) {
-                    if (this._diagram) {
-                        var adornmentLayer = this._diagram.findLayer('Adornment');
-                        if (adornmentLayer) {
-                            adornmentLayer.remove(ad);
-                        }
-                    }
-                    this.removeAdornment('Selection');
-                }
-                if (this._diagram) {
-                    this._diagram.selection.remove(this);
-                }
-            }
-            if (this._diagram && this._diagram._toolManager) {
-                this._diagram._toolManager.updateAdornments(this);
+            var d = this._diagram;
+            if (d !== null) {
+                if (val)
+                    d.selection.add(this);
+                else
+                    d.selection.remove(this);
+                this.updateAdornments();
+                if (d._toolManager)
+                    d._toolManager.updateAdornments(this);
             }
         },
         enumerable: false,
@@ -27179,16 +27203,43 @@ var Part = /** @class */ (function (_super) {
     Part.prototype.moveTo = function (x, y, isLocation) {
         this.move(new Point(x, y), isLocation);
     };
-    /** Add an adornment for the given category */
+    /**
+     * 官方 `Part.addAdornment(category, ad)`：
+     * 同类别旧装饰先从图中移除；同步 `ad.category`；把装饰加入 diagram；
+     * 最后用 `adornedObject.findBindingPanel().data` 作为装饰的数据上下文
+     * （选择装饰里所有 data 绑定都靠这一句拿到节点数据）。
+     */
     Part.prototype.addAdornment = function (category, ad) {
-        // 官方 Part.addAdornment(category, ad) 会同步 ad.category
-        if (ad !== null && ad !== undefined)
+        var _a;
+        if (ad === null || ad === undefined)
+            return;
+        var old = (_a = this._adornments.get(category)) !== null && _a !== void 0 ? _a : null;
+        if (old === ad)
+            return;
+        if (old !== null) {
+            var d_1 = old.diagram;
+            if (d_1 !== null && d_1 !== undefined)
+                d_1.remove(old);
+        }
+        if (ad.category !== category)
             ad.category = category;
         this._adornments.set(category, ad);
+        var d = this._diagram;
+        if (d !== null && d !== undefined) {
+            d.add(ad);
+        }
     };
-    /** Remove the adornment for the given category */
+    /** 官方 `Part.removeAdornment(category)`：从 diagram 摘除并清空 data */
     Part.prototype.removeAdornment = function (category) {
-        this._adornments.remove(category);
+        var _a;
+        var ad = (_a = this._adornments.get(category)) !== null && _a !== void 0 ? _a : null;
+        if (ad !== null) {
+            var d = ad.diagram;
+            if (d !== null && d !== undefined)
+                d.remove(ad);
+            ad.data = null;
+        }
+        this._adornments.delete(category);
     };
     /** Get the adornment for the given category */
     Part.prototype.getAdornment = function (category) {
@@ -27199,17 +27250,18 @@ var Part = /** @class */ (function (_super) {
     Part.prototype.clearAdornments = function () {
         this._adornments.clear();
     };
+    /**
+     * 官方默认选择装饰（diagram.nodeSelectionAdornmentTemplate 缺省时的兜底）：
+     * `Adornment(Auto, Shape(fill:null, stroke:dodgerblue, strokeWidth:2, isPanelMain, stretch:Fill), Placeholder())。
+     * 只负责造模板，**不设 adornedObject / 不预设 bounds** —— 由 `_updateSelectionAdornment` 统一挂载，
+     * 尺寸与位置由 Placeholder.measure 按被装饰对象推出。
+     */
     Part.prototype._createSelectionAdornment = function () {
         if (this._selectionAdornmentTemplate) {
-            var ad = this._selectionAdornmentTemplate.copy();
-            ad.adornedObject = this;
-            var bounds_1 = this.getDocumentBounds();
-            ad._actualBounds = bounds_1.copy();
-            ad._measuredBounds = new Rect(0, 0, bounds_1.width, bounds_1.height);
-            ad._naturalBounds = new Rect(0, 0, bounds_1.width, bounds_1.height);
-            return ad;
+            return this._selectionAdornmentTemplate.copy();
         }
         var AdornmentCtor = GraphObject._classRegistry['Adornment'];
+        var PlaceholderCtor = GraphObject._classRegistry['Placeholder'];
         var adornment = new AdornmentCtor(PanelAuto);
         var shape = new Shape();
         shape.fill = '';
@@ -27219,14 +27271,8 @@ var Part = /** @class */ (function (_super) {
         shape.isPanelMain = true;
         shape.stretch = StretchFill;
         adornment.add(shape);
-        adornment.adornedObject = this;
-        var bounds = this.getDocumentBounds();
-        adornment._actualBounds = bounds.copy();
-        adornment._measuredBounds = new Rect(0, 0, bounds.width, bounds.height);
-        adornment._naturalBounds = new Rect(0, 0, bounds.width, bounds.height);
-        shape._actualBounds = new Rect(0, 0, bounds.width, bounds.height);
-        shape._measuredBounds = new Rect(0, 0, bounds.width, bounds.height);
-        shape._naturalBounds = new Rect(0, 0, bounds.width, bounds.height);
+        if (PlaceholderCtor)
+            adornment.add(new PlaceholderCtor());
         return adornment;
     };
     // ============ 阶段 4：官方 Part.prototype 缺口 ============
@@ -27864,33 +27910,68 @@ var Part = /** @class */ (function (_super) {
         this._adornmentsPending = true;
         this.updateAdornments();
     };
-    /** 官方 `Part.updateAdornments()` */
+    /** 官方 `Part.updateAdornments()` = `YE`（选择装饰）+ 各装饰 invalidateMeasure + updateTargetBindings */
     Part.prototype.updateAdornments = function () {
         var d = this._diagram;
         if (d === null)
             return;
-        if (this._isSelected && this._selectionAdorned) {
-            if (this._adornments.get('Selection') === null) {
-                var ad = this._createSelectionAdornment();
-                if (ad !== null) {
-                    this.addAdornment('Selection', ad);
-                    var lay = d.findLayer('Adornment');
-                    if (lay && !ad._layer)
-                        lay.add(ad);
-                }
-            }
+        this._updateSelectionAdornment(d);
+        var first = this._adornments.iteratorValues;
+        while (first.next()) {
+            var ad = first.value;
+            if (ad === null || ad === undefined)
+                continue;
+            if (typeof ad._invalidateMeasure === 'function')
+                ad._invalidateMeasure();
+            var ph = typeof ad.hasPlaceholder === 'function' && ad.hasPlaceholder() ? ad.placeholder : null;
+            if (ph !== null && typeof ph._invalidateMeasure === 'function')
+                ph._invalidateMeasure();
         }
-        else if (this._adornments.get('Selection') !== null) {
-            this.removeAdornment('Selection');
-        }
-        var it = this._adornments.iteratorValues;
-        while (it.next()) {
-            var ad = it.value;
+        var second = this._adornments.iteratorValues;
+        while (second.next()) {
+            var ad = second.value;
             if (ad !== null && ad !== undefined && typeof ad.updateTargetBindings === 'function') {
                 ad.updateTargetBindings();
             }
         }
         this._adornmentsPending = false;
+    };
+    /** 官方 `Part.YE(diagram)`：按 selectionAdornmentTemplate / diagram 默认模板创建 "Selection" 装饰 */
+    Part.prototype._updateSelectionAdornment = function (d) {
+        var _a;
+        var cat = 'Selection';
+        if (this._isSelected && this._selectionAdorned) {
+            var i = this.selectionObject;
+            if (i !== null &&
+                this.actualBounds.isReal() &&
+                this.isVisible() &&
+                i.isVisibleObject() &&
+                i.actualBounds.isReal()) {
+                var s = (_a = this._adornments.get(cat)) !== null && _a !== void 0 ? _a : null;
+                if (s === null) {
+                    var n = this._selectionAdornmentTemplate;
+                    if (n === null || n === undefined) {
+                        if (this._className === 'Link')
+                            n = d.linkSelectionAdornmentTemplate;
+                        else if (this._className === 'Group')
+                            n = d.groupSelectionAdornmentTemplate;
+                        else
+                            n = d.nodeSelectionAdornmentTemplate;
+                    }
+                    s = n ? n.copy() : this._createSelectionAdornment();
+                    if (s !== null && s !== undefined) {
+                        if (this._className === 'Link' && i === this.path)
+                            s.type = PanelLink;
+                        s.adornedObject = i;
+                    }
+                }
+                if (s !== null && s !== undefined) {
+                    this.addAdornment(cat, s);
+                    return;
+                }
+            }
+        }
+        this.removeAdornment(cat);
     };
     /** 官方 `Part.updateRelationshipsFromData()` */
     Part.prototype.updateRelationshipsFromData = function () {
@@ -29749,6 +29830,9 @@ var Link = /** @class */ (function (_super) {
             k = new Knot(port.part, port);
             port._knot = k;
         }
+        else {
+            k.gg();
+        }
         return k.$F(this);
     };
     /** 官方 `Link.computeOtherPoint(othernode, otherport, otherspot?, from?, result?)` */
@@ -30174,6 +30258,178 @@ var Link = /** @class */ (function (_super) {
         }
         return r.directionPoint(l);
     };
+    /** 官方 `Transform`（缩放后绕原点旋转）作用于点：`p' = scale * R(angle) * p` */
+    Link._xfPt = function (x, y, sc, ang) {
+        var a = ang;
+        if (a >= 360)
+            a -= 360;
+        else if (a < 0)
+            a += 360;
+        var cos = 1;
+        var sin = 0;
+        if (a === 90) {
+            cos = 0;
+            sin = 1;
+        }
+        else if (a === 180) {
+            cos = -1;
+            sin = 0;
+        }
+        else if (a === 270) {
+            cos = 0;
+            sin = -1;
+        }
+        else if (a !== 0) {
+            var r = (a * Math.PI) / 180;
+            cos = Math.cos(r);
+            sin = Math.sin(r);
+        }
+        return new Point((x * cos - y * sin) * sc, (x * sin + y * cos) * sc);
+    };
+    /**
+     * 官方 `Link.hE(labelNode, pointsCount, points)`：把 link 标签节点摆到路径上。
+     * `PanelLayoutLink.arrange` 收尾、`location` 同步之前逐个调用。
+     */
+    Link.prototype.positionLabelNode = function (t) {
+        var e = this.pointsCount;
+        var i = this.points;
+        var s = t.segmentIndex;
+        var n = t.segmentFraction;
+        var o = t.alignmentFocus;
+        var r = t.segmentOrientation;
+        var l = t.segmentOffset;
+        var a = 0;
+        var h = 0;
+        var f = 0;
+        if (isNaN(s)) {
+            var N = this.geometry;
+            var M = N.getPointAndAngleAlongPath(n);
+            f = M[2];
+            var C = new Point(M[0], M[1]);
+            C.add(this.getPoint(0));
+            if (N.type === GeometryTypeLine)
+                C.offset(-N.startX, -N.startY);
+            else {
+                var L = N.figures.first();
+                if (L !== null)
+                    C.offset(-L.startX, -L.startY);
+            }
+            a = C.x;
+            h = C.y;
+        }
+        else if (s < -e || s >= e) {
+            this.updateRoute();
+            var N = this.computeMidPoint(new Point());
+            f = this.midAngle;
+            a = N.x;
+            h = N.y;
+        }
+        else {
+            var N = void 0;
+            var M = void 0;
+            var C = 0;
+            if (s >= 0) {
+                N = i.elt(s);
+                M = s < e - 1 ? i.elt(s + 1) : N;
+            }
+            else {
+                C = e + s;
+                N = i.elt(C);
+                M = C > 0 ? i.elt(C - 1) : N;
+            }
+            if (N.equalsApprox(M)) {
+                var L = void 0;
+                var A = void 0;
+                if (s >= 0) {
+                    L = s > 0 ? i.elt(s - 1) : N;
+                    A = s < e - 2 ? i.elt(s + 2) : M;
+                }
+                else {
+                    L = C < e - 1 ? i.elt(C + 1) : N;
+                    A = C > 1 ? i.elt(C - 2) : M;
+                }
+                var D = L.distanceSquaredPoint(N);
+                var F = M.distanceSquaredPoint(A);
+                if (D > F + 10)
+                    f = s >= 0 ? L.directionPoint(N) : N.directionPoint(L);
+                else if (F > D + 10)
+                    f = s >= 0 ? M.directionPoint(A) : A.directionPoint(M);
+                else
+                    f = s >= 0 ? L.directionPoint(A) : A.directionPoint(L);
+            }
+            else {
+                f = s >= 0 ? N.directionPoint(M) : M.directionPoint(N);
+            }
+            a = N.x + (M.x - N.x) * n;
+            h = N.y + (M.y - N.y) * n;
+        }
+        var code = Link._orientationCode(r);
+        if (code !== 0)
+            t.angle = this.computeAngle(0, r, f);
+        if (o.isNone()) {
+            t.moveTo(a, h, true);
+            return;
+        }
+        if (o.isNoSpot())
+            o = Spot.Center;
+        var d = t.naturalBounds;
+        var m = new Rect(0, 0, d.width, d.height);
+        var g = new Point().setRectSpot(m, o);
+        var sc = t.scale;
+        var ang = t.angle;
+        var gt = Link._xfPt(g.x, g.y, sc, ang);
+        var p = -gt.x;
+        var y = -gt.y;
+        var x = d.width;
+        var b = d.height;
+        var k = l.copy();
+        var P = isNaN(l.x);
+        var S = isNaN(l.y);
+        if (P || S) {
+            var N = x / 2 + Link._yS;
+            var M = b / 2 + Link._yS;
+            var C = f >= 45 && f <= 135;
+            var L = f >= 225 && f <= 315;
+            var fracCond = s >= 0 || (isNaN(s) && n < 0.5);
+            if (code === 0 && (C || L)) {
+                k.x = S ? N : l.y;
+                k.y = P ? M : l.x;
+                if (C) {
+                    if (!fracCond && P)
+                        k.y = -M;
+                }
+                else {
+                    if (fracCond && P)
+                        k.y = -M;
+                    if (S)
+                        k.x = -N;
+                }
+            }
+            else {
+                if (P)
+                    k.x = fracCond ? N : -N;
+                if (S)
+                    k.y = -M;
+                k.rotate(f);
+            }
+        }
+        else {
+            k.rotate(f);
+        }
+        a += k.x;
+        h += k.y;
+        // u.ym(m)：把矩形 m 变换到目标空间后取包围盒
+        var c1 = Link._xfPt(m.x, m.y, sc, ang);
+        var c2 = Link._xfPt(m.x + m.width, m.y, sc, ang);
+        var c3 = Link._xfPt(m.x, m.y + m.height, sc, ang);
+        var c4 = Link._xfPt(m.x + m.width, m.y + m.height, sc, ang);
+        var minX = Math.min(c1.x, c2.x, c3.x, c4.x);
+        var minY = Math.min(c1.y, c2.y, c3.y, c4.y);
+        p += minX;
+        y += minY;
+        var T = new Point(a + p, h + y);
+        t.move(T);
+    };
     Object.defineProperty(Link.prototype, "routeBounds", {
         /** 官方 `Link.routeBounds` */
         get: function () {
@@ -30536,12 +30792,13 @@ var Link = /** @class */ (function (_super) {
             return;
         var h = s === 2 ? len * 0.5 : len;
         var a = this.computeShortLength(isFrom);
-        if (isNaN(a) || a <= 0)
+        if (isNaN(a))
             return;
-        if (a > h)
-            a = h;
-        t.x += (a * dx) / len;
-        t.y += (a * dy) / len;
+        // 官方 uc：只做上界 clamp（`h>a&&(h=a)`），负 shortLength 不拦截——
+        // t += a*dir 使端点【向后】移动，几何越过端口延伸（mindMap -2 断点根因）。
+        var k = a > h ? h : a;
+        t.x += (k * dx) / len;
+        t.y += (k * dy) / len;
     };
     /**
      * 官方 `Link.cT(p, i, flag)`：从下标 i 起跳过与 p 重合、以及沿当前轴共线且单调的点，
@@ -34432,6 +34689,8 @@ var Adornment = /** @class */ (function (_super) {
         /** 装饰类别 */
         _this._adornmentCategory = '';
         _this._className = 'Adornment';
+        // 官方 Adornment 构造：`this.Pl="Adornment"`（默认层名）
+        _this._layerName = 'Adornment';
         if (i) {
             _this.set(i);
         }
@@ -34441,8 +34700,18 @@ var Adornment = /** @class */ (function (_super) {
         get: function () {
             return this._adornedObject;
         },
+        /** 官方 `Adornment.set adornedObject`：换绑时先解绑旧 part，再由新 part.addAdornment 挂载自身 */
         set: function (val) {
+            var oldPart = this.adornedPart;
+            var newPart = null;
+            if (val !== null && val !== undefined)
+                newPart = val.part;
+            if (oldPart !== null && (val === null || val === undefined || oldPart !== newPart)) {
+                oldPart.removeAdornment(this.category);
+            }
             this._adornedObject = val;
+            if (newPart !== null)
+                newPart.addAdornment(this.category, this);
         },
         enumerable: false,
         configurable: true
@@ -34649,6 +34918,54 @@ var Placeholder = /** @class */ (function (_super) {
         return result;
     };
     /**
+     * 官方 `Placeholder.measure` 的 **Adornment 分支**（官方 `Id` 的 else 分支）：
+     * - `adornment.angle = adornedObject.getDocumentAngle()`；
+     * - Selection 类装饰把 `adornment.location` 定位到被装饰对象的 **TopLeft**（其余类别用 locationSpot）；
+     * - 自身尺寸 = 被装饰对象 `(naturalBounds + strokeWidth) * documentScale` + padding 四边；
+     * - 自身 arrange 到 `(-padding.left, -padding.top)`；
+     * - 被装饰对象尺寸无效时退化为「四角并集」。
+     */
+    Placeholder.prototype._measureForAdornment = function (adornment) {
+        var pad = this._padSides();
+        var extraW = pad.l + pad.r;
+        var extraH = pad.t + pad.b;
+        var adorned = adornment.adornedObject;
+        if (adorned === null || adorned === undefined) {
+            this._measuredBounds = new Rect(0, 0, 0, 0);
+            this._naturalBounds = this._measuredBounds.copy();
+            return;
+        }
+        adornment.angle = adorned.getDocumentAngle();
+        var stroke = 0;
+        var cls = adorned._className;
+        if (cls === 'Shape' || cls === undefined)
+            stroke = adorned.strokeWidth || 0;
+        var scale = adorned.getDocumentScale();
+        var nb = adorned.naturalBounds;
+        var w = (nb.width + stroke) * scale;
+        var h = (nb.height + stroke) * scale;
+        var isLinkPanel = adornment.type === PanelLink;
+        if (!isLinkPanel) {
+            var spot = adornment.category === 'Selection' ? Spot.TopLeft : adornment.locationSpot;
+            var pt = adorned.getDocumentPoint(spot);
+            if (!isNaN(pt.x) && !isNaN(pt.y))
+                adornment.location = pt;
+        }
+        if (!isNaN(w) && !isNaN(h)) {
+            this._measuredBounds = new Rect(0, 0, Math.max(w + extraW || 0, 0), Math.max(h + extraH || 0, 0));
+        }
+        else {
+            var tl = adorned.getDocumentPoint(Spot.TopLeft);
+            var r = new Rect(tl.x, tl.y, 0, 0);
+            r.unionPoint(adorned.getDocumentPoint(Spot.BottomRight));
+            r.unionPoint(adorned.getDocumentPoint(Spot.TopRight));
+            r.unionPoint(adorned.getDocumentPoint(Spot.BottomLeft));
+            this._measuredBounds = new Rect(0, 0, Math.max(r.width + extraW || 0, 0), Math.max(r.height + extraH || 0, 0));
+        }
+        this._naturalBounds = this._measuredBounds.copy();
+        this._actualBounds = new Rect(-pad.l, -pad.t, this._measuredBounds.width, this._measuredBounds.height);
+    };
+    /**
      * 官方 Placeholder.measure（computeBorder）：
      * 1) union 可见成员的 actualBounds（文档坐标，成员 ab 实值才计入；跳过 Link）；
      * 2) 无成员 union → border = group.location 实值点 (0×0)，否则 (0,0)；
@@ -34657,6 +34974,12 @@ var Placeholder = /** @class */ (function (_super) {
      * 5) 有成员 union 且 border x/y 实值 → group.location = border 按 group.locationSpot 锚点。
      */
     Placeholder.prototype._measure = function (availW, availH) {
+        var owner = this.part;
+        if (owner !== null && owner._className === 'Adornment') {
+            this._measureForAdornment(owner);
+            this._applySizeConstraints();
+            return;
+        }
         var group = this._findGroup();
         if (group) {
             var union = null;
@@ -36382,7 +36705,104 @@ var CanvasRenderer = /** @class */ (function () {
         this._renderDragSelectBox();
         this._needsRender = false;
     };
+    /** 官方 PanelLayoutTable.ck：n=true → 只画 coversSeparators=false 的背景（分隔线之前） */
+    CanvasRenderer.prototype._renderTableBackgrounds = function (panel, panelX, panelY, n) {
+        var _this = this;
+        var ctx = this.ctx;
+        if (!ctx)
+            return;
+        var bounds = panel.actualBounds;
+        if (!bounds || bounds.width <= 0 || bounds.height <= 0)
+            return;
+        var pad = panel.padding;
+        var padL = pad ? pad.left : 0;
+        var padT = pad ? pad.top : 0;
+        var padR = pad ? pad.right : 0;
+        var padB = pad ? pad.bottom : 0;
+        var firstRowIdx = this._firstDefIndex(panel._rowDefinitions);
+        var firstColIdx = this._firstDefIndex(panel._columnDefinitions);
+        var draw = function (defs, isRow) {
+            var e_2, _a;
+            try {
+                for (var defs_1 = __values(defs), defs_1_1 = defs_1.next(); !defs_1_1.done; defs_1_1 = defs_1.next()) {
+                    var def = defs_1_1.value;
+                    if (def === undefined || def === null || def.background === null || def.background === undefined)
+                        continue;
+                    if (def.coversSeparators === n || def.actual === 0)
+                        continue;
+                    var u = isRow ? bounds.height : bounds.width;
+                    if (def.position > u)
+                        continue;
+                    var m = def.separatorStrokeWidth;
+                    if (isNaN(m)) {
+                        m = isRow ? panel.defaultRowSeparatorStrokeWidth : panel.defaultColumnSeparatorStrokeWidth;
+                    }
+                    var g = def.separatorStroke;
+                    if (g === null || g === undefined) {
+                        g = isRow ? panel.defaultRowSeparatorStroke : panel.defaultColumnSeparatorStroke;
+                    }
+                    if (g === null || g === undefined || def.index === (isRow ? firstRowIdx : firstColIdx))
+                        m = 0;
+                    var d = def.computeEffectiveSpacing();
+                    d -= m;
+                    var p = def.position + m;
+                    var len = d + def.actual;
+                    if (p + len > u)
+                        len = u - p;
+                    if (len <= 0)
+                        continue;
+                    ctx.save();
+                    ctx.fillStyle = _this._applyBrush(ctx, def.background, isRow
+                        ? new Rect(panelX + padL, panelY + padT + p, Math.max(bounds.width - padL - padR, 0), len)
+                        : new Rect(panelX + padL + p, panelY + padT, len, Math.max(bounds.height - padT - padB, 0)));
+                    if (isRow) {
+                        ctx.fillRect(panelX + padL, panelY + padT + p, Math.max(bounds.width - padL - padR, 0), len);
+                    }
+                    else {
+                        ctx.fillRect(panelX + padL + p, panelY + padT, len, Math.max(bounds.height - padT - padB, 0));
+                    }
+                    ctx.restore();
+                }
+            }
+            catch (e_2_1) { e_2 = { error: e_2_1 }; }
+            finally {
+                try {
+                    if (defs_1_1 && !defs_1_1.done && (_a = defs_1.return)) _a.call(defs_1);
+                }
+                finally { if (e_2) throw e_2.error; }
+            }
+        };
+        draw(panel._rowDefinitions || [], true);
+        draw(panel._columnDefinitions || [], false);
+    };
+    /** 官方 PanelLayoutTable.HD：首个已定义的行/列 index */
+    CanvasRenderer.prototype._firstDefIndex = function (defs) {
+        var e_3, _a;
+        try {
+            for (var defs_2 = __values(defs), defs_2_1 = defs_2.next(); !defs_2_1.done; defs_2_1 = defs_2.next()) {
+                var d = defs_2_1.value;
+                if (d !== undefined && d !== null)
+                    return d.index;
+            }
+        }
+        catch (e_3_1) { e_3 = { error: e_3_1 }; }
+        finally {
+            try {
+                if (defs_2_1 && !defs_2_1.done && (_a = defs_2.return)) _a.call(defs_2);
+            }
+            finally { if (e_3) throw e_3.error; }
+        }
+        return 0;
+    };
+    /** 官方 PanelLayoutTable.SN：ck(n=true, 非覆盖背景) → KD(分隔线) → ck(n=false, 覆盖背景)，须在子元素之前调用 */
+    CanvasRenderer.prototype._renderTableRules = function (panel, panelX, panelY) {
+        this._renderTableBackgrounds(panel, panelX, panelY, true);
+        this._renderTableSeparators(panel, panelX, panelY);
+        this._renderTableBackgrounds(panel, panelX, panelY, false);
+    };
+    /** 官方 PanelLayoutTable.KD：按 row/column 定义画分隔线（首个非零行/列之上不画） */
     CanvasRenderer.prototype._renderTableSeparators = function (panel, panelX, panelY) {
+        var _this = this;
         var ctx = this.ctx;
         if (!ctx)
             return;
@@ -36390,53 +36810,93 @@ var CanvasRenderer = /** @class */ (function () {
         var colDefs = panel._columnDefinitions || [];
         if (rowDefs.length === 0 && colDefs.length === 0)
             return;
-        var defaultRowSep = panel.defaultRowSeparatorStroke;
-        var defaultColSep = panel.defaultColumnSeparatorStroke;
-        var defaultRowSepWidth = panel.defaultRowSeparatorStrokeWidth || 1;
-        var defaultColSepWidth = panel.defaultColumnSeparatorStrokeWidth || 1;
         var bounds = panel.actualBounds;
         if (!bounds || bounds.width <= 0 || bounds.height <= 0)
             return;
-        var colWidths = panel._lastColWidths;
-        var rowHeights = panel._lastRowHeights;
-        if (!colWidths || !rowHeights)
-            return;
+        var natH = bounds.height;
+        var natW = bounds.width;
+        var pad = panel.padding;
+        var padL = pad ? pad.left : 0;
+        var padT = pad ? pad.top : 0;
+        var padR = pad ? pad.right : 0;
+        var padB = pad ? pad.bottom : 0;
         ctx.save();
-        var y = panelY;
-        for (var i = 0; i < rowHeights.length; i++) {
-            y += rowHeights[i];
-            var def = i < rowDefs.length ? rowDefs[i] : null;
-            var stroke = (def && def.separatorStroke !== undefined) ? def.separatorStroke : defaultRowSep;
-            var strokeWidth = (def && def.separatorStrokeWidth !== undefined) ? def.separatorStrokeWidth : defaultRowSepWidth;
-            var dashArray = (def && def.separatorDashArray) ? def.separatorDashArray : null;
-            if (stroke && y < panelY + bounds.height) {
-                ctx.strokeStyle = stroke;
-                ctx.lineWidth = strokeWidth;
-                ctx.setLineDash(dashArray || []);
-                ctx.beginPath();
-                ctx.moveTo(panelX, y);
-                ctx.lineTo(panelX + bounds.width, y);
-                this._strokeNoShadow(ctx);
+        ctx.lineCap = 'butt';
+        var drawSeparators = function (defs, isRow) {
+            var e_4, _a;
+            var first = true;
+            try {
+                for (var defs_3 = __values(defs), defs_3_1 = defs_3.next(); !defs_3_1.done; defs_3_1 = defs_3.next()) {
+                    var def = defs_3_1.value;
+                    if (def === undefined || def === null || def.actual === 0)
+                        continue;
+                    if (first) {
+                        first = false;
+                        continue;
+                    }
+                    var stroke = def.separatorStroke;
+                    if (stroke === null || stroke === undefined) {
+                        stroke = isRow ? panel.defaultRowSeparatorStroke : panel.defaultColumnSeparatorStroke;
+                    }
+                    var sw = def.separatorStrokeWidth;
+                    if (isNaN(sw)) {
+                        sw = isRow ? panel.defaultRowSeparatorStrokeWidth : panel.defaultColumnSeparatorStrokeWidth;
+                    }
+                    var dash = def.separatorDashArray;
+                    if (dash === null || dash === undefined) {
+                        dash = isRow ? panel.defaultRowSeparatorDashArray : panel.defaultColumnSeparatorDashArray;
+                    }
+                    if (stroke === null || stroke === undefined || stroke === '' || sw === 0)
+                        continue;
+                    if (isRow) {
+                        if (def.position > natH)
+                            continue;
+                        var h = sw;
+                        var d = def.position + h;
+                        if (d > natH)
+                            h -= d - natH;
+                        if (h <= 0)
+                            continue;
+                        var y = panelY + padT + def.position + h / 2;
+                        ctx.strokeStyle = stroke;
+                        ctx.lineWidth = h;
+                        ctx.setLineDash(dash || []);
+                        ctx.beginPath();
+                        ctx.moveTo(panelX + padL, y);
+                        ctx.lineTo(panelX + natW - padR, y);
+                        _this._strokeNoShadow(ctx);
+                    }
+                    else {
+                        if (def.position > natW)
+                            continue;
+                        var w = sw;
+                        var d = def.position + w;
+                        if (d > natW)
+                            w -= d - natW;
+                        if (w <= 0)
+                            continue;
+                        var x = panelX + padL + def.position + w / 2;
+                        ctx.strokeStyle = stroke;
+                        ctx.lineWidth = w;
+                        ctx.setLineDash(dash || []);
+                        ctx.beginPath();
+                        ctx.moveTo(x, panelY + padT);
+                        ctx.lineTo(x, panelY + natH - padB);
+                        _this._strokeNoShadow(ctx);
+                    }
+                }
             }
-        }
-        var x = panelX;
-        for (var i = 0; i < colWidths.length; i++) {
-            x += colWidths[i];
-            var def = i < colDefs.length ? colDefs[i] : null;
-            var stroke = (def && def.separatorStroke !== undefined) ? def.separatorStroke : defaultColSep;
-            var strokeWidth = (def && def.separatorStrokeWidth !== undefined) ? def.separatorStrokeWidth : defaultColSepWidth;
-            var dashArray = (def && def.separatorDashArray) ? def.separatorDashArray : null;
-            if (stroke && x < panelX + bounds.width) {
-                ctx.strokeStyle = stroke;
-                ctx.lineWidth = strokeWidth;
-                ctx.setLineDash(dashArray || []);
-                ctx.beginPath();
-                ctx.moveTo(x, panelY);
-                ctx.lineTo(x, panelY + bounds.height);
-                this._strokeNoShadow(ctx);
+            catch (e_4_1) { e_4 = { error: e_4_1 }; }
+            finally {
+                try {
+                    if (defs_3_1 && !defs_3_1.done && (_a = defs_3.return)) _a.call(defs_3);
+                }
+                finally { if (e_4) throw e_4.error; }
             }
-        }
-        ctx.setLineDash([]);
+            ctx.setLineDash([]);
+        };
+        drawSeparators(rowDefs, true);
+        drawSeparators(colDefs, false);
         ctx.restore();
     };
     CanvasRenderer.prototype._renderDragSelectBox = function () {
@@ -36480,7 +36940,7 @@ var CanvasRenderer = /** @class */ (function () {
         ctx.restore();
     };
     CanvasRenderer.prototype.renderPart = function (part) {
-        var e_2, _a;
+        var e_5, _a;
         var _b, _c;
         var ctx = this.ctx;
         if (!ctx)
@@ -36502,12 +36962,12 @@ var CanvasRenderer = /** @class */ (function () {
                         elem._naturalBounds = new Rect(0, 0, bounds.width, bounds.height);
                     }
                 }
-                catch (e_2_1) { e_2 = { error: e_2_1 }; }
+                catch (e_5_1) { e_5 = { error: e_5_1 }; }
                 finally {
                     try {
                         if (elements_1_1 && !elements_1_1.done && (_a = elements_1.return)) _a.call(elements_1);
                     }
-                    finally { if (e_2) throw e_2.error; }
+                    finally { if (e_5) throw e_5.error; }
                 }
             }
         }
@@ -36537,7 +36997,7 @@ var CanvasRenderer = /** @class */ (function () {
     };
     /** Render a Link - draw the link path and its children */
     CanvasRenderer.prototype.renderLink = function (link) {
-        var e_3, _a, e_4, _b;
+        var e_6, _a, e_7, _b;
         var ctx = this.ctx;
         if (!ctx)
             return;
@@ -36561,12 +37021,12 @@ var CanvasRenderer = /** @class */ (function () {
                 }
             }
         }
-        catch (e_3_1) { e_3 = { error: e_3_1 }; }
+        catch (e_6_1) { e_6 = { error: e_6_1 }; }
         finally {
             try {
                 if (elements_2_1 && !elements_2_1.done && (_a = elements_2.return)) _a.call(elements_2);
             }
-            finally { if (e_3) throw e_3.error; }
+            finally { if (e_6) throw e_6.error; }
         }
         var firstShape = true;
         try {
@@ -36598,12 +37058,12 @@ var CanvasRenderer = /** @class */ (function () {
                 }
             }
         }
-        catch (e_4_1) { e_4 = { error: e_4_1 }; }
+        catch (e_7_1) { e_7 = { error: e_7_1 }; }
         finally {
             try {
                 if (elements_3_1 && !elements_3_1.done && (_b = elements_3.return)) _b.call(elements_3);
             }
-            finally { if (e_4) throw e_4.error; }
+            finally { if (e_7) throw e_7.error; }
         }
     };
     /** Render the main link path */
@@ -36617,6 +37077,29 @@ var CanvasRenderer = /** @class */ (function () {
         ctx.save();
         var arr = points.toArray();
         var curve = link._curve;
+        // 官方 makeGeometry 经 uc() 对首/末点做 shortLength 位移（负值向后【延伸】越过
+        // 端口），渲染直取 points 时必须补上 —— mindMap 的 -2 端口断点根因。
+        var applyShort = function (isFrom) {
+            var li = link.computeShortLength;
+            if (typeof li !== 'function')
+                return;
+            var a = li.call(link, isFrom);
+            if (!isFinite(a) || a === 0)
+                return;
+            var i = isFrom ? 0 : arr.length - 1;
+            var j = isFrom ? 1 : arr.length - 2;
+            var dx = arr[j].x - arr[i].x;
+            var dy = arr[j].y - arr[i].y;
+            var len = Math.sqrt(dx * dx + dy * dy);
+            if (len === 0)
+                return;
+            // 官方 uc 只做上界 clamp（2 点时为半段长，多点为整段长）
+            var cap = points.count === 2 ? len * 0.5 : len;
+            var k = a > cap ? cap : a;
+            arr[i] = new Point(arr[i].x + (k * dx) / len, arr[i].y + (k * dy) / len);
+        };
+        applyShort(true);
+        applyShort(false);
         // 官方 `Link.makeGeometry()`：正交（或点数===2）且非贝塞尔曲线时，
         // 在每个拐点处按 `computeCorner()` 画「控制点落在拐点」的二次贝塞尔圆角。
         // 早先 JumpOver/JumpGap 分支直接拿 points 折线绘制，完全绕过圆角 ——
@@ -36761,7 +37244,7 @@ var CanvasRenderer = /** @class */ (function () {
         return out;
     };
     CanvasRenderer.prototype._findCrossings = function (link) {
-        var e_5, _a;
+        var e_8, _a;
         var diagram = this._diagram;
         if (!diagram)
             return [];
@@ -36805,12 +37288,12 @@ var CanvasRenderer = /** @class */ (function () {
                 }
             }
         }
-        catch (e_5_1) { e_5 = { error: e_5_1 }; }
+        catch (e_8_1) { e_8 = { error: e_8_1 }; }
         finally {
             try {
                 if (layers_1_1 && !layers_1_1.done && (_a = layers_1.return)) _a.call(layers_1);
             }
-            finally { if (e_5) throw e_5.error; }
+            finally { if (e_8) throw e_8.error; }
         }
         crossings.sort(function (a, b) { return a - b; });
         return crossings;
@@ -36831,7 +37314,7 @@ var CanvasRenderer = /** @class */ (function () {
         return null;
     };
     CanvasRenderer.prototype._drawPathWithJumpOver = function (ctx, arr, crossings, jumpSize) {
-        var e_6, _a;
+        var e_9, _a;
         ctx.beginPath();
         ctx.moveTo(arr[0].x, arr[0].y);
         if (crossings.length === 0) {
@@ -36856,7 +37339,7 @@ var CanvasRenderer = /** @class */ (function () {
             var segEnd = cumDist + segLen;
             var pos = segStart;
             try {
-                for (var crossings_1 = (e_6 = void 0, __values(crossings)), crossings_1_1 = crossings_1.next(); !crossings_1_1.done; crossings_1_1 = crossings_1.next()) {
+                for (var crossings_1 = (e_9 = void 0, __values(crossings)), crossings_1_1 = crossings_1.next(); !crossings_1_1.done; crossings_1_1 = crossings_1.next()) {
                     var crossDist = crossings_1_1.value;
                     if (crossDist <= segStart + halfJump || crossDist >= segEnd - halfJump)
                         continue;
@@ -36879,12 +37362,12 @@ var CanvasRenderer = /** @class */ (function () {
                     pos = crossDist + halfJump;
                 }
             }
-            catch (e_6_1) { e_6 = { error: e_6_1 }; }
+            catch (e_9_1) { e_9 = { error: e_9_1 }; }
             finally {
                 try {
                     if (crossings_1_1 && !crossings_1_1.done && (_a = crossings_1.return)) _a.call(crossings_1);
                 }
-                finally { if (e_6) throw e_6.error; }
+                finally { if (e_9) throw e_9.error; }
             }
             if (pos < segEnd - 0.01) {
                 ctx.lineTo(curr.x, curr.y);
@@ -36893,7 +37376,7 @@ var CanvasRenderer = /** @class */ (function () {
         }
     };
     CanvasRenderer.prototype._drawPathWithJumpGap = function (ctx, arr, crossings, gapSize) {
-        var e_7, _a;
+        var e_10, _a;
         ctx.beginPath();
         ctx.moveTo(arr[0].x, arr[0].y);
         if (crossings.length === 0) {
@@ -36916,7 +37399,7 @@ var CanvasRenderer = /** @class */ (function () {
             var segEnd = cumDist + segLen;
             var pos = segStart;
             try {
-                for (var crossings_2 = (e_7 = void 0, __values(crossings)), crossings_2_1 = crossings_2.next(); !crossings_2_1.done; crossings_2_1 = crossings_2.next()) {
+                for (var crossings_2 = (e_10 = void 0, __values(crossings)), crossings_2_1 = crossings_2.next(); !crossings_2_1.done; crossings_2_1 = crossings_2.next()) {
                     var crossDist = crossings_2_1.value;
                     if (crossDist <= segStart + halfGap || crossDist >= segEnd - halfGap)
                         continue;
@@ -36927,12 +37410,12 @@ var CanvasRenderer = /** @class */ (function () {
                     pos = crossDist + halfGap;
                 }
             }
-            catch (e_7_1) { e_7 = { error: e_7_1 }; }
+            catch (e_10_1) { e_10 = { error: e_10_1 }; }
             finally {
                 try {
                     if (crossings_2_1 && !crossings_2_1.done && (_a = crossings_2.return)) _a.call(crossings_2);
                 }
-                finally { if (e_7) throw e_7.error; }
+                finally { if (e_10) throw e_10.error; }
             }
             if (pos < segEnd - 0.01) {
                 ctx.lineTo(curr.x, curr.y);
@@ -36957,22 +37440,39 @@ var CanvasRenderer = /** @class */ (function () {
         var arrowType = isToArrow ? toArrowName : fromArrowName;
         if (!arrowType || arrowType === 'None')
             return;
+        // 路由可能产生重复端点（[p0,p0,p1,p1]），方向要跳过与端点重合的相邻点
         var tipX, tipY, dirX, dirY;
         if (isToArrow) {
             var tip = arr[arr.length - 1];
-            var prev = arr[arr.length - 2];
             tipX = tip.x;
             tipY = tip.y;
-            dirX = tip.x - prev.x;
-            dirY = tip.y - prev.y;
+            dirX = 0;
+            dirY = 0;
+            for (var i = arr.length - 2; i >= 0; i--) {
+                var dx = tip.x - arr[i].x;
+                var dy = tip.y - arr[i].y;
+                if (dx !== 0 || dy !== 0) {
+                    dirX = dx;
+                    dirY = dy;
+                    break;
+                }
+            }
         }
         else {
             var tip = arr[0];
-            var next = arr[1];
             tipX = tip.x;
             tipY = tip.y;
-            dirX = next.x - tip.x;
-            dirY = next.y - tip.y;
+            dirX = 0;
+            dirY = 0;
+            for (var i = 1; i < arr.length; i++) {
+                var dx = arr[i].x - tip.x;
+                var dy = arr[i].y - tip.y;
+                if (dx !== 0 || dy !== 0) {
+                    dirX = dx;
+                    dirY = dy;
+                    break;
+                }
+            }
         }
         var len = Math.sqrt(dirX * dirX + dirY * dirY);
         if (len === 0)
@@ -37129,7 +37629,7 @@ var CanvasRenderer = /** @class */ (function () {
     };
     /** Render a Panel and its children */
     CanvasRenderer.prototype.renderPanel = function (panel, offsetX, offsetY) {
-        var e_8, _a, e_9, _b, e_10, _c, e_11, _d, e_12, _e, e_13, _f, e_14, _g, e_15, _h, e_16, _j;
+        var e_11, _a, e_12, _b, e_13, _c, e_14, _d, e_15, _e, e_16, _f, e_17, _g, e_18, _h, e_19, _j;
         if (!panel.visible)
             return;
         var ctx = this.ctx;
@@ -37188,12 +37688,12 @@ var CanvasRenderer = /** @class */ (function () {
                     }
                 }
             }
-            catch (e_8_1) { e_8 = { error: e_8_1 }; }
+            catch (e_11_1) { e_11 = { error: e_11_1 }; }
             finally {
                 try {
                     if (elements_4_1 && !elements_4_1.done && (_a = elements_4.return)) _a.call(elements_4);
                 }
-                finally { if (e_8) throw e_8.error; }
+                finally { if (e_11) throw e_11.error; }
             }
             if (main !== null) {
                 this.renderGraphObject(main, panelX, panelY);
@@ -37204,12 +37704,12 @@ var CanvasRenderer = /** @class */ (function () {
                     this.renderGraphObject(elem, childOX, childOY);
                 }
             }
-            catch (e_9_1) { e_9 = { error: e_9_1 }; }
+            catch (e_12_1) { e_12 = { error: e_12_1 }; }
             finally {
                 try {
                     if (others_1_1 && !others_1_1.done && (_b = others_1.return)) _b.call(others_1);
                 }
-                finally { if (e_9) throw e_9.error; }
+                finally { if (e_12) throw e_12.error; }
             }
         }
         else if (panelType === PanelVertical || panelType === PanelHorizontal) {
@@ -37221,12 +37721,12 @@ var CanvasRenderer = /** @class */ (function () {
                     this.renderGraphObject(elem, childOX, childOY);
                 }
             }
-            catch (e_10_1) { e_10 = { error: e_10_1 }; }
+            catch (e_13_1) { e_13 = { error: e_13_1 }; }
             finally {
                 try {
                     if (elements_5_1 && !elements_5_1.done && (_c = elements_5.return)) _c.call(elements_5);
                 }
-                finally { if (e_10) throw e_10.error; }
+                finally { if (e_13) throw e_13.error; }
             }
         }
         else if (panelType === PanelSpot) {
@@ -37248,12 +37748,12 @@ var CanvasRenderer = /** @class */ (function () {
                     }
                 }
             }
-            catch (e_11_1) { e_11 = { error: e_11_1 }; }
+            catch (e_14_1) { e_14 = { error: e_14_1 }; }
             finally {
                 try {
                     if (elements_6_1 && !elements_6_1.done && (_d = elements_6.return)) _d.call(elements_6);
                 }
-                finally { if (e_11) throw e_11.error; }
+                finally { if (e_14) throw e_14.error; }
             }
             if (main !== null) {
                 this.renderGraphObject(main, panelX, panelY);
@@ -37264,15 +37764,17 @@ var CanvasRenderer = /** @class */ (function () {
                     this.renderGraphObject(elem, childOX, childOY);
                 }
             }
-            catch (e_12_1) { e_12 = { error: e_12_1 }; }
+            catch (e_15_1) { e_15 = { error: e_15_1 }; }
             finally {
                 try {
                     if (others_2_1 && !others_2_1.done && (_e = others_2.return)) _e.call(others_2);
                 }
-                finally { if (e_12) throw e_12.error; }
+                finally { if (e_15) throw e_15.error; }
             }
         }
         else if (panelType === PanelTable) {
+            // 官方 PanelLayoutTable.SN 在渲染子元素之前画背景与分隔线
+            this._renderTableRules(panel, panelX, panelY);
             var elements = panel._elements;
             try {
                 for (var elements_7 = __values(elements), elements_7_1 = elements_7.next(); !elements_7_1.done; elements_7_1 = elements_7.next()) {
@@ -37280,14 +37782,13 @@ var CanvasRenderer = /** @class */ (function () {
                     this.renderGraphObject(elem, childOX, childOY);
                 }
             }
-            catch (e_13_1) { e_13 = { error: e_13_1 }; }
+            catch (e_16_1) { e_16 = { error: e_16_1 }; }
             finally {
                 try {
                     if (elements_7_1 && !elements_7_1.done && (_f = elements_7.return)) _f.call(elements_7);
                 }
-                finally { if (e_13) throw e_13.error; }
+                finally { if (e_16) throw e_16.error; }
             }
-            this._renderTableSeparators(panel, panelX, panelY);
         }
         else if (panelType === PanelPosition) {
             var elements = panel._elements;
@@ -37297,12 +37798,12 @@ var CanvasRenderer = /** @class */ (function () {
                     this.renderGraphObject(elem, childOX, childOY);
                 }
             }
-            catch (e_14_1) { e_14 = { error: e_14_1 }; }
+            catch (e_17_1) { e_17 = { error: e_17_1 }; }
             finally {
                 try {
                     if (elements_8_1 && !elements_8_1.done && (_g = elements_8.return)) _g.call(elements_8);
                 }
-                finally { if (e_14) throw e_14.error; }
+                finally { if (e_17) throw e_17.error; }
             }
         }
         else if (panelType === PanelViewbox) {
@@ -37320,12 +37821,12 @@ var CanvasRenderer = /** @class */ (function () {
                     this.renderGraphObject(elem, childOX, childOY);
                 }
             }
-            catch (e_15_1) { e_15 = { error: e_15_1 }; }
+            catch (e_18_1) { e_18 = { error: e_18_1 }; }
             finally {
                 try {
                     if (elements_9_1 && !elements_9_1.done && (_h = elements_9.return)) _h.call(elements_9);
                 }
-                finally { if (e_15) throw e_15.error; }
+                finally { if (e_18) throw e_18.error; }
             }
         }
         else {
@@ -37337,12 +37838,12 @@ var CanvasRenderer = /** @class */ (function () {
                     this.renderGraphObject(elem, childOX, childOY);
                 }
             }
-            catch (e_16_1) { e_16 = { error: e_16_1 }; }
+            catch (e_19_1) { e_19 = { error: e_19_1 }; }
             finally {
                 try {
                     if (elements_10_1 && !elements_10_1.done && (_j = elements_10.return)) _j.call(elements_10);
                 }
-                finally { if (e_16) throw e_16.error; }
+                finally { if (e_19) throw e_19.error; }
             }
         }
         // Restore clipping
@@ -37816,7 +38317,7 @@ var CanvasRenderer = /** @class */ (function () {
         ctx.restore();
     };
     CanvasRenderer.prototype._renderGraduated = function (panel, panelX, panelY, _panelW, _panelH) {
-        var e_17, _a, e_18, _b;
+        var e_20, _a, e_21, _b;
         var ctx = this.ctx;
         if (!ctx)
             return;
@@ -37861,7 +38362,7 @@ var CanvasRenderer = /** @class */ (function () {
                     var geoR = geo.bounds;
                     var brushRect = new Rect(0, 0, geoR.width, geoR.height);
                     try {
-                        for (var mk_1 = (e_17 = void 0, __values(mk)), mk_1_1 = mk_1.next(); !mk_1_1.done; mk_1_1 = mk_1.next()) {
+                        for (var mk_1 = (e_20 = void 0, __values(mk)), mk_1_1 = mk_1.next(); !mk_1_1.done; mk_1_1 = mk_1.next()) {
                             var m = mk_1_1.value;
                             // gE：translate(pt+mainAB) → rotate(markAngle+elemAngle) →
                             //     translate(-w*fx+fxOff+o/2, -h*fy+fyOff+o/2) → scale
@@ -37901,12 +38402,12 @@ var CanvasRenderer = /** @class */ (function () {
                             ctx.restore();
                         }
                     }
-                    catch (e_17_1) { e_17 = { error: e_17_1 }; }
+                    catch (e_20_1) { e_20 = { error: e_20_1 }; }
                     finally {
                         try {
                             if (mk_1_1 && !mk_1_1.done && (_a = mk_1.return)) _a.call(mk_1);
                         }
-                        finally { if (e_17) throw e_17.error; }
+                        finally { if (e_20) throw e_20.error; }
                     }
                 }
                 else if (el instanceof TextBlock) {
@@ -37919,7 +38420,7 @@ var CanvasRenderer = /** @class */ (function () {
                     if (temp === null)
                         continue;
                     try {
-                        for (var mk_2 = (e_18 = void 0, __values(mk)), mk_2_1 = mk_2.next(); !mk_2_1.done; mk_2_1 = mk_2.next()) {
+                        for (var mk_2 = (e_21 = void 0, __values(mk)), mk_2_1 = mk_2.next(); !mk_2_1.done; mk_2_1 = mk_2.next()) {
                             var m = mk_2_1.value;
                             if (!m.actualBounds || !m.measuredBounds || !m.naturalBounds)
                                 continue;
@@ -37945,12 +38446,12 @@ var CanvasRenderer = /** @class */ (function () {
                             ctx.restore();
                         }
                     }
-                    catch (e_18_1) { e_18 = { error: e_18_1 }; }
+                    catch (e_21_1) { e_21 = { error: e_21_1 }; }
                     finally {
                         try {
                             if (mk_2_1 && !mk_2_1.done && (_b = mk_2.return)) _b.call(mk_2);
                         }
-                        finally { if (e_18) throw e_18.error; }
+                        finally { if (e_21) throw e_21.error; }
                     }
                 }
             }
@@ -38261,7 +38762,7 @@ var CanvasRenderer = /** @class */ (function () {
     };
     /** Resolve a BrushLike to a fill style string or CanvasGradient */
     CanvasRenderer.prototype._applyBrush = function (ctx, brush, bounds) {
-        var e_19, _a, e_20, _b;
+        var e_22, _a, e_23, _b;
         if (!brush) {
             return 'transparent';
         }
@@ -38294,12 +38795,12 @@ var CanvasRenderer = /** @class */ (function () {
                         gradient.addColorStop(stop_1.offset, stop_1.color);
                     }
                 }
-                catch (e_19_1) { e_19 = { error: e_19_1 }; }
+                catch (e_22_1) { e_22 = { error: e_22_1 }; }
                 finally {
                     try {
                         if (_d && !_d.done && (_a = _c.return)) _a.call(_c);
                     }
-                    finally { if (e_19) throw e_19.error; }
+                    finally { if (e_22) throw e_22.error; }
                 }
                 return gradient;
             }
@@ -38338,12 +38839,12 @@ var CanvasRenderer = /** @class */ (function () {
                         gradient.addColorStop(stop_2.offset, stop_2.color);
                     }
                 }
-                catch (e_20_1) { e_20 = { error: e_20_1 }; }
+                catch (e_23_1) { e_23 = { error: e_23_1 }; }
                 finally {
                     try {
                         if (_f && !_f.done && (_b = _e.return)) _b.call(_e);
                     }
-                    finally { if (e_20) throw e_20.error; }
+                    finally { if (e_23) throw e_23.error; }
                 }
                 return gradient;
             }
@@ -45141,6 +45642,8 @@ var Diagram = /** @class */ (function () {
         this._animationFrameId = 0;
         /** 官方 delayInitialization 的 vs 冻结位：置位期间 requestUpdate/_renderLoop 直通早退 */
         this._updateSuspended = false;
+        /** 官方 Ar 入口的 vs 自锁：同步 maybeUpdate 期间禁止嵌套跑第二轮 */
+        this._isInUpdate = false;
         this._resizeObserver = null;
         this._lastDivWidth = 0;
         this._lastDivHeight = 0;
@@ -46036,8 +46539,12 @@ var Diagram = /** @class */ (function () {
             layer.add(part);
         }
         part._diagram = this;
-        // 无数据部件也进入 _parts（官方 parts/nodes/links 含手动 add 的部件）；键用部件自身避免 null 键冲突
-        if (part.data !== null && part.data !== undefined) {
+        // 无数据部件也进入 _parts（官方 parts/nodes/links 含手动 add 的部件）；键用部件自身避免 null 键冲突。
+        // Adornment 例外：addAdornment 会给它设 `adornedObject.findBindingPanel().data`，
+        // 若照常以 data 为键会把同数据的 Node/Link 顶掉（SectorReshaping 实测 nodes.count 2→0）。
+        // 官方 partManager 把装饰单独记表，不进 Diagram.Parts 的 data 索引。
+        if (part._className === 'Adornment') ;
+        else if (part.data !== null && part.data !== undefined) {
             this._parts.set(part.data, part);
         }
         else {
@@ -46910,7 +47417,8 @@ var Diagram = /** @class */ (function () {
         setPart(part);
     };
     Diagram.prototype._addLinkForData = function (data) {
-        var _a, _b;
+        var e_22, _a;
+        var _b, _c;
         if (!data)
             return null;
         var model = this._model;
@@ -46921,9 +47429,9 @@ var Diagram = /** @class */ (function () {
         // 分类模板以前被 `category &&` 挡掉，industrialMonitor 的全部链接都回退到
         // 内置默认模板（无 PATH、routing=Normal）。
         var cat = category || '';
-        template = (_a = this._linkTemplateMap.get(cat)) !== null && _a !== void 0 ? _a : null;
+        template = (_b = this._linkTemplateMap.get(cat)) !== null && _b !== void 0 ? _b : null;
         if (!template && cat !== '')
-            template = (_b = this._linkTemplateMap.get('')) !== null && _b !== void 0 ? _b : null;
+            template = (_c = this._linkTemplateMap.get('')) !== null && _c !== void 0 ? _c : null;
         if (!template)
             template = this._linkTemplate;
         var link = template.copy();
@@ -46945,6 +47453,28 @@ var Diagram = /** @class */ (function () {
             link.toPortId = toPortId;
         if (toKey !== undefined) {
             link.toNode = this._nodeKeyMap.get(toKey) || null;
+        }
+        // 官方 PartManager.makeLinkForData 末尾：
+        // `getLabelKeysForLinkData(t).forEach(f => findNodeForKey(f) !== null && (u.labeledLink = s))`
+        // 缺这段 → label 节点 isLinkLabel=false、Link.labelNodes 为空 →
+        // 不会被 hE 摆到路径上（linksToLinks 5 个标签全落在 Layout 网格位置）。
+        var labelKeys = model.getLabelKeysForLinkData(data);
+        if (Array.isArray(labelKeys)) {
+            try {
+                for (var labelKeys_1 = __values(labelKeys), labelKeys_1_1 = labelKeys_1.next(); !labelKeys_1_1.done; labelKeys_1_1 = labelKeys_1.next()) {
+                    var lk = labelKeys_1_1.value;
+                    var ln = this._nodeKeyMap.get(lk);
+                    if (ln)
+                        ln.labeledLink = link;
+                }
+            }
+            catch (e_22_1) { e_22 = { error: e_22_1 }; }
+            finally {
+                try {
+                    if (labelKeys_1_1 && !labelKeys_1_1.done && (_a = labelKeys_1.return)) _a.call(labelKeys_1);
+                }
+                finally { if (e_22) throw e_22.error; }
+            }
         }
         this._parts.set(data, link);
         this.add(link);
@@ -47026,7 +47556,7 @@ var Diagram = /** @class */ (function () {
         }
     };
     Diagram.prototype._removeLinksForNode = function (node) {
-        var e_22, _a, e_23, _b;
+        var e_23, _a, e_24, _b;
         var linksToRemove = [];
         try {
             for (var _c = __values(this._layers), _d = _c.next(); !_d.done; _d = _c.next()) {
@@ -47042,12 +47572,12 @@ var Diagram = /** @class */ (function () {
                 }
             }
         }
-        catch (e_22_1) { e_22 = { error: e_22_1 }; }
+        catch (e_23_1) { e_23 = { error: e_23_1 }; }
         finally {
             try {
                 if (_d && !_d.done && (_a = _c.return)) _a.call(_c);
             }
-            finally { if (e_22) throw e_22.error; }
+            finally { if (e_23) throw e_23.error; }
         }
         try {
             for (var linksToRemove_1 = __values(linksToRemove), linksToRemove_1_1 = linksToRemove_1.next(); !linksToRemove_1_1.done; linksToRemove_1_1 = linksToRemove_1.next()) {
@@ -47062,17 +47592,25 @@ var Diagram = /** @class */ (function () {
                 this.remove(link);
             }
         }
-        catch (e_23_1) { e_23 = { error: e_23_1 }; }
+        catch (e_24_1) { e_24 = { error: e_24_1 }; }
         finally {
             try {
                 if (linksToRemove_1_1 && !linksToRemove_1_1.done && (_b = linksToRemove_1.return)) _b.call(linksToRemove_1);
             }
-            finally { if (e_23) throw e_23.error; }
+            finally { if (e_24) throw e_24.error; }
         }
     };
     Diagram.prototype._removeLinkForData = function (data) {
         var part = this._parts.get(data);
         if (part) {
+            if (part instanceof Link) {
+                var it = part.labelNodes;
+                while (it.next()) {
+                    var n = it.value;
+                    if (n)
+                        n.labeledLink = null;
+                }
+            }
             this._parts.remove(data);
             this.remove(part);
         }
@@ -47114,7 +47652,7 @@ var Diagram = /** @class */ (function () {
         }
     };
     Diagram.prototype._applyBindingsToObject = function (obj, data, part) {
-        var e_24, _a, e_25, _b;
+        var e_25, _a, e_26, _b;
         var bindings = obj._bindings;
         if (bindings && bindings.length > 0) {
             try {
@@ -47126,12 +47664,12 @@ var Diagram = /** @class */ (function () {
                     }
                 }
             }
-            catch (e_24_1) { e_24 = { error: e_24_1 }; }
+            catch (e_25_1) { e_25 = { error: e_25_1 }; }
             finally {
                 try {
                     if (bindings_1_1 && !bindings_1_1.done && (_a = bindings_1.return)) _a.call(bindings_1);
                 }
-                finally { if (e_24) throw e_24.error; }
+                finally { if (e_25) throw e_25.error; }
             }
         }
         if (obj instanceof Panel) {
@@ -47143,12 +47681,12 @@ var Diagram = /** @class */ (function () {
                     this._applyBindingsToObject(child, childData !== null && childData !== undefined ? childData : data, part);
                 }
             }
-            catch (e_25_1) { e_25 = { error: e_25_1 }; }
+            catch (e_26_1) { e_26 = { error: e_26_1 }; }
             finally {
                 try {
                     if (elements_1_1 && !elements_1_1.done && (_b = elements_1.return)) _b.call(elements_1);
                 }
-                finally { if (e_25) throw e_25.error; }
+                finally { if (e_26) throw e_26.error; }
             }
         }
     };
@@ -47163,7 +47701,7 @@ var Diagram = /** @class */ (function () {
     };
     /** 官方 GraphObject.Zo：只应用 isToTheme 绑定，递归子对象（themeData 源数据沿 panel 链取条目 data，回退 part.data） */
     Diagram.prototype._applyThemeBindingsOnly = function (obj, part) {
-        var e_26, _a, e_27, _b;
+        var e_27, _a, e_28, _b;
         var _c;
         var bindings = obj._bindings;
         if (bindings && bindings.length > 0) {
@@ -47188,12 +47726,12 @@ var Diagram = /** @class */ (function () {
                     }
                 }
             }
-            catch (e_26_1) { e_26 = { error: e_26_1 }; }
+            catch (e_27_1) { e_27 = { error: e_27_1 }; }
             finally {
                 try {
                     if (bindings_2_1 && !bindings_2_1.done && (_a = bindings_2.return)) _a.call(bindings_2);
                 }
-                finally { if (e_26) throw e_26.error; }
+                finally { if (e_27) throw e_27.error; }
             }
         }
         if (obj instanceof Panel) {
@@ -47204,17 +47742,17 @@ var Diagram = /** @class */ (function () {
                     this._applyThemeBindingsOnly(child, part);
                 }
             }
-            catch (e_27_1) { e_27 = { error: e_27_1 }; }
+            catch (e_28_1) { e_28 = { error: e_28_1 }; }
             finally {
                 try {
                     if (elements_2_1 && !elements_2_1.done && (_b = elements_2.return)) _b.call(elements_2);
                 }
-                finally { if (e_27) throw e_27.error; }
+                finally { if (e_28) throw e_28.error; }
             }
         }
     };
     Diagram.prototype._updateBindingsForObject = function (obj, data, propname, part) {
-        var e_28, _a, e_29, _b;
+        var e_29, _a, e_30, _b;
         var bindings = obj._bindings;
         if (bindings && bindings.length > 0) {
             try {
@@ -47234,12 +47772,12 @@ var Diagram = /** @class */ (function () {
                     }
                 }
             }
-            catch (e_28_1) { e_28 = { error: e_28_1 }; }
+            catch (e_29_1) { e_29 = { error: e_29_1 }; }
             finally {
                 try {
                     if (bindings_3_1 && !bindings_3_1.done && (_a = bindings_3.return)) _a.call(bindings_3);
                 }
-                finally { if (e_28) throw e_28.error; }
+                finally { if (e_29) throw e_29.error; }
             }
         }
         if (obj instanceof Panel) {
@@ -47251,17 +47789,17 @@ var Diagram = /** @class */ (function () {
                     this._updateBindingsForObject(child, childData !== null && childData !== undefined ? childData : data, propname, part);
                 }
             }
-            catch (e_29_1) { e_29 = { error: e_29_1 }; }
+            catch (e_30_1) { e_30 = { error: e_30_1 }; }
             finally {
                 try {
                     if (elements_3_1 && !elements_3_1.done && (_b = elements_3.return)) _b.call(elements_3);
                 }
-                finally { if (e_29) throw e_29.error; }
+                finally { if (e_30) throw e_30.error; }
             }
         }
     };
     Diagram.prototype._handlePartPropertyChanged = function (part, obj, propname, value) {
-        var e_30, _a;
+        var e_31, _a;
         var data = part.data;
         if (!data)
             return;
@@ -47295,18 +47833,37 @@ var Diagram = /** @class */ (function () {
                 }
             }
         }
-        catch (e_30_1) { e_30 = { error: e_30_1 }; }
+        catch (e_31_1) { e_31 = { error: e_31_1 }; }
         finally {
             try {
                 if (bindings_4_1 && !bindings_4_1.done && (_a = bindings_4.return)) _a.call(bindings_4);
             }
-            finally { if (e_30) throw e_30.error; }
+            finally { if (e_31) throw e_31.error; }
         }
     };
     Diagram.prototype._onModelChanged = function (e) {
-        var e_31, _a, e_32, _b, e_33, _c, e_34, _d;
+        var e_32, _a, e_33, _b, e_34, _c, e_35, _d, e_36, _e, e_37, _f;
         if (e.isTransactionChange) {
             this._raiseChangedEvent(e);
+            // 官方 `Diagram.tI(t)`（go.js @332017）：事务级变更（modelChange===""）在
+            // 属性名不是 Starting*/Started* 时**同步**调 `this.maybeUpdate()`，
+            // 而 maybeUpdate 的 `hd&&!Ur` 守卫决定是否真的把 Ar（渲染+布局）跑完。
+            // containerShipping 实测：官方在 `myDiagram.model.commit(heading)` 的
+            // CommittedTransaction 上同步跑完首帧布局（position 落在 initFleet 的
+            // sync 之前），本项目早先只 requestUpdate(RAF) → 首帧布局排在 initFleet
+            // 的 `position=(0,0)` **之后**，初始视口把图心居中覆盖成 (-19,12)。
+            var p = e.propertyName;
+            // 'CommittingTransaction' 例外：此刻 UndoManager 已把 transactionLevel 减到 0
+            // 但 _currentTransaction 还没置 null（要等 CommittedTransaction 之后）。
+            // 这时同步跑布局会走 _runLayoutInTransaction 的 `nested===0` 分支新开一条
+            // 'Layout' 事务，把外层的 _currentTransaction 顶掉 → 外层恢复时
+            // `this._currentTransaction.count` 读 null 崩溃。CommittedTransaction 阶段
+            // 再跑同样能得到官方的「事务提交内同步完成首帧布局」时序。
+            if (p !== 'StartingFirstTransaction' && p !== 'StartingUndo' &&
+                p !== 'StartingRedo' && p !== 'StartedTransaction' &&
+                p !== 'CommittingTransaction') {
+                this.maybeUpdate();
+            }
             return;
         }
         if (e.isModelChange) {
@@ -47368,12 +47925,12 @@ var Diagram = /** @class */ (function () {
                                     this._removeNodeForData(d);
                             }
                         }
-                        catch (e_31_1) { e_31 = { error: e_31_1 }; }
+                        catch (e_32_1) { e_32 = { error: e_32_1 }; }
                         finally {
                             try {
                                 if (oldArr_1_1 && !oldArr_1_1.done && (_a = oldArr_1.return)) _a.call(oldArr_1);
                             }
-                            finally { if (e_31) throw e_31.error; }
+                            finally { if (e_32) throw e_32.error; }
                         }
                         try {
                             for (var newArr_1 = __values(newArr), newArr_1_1 = newArr_1.next(); !newArr_1_1.done; newArr_1_1 = newArr_1.next()) {
@@ -47382,12 +47939,12 @@ var Diagram = /** @class */ (function () {
                                     this._addNodeForData(d);
                             }
                         }
-                        catch (e_32_1) { e_32 = { error: e_32_1 }; }
+                        catch (e_33_1) { e_33 = { error: e_33_1 }; }
                         finally {
                             try {
                                 if (newArr_1_1 && !newArr_1_1.done && (_b = newArr_1.return)) _b.call(newArr_1);
                             }
-                            finally { if (e_32) throw e_32.error; }
+                            finally { if (e_33) throw e_33.error; }
                         }
                         // 官方 Set 变更路径的 xw(new) 对 TreeModel 同样建父链；
                         // 我们的 _addNodeForData 只建节点 → 整替赋值（如 DragZooming
@@ -47407,12 +47964,12 @@ var Diagram = /** @class */ (function () {
                                     this._removeLinkForData(d);
                             }
                         }
-                        catch (e_33_1) { e_33 = { error: e_33_1 }; }
+                        catch (e_34_1) { e_34 = { error: e_34_1 }; }
                         finally {
                             try {
                                 if (oldArr_2_1 && !oldArr_2_1.done && (_c = oldArr_2.return)) _c.call(oldArr_2);
                             }
-                            finally { if (e_33) throw e_33.error; }
+                            finally { if (e_34) throw e_34.error; }
                         }
                         try {
                             for (var newArr_2 = __values(newArr), newArr_2_1 = newArr_2.next(); !newArr_2_1.done; newArr_2_1 = newArr_2.next()) {
@@ -47421,12 +47978,12 @@ var Diagram = /** @class */ (function () {
                                     this._addLinkForData(d);
                             }
                         }
-                        catch (e_34_1) { e_34 = { error: e_34_1 }; }
+                        catch (e_35_1) { e_35 = { error: e_35_1 }; }
                         finally {
                             try {
                                 if (newArr_2_1 && !newArr_2_1.done && (_d = newArr_2.return)) _d.call(newArr_2);
                             }
-                            finally { if (e_34) throw e_34.error; }
+                            finally { if (e_35) throw e_35.error; }
                         }
                         needsLayout = true;
                         this.requestUpdate();
@@ -47466,6 +48023,44 @@ var Diagram = /** @class */ (function () {
                                 part.toNode = this._nodeKeyMap.get(e.newValue) || null;
                                 needsLayout = true;
                             }
+                            else if (e.propertyName === glm.linkLabelKeysProperty) {
+                                // 官方 PartManager：linkLabelKeys 属性变更 → 旧键 labeledLink=null、新键=l 本链
+                                var oldArr = Array.isArray(e.oldValue) ? e.oldValue : [];
+                                var newArr = Array.isArray(e.newValue) ? e.newValue : [];
+                                try {
+                                    for (var oldArr_3 = __values(oldArr), oldArr_3_1 = oldArr_3.next(); !oldArr_3_1.done; oldArr_3_1 = oldArr_3.next()) {
+                                        var k = oldArr_3_1.value;
+                                        if (newArr.indexOf(k) >= 0)
+                                            continue;
+                                        var n = this._nodeKeyMap.get(k);
+                                        if (n)
+                                            n.labeledLink = null;
+                                    }
+                                }
+                                catch (e_36_1) { e_36 = { error: e_36_1 }; }
+                                finally {
+                                    try {
+                                        if (oldArr_3_1 && !oldArr_3_1.done && (_e = oldArr_3.return)) _e.call(oldArr_3);
+                                    }
+                                    finally { if (e_36) throw e_36.error; }
+                                }
+                                try {
+                                    for (var newArr_3 = __values(newArr), newArr_3_1 = newArr_3.next(); !newArr_3_1.done; newArr_3_1 = newArr_3.next()) {
+                                        var k = newArr_3_1.value;
+                                        var n = this._nodeKeyMap.get(k);
+                                        if (n)
+                                            n.labeledLink = part;
+                                    }
+                                }
+                                catch (e_37_1) { e_37 = { error: e_37_1 }; }
+                                finally {
+                                    try {
+                                        if (newArr_3_1 && !newArr_3_1.done && (_f = newArr_3.return)) _f.call(newArr_3);
+                                    }
+                                    finally { if (e_37) throw e_37.error; }
+                                }
+                                needsLayout = true;
+                            }
                         }
                         if (this._model instanceof TreeModel) {
                             var tm = this._model;
@@ -47492,7 +48087,7 @@ var Diagram = /** @class */ (function () {
     };
     /** 官方 Diagram.Ib(t) 的护栏版：Diagram.layout + 全体 Group.layout 失效 */
     Diagram.prototype._invalidateLayoutsFromChanges = function () {
-        var e_35, _a;
+        var e_38, _a;
         var dl = this._layout;
         if (dl && typeof dl.invalidateLayout === 'function')
             dl.invalidateLayout();
@@ -47505,16 +48100,16 @@ var Diagram = /** @class */ (function () {
                     gl.invalidateLayout();
             }
         }
-        catch (e_35_1) { e_35 = { error: e_35_1 }; }
+        catch (e_38_1) { e_38 = { error: e_38_1 }; }
         finally {
             try {
                 if (groups_1_1 && !groups_1_1.done && (_a = groups_1.return)) _a.call(groups_1);
             }
-            finally { if (e_35) throw e_35.error; }
+            finally { if (e_38) throw e_38.error; }
         }
     };
     Diagram.prototype._rebuildTreeLinks = function () {
-        var e_36, _a, e_37, _b, e_38, _c;
+        var e_39, _a, e_40, _b, e_41, _c;
         var linksToRemove = [];
         try {
             for (var _d = __values(this._layers), _e = _d.next(); !_e.done; _e = _d.next()) {
@@ -47528,12 +48123,12 @@ var Diagram = /** @class */ (function () {
                 }
             }
         }
-        catch (e_36_1) { e_36 = { error: e_36_1 }; }
+        catch (e_39_1) { e_39 = { error: e_39_1 }; }
         finally {
             try {
                 if (_e && !_e.done && (_a = _d.return)) _a.call(_d);
             }
-            finally { if (e_36) throw e_36.error; }
+            finally { if (e_39) throw e_39.error; }
         }
         try {
             for (var linksToRemove_2 = __values(linksToRemove), linksToRemove_2_1 = linksToRemove_2.next(); !linksToRemove_2_1.done; linksToRemove_2_1 = linksToRemove_2.next()) {
@@ -47548,12 +48143,12 @@ var Diagram = /** @class */ (function () {
                 this.remove(link);
             }
         }
-        catch (e_37_1) { e_37 = { error: e_37_1 }; }
+        catch (e_40_1) { e_40 = { error: e_40_1 }; }
         finally {
             try {
                 if (linksToRemove_2_1 && !linksToRemove_2_1.done && (_b = linksToRemove_2.return)) _b.call(linksToRemove_2);
             }
-            finally { if (e_37) throw e_37.error; }
+            finally { if (e_40) throw e_40.error; }
         }
         if (this._model instanceof TreeModel) {
             var tm = this._model;
@@ -47569,12 +48164,12 @@ var Diagram = /** @class */ (function () {
                     }
                 }
             }
-            catch (e_38_1) { e_38 = { error: e_38_1 }; }
+            catch (e_41_1) { e_41 = { error: e_41_1 }; }
             finally {
                 try {
                     if (_g && !_g.done && (_c = _f.return)) _c.call(_f);
                 }
-                finally { if (e_38) throw e_38.error; }
+                finally { if (e_41) throw e_41.error; }
             }
         }
     };
@@ -47591,7 +48186,7 @@ var Diagram = /** @class */ (function () {
         return e;
     };
     Diagram.prototype._raiseChangedEvent = function (e) {
-        var e_39, _a;
+        var e_42, _a;
         // 官方语义：model 非空时 diagram 为空
         if (!e.model)
             e.model = this._model;
@@ -47614,17 +48209,17 @@ var Diagram = /** @class */ (function () {
                 listener(e);
             }
         }
-        catch (e_39_1) { e_39 = { error: e_39_1 }; }
+        catch (e_42_1) { e_42 = { error: e_42_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_39) throw e_39.error; }
+            finally { if (e_42) throw e_42.error; }
         }
     };
     /** 官方 DiagramEvent：监听器收到 `{ diagram, type, subject, subjectData, args }`；官方事件名为 ViewportBoundsChanged */
     Diagram.prototype._raiseDiagramEvent = function (name, subject, subjectData) {
-        var e_40, _a, e_41, _b;
+        var e_43, _a, e_44, _b;
         var rest = [];
         for (var _i = 3; _i < arguments.length; _i++) {
             rest[_i - 3] = arguments[_i];
@@ -47637,27 +48232,27 @@ var Diagram = /** @class */ (function () {
                 if (listeners) {
                     var event_1 = { diagram: this, type: n, subject: subject, subjectData: subjectData, args: rest };
                     try {
-                        for (var listeners_1 = (e_41 = void 0, __values(listeners)), listeners_1_1 = listeners_1.next(); !listeners_1_1.done; listeners_1_1 = listeners_1.next()) {
+                        for (var listeners_1 = (e_44 = void 0, __values(listeners)), listeners_1_1 = listeners_1.next(); !listeners_1_1.done; listeners_1_1 = listeners_1.next()) {
                             var listener = listeners_1_1.value;
                             listener(event_1);
                         }
                     }
-                    catch (e_41_1) { e_41 = { error: e_41_1 }; }
+                    catch (e_44_1) { e_44 = { error: e_44_1 }; }
                     finally {
                         try {
                             if (listeners_1_1 && !listeners_1_1.done && (_b = listeners_1.return)) _b.call(listeners_1);
                         }
-                        finally { if (e_41) throw e_41.error; }
+                        finally { if (e_44) throw e_44.error; }
                     }
                 }
             }
         }
-        catch (e_40_1) { e_40 = { error: e_40_1 }; }
+        catch (e_43_1) { e_43 = { error: e_43_1 }; }
         finally {
             try {
                 if (names_1_1 && !names_1_1.done && (_a = names_1.return)) _a.call(names_1);
             }
-            finally { if (e_40) throw e_40.error; }
+            finally { if (e_43) throw e_43.error; }
         }
     };
     Diagram.prototype.raiseDiagramEvent = function (name, subject, subjectData) {
@@ -47687,11 +48282,25 @@ var Diagram = /** @class */ (function () {
         return null;
     };
     Diagram.prototype._renderLoop = function () {
-        var _this = this;
         this._needsRender = false;
         this._animationFrameId = 0;
         if (this._updateSuspended)
             return; // 官方 Ar 入口的 vs 守卫（冻结期挂起帧直接丢弃）
+        // 官方 Ar 入口把 vs 置 true → 嵌套的 maybeUpdate/Ar 直接早退。
+        // maybeUpdate 现在是同步的（事务提交会触发），布局/绑定里再冒出的
+        // 模型变更必须能被挡回去，否则会递归进第二轮布局。
+        if (this._isInUpdate)
+            return;
+        this._isInUpdate = true;
+        try {
+            this._renderLoopBody();
+        }
+        finally {
+            this._isInUpdate = false;
+        }
+    };
+    Diagram.prototype._renderLoopBody = function () {
+        var _this = this;
         this._checkResize();
         if (this._layoutInvalid) {
             this._runLayoutInTransaction(function () { return _this._performLayout(); });
@@ -47735,7 +48344,7 @@ var Diagram = /** @class */ (function () {
         var _this = this;
         if (measure === void 0) { measure = true; }
         var pass = function (kind) {
-            var e_42, _a;
+            var e_45, _a;
             try {
                 for (var _b = __values(_this._layers), _c = _b.next(); !_c.done; _c = _b.next()) {
                     var layer = _c.value;
@@ -47784,12 +48393,12 @@ var Diagram = /** @class */ (function () {
                     }
                 }
             }
-            catch (e_42_1) { e_42 = { error: e_42_1 }; }
+            catch (e_45_1) { e_45 = { error: e_45_1 }; }
             finally {
                 try {
                     if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
                 }
-                finally { if (e_42) throw e_42.error; }
+                finally { if (e_45) throw e_45.error; }
             }
         };
         pass(0);
@@ -47806,7 +48415,7 @@ var Diagram = /** @class */ (function () {
     };
     /** 官方在节点布局定稿后让所有 link 重算路线 */
     Diagram.prototype._invalidateLinkRoutes = function () {
-        var e_43, _a;
+        var e_46, _a;
         try {
             for (var _b = __values(this._layers), _c = _b.next(); !_c.done; _c = _b.next()) {
                 var layer = _c.value;
@@ -47821,16 +48430,16 @@ var Diagram = /** @class */ (function () {
                 }
             }
         }
-        catch (e_43_1) { e_43 = { error: e_43_1 }; }
+        catch (e_46_1) { e_46 = { error: e_46_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_43) throw e_43.error; }
+            finally { if (e_46) throw e_46.error; }
         }
     };
     Diagram.prototype._collectGroups = function () {
-        var e_44, _a;
+        var e_47, _a;
         var groups = [];
         try {
             for (var _b = __values(this._layers), _c = _b.next(); !_c.done; _c = _b.next()) {
@@ -47845,17 +48454,17 @@ var Diagram = /** @class */ (function () {
                 }
             }
         }
-        catch (e_44_1) { e_44 = { error: e_44_1 }; }
+        catch (e_47_1) { e_47 = { error: e_47_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_44) throw e_44.error; }
+            finally { if (e_47) throw e_47.error; }
         }
         return groups;
     };
     Diagram.prototype._performLayout = function () {
-        var e_45, _a, e_46, _b;
+        var e_48, _a, e_49, _b;
         var _this = this;
         var oldPositions = new Map$1();
         if (this._animationManager.isEnabled) {
@@ -47876,12 +48485,12 @@ var Diagram = /** @class */ (function () {
                     }
                 }
             }
-            catch (e_45_1) { e_45 = { error: e_45_1 }; }
+            catch (e_48_1) { e_48 = { error: e_48_1 }; }
             finally {
                 try {
                     if (_d && !_d.done && (_a = _c.return)) _a.call(_c);
                 }
-                finally { if (e_45) throw e_45.error; }
+                finally { if (e_48) throw e_48.error; }
             }
         }
         // ====== 官方 layoutDiagram(iC) 顺序 ======
@@ -47906,7 +48515,7 @@ var Diagram = /** @class */ (function () {
             return out;
         };
         var visitGroup = function (g) {
-            var e_47, _a;
+            var e_50, _a;
             if (visited.has(g))
                 return;
             visited.add(g);
@@ -47916,12 +48525,12 @@ var Diagram = /** @class */ (function () {
                     visitGroup(sub);
                 }
             }
-            catch (e_47_1) { e_47 = { error: e_47_1 }; }
+            catch (e_50_1) { e_50 = { error: e_50_1 }; }
             finally {
                 try {
                     if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
                 }
-                finally { if (e_47) throw e_47.error; }
+                finally { if (e_50) throw e_50.error; }
             }
             var gl = g.layout;
             if (!gl)
@@ -47945,12 +48554,12 @@ var Diagram = /** @class */ (function () {
                 visitGroup(g);
             }
         }
-        catch (e_46_1) { e_46 = { error: e_46_1 }; }
+        catch (e_49_1) { e_49 = { error: e_49_1 }; }
         finally {
             try {
                 if (allGroups_1_1 && !allGroups_1_1.done && (_b = allGroups_1.return)) _b.call(allGroups_1);
             }
-            finally { if (e_46) throw e_46.error; }
+            finally { if (e_49) throw e_49.error; }
         }
         // 2) Diagram 基础布局（官方 o.doLayout(this)）——守卫对齐 iC：
         //    `o.isValidLayout || (cond ? doLayout : defer)`（n===0 恒真 → cond 只看 isValidLayout）
@@ -48199,7 +48808,7 @@ var Diagram = /** @class */ (function () {
         this.alignDocument(this._contentAlignment, this._contentAlignment);
     };
     Diagram.prototype._updateGeometry = function () {
-        var e_48, _a;
+        var e_51, _a;
         this._measureArrangeAll(false);
         try {
             for (var _b = __values(this._layers), _c = _b.next(); !_c.done; _c = _b.next()) {
@@ -48222,12 +48831,12 @@ var Diagram = /** @class */ (function () {
                 }
             }
         }
-        catch (e_48_1) { e_48 = { error: e_48_1 }; }
+        catch (e_51_1) { e_51 = { error: e_51_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_48) throw e_48.error; }
+            finally { if (e_51) throw e_51.error; }
         }
     };
     Diagram.prototype._setupResizeObserver = function () {
@@ -48451,7 +49060,7 @@ var Diagram = /** @class */ (function () {
         get: function () { return this._currentCursor; },
         /** 官方 `set currentCursor(t)`: `t==="" && (t=this.defaultCursor)`，并写 div/canvas style */
         set: function (val) {
-            var e_49, _a;
+            var e_52, _a;
             var t = val === '' ? this._defaultCursor : val;
             if (this._currentCursor === t)
                 return;
@@ -48472,12 +49081,12 @@ var Diagram = /** @class */ (function () {
                     n.style.cursor = t;
                 }
             }
-            catch (e_49_1) { e_49 = { error: e_49_1 }; }
+            catch (e_52_1) { e_52 = { error: e_52_1 }; }
             finally {
                 try {
                     if (nodes_1_1 && !nodes_1_1.done && (_a = nodes_1.return)) _a.call(nodes_1);
                 }
-                finally { if (e_49) throw e_49.error; }
+                finally { if (e_52) throw e_52.error; }
             }
         },
         enumerable: false,
@@ -48779,7 +49388,7 @@ var Diagram = /** @class */ (function () {
         return this.findPartForData(data);
     };
     Diagram.prototype.findLinkForKey = function (key) {
-        var e_50, _a;
+        var e_53, _a;
         var model = this._model;
         if (!model || typeof model.getLinkDataForKey !== 'function')
             return null;
@@ -48799,12 +49408,12 @@ var Diagram = /** @class */ (function () {
                 }
             }
         }
-        catch (e_50_1) { e_50 = { error: e_50_1 }; }
+        catch (e_53_1) { e_53 = { error: e_53_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_50) throw e_50.error; }
+            finally { if (e_53) throw e_53.error; }
         }
         return null;
     };
@@ -48823,7 +49432,7 @@ var Diagram = /** @class */ (function () {
         return result;
     };
     Diagram.prototype.findPartsIn = function (rect, partial) {
-        var e_51, _a;
+        var e_54, _a;
         if (partial === void 0) { partial = false; }
         var result = new List();
         var layers = this._layers;
@@ -48841,12 +49450,12 @@ var Diagram = /** @class */ (function () {
                 }
             }
         }
-        catch (e_51_1) { e_51 = { error: e_51_1 }; }
+        catch (e_54_1) { e_54 = { error: e_54_1 }; }
         finally {
             try {
                 if (layers_2_1 && !layers_2_1.done && (_a = layers_2.return)) _a.call(layers_2);
             }
-            finally { if (e_51) throw e_51.error; }
+            finally { if (e_54) throw e_54.error; }
         }
         return result;
     };
@@ -48860,7 +49469,7 @@ var Diagram = /** @class */ (function () {
         return result;
     };
     Diagram.prototype.findPartsNear = function (center, dist, partial) {
-        var e_52, _a;
+        var e_55, _a;
         var result = new List();
         var layers = this._layers;
         try {
@@ -48881,12 +49490,12 @@ var Diagram = /** @class */ (function () {
                 }
             }
         }
-        catch (e_52_1) { e_52 = { error: e_52_1 }; }
+        catch (e_55_1) { e_55 = { error: e_55_1 }; }
         finally {
             try {
                 if (layers_3_1 && !layers_3_1.done && (_a = layers_3.return)) _a.call(layers_3);
             }
-            finally { if (e_52) throw e_52.error; }
+            finally { if (e_55) throw e_55.error; }
         }
         return result;
     };
@@ -48899,7 +49508,7 @@ var Diagram = /** @class */ (function () {
         return result;
     };
     Diagram.prototype.findTopLevelNodesAndLinks = function () {
-        var e_53, _a;
+        var e_56, _a;
         var result = new List();
         var layers = this._layers;
         try {
@@ -48915,17 +49524,17 @@ var Diagram = /** @class */ (function () {
                 }
             }
         }
-        catch (e_53_1) { e_53 = { error: e_53_1 }; }
+        catch (e_56_1) { e_56 = { error: e_56_1 }; }
         finally {
             try {
                 if (layers_4_1 && !layers_4_1.done && (_a = layers_4.return)) _a.call(layers_4);
             }
-            finally { if (e_53) throw e_53.error; }
+            finally { if (e_56) throw e_56.error; }
         }
         return result;
     };
     Diagram.prototype.findTopLevelGroups = function () {
-        var e_54, _a;
+        var e_57, _a;
         var result = new List();
         var layers = this._layers;
         try {
@@ -48941,12 +49550,12 @@ var Diagram = /** @class */ (function () {
                 }
             }
         }
-        catch (e_54_1) { e_54 = { error: e_54_1 }; }
+        catch (e_57_1) { e_57 = { error: e_57_1 }; }
         finally {
             try {
                 if (layers_5_1 && !layers_5_1.done && (_a = layers_5.return)) _a.call(layers_5);
             }
-            finally { if (e_54) throw e_54.error; }
+            finally { if (e_57) throw e_57.error; }
         }
         return result;
     };
@@ -48968,7 +49577,7 @@ var Diagram = /** @class */ (function () {
     // 早期实现从 `new Rect()`(0,0,0,0) 起 union——把原点当成矩形并入，令
     // sharedStates 的 CustomLayout 拿到 (0,0) 起始的假成员包围盒。
     Diagram.prototype.computePartsBounds = function (parts, includeLinks) {
-        var e_55, _a, e_56, _b, e_57, _c;
+        var e_58, _a, e_59, _b, e_60, _c;
         var inc = includeLinks === true;
         var items = [];
         if (parts === null || parts === undefined) ;
@@ -48979,12 +49588,12 @@ var Diagram = /** @class */ (function () {
                     items.push(p);
                 }
             }
-            catch (e_55_1) { e_55 = { error: e_55_1 }; }
+            catch (e_58_1) { e_58 = { error: e_58_1 }; }
             finally {
                 try {
                     if (parts_2_1 && !parts_2_1.done && (_a = parts_2.return)) _a.call(parts_2);
                 }
-                finally { if (e_55) throw e_55.error; }
+                finally { if (e_58) throw e_58.error; }
             }
         }
         else {
@@ -49014,12 +49623,12 @@ var Diagram = /** @class */ (function () {
                         items.push(p);
                     }
                 }
-                catch (e_56_1) { e_56 = { error: e_56_1 }; }
+                catch (e_59_1) { e_59 = { error: e_59_1 }; }
                 finally {
                     try {
                         if (_e && !_e.done && (_b = _d.return)) _b.call(_d);
                     }
-                    finally { if (e_56) throw e_56.error; }
+                    finally { if (e_59) throw e_59.error; }
                 }
             }
         }
@@ -49042,12 +49651,12 @@ var Diagram = /** @class */ (function () {
                     result.unionRect(b);
             }
         }
-        catch (e_57_1) { e_57 = { error: e_57_1 }; }
+        catch (e_60_1) { e_60 = { error: e_60_1 }; }
         finally {
             try {
                 if (items_1_1 && !items_1_1.done && (_c = items_1.return)) _c.call(items_1);
             }
-            finally { if (e_57) throw e_57.error; }
+            finally { if (e_60) throw e_60.error; }
         }
         return result === null ? new Rect(NaN, NaN, 0, 0) : result;
     };
@@ -49277,7 +49886,7 @@ var Diagram = /** @class */ (function () {
         part._diagram = null;
     };
     Diagram.prototype.clear = function () {
-        var e_58, _a, e_59, _b;
+        var e_61, _a, e_62, _b;
         this.clearSelection();
         try {
             for (var _c = __values(this._layers), _d = _c.next(); !_d.done; _d = _c.next()) {
@@ -49286,33 +49895,33 @@ var Diagram = /** @class */ (function () {
                     continue;
                 var parts = iteratorToArray(layer.parts);
                 try {
-                    for (var parts_3 = (e_59 = void 0, __values(parts)), parts_3_1 = parts_3.next(); !parts_3_1.done; parts_3_1 = parts_3.next()) {
+                    for (var parts_3 = (e_62 = void 0, __values(parts)), parts_3_1 = parts_3.next(); !parts_3_1.done; parts_3_1 = parts_3.next()) {
                         var p = parts_3_1.value;
                         if (p._className !== 'Node' && p._className !== 'Link' && p._className !== 'Group')
                             continue;
                         layer.remove(p);
                     }
                 }
-                catch (e_59_1) { e_59 = { error: e_59_1 }; }
+                catch (e_62_1) { e_62 = { error: e_62_1 }; }
                 finally {
                     try {
                         if (parts_3_1 && !parts_3_1.done && (_b = parts_3.return)) _b.call(parts_3);
                     }
-                    finally { if (e_59) throw e_59.error; }
+                    finally { if (e_62) throw e_62.error; }
                 }
             }
         }
-        catch (e_58_1) { e_58 = { error: e_58_1 }; }
+        catch (e_61_1) { e_61 = { error: e_61_1 }; }
         finally {
             try {
                 if (_d && !_d.done && (_a = _c.return)) _a.call(_c);
             }
-            finally { if (e_58) throw e_58.error; }
+            finally { if (e_61) throw e_61.error; }
         }
         this.requestUpdate();
     };
     Diagram.prototype.removeParts = function (coll, ensureBounds) {
-        var e_60, _a, e_61, _b;
+        var e_63, _a, e_64, _b;
         if (ensureBounds === void 0) { ensureBounds = true; }
         var model = this._model;
         var iter = this._iterateParts(coll);
@@ -49336,12 +49945,12 @@ var Diagram = /** @class */ (function () {
                     model.removeLinkData(ld);
             }
         }
-        catch (e_60_1) { e_60 = { error: e_60_1 }; }
+        catch (e_63_1) { e_63 = { error: e_63_1 }; }
         finally {
             try {
                 if (links_1_1 && !links_1_1.done && (_a = links_1.return)) _a.call(links_1);
             }
-            finally { if (e_60) throw e_60.error; }
+            finally { if (e_63) throw e_63.error; }
         }
         try {
             for (var nodes_2 = __values(nodes), nodes_2_1 = nodes_2.next(); !nodes_2_1.done; nodes_2_1 = nodes_2.next()) {
@@ -49349,12 +49958,12 @@ var Diagram = /** @class */ (function () {
                 model.removeNodeData(nd);
             }
         }
-        catch (e_61_1) { e_61 = { error: e_61_1 }; }
+        catch (e_64_1) { e_64 = { error: e_64_1 }; }
         finally {
             try {
                 if (nodes_2_1 && !nodes_2_1.done && (_b = nodes_2.return)) _b.call(nodes_2);
             }
-            finally { if (e_61) throw e_61.error; }
+            finally { if (e_64) throw e_64.error; }
         }
         if (ensureBounds)
             this.invalidateDocumentBounds();
@@ -49405,7 +50014,7 @@ var Diagram = /** @class */ (function () {
         this.requestUpdate();
     };
     Diagram.prototype.copyParts = function (coll, targetDiagram, check) {
-        var e_62, _a, e_63, _b;
+        var e_65, _a, e_66, _b;
         var result = new Map$1();
         var srcModel = this._model;
         var dstModel = targetDiagram ? targetDiagram.model : srcModel;
@@ -49437,12 +50046,12 @@ var Diagram = /** @class */ (function () {
                     dataMap.add(oldKey, dstModel.getKeyForNodeData(d));
             }
         }
-        catch (e_62_1) { e_62 = { error: e_62_1 }; }
+        catch (e_65_1) { e_65 = { error: e_65_1 }; }
         finally {
             try {
                 if (items_2_1 && !items_2_1.done && (_a = items_2.return)) _a.call(items_2);
             }
-            finally { if (e_62) throw e_62.error; }
+            finally { if (e_65) throw e_65.error; }
         }
         if (targetDiagram)
             targetDiagram.rebuildParts();
@@ -49456,12 +50065,12 @@ var Diagram = /** @class */ (function () {
                 result.add(p, dstPart);
             }
         }
-        catch (e_63_1) { e_63 = { error: e_63_1 }; }
+        catch (e_66_1) { e_66 = { error: e_66_1 }; }
         finally {
             try {
                 if (items_3_1 && !items_3_1.done && (_b = items_3.return)) _b.call(items_3);
             }
-            finally { if (e_63) throw e_63.error; }
+            finally { if (e_66) throw e_66.error; }
         }
         return result;
     };
@@ -49529,9 +50138,25 @@ var Diagram = /** @class */ (function () {
         enumerable: false,
         configurable: true
     });
+    /**
+     * 官方 `Diagram.maybeUpdate()`（go.js @287673）：
+     *   `maybeUpdate(){ this.hd&&!this.Ur||(this.hd&&(this.hd=!1), this.Ar()) }`
+     * 即：布局已失效但还没请求过渲染 → 等 RAF；否则**同步**跑完一轮更新（Ar），
+     * 并把挂起的 RAF 丢掉（官方靠 Ar 入口把 Ur 置 false，RAF 回调 `e.Ur&&…` 跳过）。
+     *
+     * 早先这里只是 `if (_attached) requestUpdate()`（纯 RAF），于是事务提交
+     * （model.commit / diagram.commit）不会像官方那样同步跑完首帧布局。
+     */
     Diagram.prototype.maybeUpdate = function () {
-        if (this._attached)
-            this.requestUpdate();
+        if (this._updateSuspended)
+            return; // 官方 Ar 入口的 vs 守卫
+        if (this._layoutInvalid && !this._needsRender)
+            return;
+        if (this._needsRender && this._animationFrameId) {
+            cancelAnimationFrame(this._animationFrameId);
+            this._animationFrameId = 0;
+        }
+        this._renderLoop();
     };
     Object.defineProperty(Diagram.prototype, "isUpdateRequested", {
         get: function () { return this._isUpdateRequestedFlag; },
@@ -49798,7 +50423,7 @@ var Diagram = /** @class */ (function () {
     };
     /** 官方 `Diagram.doLinkRouting(container)`：遍历 routers，canRoute 过滤后 routeLinks(本图 links 集合, container) */
     Diagram.prototype.doLinkRouting = function (container) {
-        var e_64, _a;
+        var e_67, _a;
         var _this = this;
         var c = container !== undefined && container !== null ? container : this;
         var routers = this._routers;
@@ -49845,12 +50470,12 @@ var Diagram = /** @class */ (function () {
                         visit(r);
                     }
                 }
-                catch (e_64_1) { e_64 = { error: e_64_1 }; }
+                catch (e_67_1) { e_67 = { error: e_67_1 }; }
                 finally {
                     try {
                         if (routers_1_1 && !routers_1_1.done && (_a = routers_1.return)) _a.call(routers_1);
                     }
-                    finally { if (e_64) throw e_64.error; }
+                    finally { if (e_67) throw e_67.error; }
                 }
             }
         }

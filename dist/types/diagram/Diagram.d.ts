@@ -125,6 +125,8 @@ export declare class Diagram {
     _animationFrameId: number;
     /** 官方 delayInitialization 的 vs 冻结位：置位期间 requestUpdate/_renderLoop 直通早退 */
     private _updateSuspended;
+    /** 官方 Ar 入口的 vs 自锁：同步 maybeUpdate 期间禁止嵌套跑第二轮 */
+    private _isInUpdate;
     private _resizeObserver;
     private _lastDivWidth;
     private _lastDivHeight;
@@ -361,6 +363,7 @@ export declare class Diagram {
     raiseDiagramEvent(name: string, subject?: any, subjectData?: any, ...rest: any[]): void;
     private _findObjectInPanel;
     private _renderLoop;
+    private _renderLoopBody;
     /**
      * 官方 measure+arrange 全体部件（Ht 语义）：
      * pass1 非 Group 非 Link → pass2 Group → pass3 Link；
@@ -616,6 +619,15 @@ export declare class Diagram {
     computePixelRatio(): number;
     attach(): void;
     get isAttached(): boolean;
+    /**
+     * 官方 `Diagram.maybeUpdate()`（go.js @287673）：
+     *   `maybeUpdate(){ this.hd&&!this.Ur||(this.hd&&(this.hd=!1), this.Ar()) }`
+     * 即：布局已失效但还没请求过渲染 → 等 RAF；否则**同步**跑完一轮更新（Ar），
+     * 并把挂起的 RAF 丢掉（官方靠 Ar 入口把 Ur 置 false，RAF 回调 `e.Ur&&…` 跳过）。
+     *
+     * 早先这里只是 `if (_attached) requestUpdate()`（纯 RAF），于是事务提交
+     * （model.commit / diagram.commit）不会像官方那样同步跑完首帧布局。
+     */
     maybeUpdate(): void;
     get isUpdateRequested(): boolean;
     private _isUpdateRequestedFlag;

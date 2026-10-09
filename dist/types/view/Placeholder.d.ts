@@ -24,6 +24,15 @@ export declare class Placeholder extends GraphObject {
      */
     computeBorder(result: Rect): Rect;
     /**
+     * 官方 `Placeholder.measure` 的 **Adornment 分支**（官方 `Id` 的 else 分支）：
+     * - `adornment.angle = adornedObject.getDocumentAngle()`；
+     * - Selection 类装饰把 `adornment.location` 定位到被装饰对象的 **TopLeft**（其余类别用 locationSpot）；
+     * - 自身尺寸 = 被装饰对象 `(naturalBounds + strokeWidth) * documentScale` + padding 四边；
+     * - 自身 arrange 到 `(-padding.left, -padding.top)`；
+     * - 被装饰对象尺寸无效时退化为「四角并集」。
+     */
+    private _measureForAdornment;
+    /**
      * 官方 Placeholder.measure（computeBorder）：
      * 1) union 可见成员的 actualBounds（文档坐标，成员 ab 实值才计入；跳过 Link）；
      * 2) 无成员 union → border = group.location 实值点 (0×0)，否则 (0,0)；

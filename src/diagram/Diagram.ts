@@ -190,6 +190,8 @@ export class Diagram {
   _animationFrameId: number = 0;
   /** 官方 delayInitialization 的 vs 冻结位：置位期间 requestUpdate/_renderLoop 直通早退 */
   private _updateSuspended: boolean = false;
+  /** 官方 Ar 入口的 vs 自锁：同步 maybeUpdate 期间禁止嵌套跑第二轮 */
+  private _isInUpdate: boolean = false;
 
   private _resizeObserver: ResizeObserver | null = null;
   private _lastDivWidth: number = 0;
@@ -760,8 +762,13 @@ export class Diagram {
       layer.add(part);
     }
     (part as any)._diagram = this;
-    // 无数据部件也进入 _parts（官方 parts/nodes/links 含手动 add 的部件）；键用部件自身避免 null 键冲突
-    if (part.data !== null && part.data !== undefined) {
+    // 无数据部件也进入 _parts（官方 parts/nodes/links 含手动 add 的部件）；键用部件自身避免 null 键冲突。
+    // Adornment 例外：addAdornment 会给它设 `adornedObject.findBindingPanel().data`，
+    // 若照常以 data 为键会把同数据的 Node/Link 顶掉（SectorReshaping 实测 nodes.count 2→0）。
+    // 官方 partManager 把装饰单独记表，不进 Diagram.Parts 的 data 索引。
+    if ((part as any)._className === 'Adornment') {
+      // 装饰不进 _parts
+    } else if (part.data !== null && part.data !== undefined) {
       this._parts.set(part.data, part);
     } else {
       this._parts.set(part, part);
@@ -1544,6 +1551,18 @@ export class Diagram {
       link.toNode = this._nodeKeyMap.get(toKey) || null;
     }
 
+    // 官方 PartManager.makeLinkForData 末尾：
+    // `getLabelKeysForLinkData(t).forEach(f => findNodeForKey(f) !== null && (u.labeledLink = s))`
+    // 缺这段 → label 节点 isLinkLabel=false、Link.labelNodes 为空 →
+    // 不会被 hE 摆到路径上（linksToLinks 5 个标签全落在 Layout 网格位置）。
+    const labelKeys = model.getLabelKeysForLinkData(data);
+    if (Array.isArray(labelKeys)) {
+      for (const lk of labelKeys) {
+        const ln = this._nodeKeyMap.get(lk);
+        if (ln) ln.labeledLink = link;
+      }
+    }
+
     this._parts.set(data, link);
 
     this.add(link);
@@ -1663,6 +1682,13 @@ export class Diagram {
   private _removeLinkForData(data: ObjectData): void {
     const part = this._parts.get(data);
     if (part) {
+      if (part instanceof Link) {
+        const it = part.labelNodes;
+        while (it.next()) {
+          const n = it.value;
+          if (n) n.labeledLink = null;
+        }
+      }
       this._parts.remove(data);
       this.remove(part);
     }
@@ -1834,6 +1860,25 @@ export class Diagram {
   private _onModelChanged(e: ChangedEvent): void {
     if (e.isTransactionChange) {
       this._raiseChangedEvent(e);
+      // 官方 `Diagram.tI(t)`（go.js @332017）：事务级变更（modelChange===""）在
+      // 属性名不是 Starting*/Started* 时**同步**调 `this.maybeUpdate()`，
+      // 而 maybeUpdate 的 `hd&&!Ur` 守卫决定是否真的把 Ar（渲染+布局）跑完。
+      // containerShipping 实测：官方在 `myDiagram.model.commit(heading)` 的
+      // CommittedTransaction 上同步跑完首帧布局（position 落在 initFleet 的
+      // sync 之前），本项目早先只 requestUpdate(RAF) → 首帧布局排在 initFleet
+      // 的 `position=(0,0)` **之后**，初始视口把图心居中覆盖成 (-19,12)。
+      const p = e.propertyName;
+      // 'CommittingTransaction' 例外：此刻 UndoManager 已把 transactionLevel 减到 0
+      // 但 _currentTransaction 还没置 null（要等 CommittedTransaction 之后）。
+      // 这时同步跑布局会走 _runLayoutInTransaction 的 `nested===0` 分支新开一条
+      // 'Layout' 事务，把外层的 _currentTransaction 顶掉 → 外层恢复时
+      // `this._currentTransaction.count` 读 null 崩溃。CommittedTransaction 阶段
+      // 再跑同样能得到官方的「事务提交内同步完成首帧布局」时序。
+      if (p !== 'StartingFirstTransaction' && p !== 'StartingUndo' &&
+          p !== 'StartingRedo' && p !== 'StartedTransaction' &&
+          p !== 'CommittingTransaction') {
+        this.maybeUpdate();
+      }
       return;
     }
 
@@ -1938,6 +1983,20 @@ export class Diagram {
                 needsLayout = true;
               } else if (e.propertyName === glm.linkToKeyProperty) {
                 part.toNode = this._nodeKeyMap.get(e.newValue) || null;
+                needsLayout = true;
+              } else if (e.propertyName === glm.linkLabelKeysProperty) {
+                // 官方 PartManager：linkLabelKeys 属性变更 → 旧键 labeledLink=null、新键=l 本链
+                const oldArr: any[] = Array.isArray(e.oldValue) ? e.oldValue : [];
+                const newArr: any[] = Array.isArray(e.newValue) ? e.newValue : [];
+                for (const k of oldArr) {
+                  if (newArr.indexOf(k) >= 0) continue;
+                  const n = this._nodeKeyMap.get(k);
+                  if (n) n.labeledLink = null;
+                }
+                for (const k of newArr) {
+                  const n = this._nodeKeyMap.get(k);
+                  if (n) n.labeledLink = part;
+                }
                 needsLayout = true;
               }
             }
@@ -2091,7 +2150,19 @@ export class Diagram {
     this._needsRender = false;
     this._animationFrameId = 0;
     if (this._updateSuspended) return; // 官方 Ar 入口的 vs 守卫（冻结期挂起帧直接丢弃）
+    // 官方 Ar 入口把 vs 置 true → 嵌套的 maybeUpdate/Ar 直接早退。
+    // maybeUpdate 现在是同步的（事务提交会触发），布局/绑定里再冒出的
+    // 模型变更必须能被挡回去，否则会递归进第二轮布局。
+    if (this._isInUpdate) return;
+    this._isInUpdate = true;
+    try {
+      this._renderLoopBody();
+    } finally {
+      this._isInUpdate = false;
+    }
+  }
 
+  private _renderLoopBody(): void {
     this._checkResize();
 
     if (this._layoutInvalid) {
@@ -3531,8 +3602,23 @@ export class Diagram {
   }
   get isAttached(): boolean { return this._attached; }
 
+  /**
+   * 官方 `Diagram.maybeUpdate()`（go.js @287673）：
+   *   `maybeUpdate(){ this.hd&&!this.Ur||(this.hd&&(this.hd=!1), this.Ar()) }`
+   * 即：布局已失效但还没请求过渲染 → 等 RAF；否则**同步**跑完一轮更新（Ar），
+   * 并把挂起的 RAF 丢掉（官方靠 Ar 入口把 Ur 置 false，RAF 回调 `e.Ur&&…` 跳过）。
+   *
+   * 早先这里只是 `if (_attached) requestUpdate()`（纯 RAF），于是事务提交
+   * （model.commit / diagram.commit）不会像官方那样同步跑完首帧布局。
+   */
   maybeUpdate(): void {
-    if (this._attached) this.requestUpdate();
+    if (this._updateSuspended) return; // 官方 Ar 入口的 vs 守卫
+    if (this._layoutInvalid && !this._needsRender) return;
+    if (this._needsRender && this._animationFrameId) {
+      cancelAnimationFrame(this._animationFrameId);
+      this._animationFrameId = 0;
+    }
+    this._renderLoop();
   }
   get isUpdateRequested(): boolean { return this._isUpdateRequestedFlag; }
 

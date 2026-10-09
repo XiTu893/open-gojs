@@ -8,7 +8,7 @@ import { Map } from '../core/Map';
 import { List } from '../core/List';
 import { Iterator } from '../core/Iterable';
 import { Shape } from './Shape';
-import { PanelAuto, StretchFill, StretchDefault, EnumValue } from '../core/EnumValues';
+import { PanelAuto, StretchFill, StretchDefault, EnumValue, PanelLink } from '../core/EnumValues';
 import {
   LayoutConditionsNone, LayoutConditionsAdded, LayoutConditionsRemoved,
   LayoutConditionsShown, LayoutConditionsHidden, LayoutConditionsNodeSized,
@@ -432,33 +432,12 @@ export class Part extends Panel {
   set isSelected(val: boolean) {
     if (this._isSelected === val) return;
     this._isSelected = val;
-    if (val && this._selectionAdorned) {
-      const ad = this._createSelectionAdornment();
-      this.addAdornment('Selection', ad);
-      if (this._diagram) {
-        const adornmentLayer = this._diagram.findLayer('Adornment');
-        if (adornmentLayer) {
-          adornmentLayer.add(ad);
-        }
-        this._diagram.selection.add(this);
-      }
-    } else {
-      const ad = this.getAdornment('Selection');
-      if (ad) {
-        if (this._diagram) {
-          const adornmentLayer = this._diagram.findLayer('Adornment');
-          if (adornmentLayer) {
-            adornmentLayer.remove(ad);
-          }
-        }
-        this.removeAdornment('Selection');
-      }
-      if (this._diagram) {
-        this._diagram.selection.remove(this);
-      }
-    }
-    if (this._diagram && (this._diagram as any)._toolManager) {
-      (this._diagram as any)._toolManager.updateAdornments(this);
+    const d = this._diagram;
+    if (d !== null) {
+      if (val) d.selection.add(this);
+      else d.selection.remove(this);
+      this.updateAdornments();
+      if ((d as any)._toolManager) (d as any)._toolManager.updateAdornments(this);
     }
   }
 
@@ -699,16 +678,37 @@ export class Part extends Panel {
     this.move(new Point(x, y), isLocation);
   }
 
-  /** Add an adornment for the given category */
+  /**
+   * 官方 `Part.addAdornment(category, ad)`：
+   * 同类别旧装饰先从图中移除；同步 `ad.category`；把装饰加入 diagram；
+   * 最后用 `adornedObject.findBindingPanel().data` 作为装饰的数据上下文
+   * （选择装饰里所有 data 绑定都靠这一句拿到节点数据）。
+   */
   addAdornment(category: string, ad: any): void {
-    // 官方 Part.addAdornment(category, ad) 会同步 ad.category
-    if (ad !== null && ad !== undefined) (ad as any).category = category;
+    if (ad === null || ad === undefined) return;
+    const old = this._adornments.get(category) ?? null;
+    if (old === ad) return;
+    if (old !== null) {
+      const d = (old as any).diagram;
+      if (d !== null && d !== undefined) d.remove(old);
+    }
+    if (ad.category !== category) ad.category = category;
     this._adornments.set(category, ad);
+    const d = this._diagram;
+    if (d !== null && d !== undefined) {
+      d.add(ad);
+    }
   }
 
-  /** Remove the adornment for the given category */
+  /** 官方 `Part.removeAdornment(category)`：从 diagram 摘除并清空 data */
   removeAdornment(category: string): void {
-    this._adornments.remove(category);
+    const ad = this._adornments.get(category) ?? null;
+    if (ad !== null) {
+      const d = (ad as any).diagram;
+      if (d !== null && d !== undefined) d.remove(ad);
+      ad.data = null;
+    }
+    this._adornments.delete(category);
   }
 
   /** Get the adornment for the given category */
@@ -721,17 +721,18 @@ export class Part extends Panel {
     this._adornments.clear();
   }
 
+  /**
+   * 官方默认选择装饰（diagram.nodeSelectionAdornmentTemplate 缺省时的兜底）：
+   * `Adornment(Auto, Shape(fill:null, stroke:dodgerblue, strokeWidth:2, isPanelMain, stretch:Fill), Placeholder())。
+   * 只负责造模板，**不设 adornedObject / 不预设 bounds** —— 由 `_updateSelectionAdornment` 统一挂载，
+   * 尺寸与位置由 Placeholder.measure 按被装饰对象推出。
+   */
   _createSelectionAdornment(): any {
     if (this._selectionAdornmentTemplate) {
-      const ad = this._selectionAdornmentTemplate.copy();
-      ad.adornedObject = this;
-      const bounds = this.getDocumentBounds();
-      ad._actualBounds = bounds.copy();
-      ad._measuredBounds = new Rect(0, 0, bounds.width, bounds.height);
-      ad._naturalBounds = new Rect(0, 0, bounds.width, bounds.height);
-      return ad;
+      return this._selectionAdornmentTemplate.copy();
     }
     const AdornmentCtor = GraphObject._classRegistry['Adornment'];
+    const PlaceholderCtor = GraphObject._classRegistry['Placeholder'];
     const adornment = new AdornmentCtor(PanelAuto);
     const shape = new Shape();
     shape.fill = '';
@@ -741,14 +742,7 @@ export class Part extends Panel {
     shape.isPanelMain = true;
     shape.stretch = StretchFill;
     adornment.add(shape);
-    adornment.adornedObject = this;
-    const bounds = this.getDocumentBounds();
-    adornment._actualBounds = bounds.copy();
-    adornment._measuredBounds = new Rect(0, 0, bounds.width, bounds.height);
-    adornment._naturalBounds = new Rect(0, 0, bounds.width, bounds.height);
-    (shape as any)._actualBounds = new Rect(0, 0, bounds.width, bounds.height);
-    (shape as any)._measuredBounds = new Rect(0, 0, bounds.width, bounds.height);
-    (shape as any)._naturalBounds = new Rect(0, 0, bounds.width, bounds.height);
+    if (PlaceholderCtor) adornment.add(new PlaceholderCtor());
     return adornment;
   }
 
@@ -1253,30 +1247,62 @@ export class Part extends Panel {
     this.updateAdornments();
   }
 
-  /** 官方 `Part.updateAdornments()` */
+  /** 官方 `Part.updateAdornments()` = `YE`（选择装饰）+ 各装饰 invalidateMeasure + updateTargetBindings */
   updateAdornments(): void {
     const d = this._diagram;
     if (d === null) return;
-    if (this._isSelected && this._selectionAdorned) {
-      if (this._adornments.get('Selection') === null) {
-        const ad = this._createSelectionAdornment();
-        if (ad !== null) {
-          this.addAdornment('Selection', ad);
-          const lay = d.findLayer('Adornment');
-          if (lay && !(ad as any)._layer) lay.add(ad);
-        }
-      }
-    } else if (this._adornments.get('Selection') !== null) {
-      this.removeAdornment('Selection');
+    this._updateSelectionAdornment(d);
+    const first = this._adornments.iteratorValues;
+    while (first.next()) {
+      const ad: any = first.value;
+      if (ad === null || ad === undefined) continue;
+      if (typeof ad._invalidateMeasure === 'function') ad._invalidateMeasure();
+      const ph = typeof ad.hasPlaceholder === 'function' && ad.hasPlaceholder() ? ad.placeholder : null;
+      if (ph !== null && typeof ph._invalidateMeasure === 'function') ph._invalidateMeasure();
     }
-    const it = this._adornments.iteratorValues;
-    while (it.next()) {
-      const ad = it.value;
+    const second = this._adornments.iteratorValues;
+    while (second.next()) {
+      const ad: any = second.value;
       if (ad !== null && ad !== undefined && typeof ad.updateTargetBindings === 'function') {
         ad.updateTargetBindings();
       }
     }
     this._adornmentsPending = false;
+  }
+
+  /** 官方 `Part.YE(diagram)`：按 selectionAdornmentTemplate / diagram 默认模板创建 "Selection" 装饰 */
+  private _updateSelectionAdornment(d: any): void {
+    const cat = 'Selection';
+    if (this._isSelected && this._selectionAdorned) {
+      const i = this.selectionObject;
+      if (
+        i !== null &&
+        this.actualBounds.isReal() &&
+        this.isVisible() &&
+        i.isVisibleObject() &&
+        i.actualBounds.isReal()
+      ) {
+        let s: any = this._adornments.get(cat) ?? null;
+        if (s === null) {
+          let n: any = this._selectionAdornmentTemplate;
+          if (n === null || n === undefined) {
+            if (this._className === 'Link') n = d.linkSelectionAdornmentTemplate;
+            else if (this._className === 'Group') n = d.groupSelectionAdornmentTemplate;
+            else n = d.nodeSelectionAdornmentTemplate;
+          }
+          s = n ? n.copy() : this._createSelectionAdornment();
+          if (s !== null && s !== undefined) {
+            if (this._className === 'Link' && i === (this as any).path) s.type = PanelLink;
+            s.adornedObject = i;
+          }
+        }
+        if (s !== null && s !== undefined) {
+          this.addAdornment(cat, s);
+          return;
+        }
+      }
+    }
+    this.removeAdornment(cat);
   }
 
   /** 官方 `Part.updateRelationshipsFromData()` */

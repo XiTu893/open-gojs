@@ -172,9 +172,34 @@ export class Panel extends GraphObject {
   }
 
   get data(): any { return this._data; }
+  /**
+   * 官方 `Panel.set data`：
+   * - 非 Adornment 的 Part 会把 data 变更**传播到自身装饰**（装饰的上下文 = adornedObject.findBindingPanel().data）；
+   * - 变更后立刻 `updateTargetBindings()`（undo/redo 重放时除外）。
+   * 选择装饰里所有 data 绑定都依赖这一步。
+   */
   set data(val: any) {
     if (this._data === val) return;
+    const old = this._data;
     this._data = val;
+    const d = this.diagram;
+    const ads = (this as any)._adornments;
+    if (ads !== null && ads !== undefined && typeof ads.iteratorValues !== 'undefined') {
+      const it = ads.iteratorValues;
+      while (it.next()) {
+        const ad: any = it.value;
+        if (ad === null || ad === undefined) continue;
+        const r = ad.adornedObject;
+        if (r !== null && r !== undefined) {
+          const p = typeof r.findBindingPanel === 'function' ? r.findBindingPanel() : null;
+          if (p !== null) ad.data = p.data;
+        }
+      }
+    }
+    const rc = (this as any).raiseChanged;
+    if (typeof rc === 'function') rc.call(this, 'data', old, val);
+    if (d !== null && d.undoManager && (d.undoManager as any).isUndoingRedoing) return;
+    if (val !== null && val !== undefined) this.updateTargetBindings();
   }
 
   get padding(): Margin { return this._padding; }
@@ -3123,6 +3148,18 @@ export class Panel extends GraphObject {
       for (const m of this._elements) {
         const mb = m.measuredBounds;
         m._arrange(new Rect(0, 0, mb.width, mb.height));
+      }
+    }
+
+    // 官方 PanelLayoutLink.arrange 收尾：`r instanceof Link` 且 pointsCount>=2 时逐个 hE。
+    // host===panel 才是 Link（否则是 Adornment）。
+    if (host !== null && host !== undefined && host === panel && host.pointsCount >= 2) {
+      const it = host.labelNodes;
+      while (it.next()) {
+        const nd: any = it.value;
+        if (nd && typeof (host as any).positionLabelNode === 'function') {
+          (host as any).positionLabelNode(nd);
+        }
       }
     }
 

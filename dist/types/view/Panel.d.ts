@@ -98,6 +98,12 @@ export declare class Panel extends GraphObject {
     get type(): EnumValue;
     set type(val: EnumValue);
     get data(): any;
+    /**
+     * 官方 `Panel.set data`：
+     * - 非 Adornment 的 Part 会把 data 变更**传播到自身装饰**（装饰的上下文 = adornedObject.findBindingPanel().data）；
+     * - 变更后立刻 `updateTargetBindings()`（undo/redo 重放时除外）。
+     * 选择装饰里所有 data 绑定都依赖这一步。
+     */
     set data(val: any);
     get padding(): Margin;
     set padding(val: MarginLike);

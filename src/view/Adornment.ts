@@ -21,6 +21,8 @@ export class Adornment extends Part {
     const [t, i] = Panel._resolveArgs(type, init);
     super(t, undefined);
     this._className = 'Adornment';
+    // 官方 Adornment 构造：`this.Pl="Adornment"`（默认层名）
+    (this as any)._layerName = 'Adornment';
     if (i) {
       this.set(i);
     }
@@ -29,8 +31,16 @@ export class Adornment extends Part {
   get adornedObject(): GraphObject | null {
     return this._adornedObject;
   }
+  /** 官方 `Adornment.set adornedObject`：换绑时先解绑旧 part，再由新 part.addAdornment 挂载自身 */
   set adornedObject(val: GraphObject | null) {
+    const oldPart = this.adornedPart;
+    let newPart: Part | null = null;
+    if (val !== null && val !== undefined) newPart = val.part;
+    if (oldPart !== null && (val === null || val === undefined || oldPart !== newPart)) {
+      oldPart.removeAdornment(this.category);
+    }
     this._adornedObject = val;
+    if (newPart !== null) newPart.addAdornment(this.category, this);
   }
 
   get adornedPart(): Part | null {

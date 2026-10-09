@@ -523,6 +523,7 @@ Model.registerClass('GraphLinksModel', GraphLinksModel, (m, d) => {
   if (d.linkFromPortIdProperty !== undefined) g.linkFromPortIdProperty = d.linkFromPortIdProperty;
   if (d.linkToPortIdProperty !== undefined) g.linkToPortIdProperty = d.linkToPortIdProperty;
   if (d.linkCategoryProperty !== undefined) g.linkCategoryProperty = d.linkCategoryProperty;
+  if (d.linkLabelKeysProperty !== undefined) g.linkLabelKeysProperty = d.linkLabelKeysProperty;
   if (d.archetypeNodeData !== undefined) g.archetypeNodeData = d.archetypeNodeData;
   if (d.archetypeLinkData !== undefined) (g as any).archetypeLinkData = d.archetypeLinkData;
   if (d.createMissingNodeData !== undefined) g.createMissingNodeData = d.createMissingNodeData;

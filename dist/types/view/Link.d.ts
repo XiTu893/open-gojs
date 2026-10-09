@@ -361,6 +361,13 @@ export declare class Link extends Part {
     get midAngle(): number;
     /** 官方 `Link.computeMidAngle()` */
     computeMidAngle(): number;
+    /** 官方 `Transform`（缩放后绕原点旋转）作用于点：`p' = scale * R(angle) * p` */
+    private static _xfPt;
+    /**
+     * 官方 `Link.hE(labelNode, pointsCount, points)`：把 link 标签节点摆到路径上。
+     * `PanelLayoutLink.arrange` 收尾、`location` 同步之前逐个调用。
+     */
+    positionLabelNode(t: any): void;
     /** 官方 `Link.routeBounds` */
     get routeBounds(): Rect;
     /** 官方 `Link.cA()`（混淆名 nT）：按官方分支计算 routeBounds + routeOffset（BS/Lk） */

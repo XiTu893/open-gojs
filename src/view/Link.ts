@@ -17,7 +17,7 @@ import {
   LinkAdjustingEnd, LinkAdjustingScale, LinkAdjustingStretch,
   OrientationAlong, OrientationPlus90, OrientationMinus90, OrientationOpposite,
   OrientationUpright, OrientationPlus90Upright, OrientationMinus90Upright, OrientationUpright45,
-  PanelLink
+  PanelLink, GeometryTypeLine
 } from '../core/EnumValues';
 import { Geometry } from '../core/Geometry';
 import { PathFigure } from '../core/PathFigure';
@@ -1263,6 +1263,8 @@ export class Link extends Part {
     if (k === null || k === undefined) {
       k = new Knot((port as any).part, port);
       (port as any)._knot = k;
+    } else {
+      k.gg();
     }
     return k.$F(this);
   }
@@ -1642,6 +1644,156 @@ export class Link extends Part {
     return r.directionPoint(l);
   }
 
+  /** 官方 `Transform`（缩放后绕原点旋转）作用于点：`p' = scale * R(angle) * p` */
+  private static _xfPt(x: number, y: number, sc: number, ang: number): Point {
+    let a = ang;
+    if (a >= 360) a -= 360;
+    else if (a < 0) a += 360;
+    let cos = 1;
+    let sin = 0;
+    if (a === 90) { cos = 0; sin = 1; }
+    else if (a === 180) { cos = -1; sin = 0; }
+    else if (a === 270) { cos = 0; sin = -1; }
+    else if (a !== 0) {
+      const r = (a * Math.PI) / 180;
+      cos = Math.cos(r);
+      sin = Math.sin(r);
+    }
+    return new Point((x * cos - y * sin) * sc, (x * sin + y * cos) * sc);
+  }
+
+  /**
+   * 官方 `Link.hE(labelNode, pointsCount, points)`：把 link 标签节点摆到路径上。
+   * `PanelLayoutLink.arrange` 收尾、`location` 同步之前逐个调用。
+   */
+  positionLabelNode(t: any): void {
+    const e = this.pointsCount;
+    const i: List<Point> = this.points;
+    const s: number = t.segmentIndex;
+    const n: number = t.segmentFraction;
+    let o: Spot = t.alignmentFocus;
+    const r: any = t.segmentOrientation;
+    const l: Point = t.segmentOffset;
+    let a = 0;
+    let h = 0;
+    let f = 0;
+
+    if (isNaN(s)) {
+      const N = this.geometry;
+      const M = N.getPointAndAngleAlongPath(n);
+      f = M[2];
+      const C = new Point(M[0], M[1]);
+      C.add(this.getPoint(0));
+      if (N.type === GeometryTypeLine) C.offset(-N.startX, -N.startY);
+      else {
+        const L = N.figures.first();
+        if (L !== null) C.offset(-L.startX, -L.startY);
+      }
+      a = C.x;
+      h = C.y;
+    } else if (s < -e || s >= e) {
+      this.updateRoute();
+      const N = this.computeMidPoint(new Point());
+      f = this.midAngle;
+      a = N.x;
+      h = N.y;
+    } else {
+      let N: Point;
+      let M: Point;
+      let C = 0;
+      if (s >= 0) {
+        N = i.elt(s);
+        M = s < e - 1 ? i.elt(s + 1) : N;
+      } else {
+        C = e + s;
+        N = i.elt(C);
+        M = C > 0 ? i.elt(C - 1) : N;
+      }
+      if (N.equalsApprox(M)) {
+        let L: Point;
+        let A: Point;
+        if (s >= 0) {
+          L = s > 0 ? i.elt(s - 1) : N;
+          A = s < e - 2 ? i.elt(s + 2) : M;
+        } else {
+          L = C < e - 1 ? i.elt(C + 1) : N;
+          A = C > 1 ? i.elt(C - 2) : M;
+        }
+        const D = L.distanceSquaredPoint(N);
+        const F = M.distanceSquaredPoint(A);
+        if (D > F + 10) f = s >= 0 ? L.directionPoint(N) : N.directionPoint(L);
+        else if (F > D + 10) f = s >= 0 ? M.directionPoint(A) : A.directionPoint(M);
+        else f = s >= 0 ? L.directionPoint(A) : A.directionPoint(L);
+      } else {
+        f = s >= 0 ? N.directionPoint(M) : M.directionPoint(N);
+      }
+      a = N.x + (M.x - N.x) * n;
+      h = N.y + (M.y - N.y) * n;
+    }
+
+    const code = Link._orientationCode(r);
+    if (code !== 0) t.angle = this.computeAngle(0, r, f);
+
+    if (o.isNone()) {
+      t.moveTo(a, h, true);
+      return;
+    }
+    if (o.isNoSpot()) o = Spot.Center;
+
+    const d = t.naturalBounds;
+    const m = new Rect(0, 0, d.width, d.height);
+    const g = new Point().setRectSpot(m, o);
+    const sc = t.scale;
+    const ang = t.angle;
+    const gt = Link._xfPt(g.x, g.y, sc, ang);
+    let p = -gt.x;
+    let y = -gt.y;
+
+    const x = d.width;
+    const b = d.height;
+    const k = l.copy();
+    const P = isNaN(l.x);
+    const S = isNaN(l.y);
+    if (P || S) {
+      const N = x / 2 + Link._yS;
+      const M = b / 2 + Link._yS;
+      const C = f >= 45 && f <= 135;
+      const L = f >= 225 && f <= 315;
+      const fracCond = s >= 0 || (isNaN(s) && n < 0.5);
+      if (code === 0 && (C || L)) {
+        k.x = S ? N : l.y;
+        k.y = P ? M : l.x;
+        if (C) {
+          if (!fracCond && P) k.y = -M;
+        } else {
+          if (fracCond && P) k.y = -M;
+          if (S) k.x = -N;
+        }
+      } else {
+        if (P) k.x = fracCond ? N : -N;
+        if (S) k.y = -M;
+        k.rotate(f);
+      }
+    } else {
+      k.rotate(f);
+    }
+    a += k.x;
+    h += k.y;
+
+    // u.ym(m)：把矩形 m 变换到目标空间后取包围盒
+    const c1 = Link._xfPt(m.x, m.y, sc, ang);
+    const c2 = Link._xfPt(m.x + m.width, m.y, sc, ang);
+    const c3 = Link._xfPt(m.x, m.y + m.height, sc, ang);
+    const c4 = Link._xfPt(m.x + m.width, m.y + m.height, sc, ang);
+    const minX = Math.min(c1.x, c2.x, c3.x, c4.x);
+    const minY = Math.min(c1.y, c2.y, c3.y, c4.y);
+    p += minX;
+    y += minY;
+
+    const T = new Point(a + p, h + y);
+    t.move(T);
+  }
+
   /** 官方 `Link.routeBounds` */
   get routeBounds(): Rect {
     this.updateRoute();
@@ -1971,11 +2123,13 @@ export class Link extends Part {
     const len = Math.sqrt(dx * dx + dy * dy);
     if (len === 0) return;
     const h = s === 2 ? len * 0.5 : len;
-    let a = this.computeShortLength(isFrom);
-    if (isNaN(a) || a <= 0) return;
-    if (a > h) a = h;
-    t.x += (a * dx) / len;
-    t.y += (a * dy) / len;
+    const a = this.computeShortLength(isFrom);
+    if (isNaN(a)) return;
+    // 官方 uc：只做上界 clamp（`h>a&&(h=a)`），负 shortLength 不拦截——
+    // t += a*dir 使端点【向后】移动，几何越过端口延伸（mindMap -2 断点根因）。
+    const k = a > h ? h : a;
+    t.x += (k * dx) / len;
+    t.y += (k * dy) / len;
   }
 
   /**

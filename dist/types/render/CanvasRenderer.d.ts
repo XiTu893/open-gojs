@@ -30,6 +30,13 @@ export declare class CanvasRenderer {
     resize(width: number, height: number): void;
     /** Main render entry: clear, apply viewport transform, render each layer */
     render(layers?: Layer[]): void;
+    /** 官方 PanelLayoutTable.ck：n=true → 只画 coversSeparators=false 的背景（分隔线之前） */
+    private _renderTableBackgrounds;
+    /** 官方 PanelLayoutTable.HD：首个已定义的行/列 index */
+    private _firstDefIndex;
+    /** 官方 PanelLayoutTable.SN：ck(n=true, 非覆盖背景) → KD(分隔线) → ck(n=false, 覆盖背景)，须在子元素之前调用 */
+    private _renderTableRules;
+    /** 官方 PanelLayoutTable.KD：按 row/column 定义画分隔线（首个非零行/列之上不画） */
     private _renderTableSeparators;
     private _renderDragSelectBox;
     /** Render all parts in a layer */

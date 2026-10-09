@@ -2765,6 +2765,12 @@ declare class Panel extends GraphObject {
     get type(): EnumValue;
     set type(val: EnumValue);
     get data(): any;
+    /**
+     * 官方 `Panel.set data`：
+     * - 非 Adornment 的 Part 会把 data 变更**传播到自身装饰**（装饰的上下文 = adornedObject.findBindingPanel().data）；
+     * - 变更后立刻 `updateTargetBindings()`（undo/redo 重放时除外）。
+     * 选择装饰里所有 data 绑定都依赖这一步。
+     */
     set data(val: any);
     get padding(): Margin;
     set padding(val: MarginLike);
@@ -3386,14 +3392,25 @@ declare class Part extends Panel {
     move(newLoc: Point, isLocation?: boolean): void;
     /** 官方 Part.moveTo(x, y, isLocation?) */
     moveTo(x: number, y: number, isLocation?: boolean): void;
-    /** Add an adornment for the given category */
+    /**
+     * 官方 `Part.addAdornment(category, ad)`：
+     * 同类别旧装饰先从图中移除；同步 `ad.category`；把装饰加入 diagram；
+     * 最后用 `adornedObject.findBindingPanel().data` 作为装饰的数据上下文
+     * （选择装饰里所有 data 绑定都靠这一句拿到节点数据）。
+     */
     addAdornment(category: string, ad: any): void;
-    /** Remove the adornment for the given category */
+    /** 官方 `Part.removeAdornment(category)`：从 diagram 摘除并清空 data */
     removeAdornment(category: string): void;
     /** Get the adornment for the given category */
     getAdornment(category: string): any | null;
     /** Remove all adornments */
     clearAdornments(): void;
+    /**
+     * 官方默认选择装饰（diagram.nodeSelectionAdornmentTemplate 缺省时的兜底）：
+     * `Adornment(Auto, Shape(fill:null, stroke:dodgerblue, strokeWidth:2, isPanelMain, stretch:Fill), Placeholder())。
+     * 只负责造模板，**不设 adornedObject / 不预设 bounds** —— 由 `_updateSelectionAdornment` 统一挂载，
+     * 尺寸与位置由 Placeholder.measure 按被装饰对象推出。
+     */
     _createSelectionAdornment(): any;
     /** 官方 Part.canCopy() */
     canCopy(): boolean;
@@ -3506,8 +3523,10 @@ declare class Part extends Panel {
     private _canInvalidateLayout;
     /** 官方 `Part.invalidateAdornments()`：标记装饰失效并立刻按需重建 */
     invalidateAdornments(): void;
-    /** 官方 `Part.updateAdornments()` */
+    /** 官方 `Part.updateAdornments()` = `YE`（选择装饰）+ 各装饰 invalidateMeasure + updateTargetBindings */
     updateAdornments(): void;
+    /** 官方 `Part.YE(diagram)`：按 selectionAdornmentTemplate / diagram 默认模板创建 "Selection" 装饰 */
+    private _updateSelectionAdornment;
     /** 官方 `Part.updateRelationshipsFromData()` */
     updateRelationshipsFromData(): void;
     copy(): Part;
@@ -4523,6 +4542,13 @@ declare class Link extends Part {
     get midAngle(): number;
     /** 官方 `Link.computeMidAngle()` */
     computeMidAngle(): number;
+    /** 官方 `Transform`（缩放后绕原点旋转）作用于点：`p' = scale * R(angle) * p` */
+    private static _xfPt;
+    /**
+     * 官方 `Link.hE(labelNode, pointsCount, points)`：把 link 标签节点摆到路径上。
+     * `PanelLayoutLink.arrange` 收尾、`location` 同步之前逐个调用。
+     */
+    positionLabelNode(t: any): void;
     /** 官方 `Link.routeBounds` */
     get routeBounds(): Rect;
     /** 官方 `Link.cA()`（混淆名 nT）：按官方分支计算 routeBounds + routeOffset（BS/Lk） */
@@ -5090,6 +5116,13 @@ declare class CanvasRenderer {
     resize(width: number, height: number): void;
     /** Main render entry: clear, apply viewport transform, render each layer */
     render(layers?: Layer[]): void;
+    /** 官方 PanelLayoutTable.ck：n=true → 只画 coversSeparators=false 的背景（分隔线之前） */
+    private _renderTableBackgrounds;
+    /** 官方 PanelLayoutTable.HD：首个已定义的行/列 index */
+    private _firstDefIndex;
+    /** 官方 PanelLayoutTable.SN：ck(n=true, 非覆盖背景) → KD(分隔线) → ck(n=false, 覆盖背景)，须在子元素之前调用 */
+    private _renderTableRules;
+    /** 官方 PanelLayoutTable.KD：按 row/column 定义画分隔线（首个非零行/列之上不画） */
     private _renderTableSeparators;
     private _renderDragSelectBox;
     /** Render all parts in a layer */
@@ -5625,6 +5658,15 @@ declare class Placeholder extends GraphObject {
      */
     computeBorder(result: Rect): Rect;
     /**
+     * 官方 `Placeholder.measure` 的 **Adornment 分支**（官方 `Id` 的 else 分支）：
+     * - `adornment.angle = adornedObject.getDocumentAngle()`；
+     * - Selection 类装饰把 `adornment.location` 定位到被装饰对象的 **TopLeft**（其余类别用 locationSpot）；
+     * - 自身尺寸 = 被装饰对象 `(naturalBounds + strokeWidth) * documentScale` + padding 四边；
+     * - 自身 arrange 到 `(-padding.left, -padding.top)`；
+     * - 被装饰对象尺寸无效时退化为「四角并集」。
+     */
+    private _measureForAdornment;
+    /**
      * 官方 Placeholder.measure（computeBorder）：
      * 1) union 可见成员的 actualBounds（文档坐标，成员 ab 实值才计入；跳过 Link）；
      * 2) 无成员 union → border = group.location 实值点 (0×0)，否则 (0,0)；
@@ -5652,6 +5694,7 @@ declare class Adornment extends Part {
     constructor(type: any);
     constructor(type: any, init?: any);
     get adornedObject(): GraphObject | null;
+    /** 官方 `Adornment.set adornedObject`：换绑时先解绑旧 part，再由新 part.addAdornment 挂载自身 */
     set adornedObject(val: GraphObject | null);
     get adornedPart(): Part | null;
     get adornedElement(): GraphObject | null;
@@ -6384,6 +6427,8 @@ declare class Diagram {
     _animationFrameId: number;
     /** 官方 delayInitialization 的 vs 冻结位：置位期间 requestUpdate/_renderLoop 直通早退 */
     private _updateSuspended;
+    /** 官方 Ar 入口的 vs 自锁：同步 maybeUpdate 期间禁止嵌套跑第二轮 */
+    private _isInUpdate;
     private _resizeObserver;
     private _lastDivWidth;
     private _lastDivHeight;
@@ -6620,6 +6665,7 @@ declare class Diagram {
     raiseDiagramEvent(name: string, subject?: any, subjectData?: any, ...rest: any[]): void;
     private _findObjectInPanel;
     private _renderLoop;
+    private _renderLoopBody;
     /**
      * 官方 measure+arrange 全体部件（Ht 语义）：
      * pass1 非 Group 非 Link → pass2 Group → pass3 Link；
@@ -6875,6 +6921,15 @@ declare class Diagram {
     computePixelRatio(): number;
     attach(): void;
     get isAttached(): boolean;
+    /**
+     * 官方 `Diagram.maybeUpdate()`（go.js @287673）：
+     *   `maybeUpdate(){ this.hd&&!this.Ur||(this.hd&&(this.hd=!1), this.Ar()) }`
+     * 即：布局已失效但还没请求过渲染 → 等 RAF；否则**同步**跑完一轮更新（Ar），
+     * 并把挂起的 RAF 丢掉（官方靠 Ar 入口把 Ur 置 false，RAF 回调 `e.Ur&&…` 跳过）。
+     *
+     * 早先这里只是 `if (_attached) requestUpdate()`（纯 RAF），于是事务提交
+     * （model.commit / diagram.commit）不会像官方那样同步跑完首帧布局。
+     */
     maybeUpdate(): void;
     get isUpdateRequested(): boolean;
     private _isUpdateRequestedFlag;

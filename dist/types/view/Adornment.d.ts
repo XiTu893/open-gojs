@@ -15,6 +15,7 @@ export declare class Adornment extends Part {
     constructor(type: any);
     constructor(type: any, init?: any);
     get adornedObject(): GraphObject | null;
+    /** 官方 `Adornment.set adornedObject`：换绑时先解绑旧 part，再由新 part.addAdornment 挂载自身 */
     set adornedObject(val: GraphObject | null);
     get adornedPart(): Part | null;
     get adornedElement(): GraphObject | null;

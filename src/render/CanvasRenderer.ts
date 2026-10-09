@@ -122,67 +122,156 @@ export class CanvasRenderer {
     this._needsRender = false;
   }
 
+  /** 官方 PanelLayoutTable.ck：n=true → 只画 coversSeparators=false 的背景（分隔线之前） */
+  private _renderTableBackgrounds(panel: any, panelX: number, panelY: number, n: boolean): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+
+    const bounds = panel.actualBounds;
+    if (!bounds || bounds.width <= 0 || bounds.height <= 0) return;
+    const pad = panel.padding;
+    const padL = pad ? pad.left : 0;
+    const padT = pad ? pad.top : 0;
+    const padR = pad ? pad.right : 0;
+    const padB = pad ? pad.bottom : 0;
+    const firstRowIdx = this._firstDefIndex(panel._rowDefinitions);
+    const firstColIdx = this._firstDefIndex(panel._columnDefinitions);
+
+    const draw = (defs: any[], isRow: boolean): void => {
+      for (const def of defs) {
+        if (def === undefined || def === null || def.background === null || def.background === undefined) continue;
+        if (def.coversSeparators === n || def.actual === 0) continue;
+
+        const u = isRow ? bounds.height : bounds.width;
+        if (def.position > u) continue;
+
+        let m = def.separatorStrokeWidth;
+        if (isNaN(m)) {
+          m = isRow ? panel.defaultRowSeparatorStrokeWidth : panel.defaultColumnSeparatorStrokeWidth;
+        }
+        let g: any = def.separatorStroke;
+        if (g === null || g === undefined) {
+          g = isRow ? panel.defaultRowSeparatorStroke : panel.defaultColumnSeparatorStroke;
+        }
+        if (g === null || g === undefined || def.index === (isRow ? firstRowIdx : firstColIdx)) m = 0;
+
+        let d = def.computeEffectiveSpacing();
+        d -= m;
+        const p = def.position + m;
+        let len = d + def.actual;
+        if (p + len > u) len = u - p;
+        if (len <= 0) continue;
+
+        ctx.save();
+        ctx.fillStyle = this._applyBrush(ctx, def.background, isRow
+          ? new Rect(panelX + padL, panelY + padT + p, Math.max(bounds.width - padL - padR, 0), len)
+          : new Rect(panelX + padL + p, panelY + padT, len, Math.max(bounds.height - padT - padB, 0)));
+        if (isRow) {
+          ctx.fillRect(panelX + padL, panelY + padT + p, Math.max(bounds.width - padL - padR, 0), len);
+        } else {
+          ctx.fillRect(panelX + padL + p, panelY + padT, len, Math.max(bounds.height - padT - padB, 0));
+        }
+        ctx.restore();
+      }
+    };
+
+    draw(panel._rowDefinitions || [], true);
+    draw(panel._columnDefinitions || [], false);
+  }
+
+  /** 官方 PanelLayoutTable.HD：首个已定义的行/列 index */
+  private _firstDefIndex(defs: any[]): number {
+    for (const d of defs) {
+      if (d !== undefined && d !== null) return d.index;
+    }
+    return 0;
+  }
+
+  /** 官方 PanelLayoutTable.SN：ck(n=true, 非覆盖背景) → KD(分隔线) → ck(n=false, 覆盖背景)，须在子元素之前调用 */
+  private _renderTableRules(panel: any, panelX: number, panelY: number): void {
+    this._renderTableBackgrounds(panel, panelX, panelY, true);
+    this._renderTableSeparators(panel, panelX, panelY);
+    this._renderTableBackgrounds(panel, panelX, panelY, false);
+  }
+
+  /** 官方 PanelLayoutTable.KD：按 row/column 定义画分隔线（首个非零行/列之上不画） */
   private _renderTableSeparators(panel: any, panelX: number, panelY: number): void {
     const ctx = this.ctx;
     if (!ctx) return;
 
-    const rowDefs = panel._rowDefinitions || [];
-    const colDefs = panel._columnDefinitions || [];
+    const rowDefs: any[] = panel._rowDefinitions || [];
+    const colDefs: any[] = panel._columnDefinitions || [];
     if (rowDefs.length === 0 && colDefs.length === 0) return;
-
-    const defaultRowSep = panel.defaultRowSeparatorStroke;
-    const defaultColSep = panel.defaultColumnSeparatorStroke;
-    const defaultRowSepWidth = panel.defaultRowSeparatorStrokeWidth || 1;
-    const defaultColSepWidth = panel.defaultColumnSeparatorStrokeWidth || 1;
 
     const bounds = panel.actualBounds;
     if (!bounds || bounds.width <= 0 || bounds.height <= 0) return;
-
-    const colWidths = (panel as any)._lastColWidths;
-    const rowHeights = (panel as any)._lastRowHeights;
-    if (!colWidths || !rowHeights) return;
+    const natH = bounds.height;
+    const natW = bounds.width;
+    const pad = panel.padding;
+    const padL = pad ? pad.left : 0;
+    const padT = pad ? pad.top : 0;
+    const padR = pad ? pad.right : 0;
+    const padB = pad ? pad.bottom : 0;
 
     ctx.save();
+    ctx.lineCap = 'butt';
 
-    let y = panelY;
-    for (let i = 0; i < rowHeights.length; i++) {
-      y += rowHeights[i];
-      const def = i < rowDefs.length ? rowDefs[i] : null;
-      const stroke = (def && def.separatorStroke !== undefined) ? def.separatorStroke : defaultRowSep;
-      const strokeWidth = (def && def.separatorStrokeWidth !== undefined) ? def.separatorStrokeWidth : defaultRowSepWidth;
-      const dashArray = (def && def.separatorDashArray) ? def.separatorDashArray : null;
+    const drawSeparators = (defs: any[], isRow: boolean): void => {
+      let first = true;
+      for (const def of defs) {
+        if (def === undefined || def === null || def.actual === 0) continue;
+        if (first) { first = false; continue; }
 
-      if (stroke && y < panelY + bounds.height) {
-        ctx.strokeStyle = stroke;
-        ctx.lineWidth = strokeWidth;
-        ctx.setLineDash(dashArray || []);
-        ctx.beginPath();
-        ctx.moveTo(panelX, y);
-        ctx.lineTo(panelX + bounds.width, y);
-        this._strokeNoShadow(ctx);
+        let stroke: any = def.separatorStroke;
+        if (stroke === null || stroke === undefined) {
+          stroke = isRow ? panel.defaultRowSeparatorStroke : panel.defaultColumnSeparatorStroke;
+        }
+        let sw = def.separatorStrokeWidth;
+        if (isNaN(sw)) {
+          sw = isRow ? panel.defaultRowSeparatorStrokeWidth : panel.defaultColumnSeparatorStrokeWidth;
+        }
+        let dash: number[] | null = def.separatorDashArray;
+        if (dash === null || dash === undefined) {
+          dash = isRow ? panel.defaultRowSeparatorDashArray : panel.defaultColumnSeparatorDashArray;
+        }
+        if (stroke === null || stroke === undefined || stroke === '' || sw === 0) continue;
+
+        if (isRow) {
+          if (def.position > natH) continue;
+          let h = sw;
+          const d = def.position + h;
+          if (d > natH) h -= d - natH;
+          if (h <= 0) continue;
+          const y = panelY + padT + def.position + h / 2;
+          ctx.strokeStyle = stroke;
+          ctx.lineWidth = h;
+          ctx.setLineDash(dash || []);
+          ctx.beginPath();
+          ctx.moveTo(panelX + padL, y);
+          ctx.lineTo(panelX + natW - padR, y);
+          this._strokeNoShadow(ctx);
+        } else {
+          if (def.position > natW) continue;
+          let w = sw;
+          const d = def.position + w;
+          if (d > natW) w -= d - natW;
+          if (w <= 0) continue;
+          const x = panelX + padL + def.position + w / 2;
+          ctx.strokeStyle = stroke;
+          ctx.lineWidth = w;
+          ctx.setLineDash(dash || []);
+          ctx.beginPath();
+          ctx.moveTo(x, panelY + padT);
+          ctx.lineTo(x, panelY + natH - padB);
+          this._strokeNoShadow(ctx);
+        }
       }
-    }
+      ctx.setLineDash([]);
+    };
 
-    let x = panelX;
-    for (let i = 0; i < colWidths.length; i++) {
-      x += colWidths[i];
-      const def = i < colDefs.length ? colDefs[i] : null;
-      const stroke = (def && def.separatorStroke !== undefined) ? def.separatorStroke : defaultColSep;
-      const strokeWidth = (def && def.separatorStrokeWidth !== undefined) ? def.separatorStrokeWidth : defaultColSepWidth;
-      const dashArray = (def && def.separatorDashArray) ? def.separatorDashArray : null;
+    drawSeparators(rowDefs, true);
+    drawSeparators(colDefs, false);
 
-      if (stroke && x < panelX + bounds.width) {
-        ctx.strokeStyle = stroke;
-        ctx.lineWidth = strokeWidth;
-        ctx.setLineDash(dashArray || []);
-        ctx.beginPath();
-        ctx.moveTo(x, panelY);
-        ctx.lineTo(x, panelY + bounds.height);
-        this._strokeNoShadow(ctx);
-      }
-    }
-
-    ctx.setLineDash([]);
     ctx.restore();
   }
 
@@ -344,6 +433,27 @@ export class CanvasRenderer {
 
     let arr = points.toArray();
     const curve = (link as any)._curve;
+
+    // 官方 makeGeometry 经 uc() 对首/末点做 shortLength 位移（负值向后【延伸】越过
+    // 端口），渲染直取 points 时必须补上 —— mindMap 的 -2 端口断点根因。
+    const applyShort = (isFrom: boolean): void => {
+      const li = (link as any).computeShortLength as ((f: boolean) => number) | undefined;
+      if (typeof li !== 'function') return;
+      const a = li.call(link, isFrom);
+      if (!isFinite(a) || a === 0) return;
+      const i = isFrom ? 0 : arr.length - 1;
+      const j = isFrom ? 1 : arr.length - 2;
+      const dx = arr[j].x - arr[i].x;
+      const dy = arr[j].y - arr[i].y;
+      const len = Math.sqrt(dx * dx + dy * dy);
+      if (len === 0) return;
+      // 官方 uc 只做上界 clamp（2 点时为半段长，多点为整段长）
+      const cap = points.count === 2 ? len * 0.5 : len;
+      const k = a > cap ? cap : a;
+      arr[i] = new Point(arr[i].x + (k * dx) / len, arr[i].y + (k * dy) / len);
+    };
+    applyShort(true);
+    applyShort(false);
 
     // 官方 `Link.makeGeometry()`：正交（或点数===2）且非贝塞尔曲线时，
     // 在每个拐点处按 `computeCorner()` 画「控制点落在拐点」的二次贝塞尔圆角。
@@ -676,21 +786,30 @@ export class CanvasRenderer {
     const arrowType = isToArrow ? toArrowName : fromArrowName;
     if (!arrowType || arrowType === 'None') return;
 
+    // 路由可能产生重复端点（[p0,p0,p1,p1]），方向要跳过与端点重合的相邻点
     let tipX: number, tipY: number, dirX: number, dirY: number;
     if (isToArrow) {
       const tip = arr[arr.length - 1];
-      const prev = arr[arr.length - 2];
       tipX = tip.x;
       tipY = tip.y;
-      dirX = tip.x - prev.x;
-      dirY = tip.y - prev.y;
+      dirX = 0;
+      dirY = 0;
+      for (let i = arr.length - 2; i >= 0; i--) {
+        const dx = tip.x - arr[i].x;
+        const dy = tip.y - arr[i].y;
+        if (dx !== 0 || dy !== 0) { dirX = dx; dirY = dy; break; }
+      }
     } else {
       const tip = arr[0];
-      const next = arr[1];
       tipX = tip.x;
       tipY = tip.y;
-      dirX = next.x - tip.x;
-      dirY = next.y - tip.y;
+      dirX = 0;
+      dirY = 0;
+      for (let i = 1; i < arr.length; i++) {
+        const dx = arr[i].x - tip.x;
+        const dy = arr[i].y - tip.y;
+        if (dx !== 0 || dy !== 0) { dirX = dx; dirY = dy; break; }
+      }
     }
 
     const len = Math.sqrt(dirX * dirX + dirY * dirY);
@@ -945,11 +1064,12 @@ export class CanvasRenderer {
         this.renderGraphObject(elem, childOX, childOY);
       }
     } else if (panelType === PanelTable) {
+      // 官方 PanelLayoutTable.SN 在渲染子元素之前画背景与分隔线
+      this._renderTableRules(panel, panelX, panelY);
       const elements = (panel as any)._elements as GraphObject[];
       for (const elem of elements) {
         this.renderGraphObject(elem, childOX, childOY);
       }
-      this._renderTableSeparators(panel, panelX, panelY);
     } else if (panelType === PanelPosition) {
       const elements = (panel as any)._elements as GraphObject[];
       for (const elem of elements) {

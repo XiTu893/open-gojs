@@ -2,6 +2,8 @@ import { GraphObject } from './GraphObject';
 import { Rect } from '../core/Rect';
 import { Point } from '../core/Point';
 import { Margin } from '../core/Margin';
+import { Spot } from '../core/Spot';
+import { PanelLink } from '../core/EnumValues';
 import type { Group } from './Group';
 
 export class Placeholder extends GraphObject {
@@ -116,6 +118,52 @@ export class Placeholder extends GraphObject {
   }
 
   /**
+   * 官方 `Placeholder.measure` 的 **Adornment 分支**（官方 `Id` 的 else 分支）：
+   * - `adornment.angle = adornedObject.getDocumentAngle()`；
+   * - Selection 类装饰把 `adornment.location` 定位到被装饰对象的 **TopLeft**（其余类别用 locationSpot）；
+   * - 自身尺寸 = 被装饰对象 `(naturalBounds + strokeWidth) * documentScale` + padding 四边；
+   * - 自身 arrange 到 `(-padding.left, -padding.top)`；
+   * - 被装饰对象尺寸无效时退化为「四角并集」。
+   */
+  private _measureForAdornment(adornment: any): void {
+    const pad = this._padSides();
+    const extraW = pad.l + pad.r;
+    const extraH = pad.t + pad.b;
+    const adorned = adornment.adornedObject as GraphObject | null;
+    if (adorned === null || adorned === undefined) {
+      this._measuredBounds = new Rect(0, 0, 0, 0);
+      this._naturalBounds = this._measuredBounds.copy();
+      return;
+    }
+    adornment.angle = adorned.getDocumentAngle();
+    let stroke = 0;
+    const cls = (adorned as any)._className;
+    if (cls === 'Shape' || cls === undefined) stroke = (adorned as any).strokeWidth || 0;
+    const scale = adorned.getDocumentScale();
+    const nb = adorned.naturalBounds;
+    const w = (nb.width + stroke) * scale;
+    const h = (nb.height + stroke) * scale;
+    const isLinkPanel = adornment.type === PanelLink;
+    if (!isLinkPanel) {
+      const spot = adornment.category === 'Selection' ? Spot.TopLeft : adornment.locationSpot;
+      const pt = adorned.getDocumentPoint(spot);
+      if (!isNaN(pt.x) && !isNaN(pt.y)) adornment.location = pt;
+    }
+    if (!isNaN(w) && !isNaN(h)) {
+      this._measuredBounds = new Rect(0, 0, Math.max(w + extraW || 0, 0), Math.max(h + extraH || 0, 0));
+    } else {
+      const tl = adorned.getDocumentPoint(Spot.TopLeft);
+      const r = new Rect(tl.x, tl.y, 0, 0);
+      r.unionPoint(adorned.getDocumentPoint(Spot.BottomRight));
+      r.unionPoint(adorned.getDocumentPoint(Spot.TopRight));
+      r.unionPoint(adorned.getDocumentPoint(Spot.BottomLeft));
+      this._measuredBounds = new Rect(0, 0, Math.max(r.width + extraW || 0, 0), Math.max(r.height + extraH || 0, 0));
+    }
+    this._naturalBounds = this._measuredBounds.copy();
+    this._actualBounds = new Rect(-pad.l, -pad.t, this._measuredBounds.width, this._measuredBounds.height);
+  }
+
+  /**
    * 官方 Placeholder.measure（computeBorder）：
    * 1) union 可见成员的 actualBounds（文档坐标，成员 ab 实值才计入；跳过 Link）；
    * 2) 无成员 union → border = group.location 实值点 (0×0)，否则 (0,0)；
@@ -124,6 +172,12 @@ export class Placeholder extends GraphObject {
    * 5) 有成员 union 且 border x/y 实值 → group.location = border 按 group.locationSpot 锚点。
    */
   _measure(availW: number, availH: number): void {
+    const owner = this.part;
+    if (owner !== null && (owner as any)._className === 'Adornment') {
+      this._measureForAdornment(owner);
+      this._applySizeConstraints();
+      return;
+    }
     const group = this._findGroup();
     if (group) {
       let union: Rect | null = null;
