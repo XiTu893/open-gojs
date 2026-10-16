@@ -1557,7 +1557,7 @@ export class Link extends Part {
     return t;
   }
 
-  /** 官方 `Link.computeMidPoint(result)`（本项目无 Transform，跳过 Geometry 沿路径取中点分支） */
+/** 官方 `Link.computeMidPoint(result)`（Bezier 分支走中间段 t=0.5，其余走 flattened 长度） */
   computeMidPoint(result: Point): Point {
     const n = this.pointsCount;
     if (n === 0) { result.x = NaN; result.y = NaN; return result; }
@@ -1572,6 +1572,34 @@ export class Link extends Part {
       const b = this.getPoint(1);
       result.x = (a.x + b.x) / 2;
       result.y = (a.y + b.y) / 2;
+      return result;
+    }
+    // 官方 computeMidPoint 的 Bezier 分支（computeCurve()===9）：
+    // 直接对**中间那一段三次贝塞尔**取 t=0.5（G.PT），不走「flattened 长度 +
+    // 锚点线性插值」——后者对曲线段是错的，会把中点（及依赖它的 link 标签
+    // 位置、Link actualBounds/documentBounds）带偏数十 px（stateChart 顶部
+    // 文字被视口裁掉的根因）。
+    if (this.computeCurve() === CurveBezier) {
+      if (n === 3) {
+        // 官方 i===3：两控制点都在 p1
+        const p0 = this.getPoint(0);
+        const p1 = this.getPoint(1);
+        const p2 = this.getPoint(2);
+        return cubicMid(p0.x, p0.y, p1.x, p1.y, p1.x, p1.y, p2.x, p2.y, result);
+      }
+      const segs = (n - 1) / 3 | 0;
+      const c = ((segs / 2) | 0) * 3;
+      if (segs % 2 === 1) {
+        const p0 = this.getPoint(c);
+        const p1 = this.getPoint(c + 1);
+        const p2 = this.getPoint(c + 2);
+        const p3 = this.getPoint(c + 3);
+        return cubicMid(p0.x, p0.y, p1.x, p1.y, p2.x, p2.y, p3.x, p3.y, result);
+      }
+      // 官方 else：偶数段 → 取两段共享的锚点
+      const p = this.getPoint(c);
+      result.x = p.x;
+      result.y = p.y;
       return result;
     }
     const lens = this.flattenedLengths;
@@ -2800,3 +2828,13 @@ export class Link extends Part {
 }
 
 GraphObject.defineBuilder('Link', Link);
+
+/**
+ * 三次贝塞尔在 t=0.5 处的点：B(0.5) = (P0 + 3·P1 + 3·P2 + P3) / 8。
+ * 对应官方 `G.PT(..., t=0.5)`，用于 `Link.computeMidPoint` 的 Bezier 分支。
+ */
+function cubicMid(x0: number, y0: number, x1: number, y1: number, x2: number, y2: number, x3: number, y3: number, result: Point): Point {
+  result.x = (x0 + 3 * x1 + 3 * x2 + x3) / 8;
+  result.y = (y0 + 3 * y1 + 3 * y2 + y3) / 8;
+  return result;
+}

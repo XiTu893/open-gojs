@@ -106,8 +106,13 @@ export class Part extends Panel {
   _invalidateMeasure(): void {
     super._invalidateMeasure();
     const d = this._diagram;
-    if (d && typeof d.requestUpdate === 'function') {
-      d.requestUpdate();
+    if (d) {
+      // 测量进行中（_measureArrangeAll(true)）不重武装脏位：期间 _invalidateLinkRoutes
+      // →invalidateRoute→_invalidateMeasure 会无限重武装（grafcet 避障 link 每帧闪烁根因）。
+      if (!(d as any)._isMeasuring) {
+        (d as any)._measureInvalid = true;
+        if (typeof d.requestUpdate === 'function') d.requestUpdate();
+      }
     }
   }
 
@@ -509,6 +514,10 @@ export class Part extends Panel {
   canLayout(): boolean {
     if (!this._isLayoutPositioned || !this._visible) return false;
     if ((this as any).isLinkLabel) return false;
+    // 临时层（Grid/ViewportBackground/Adornment/Tool 等）里的 Part 不参与布局 ——
+    // 官方 canLayout 要求 isLayoutPositioned，而临时层部件的该标志为 false；
+    // 否则 PERT 图例(legend) 会混进 LD 网络，拉偏末层间距 41px。
+    if (this._layer && (this._layer as any).isTemporary) return false;
     return true;
   }
 

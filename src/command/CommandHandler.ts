@@ -20,6 +20,8 @@ export class CommandHandler {
   private _diagram: any = null;
   private _isEnabled: boolean = true;
   private static _clipboard: any[] = [];
+  /** 官方 `Diagram.Tb`：剪贴板内容对应的 model.dataFormat（paste 前要核对） */
+  private static _clipboardFormat: string | null = null;
 
   // ============ Properties ============
 
@@ -107,6 +109,7 @@ export class CommandHandler {
   copySelection(): void {
     if (!this.canCopy()) return;
     CommandHandler._clipboard = [];
+    CommandHandler._clipboardFormat = this._diagram && this._diagram.model ? this._diagram.model.dataFormat : null;
     const selection = this._diagram.selection;
     const it = selection.iterator;
     while (it.next()) {
@@ -199,7 +202,8 @@ export class CommandHandler {
   canUndo(): boolean {
     if (!this._isEnabled) return false;
     if (!this._diagram) return false;
-    if (this._diagram.isReadOnly) return false;
+    if (this._diagram.isReadOnly || this._diagram.isModelReadOnly) return false;
+    if (!this._diagram.allowUndo) return false;
     const undoManager = this._diagram.undoManager;
     if (!undoManager) return false;
     return undoManager.canUndo;
@@ -215,7 +219,8 @@ export class CommandHandler {
   canRedo(): boolean {
     if (!this._isEnabled) return false;
     if (!this._diagram) return false;
-    if (this._diagram.isReadOnly) return false;
+    if (this._diagram.isReadOnly || this._diagram.isModelReadOnly) return false;
+    if (!this._diagram.allowUndo) return false;
     const undoManager = this._diagram.undoManager;
     if (!undoManager) return false;
     return undoManager.canRedo;
@@ -308,12 +313,29 @@ export class CommandHandler {
 
   // ============ Group ============
 
+  /**
+   * 官方 `model.Dh()`：GraphLinksModel 支持组/链接结构（基类 Model 与 TreeModel 返回 false）。
+   * canGroup/canUngroup 以此为门。model 实例没有 `_className` 字段（那是 GraphObject 家族的），
+   * 走 constructor 上的 static className。
+   */
+  private _modelSupportsGroups(): boolean {
+    const m: any = this._diagram ? this._diagram.model : null;
+    return !!m && !!(m.constructor && m.constructor.className === 'GraphLinksModel');
+  }
+
   canGroupSelection(): boolean {
-    if (!this._isEnabled) return false;
-    if (!this._diagram) return false;
-    if (this._diagram.isReadOnly) return false;
-    if (!this._diagram.allowGroup) return false;
-    return this._diagram.selection.count > 0;
+    const d: any = this._diagram;
+    if (!this._isEnabled || !d) return false;
+    if (d.isReadOnly || d.isModelReadOnly) return false;
+    if (!d.allowInsert || !d.allowGroup) return false;
+    if (!this._modelSupportsGroups()) return false;
+    if (this._archetypeGroupData === null) return false;
+    const it = d.selection.iterator;
+    while (it.next()) {
+      const p = it.value;
+      if (p && typeof p.canGroup === 'function' && p.canGroup()) return true;
+    }
+    return false;
   }
 
   groupSelection(): void {
@@ -323,17 +345,58 @@ export class CommandHandler {
 
   // ============ Ungroup ============
 
-  canUngroupSelection(): boolean {
-    if (!this._isEnabled) return false;
-    if (!this._diagram) return false;
-    if (this._diagram.isReadOnly) return false;
-    if (!this._diagram.allowUngroup) return false;
-    return this._diagram.selection.count > 0;
+  canUngroupSelection(part: any = null): boolean {
+    const d: any = this._diagram;
+    if (!this._isEnabled || !d) return false;
+    if (d.isReadOnly || d.isModelReadOnly) return false;
+    if (!d.allowDelete || !d.allowUngroup) return false;
+    if (!this._modelSupportsGroups()) return false;
+    if (part !== null && part !== undefined) {
+      // 官方：`t instanceof Group && t.canUngroup()`
+      if ((part as any)._className !== 'Group') return false;
+      return part.canUngroup();
+    }
+    const it = d.selection.iterator;
+    while (it.next()) {
+      const p = it.value;
+      if (p && p._className === 'Group' && p.canUngroup()) return true;
+    }
+    return false;
   }
 
   ungroupSelection(): void {
     if (!this.canUngroupSelection()) return;
     // Stub: ungroup selected groups
+  }
+
+  // ============ Edit Text ============
+
+  /**
+   * 官方 `canEditTextBlock(t=null)`：
+   * `isReadOnly||isModelReadOnly||!allowTextEdit||!toolManager.findTool("TextEditing") → false`；
+   * t 指定时须为 TextBlock 且其 Part.canEdit()；否则选中任一 Part canEdit 且
+   * findInVisualTree 内存在 editable TextBlock。
+   */
+  canEditTextBlock(part: any = null): boolean {
+    const d: any = this._diagram;
+    if (!this._isEnabled || !d) return false;
+    if (d.isReadOnly || d.isModelReadOnly) return false;
+    if (!d.allowTextEdit) return false;
+    if (!d.toolManager || typeof d.toolManager.findTool !== 'function' || !d.toolManager.findTool('TextEditing')) return false;
+    if (part !== null && part !== undefined) {
+      if ((part as any)._className !== 'TextBlock') return false;
+      const p = part.part;
+      return p !== null && p !== undefined && p.canEdit();
+    }
+    const it = d.selection.iterator;
+    while (it.next()) {
+      const p = it.value;
+      if (p && typeof p.canEdit === 'function' && p.canEdit() && typeof p.findInVisualTree === 'function') {
+        const tb = p.findInVisualTree((n: any) => n && n._className === 'TextBlock' && n.editable);
+        if (tb !== null) return true;
+      }
+    }
+    return false;
   }
 
   // ============ Collapse SubGraph ============
@@ -689,6 +752,22 @@ export class CommandHandler {
     if (!this._isEnabled || !d) return false;
     if (d.isReadOnly || (d as any).isModelReadOnly) return false;
     if (!d.allowInsert || !d.allowClipboard) return false;
+    if (this._storageLocation === 'systemClipboard') return true;
+    if (this._storageLocation !== 'memory') {
+      try {
+        const s: any = (globalThis as any)[this._storageLocation];
+        if (!s) return false;
+        const e = s.getItem('gojs-copy');
+        const n = s.getItem('gojs-dataFormat');
+        return !(e === null || e === '' || n !== d.model.dataFormat);
+      } catch {
+        return false;
+      }
+    }
+    // memory：剪贴板为空或格式不符 → 不可粘贴
+    // （customContextMenu 右键菜单 paste 项：官方空剪贴板隐藏，我方早先恒 true 多显示一项）
+    if (CommandHandler._clipboard === null || CommandHandler._clipboard.length === 0) return false;
+    if (CommandHandler._clipboardFormat !== null && CommandHandler._clipboardFormat !== d.model.dataFormat) return false;
     return true;
   }
 
@@ -727,9 +806,11 @@ pasteSelectionAsync(pos?: Point): void {
   copyToClipboard(coll: any): void {
     if (coll === null) {
       CommandHandler._clipboard = [];
+      CommandHandler._clipboardFormat = null;
       return;
     }
     CommandHandler._clipboard = [];
+    CommandHandler._clipboardFormat = this._diagram && this._diagram.model ? this._diagram.model.dataFormat : null;
     const iter: any = coll && coll.iterator ? coll.iterator() : coll;
     if (iter && iter.next) {
       while (iter.next()) {
@@ -829,12 +910,17 @@ pasteSelectionAsync(pos?: Point): void {
   }
 
   // ---- 滚动到部件 ----
+  /** 官方 `canScrollToPart(t=null)`：t 非 Part → false；无选中且无高亮 → false；否则看横纵滚动许可 */
   canScrollToPart(part?: any): boolean {
     const d = this._diagram;
     if (!this._isEnabled || !d) return false;
-    if (!d.allowHorizontalScroll || !d.allowVerticalScroll) return false;
-    if (part) return true;
-    return d.selection.count > 0;
+    if (part !== null && part !== undefined) {
+      // 官方 `t instanceof Part`；本项目实例用 `_className`（constructor.name 风格字段）
+      const cn = (part as any)._className;
+      if (cn !== 'Link' && cn !== 'Node' && cn !== 'Group' && cn !== 'Part' && cn !== 'Adornment') return false;
+    }
+    if (d.selection.count === 0 && (!d.highlighteds || d.highlighteds.count === 0)) return false;
+    return !!(d.allowHorizontalScroll && d.allowVerticalScroll);
   }
 
   private _scrollToPartPause: number = 200;
@@ -861,14 +947,6 @@ pasteSelectionAsync(pos?: Point): void {
   }
 
   // ---- 文本编辑 ----
-  canEditTextBlock(textblock?: any): boolean {
-    const d = this._diagram;
-    if (!this._isEnabled || !d) return false;
-    if (d.isReadOnly) return false;
-    if (!d.allowTextEdit) return false;
-    return d.selection.count > 0;
-  }
-
   editTextBlock(textblock?: any): void {
     if (!this.canEditTextBlock(textblock)) return;
     const d: any = this._diagram;

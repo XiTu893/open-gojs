@@ -1,6 +1,17 @@
 import { Animation } from './Animation';
 import { Set } from '../core/Set';
 
+/** 官方自定义动画效果函数签名。easing 是官方 4 参 `(time, start, delta, duration) => value`。 */
+export type AnimationEffectFn = (
+  obj: object,
+  from: any,
+  to: any,
+  easing: (time: number, start: number, delta: number, duration: number) => number,
+  currentTime: number,
+  duration: number,
+  animation: Animation
+) => void;
+
 export class AnimationManager {
   static readonly className: string = "AnimationManager";
 
@@ -121,12 +132,14 @@ export class AnimationManager {
     return s;
   }
 
-  /** 官方 `AnimationManager.defineAnimationEffect(effectName, animationFunction)`（静态） */
-  static defineAnimationEffect(name: string, effect: (obj: object, from: any, to: any, duration: number) => Animation): void {
+  /** 官方 `AnimationManager.defineAnimationEffect(effectName, animationFunction)`（静态）
+   * 官方效果函数签名：`(obj, from, to, easing, currentTime, duration, animation) => void`，
+   * easing 是 4 参 `(time, start, delta, duration) => value`。 */
+  static defineAnimationEffect(name: string, effect: AnimationEffectFn): void {
     (AnimationManager as any)._effects[name] = effect;
   }
 
-  static getEffect(name: string): ((obj: object, from: any, to: any, duration: number) => Animation) | undefined {
+  static getEffect(name: string): AnimationEffectFn | undefined {
     return (AnimationManager as any)._effects[name];
   }
 
@@ -173,5 +186,5 @@ export class AnimationManager {
     }
   }
 
-  private static _effects: Record<string, (obj: object, from: any, to: any, duration: number) => Animation> = {};
+  private static _effects: Record<string, AnimationEffectFn> = {};
 }

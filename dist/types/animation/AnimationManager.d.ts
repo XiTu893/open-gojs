@@ -1,5 +1,7 @@
 import { Animation } from './Animation';
 import { Set } from '../core/Set';
+/** 官方自定义动画效果函数签名。easing 是官方 4 参 `(time, start, delta, duration) => value`。 */
+export type AnimationEffectFn = (obj: object, from: any, to: any, easing: (time: number, start: number, delta: number, duration: number) => number, currentTime: number, duration: number, animation: Animation) => void;
 export declare class AnimationManager {
     static readonly className: string;
     private _diagram;
@@ -30,9 +32,11 @@ export declare class AnimationManager {
     unregisterAnimation(anim: Animation): void;
     /** 官方 `AnimationManager.activeAnimations: Set<Animation>` */
     get activeAnimations(): Set<Animation>;
-    /** 官方 `AnimationManager.defineAnimationEffect(effectName, animationFunction)`（静态） */
-    static defineAnimationEffect(name: string, effect: (obj: object, from: any, to: any, duration: number) => Animation): void;
-    static getEffect(name: string): ((obj: object, from: any, to: any, duration: number) => Animation) | undefined;
+    /** 官方 `AnimationManager.defineAnimationEffect(effectName, animationFunction)`（静态）
+     * 官方效果函数签名：`(obj, from, to, easing, currentTime, duration, animation) => void`，
+     * easing 是 4 参 `(time, start, delta, duration) => value`。 */
+    static defineAnimationEffect(name: string, effect: AnimationEffectFn): void;
+    static getEffect(name: string): AnimationEffectFn | undefined;
     updateAnimation(): void;
     private _startTicking;
     private _stopTicking;

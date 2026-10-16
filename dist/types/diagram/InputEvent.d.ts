@@ -78,6 +78,14 @@ export declare class InputEvent {
     /** 官方 InputEvent.up —— 逻辑主键是否处于抬起状态。 */
     up: boolean;
     /**
+     * 官方 InputEvent.right（ContextMenuTool.canStart 依赖它）：
+     * down/up 事件用 button（mouseup 时 button===2 表示刚释放的是右键），
+     * 其余事件用 buttons 的第 1 位。
+     */
+    get right(): boolean;
+    /** 官方 InputEvent.middle：同 right，button===1 / buttons 第 2 位。 */
+    get middle(): boolean;
+    /**
      * 官方 InputEvent.isMultiTouch
      * 是否为多点触控（两个及以上触点同时作用于图）。
      */

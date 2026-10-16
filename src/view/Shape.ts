@@ -162,10 +162,23 @@ export class Shape extends GraphObject {
   set strokeWidth(val: number) { this._strokeWidth = val; }
 
   get strokeDashArray(): number[] | null { return this._strokeDashArray; }
-  set strokeDashArray(val: number[] | null) { this._strokeDashArray = val; }
+  set strokeDashArray(val: number[] | null) {
+    if (this._strokeDashArray !== val) {
+      this._strokeDashArray = val;
+      this._invalidateMeasure();
+    }
+  }
 
   get strokeDashOffset(): number { return this._strokeDashOffset; }
-  set strokeDashOffset(val: number) { this._strokeDashOffset = val; }
+  set strokeDashOffset(val: number) {
+    if (this._strokeDashOffset !== val) {
+      this._strokeDashOffset = val;
+      // 官方 Shape 画笔属性 setter 会失效 paint/measure，触发重绘。
+      // 漏掉它：belts 的传送带动画每帧改 strokeDashOffset，但 Shape 永不重绘，
+      // 皮带静止（`_renderLoop` 只在 measure 失效时重画该 part）。
+      this._invalidateMeasure();
+    }
+  }
 
   get strokeCap(): string { return this._strokeCap; }
   set strokeCap(val: string) { this._strokeCap = val; }
@@ -697,7 +710,9 @@ export class Shape extends GraphObject {
       return { w: b.width, h: b.height };
     }
     if (this._figure && this._figure !== 'None') {
-      const g = getFigureGeometry(this._figure, 100, 100, NaN, NaN, null);
+      // 官方 Shape.FN[figure] 缓存：裸生成器（null,100,100）不记尺寸（Ec/Uc=NaN），
+      // 包围盒 = 路径 ∪ 原点 → LineV 自然宽 50 而非 100。setSize=false 对齐之。
+      const g = getFigureGeometry(this._figure, 100, 100, NaN, NaN, null, false);
       if (g) {
         const b = g.bounds;
         return { w: b.width, h: b.height };
@@ -883,7 +898,7 @@ export class Shape extends GraphObject {
     // **不读** geometry.defaultStretch；只有 figure（rn===null）才回落到
     // figure geometry 的 defaultStretch（Shape.FN[figure].defaultStretch）。
     if (this._geometry === null && !this._geometryString && this._figure && this._figure !== 'None') {
-      const g = getFigureGeometry(this._figure, 100, 100, NaN, NaN, null);
+      const g = getFigureGeometry(this._figure, 100, 100, NaN, NaN, null, false);
       if (g) return g.defaultStretch !== undefined ? (g.defaultStretch === 1 ? 2 : g.defaultStretch) : 2;
     }
     return 2;

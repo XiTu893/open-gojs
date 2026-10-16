@@ -138,6 +138,11 @@ export declare class Model {
     addChangedListener(listener: ChangedEventListener): void;
     removeChangedListener(listener: ChangedEventListener): void;
     raiseChangedEvent(change: any, object: any, propertyName: string, oldValue: any, newValue: any, index?: number): ChangedEvent;
+    /**
+     * 官方 `UndoManager.jl(t, i, e)`：`s.change=1, s.propertyName=t, s.object=e(事务), s.oldValue=i(事务名)`。
+     * 早先本项目把 `object` 设成了 model 本身 → updateDemo 这类读 `e.object.changes` 的
+     * 样例拿到 `model.changes === undefined`，`.each` 直接崩。
+     */
     raiseTransactionEvent(propertyName: string, tname: string, transObj?: any): ChangedEvent;
     /** 更新目标绑定 */
     updateTargetBindings(propname?: string): void;

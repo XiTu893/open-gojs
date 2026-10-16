@@ -182,6 +182,26 @@ export class InputEvent {
   public up: boolean = false;
 
   /**
+   * 官方 InputEvent.right（ContextMenuTool.canStart 依赖它）：
+   * down/up 事件用 button（mouseup 时 button===2 表示刚释放的是右键），
+   * 其余事件用 buttons 的第 1 位。
+   */
+  get right(): boolean {
+    const e: any = this.nativeEvent;
+    if (e !== null && (e.type === 'mouseup' || e.type === 'mousedown' || e.type === 'pointerup' || e.type === 'pointerdown')) return this.button === 2;
+    if (e !== null && typeof e.buttons === 'number') return (e.buttons & 2) === 2;
+    return this.button === 2;
+  }
+
+  /** 官方 InputEvent.middle：同 right，button===1 / buttons 第 2 位。 */
+  get middle(): boolean {
+    const e: any = this.nativeEvent;
+    if (e !== null && (e.type === 'mouseup' || e.type === 'mousedown' || e.type === 'pointerup' || e.type === 'pointerdown')) return this.button === 1;
+    if (e !== null && typeof e.buttons === 'number') return (e.buttons & 4) === 4;
+    return this.button === 1;
+  }
+
+  /**
    * 官方 InputEvent.isMultiTouch
    * 是否为多点触控（两个及以上触点同时作用于图）。
    */

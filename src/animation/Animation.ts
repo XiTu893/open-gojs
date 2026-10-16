@@ -1,5 +1,6 @@
 import { Point } from '../core/Point';
 import { Rect } from '../core/Rect';
+import { AnimationManager } from './AnimationManager';
 
 export class Animation {
   static readonly className: string = "Animation";
@@ -34,6 +35,10 @@ export class Animation {
   private _duration: number = NaN;
   private _easing: (t: number) => number = Animation.EaseInOut;
   private _reversible: boolean = false;
+  /** 官方自定义效果的 easing 是 4 参 `(time, start, delta, duration) => value`，
+   * 把本项目的 0~1 easing 包成官方签名（数学上与官方默认插值等价）。 */
+  private _easing4 = (time: number, start: number, delta: number, duration: number): number =>
+    start + delta * (duration > 0 ? this._easing(time / duration) : 1);
   /** 官方 `Animation.runCount`：跑几遍；Infinity 表示无限循环（belts 的传送带就是它） */
   private _runCount: number = 1;
   private _isViewportUnconstrained: boolean = false;
@@ -268,7 +273,17 @@ export class Animation {
 
     for (const config of this._animations) {
       if (config.target && config.property) {
-        this._interpolate(config, easedProgress);
+        // 官方：对每个属性查 AnimationManager 的注册效果（w1 map），命中就用
+        // 官方签名 `(obj, from, to, easing, currentTime, duration, animation)` 调用；
+        // 没注册的走默认插值。processFlow 的 'waves'/'offset' 是样例用
+        // defineAnimationEffect 注册的自定义效果（改 parameter1 / alignment），
+        // 直接当普通属性 set 无效，必须派发给注册的 effect 函数。
+        const effect = AnimationManager.getEffect(config.property);
+        if (effect) {
+          effect(config.target, config.from, config.to, this._easing4, elapsed, dur, this);
+        } else {
+          this._interpolate(config, easedProgress);
+        }
       }
     }
 

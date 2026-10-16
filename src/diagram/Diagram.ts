@@ -134,6 +134,21 @@ export class Diagram {
    * 画 graduated 时间轴时报 `Invalid arguments to Rect constructor: 0, Infinity, 0, -Infinity`。
    */
   private _lastRaisedDocBounds: Rect | null = null;
+  /** 最近一次 raise ViewportChanged 时的 viewportBounds（防重复 raise 的比对基准） */
+  private _lastRaisedViewport: Rect | null = null;
+  /**
+   * 官方 `Diagram.je`：ViewportBoundsChanged 的 subject（**变化前**的 viewport 快照
+   * `{scale, position, bounds, canvasSize, newCanvasSize, isScroll}`，官方是单例
+   * 复用、每次 raise 前原地改写）。
+   */
+  private _je: any = {
+    scale: 1,
+    position: new Point(0, 0),
+    bounds: new Rect(0, 0, 0, 0),
+    canvasSize: new Size(0, 0),
+    newCanvasSize: new Size(0, 0),
+    isScroll: false
+  };
 
   protected _allowSelect: boolean = true;
   protected _allowMove: boolean = true;
@@ -171,6 +186,24 @@ export class Diagram {
   private _layout: any = null;
   private _isInitial: boolean = true;
   _layoutInvalid: boolean = false;
+  /**
+   * 官方 GraphObject.Ef→os 置的测量脏位：子元素属性（TextBlock.text、
+   * Shape.width/height 等）变更后，下一个 update 必须跑一遍
+   * measure+arrange（_measureArrangeAll(true)），否则 actualBounds
+   * 停留在旧值（gantt 任务行 Start/Dur. 文本宽 0、时间轴 MAIN 宽度不更新）。
+   */
+  _measureInvalid: boolean = false;
+  /** 测量进行中（_measureArrangeAll(true) 执行期间）：期间的 _invalidateMeasure 不再重武装
+   *  _measureInvalid —— 否则 _invalidateLinkRoutes→invalidateRoute→_invalidateMeasure 会在
+   *  每次重测时把脏位重新置上，形成「重测→失效路线→重测」的每帧空转（grafcet 避障 link
+   *  在直路/绕障两条路线间每帧闪烁的根因）。 */
+  _isMeasuring: boolean = false;
+  /** 官方 Part.Kd(oldBounds,newBounds) 的持久化上次 bounds：
+   *  跨测量趟保存各端点部件（Node/Group）的 position+measuredBounds，
+   *  arrange 后比对，变了才 invalidateConnectedLinks。
+   *  快照必须跨趟持久 —— 每趟开始时重取会让两趟之间被 layout 移动的
+   *  部件（如 Group.move 改写成员 position）漏掉失效。 */
+  private _endpointBounds = new Map<any, number[]>();
   private _contextMenu: any = null;
 
   _layers: Layer[] = [];
@@ -192,6 +225,8 @@ export class Diagram {
   private _updateSuspended: boolean = false;
   /** 官方 Ar 入口的 vs 自锁：同步 maybeUpdate 期间禁止嵌套跑第二轮 */
   private _isInUpdate: boolean = false;
+  /** 官方 `Or` 的 `fo`：首帧 Initial Layout 已跑过（跑过后不再开该事务，history 允许记 'Layout'） */
+  private _initialLayoutDone: boolean = false;
 
   private _resizeObserver: ResizeObserver | null = null;
   private _lastDivWidth: number = 0;
@@ -309,6 +344,15 @@ export class Diagram {
       this.add(gridPart);
       this._parts.delete(gridPart);
     }
+    // 官方 set model 尾：`i&&t.undoManager.copyProperties(i.undoManager)`。
+    // 换 model 后 diagram.undoManager 指向新 model 的 undoManager（默认
+    // isEnabled=false），要把旧 model 上配置过的 isEnabled/maxHistoryLength 等
+    // 拷过来，否则 `'undoManager.isEnabled': true` 的样例（processFlow 等）
+    // 在 `load()` 换 model 后事务不再跟踪、TransactionFinished 事件不发，
+    // 依赖它的动画（strokeDashOffset 水流）完全不动。
+    if (oldModel && val && oldModel.undoManager && val.undoManager) {
+      val.undoManager.copyProperties(oldModel.undoManager);
+    }
     // 官方 `Diagram.model` setter（go.js: set model(t){…}）**不会**走事务，
     // 只是 `invalidateDocumentBounds()` + 重挂监听者。
     // 以前这里额外 start/commit 了一个 'Replace Model' 事务，于是
@@ -399,6 +443,10 @@ export class Diagram {
   }
   set position(val: Point) {
     if (this._position.equals(val)) return;
+    // 官方 set position：先存旧 viewportRect/scale，改完 _position 后
+    // onViewportBoundsChanged(旧rect, 新viewport, 旧scale) —— subject=旧值。
+    const oldRect = this.viewportBounds.copy();
+    const oldScale = this._scale;
     this._position = val.copy();
     // 官方 `set position` 尾部：未在嵌套夹取中且(div 存在或 documentBounds 已成形)时
     // 立刻 H2/clampViewportPosition —— 否则滚轮能把 position 拖出文档范围(实测 flowchart)。
@@ -407,7 +455,7 @@ export class Diagram {
       this._clampViewportPosition(this.documentBounds, this.viewSize.width / this._scale, this.viewSize.height / this._scale, this._contentAlignment);
       this._isClampingPosition = false;
     }
-    this._raiseDiagramEvent('ViewportChanged');
+    this._raiseViewportChanged(oldRect, oldScale);
     this.requestUpdate();
   }
 
@@ -418,8 +466,12 @@ export class Diagram {
   set scale(val: number) {
     val = Math.max(this._minScale, Math.min(this._maxScale, val));
     if (this._scale === val) return;
+    // 官方 set scale→ZA：先存旧 viewportRect/scale，改 scale 后
+    // onViewportBoundsChanged(旧rect, 新viewport, 旧scale)。
+    const oldRect = this.viewportBounds.copy();
+    const oldScale = this._scale;
     this._scale = val;
-    this._raiseDiagramEvent('ViewportChanged');
+    this._raiseViewportChanged(oldRect, oldScale);
     this.requestUpdate();
   }
 
@@ -900,13 +952,19 @@ export class Diagram {
     return null;
   }
 
-  /** 官方 Diagram.findObjectAt：逐层向下调 Layer.findObjectAt（**不过滤 temporary**，与 findPartAt 不同） */
-  findObjectAt(point: Point): GraphObject | null {
+  /**
+   * 官方 Diagram.findObjectAt：逐层向下调 Layer.findObjectAt（**不过滤 temporary**，与 findPartAt 不同）。
+   * 官方签名还带 pred/target（ContextMenuTool 用 `n => !n.layer?.isTemporary` 排除 Tool 层）。
+   */
+  findObjectAt(point: Point, pred?: ((obj: GraphObject) => boolean) | null): GraphObject | null {
     for (let i = this._layers.length - 1; i >= 0; i--) {
       const layer = this._layers[i];
       if (!layer.visible) continue;
       const hit = layer.findObjectAt(point);
-      if (hit !== null) return hit;
+      if (hit !== null) {
+        if (pred && !pred(hit)) continue;
+        return hit;
+      }
     }
     return null;
   }
@@ -919,15 +977,35 @@ export class Diagram {
 
   // ============ Selection Methods ============
 
+  /**
+   * 官方 `Diagram.select(t)`：
+   * `t!==null && t.diagram===this && (!t.isSelected || selection.count>1) &&
+   *  (D("ChangingSelection"), clearSelection(!0), t.isSelected=!0, D("ChangedSelection"))`
+   * 早先这里 clearSelection()（带事件）+ 直接改 _isSelected/_selection.add，
+   * **从不 raise ChangedSelection**（首次选中时 clearSelection 里 hadSelection=false 也不发）。
+   * 后果：依赖该事件的样例相机/联动逻辑永不启动
+   * （miningSim 的 ChangedSelection → startFollow 追车相机，viewport 停在
+   *  初始 centerRect 的 620,139，官方一直跟车到 490,593）。
+   */
   select(part: Part | null): void {
-    this.clearSelection();
-    if (part && this._allowSelect && part.selectable) {
-      part.isSelected = true;
-      this._selection.add(part);
+    if (part === null || part === undefined) {
+      this.clearSelection();
+      return;
+    }
+    if ((part as any).diagram !== this) return;
+    if (!(part as any).isSelected || this._selection.count > 1) {
+      this.raiseDiagramEvent('ChangingSelection', this._selection);
+      this.clearSelection(true);
+      (part as any).isSelected = true;
+      this.raiseDiagramEvent('ChangedSelection', this._selection);
     }
   }
 
-  clearSelection(): void {
+  /**
+   * @param suppressEvent 官方 `clearSelection(t)` 的 t：true 时不 raise ChangedSelection
+   * （供 select/selectCollection 在自己的 Changing/Changed 对之间内部清空用）。
+   */
+  clearSelection(suppressEvent: boolean = false): void {
     const hadSelection = this._selection.count > 0;
     const it = this._selection.iterator;
     const parts: Part[] = [];
@@ -948,13 +1026,18 @@ export class Diagram {
         this._toolManager.updateAdornments(part);
       }
     }
-    if (hadSelection) {
+    if (hadSelection && !suppressEvent) {
       this.raiseDiagramEvent('ChangedSelection', this._selection);
     }
   }
 
+  /**
+   * 官方 `Diagram.selectCollection(t)`：`D("ChangingSelection"), clearSelection(!0),
+   * 逐个 isSelected=!0, D("ChangedSelection")`。
+   */
   selectCollection(parts: GojsIterable<Part>): void {
-    this.clearSelection();
+    this.raiseDiagramEvent('ChangingSelection', this._selection);
+    this.clearSelection(true);
     if (!this._allowSelect) return;
     const it = parts.iterator;
     while (it.next()) {
@@ -1398,6 +1481,44 @@ export class Diagram {
     const mb = part.measuredBounds;
     part._arrange(new Rect(pos.x, pos.y, mb.width, mb.height));
     if (typeof part.syncPositionFromLocation === 'function') part.syncPositionFromLocation();
+  }
+
+  /**
+   * 官方 `Layer.PL()`：把视口对齐层（isViewportAligned，如 ViewportBackground/
+   * ViewportForeground）里的 Part 按 alignment 摆到当前视口角落。
+   *  - 设备局部坐标：f = a.x*clientW + a.offsetX − (c.x*naturalW + c.offsetX)
+   *                  u = a.y*clientH + a.offsetY − (c.y*naturalH + c.offsetY)
+   *  - 转文档坐标：doc = position + (f/scale, u/scale)
+   *  - 该 Part 的 scale 置为 1/diagramScale，抵消图缩放（图例/水印恒显固定尺寸）
+   * 缺此逻辑时 PERT 图例(legend)停在 (null,null) 不摆放，位置完全错位。
+   */
+  private _layoutViewportAlignedParts(): void {
+    const scale = this._scale;
+    if (!(scale > 0)) return;
+    const div = this._div;
+    const cw = div && div.clientWidth ? div.clientWidth : 0;
+    const ch = div && div.clientHeight ? div.clientHeight : 0;
+    if (!(cw > 0) || !(ch > 0)) return;
+    const posX = this._position.x;
+    const posY = this._position.y;
+    for (const layer of this._layers) {
+      if (!layer.isViewportAligned) continue;
+      const pit = layer.parts;
+      while (pit.next()) {
+        const part = pit.value as any;
+        if (!part || !part.naturalBounds) continue;
+        const nb = part.naturalBounds;
+        if (!(nb.width > 0) || !(nb.height > 0)) continue;
+        let a = part.alignment as Spot;
+        if (a.isDefault() || !a.isSpot()) a = Spot.BottomRight;
+        let c = part.alignmentFocus as Spot;
+        if (c.isDefault()) c = new Spot(a.x, a.y, a.offsetX, a.offsetY);
+        const f = a.x * cw + a.offsetX - (c.x * nb.width + c.offsetX);
+        const u = a.y * ch + a.offsetY - (c.y * nb.height + c.offsetY);
+        part.position = new Point(posX + f / scale, posY + u / scale);
+        part.scale = 1 / scale;
+      }
+    }
   }
 
   private _createDefaultNodeTemplate(): Part {
@@ -1868,15 +1989,13 @@ export class Diagram {
       // sync 之前），本项目早先只 requestUpdate(RAF) → 首帧布局排在 initFleet
       // 的 `position=(0,0)` **之后**，初始视口把图心居中覆盖成 (-19,12)。
       const p = e.propertyName;
-      // 'CommittingTransaction' 例外：此刻 UndoManager 已把 transactionLevel 减到 0
-      // 但 _currentTransaction 还没置 null（要等 CommittedTransaction 之后）。
-      // 这时同步跑布局会走 _runLayoutInTransaction 的 `nested===0` 分支新开一条
-      // 'Layout' 事务，把外层的 _currentTransaction 顶掉 → 外层恢复时
-      // `this._currentTransaction.count` 读 null 崩溃。CommittedTransaction 阶段
-      // 再跑同样能得到官方的「事务提交内同步完成首帧布局」时序。
+      // 早先排除了 'CommittingTransaction'（当时它在层级减到 0 之后发，同步跑布局会走
+      // nested===0 新开 'Layout' 事务顶掉外层 _currentTransaction → 崩溃）。现已对齐官方
+      // zT：CommittingTransaction 在递减层级**之前**（level 仍为 1）发，同步跑布局时
+      // nested=1 不开新事务，安全；共享 model 的另一张图靠它在顶层事务内嵌套跑完自己的
+      // Initial Layout（updateDemo blue/green 只提交一次 CommittedTransaction）。
       if (p !== 'StartingFirstTransaction' && p !== 'StartingUndo' &&
-          p !== 'StartingRedo' && p !== 'StartedTransaction' &&
-          p !== 'CommittingTransaction') {
+          p !== 'StartingRedo' && p !== 'StartedTransaction') {
         this.maybeUpdate();
       }
       return;
@@ -2113,6 +2232,7 @@ export class Diagram {
   /** 官方 DiagramEvent：监听器收到 `{ diagram, type, subject, subjectData, args }`；官方事件名为 ViewportBoundsChanged */
   private _raiseDiagramEvent(name: string, subject?: any, subjectData?: any, ...rest: any[]): void {
     const names = name === 'ViewportChanged' ? ['ViewportChanged', 'ViewportBoundsChanged'] : [name];
+    if (name === 'ViewportChanged') this._lastRaisedViewport = this.viewportBounds.copy();
     for (const n of names) {
       const listeners = this._diagramListeners.get(n);
       if (listeners) {
@@ -2147,18 +2267,27 @@ export class Diagram {
   }
 
   private _renderLoop(): void {
-    this._needsRender = false;
+    // 先消费本 RAF 的 id，再过守卫：早退时不能留下「陈旧 af + _needsRender」的假配对。
     this._animationFrameId = 0;
-    if (this._updateSuspended) return; // 官方 Ar 入口的 vs 守卫（冻结期挂起帧直接丢弃）
+    if (this._updateSuspended) return; // 官方 Ar 入口的 vs 守卫（挂起期丢帧，但保留 _needsRender）
     // 官方 Ar 入口把 vs 置 true → 嵌套的 maybeUpdate/Ar 直接早退。
     // maybeUpdate 现在是同步的（事务提交会触发），布局/绑定里再冒出的
     // 模型变更必须能被挡回去，否则会递归进第二轮布局。
+    // 早退时**不清** _needsRender：maybeUpdate 会先 cancelAnimationFrame 再同步
+    // 调进来，若这里清掉就成「_needsRender=true 且无 RAF」→ 挂起的测量请求永久丢失
+    // （gantt 任务行 Start/Dur. 文本宽 0 的成因：flag=true, needsRender=false, af=0）。
     if (this._isInUpdate) return;
+    this._needsRender = false;
     this._isInUpdate = true;
     try {
       this._renderLoopBody();
     } finally {
       this._isInUpdate = false;
+      // 帧内 requestUpdate 排的 RAF 被嵌套 maybeUpdate 取消后，在这里补一张，
+      // 维持不变量：_needsRender=true ⇒ 必有挂起的 RAF。
+      if (this._needsRender && !this._animationFrameId) {
+        this._animationFrameId = requestAnimationFrame(() => this._renderLoop());
+      }
     }
   }
 
@@ -2166,9 +2295,52 @@ export class Diagram {
     this._checkResize();
 
     if (this._layoutInvalid) {
-      this._runLayoutInTransaction(() => this._performLayout());
+      // 布局开始前丢弃既有测量脏位（布局内自带全量 measure+arrange）；
+      // 布局途中/之后新产生的脏位**保留** → 下一帧走测量分支补一次重测
+      // （布局完成回调里改 TextBlock.text/Shape.width 时 actualBounds 不落伍）。
+      this._measureInvalid = false;
+      // 官方 `Or`（=minified Ar）首帧流程：
+      //   `startTransaction("Initial Layout") → iC(布局) → h&&a&&commitTransaction("Initial Layout")`，
+      //   且首帧 `a=true` 时 `!skipsUndoManager → undoManager.Yx=true` → commitTransaction(zT)
+      //   尾部 `Yx && clear()` —— 首帧布局整体不可撤销，官方实测 htmlLightBoxContextMenu
+      //   idle 时 `history.length=0`、`canUndo=false`（右键菜单不显示 Undo）。
+      //   本项目早先首帧直接开真 'Layout' 事务且照常压栈 → history=[Layout]、canUndo=true，
+      //   菜单比官方多出 Undo/Group/Ungroup/Edit Text 四项。
+      //   嵌套场景（首帧在样例自己的事务内跑）：官方 Yx-clear 只发生在**顶层** commit
+      //   （zT 的 `if(e)` 分支，e = transactionLevel===1）→ 嵌套 commit(e=false) 不 clear。
+      //   这里同型：commit 后 transactionLevel===0 才 clear。
+      const firstFrame = !this._initialLayoutDone;
+      if (firstFrame) {
+        this._initialLayoutDone = true;
+        this.startTransaction('Initial Layout');
+        let ok = false;
+        try {
+          this._runLayoutInTransaction(() => this._performLayout());
+          ok = true;
+        } finally {
+          if (ok) {
+            this.commitTransaction('Initial Layout');
+            const um: any = this._model ? (this._model as any).undoManager : null;
+            if (um && um.transactionLevel === 0) um.clear();
+          } else {
+            this.rollbackTransaction();
+          }
+        }
+      } else {
+        this._runLayoutInTransaction(() => this._performLayout());
+      }
       // 布局期间发生的级联失效不再触发新一轮（对齐官方：单次 layoutDiagram 通过）
       this._layoutInvalid = false;
+    } else if (this._measureInvalid) {
+      // 官方 update 的测量分支（GraphObject.Ef 置脏 → 重跑 Ht）：
+      // 子元素属性变更（TextBlock.text / Shape.width / Shape.graduatedMax 等）
+      // 不走布局，只走一次 measure+arrange，让 actualBounds 跟上新文本/新尺寸。
+      // 跑完再清一次：pass 内 _invalidateLinkRoutes → invalidateRoute →
+      // _invalidateMeasure 会把脏位重新置上，不清会形成每帧重测空转
+      // （与 Part._invalidateMeasure 早先「冒泡 _layoutInvalid 死循环」同型陷阱）。
+      this._measureInvalid = false;
+      this._measureArrangeAll(true);
+      this._measureInvalid = false;
     } else if (this._invalidRoutes.count > 0) {
       // 官方 update: `r = !undoingRedoing && (Jl || Pf.count!==0 && Jr.size!==0)`；
       // 布局有效但有待路由 link（computePoints 刚重算过，常被动画打回基础版）
@@ -2189,8 +2361,19 @@ export class Diagram {
     // 官方：documentBounds 真的变了才 raise DocumentBoundsChanged（见 _lastRaisedDocBounds 注释）
     this._checkDocumentBoundsChanged();
 
+    // 官方 tD 尾部：viewport 真的变了才 raise ViewportChanged/ViewportBoundsChanged。
+    // _applyInitialViewport / _clampViewportPosition 直接写 _position（官方走 setter
+    // 会 raise），不补这一下，样例里同步 viewport 的监听器（gantt 的
+    // ViewportBoundsChanged → myTimeline.position.y = viewportBounds.y）首帧永远不跑
+    // （实测 gantt 时间轴停在 y=0，官方 −28）。
+    this._checkViewportChanged();
+
     // 官方：Or() 更新循环末尾调用 eC()（grid 面板按视口重定位）
     this._updateGridBounds();
+
+    // 官方 Layer.PL()：把 ViewportBackground/ViewportForeground 等视口对齐层里的
+    // Part 按 alignment 摆到当前视口角落（PERT legend 等图例/水印）。
+    this._layoutViewportAlignedParts();
 
     if (this._renderer) {
       this._renderer.render();
@@ -2210,6 +2393,38 @@ export class Diagram {
    * position 为 NaN 时按原样传入（ab.x/y 保持 NaN，对齐官方）。
    */
   private _measureArrangeAll(measure: boolean = true): void {
+    const wasMeasuring = this._isMeasuring;
+    if (measure) this._isMeasuring = true;
+    // 官方 Part bounds setter / Kd(oldBounds,newBounds)：`!old.equalsApproxClose(new)`
+    // 时 Node 直接 invalidateConnectedLinks()（go.js @668627 + Part.Kd）。
+    // 本项目没有单独的 bounds setter，改在测量趟里对「端点部件」（Node/Group）留一份
+    // **跨趟持久**的快照，arrange 后比对，真的移动/改尺寸了才失效其相连连线。
+    //
+    // 关键：快照必须跨趟持久，不能在每趟开始时重新取。早期实现在趟开始时取快照，
+    // 于是 group 在两趟之间被 doMinimalNoNetworkLayout 移动（Group.move 逐个改
+    // 成员 position）后，成员 position 在下一趟开始时已是新值 → 比对无变化 →
+    // 相连连线永不失效 → basic 的 3>4 / 3>1 路线停在 group 移动前的坐标
+    // （y 偏移正好是 group 的 Δy=70），官方则在 arrange 时用持久化的上次
+    // bounds 比对并失效。官方实测 group.moveTo 后成员 link 路由立即跟随。
+    //
+    // 不能图省事换成全体 _invalidateLinkRoutes()：那会让 AvoidsNodesRouter
+    // 在每次重测后重新绕障 → 下一帧又被算回基础直线，形成每帧往复
+    // （grafcet 21>24 Skip link 在直线与绕障两条路线间闪烁的根因）。
+    const changedEndpoints: any[] = [];
+    const trackEndpoint = (part: any): void => {
+      if (measure && !(part instanceof Link) && typeof part.invalidateConnectedLinks === 'function') {
+        const p = part.position;
+        const b = part.measuredBounds;
+        const cur = [p.x, p.y, b.width, b.height];
+        const prev: number[] | null | undefined = this._endpointBounds.get(part) as any;
+        let changed = false;
+        if (prev != null) {
+          changed = prev[0] !== cur[0] || prev[1] !== cur[1] || prev[2] !== cur[2] || prev[3] !== cur[3];
+          if (changed) changedEndpoints.push(part);
+        }
+        this._endpointBounds.set(part, cur);
+      }
+    };
     const pass = (kind: 0 | 1 | 2): void => {
       for (const layer of this._layers) {
         // 这里**不能**跳过临时层（Adornment / ViewportForeground 等）。
@@ -2249,19 +2464,43 @@ export class Diagram {
           if (!isLink && typeof part.syncPositionFromLocation === 'function') {
             part.syncPositionFromLocation();
           }
+          trackEndpoint(part);
         }
       }
     };
     pass(0);
     pass(1);
-    // 节点/组排好后端口 actualBounds 才定型。首次算路线时它们还是 null，
-    // 算出的路线被标记 _isRouteValid=true 后 updateRoute() 一直短路，
-    // 于是 link 永远拿着那条「陈旧路线」（实测 basic：端口最终在 x=0 / 78.16，
-    // 而路线长度仍停在第一次的 3.226）。这里统一失效一次再排链接。
-    // 只在 measure=true（布局期/部件重新测量）时做：渲染期（_updateGeometry→measure=false）
-    // 节点位置不变、端口不动，若也失效会导致「失效→requestUpdate→再失效」的每帧空转。
-    if (measure) this._invalidateLinkRoutes();
+    // 端点部件真的移动/改尺寸了才失效其相连连线（官方 Part.Kd 语义）。
+    if (measure && changedEndpoints.length > 0) {
+      const um: any = this.undoManager;
+      if (!um || !um.isUndoingRedoing) {
+        for (const part of changedEndpoints) part.invalidateConnectedLinks();
+      }
+      changedEndpoints.length = 0;
+    }
+    // 布局刚提交的路线：commitNodes 移动 → 快照比对二次失效，但官方里这次失效
+    // 被 commitLinks 的重新提交吸收。把仍属布局提交批次的 link 恢复为有效
+    // （invalidateRoute 只标失效、不清点列），pass(2)/懒惰几何重建沿用现有点列。
+    if (this._layoutCommittedRoutes.count > 0) {
+      const rit = this._layoutCommittedRoutes.iterator;
+      while (rit.next()) {
+        const l: any = rit.value;
+        if (!l._isRouteValid) l._isRouteValid = true;
+      }
+      this._layoutCommittedRoutes.clear();
+    }
+    // 注意：这里**不能**无条件 _invalidateLinkRoutes()。
+    // 官方测量趟 Oe() 只 measure+arrange 被失效的部件，从不碰 link 路线；
+    // 路线只在 Node.location/端口/属性变化时经 invalidateConnectedLinks 失效。
+    // 早先每趟 measure=true 都统一失效一次（为修「首次算路线时端口 actualBounds
+    // 还是 null → 路线被 _isRouteValid=true 永久短路」），结果形成活锁：
+    //   路由 commit → invalidateGeometry → _measureInvalid → 整趟重测 →
+    //   全体路线失效 → updateRoute 算回基础直线 → 进 _invalidRoutes →
+    //   下一帧 AvoidsNodesRouter 重新绕障 → 又 commit，如此每帧往复
+    //   （grafcet 21>24 Skip link 在直线与绕障两条路线间每帧闪烁的根因）。
+    // 首次路线的端口问题改由 _performLayout 收尾（最终 arrange 之后）统一失效一次。
     pass(2);
+    this._isMeasuring = wasMeasuring;
   }
 
   /** 官方在节点布局定稿后让所有 link 重算路线 */
@@ -2362,6 +2601,9 @@ export class Diagram {
         dl.doLayout(this);
         dl.isValidLayout = true;
         dl.isOngoing = wasOngoing;
+        // LayeredDigraph.commitLinks 沿 dummy 链插好的多点折线会被布局后的
+        // _measureArrangeAll 快照比对二次失效重算（见 _layoutCommittedRoutes 注释），
+        // 其登记已在 _commitLinksOfficial 内完成。
       }
     }
 
@@ -2414,6 +2656,13 @@ export class Diagram {
     }
     // 官方 layoutDiagram 收尾：o.doLayout(t) 后 this.doLinkRouting(t)
     // + Jr.clear + Ta 非空 23 轮（helper 第一轮即无条件 doLinkRouting）
+    //
+    // 这里**不再**无条件 _invalidateLinkRoutes()：布局（LayeredDigraph.commitLinks /
+    // TreeLayout 等）刚刚提交的 route 已是有效路由，一旦 blanket 失效就会被
+    // doLinkRouting 按基础两点路由重算，布局插入的多点折线全部丢失
+    // （PERT 1→3 官方 6 点被压回 4 点）。
+    // 端点真的移动过的 link 由 arrange 途中的 invalidateRoute 自然进入 Jr，
+    // 由下面的 _routeInvalidatedLinks 统一重算 —— 这正是官方语义。
     this._routeInvalidatedLinks();
   }
 
@@ -3256,8 +3505,50 @@ export class Diagram {
     }
     this._raiseDiagramEvent('DocumentBoundsChanged');
   }
+  /** viewportBounds 真的变了才 raise ViewportChanged（对齐 _checkDocumentBoundsChanged 的模式） */
+  private _checkViewportChanged(): void {
+    const v = this.viewportBounds;
+    const prev = this._lastRaisedViewport;
+    if (prev !== null && prev.x === v.x && prev.y === v.y &&
+        prev.width === v.width && prev.height === v.height) {
+      return;
+    }
+    this._raiseViewportChanged();
+  }
+
+  /**
+   * 官方 `Diagram.onViewportBoundsChanged(t,e,i,s)`（t=旧 viewportRect，e=新，
+   * i=旧 scale）：`t.equals(e)` 则不 raise；否则把 **旧值** 填进单例 `this.je`
+   * `{scale, position, bounds, canvasSize, newCanvasSize, isScroll}`，
+   * `this.D("ViewportBoundsChanged", this.je, t)` —— subject 是 je（**旧** viewport）。
+   * 早先这里只传了个裸 Rect 且全是新值，miningSim 监听器里
+   * `e.subject.bounds.width` / `e.subject.position.equals(...)` 直接 TypeError。
+   */
+  private _raiseViewportChanged(oldRect?: Rect, oldScale?: number): void {
+    const cur = this.viewportBounds;
+    const oRect = oldRect !== undefined ? oldRect
+      : (this._lastRaisedViewport !== null ? this._lastRaisedViewport : cur.copy());
+    const oScale = oldScale !== undefined ? oldScale : this._scale;
+    if (oRect.equals(cur) && oScale === this._scale) return;
+    const je = this._je;
+    je.scale = oScale;
+    (je.position as any).x = oRect.x;
+    (je.position as any).y = oRect.y;
+    (je.bounds as any).x = oRect.x;
+    (je.bounds as any).y = oRect.y;
+    (je.bounds as any).width = oRect.width;
+    (je.bounds as any).height = oRect.height;
+    (je.canvasSize as any).width = Math.round(oRect.width * oScale);
+    (je.canvasSize as any).height = Math.round(oRect.height * oScale);
+    (je.newCanvasSize as any).width = this.viewSize.width;
+    (je.newCanvasSize as any).height = this.viewSize.height;
+    je.isScroll = false;
+    this._lastRaisedViewport = cur.copy();
+    this._raiseDiagramEvent('ViewportChanged', je, oRect);
+  }
+
   invalidateViewport(): void {
-    this._raiseDiagramEvent('ViewportChanged');
+    this._raiseViewportChanged();
     this.requestUpdate();
   }
 
@@ -3836,6 +4127,11 @@ export class Diagram {
   private _positionArray: PositionArray | null = null;
   /** 官方 `Jr`：computePoints 成功后登记的待避障路由 link 集合 */
   private _invalidRoutes: Set<any> = new Set<any>();
+
+  /** 布局 doLayout 期间提交且路线有效的 link（_measureArrangeAll 快照比对失效后恢复用，一次性）
+   *  —— 仅由 LayeredDigraph._commitLinksOfficial 登记（它沿 dummy 链插的多点折线
+   *  重算会丢；TreeLayout/Grid/Force/Circular 走 computePoints，重算可复现，不登记）。 */
+  _layoutCommittedRoutes: Set<any> = new Set<any>();
   /** 官方 `Ta`：路由进行中（vo=true）登记的延迟批 */
   private _invalidRoutesDuringRouting: Set<any> = new Set<any>();
   /** 官方 `vo`：doLinkRouting 进行中标志（addInvalidRoute 据此分流） */
@@ -3876,15 +4172,19 @@ export class Diagram {
     const c: any = container !== undefined && container !== null ? container : this;
     const routers: any = this._routers;
     if (!routers) return;
-    // 官方传的是 `go.Set<Link>`（官方 `Diagram.Kr = new GSet`，见 go.js doLinkRouting），
-    // 扩展 LinkLabelRouter 会 `this.layout.activeSet = links` 再 `activeSet.has(part)`。
-    // 我们以前直接传 `this.links`（一个 Iterator，没有 `has`）→
-    // `_a.has is not a function`（实测 LinkLabelRouter）。
+    // 官方 `doLinkRouting`：`i[e].canRoute(t) && i[e].routeLinks(this.Jr, t)` —— 传给
+    // router 的是 **待避障路由集合 Jr（= _invalidRoutes）**，不是全体 link。
+    // 传全体会让 AvoidsNodesRouter 对每根 link 重算基础两点路由，抹掉布局
+    // （LayeredDigraph.commitLinks 等）刚沿 dummy 链插入的多点折线
+    // （PERT 1→3 官方 6 点被压回 4 点）。
+    // 扩展 LinkLabelRouter 依赖 `Set.has`，故仍用 Set 承载，只改集合来源。
     const linkSet = new Set<Link>();
-    const partsIt = this._parts.iteratorValues;
-    while (partsIt.next()) {
-      const p = partsIt.value;
-      if (p instanceof Link) linkSet.add(p);
+    {
+      const jrit = this._invalidRoutes.iterator;
+      while (jrit.next()) {
+        const p = jrit.value;
+        if (p instanceof Link) linkSet.add(p);
+      }
     }
     const visit = (r: any): void => {
       if (!r) return;

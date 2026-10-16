@@ -1,4 +1,5 @@
 import { ChangedEvent } from './ChangedEvent';
+import { List } from '../core/List';
 /**
  * Transaction - 事务
  * 组合多个 ChangedEvent，支持嵌套
@@ -10,7 +11,9 @@ export declare class Transaction {
     private _level;
     private _nestedNames;
     constructor(name?: string);
-    get changes(): ChangedEvent[];
+    /** 官方 `Transaction.changes` 是一条 List（`.each`/`.count`/`.elt`）。早先返回普通数组，
+     * updateDemo 这类调 `tx.changes.each(...)` 的官方样例直接崩。 */
+    get changes(): List<ChangedEvent>;
     get level(): number;
     get nestedNames(): string[];
     addNestedName(name: string): void;
@@ -41,5 +44,5 @@ export declare class Transaction {
      */
     optimize(): void;
     /** 官方 Transaction.WI：把另一份变更列表追加到本事务尾部 */
-    addAllChanges(changes: ChangedEvent[]): void;
+    addAllChanges(changes: ChangedEvent[] | List<ChangedEvent>): void;
 }

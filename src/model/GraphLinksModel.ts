@@ -100,7 +100,6 @@ export class GraphLinksModel extends Model {
   /** 添加链接数据 */
   addLinkData(data: ObjectData): void {
     if (!data) throw new Error('Cannot add null link data');
-    if (this.isReadOnly) throw new Error('Model is read-only');
     if (this.containsLinkData(data)) return; // 官方 mv：重复添加直接 no-op
     this._linkDataArray.push(data);
     this._ensureArchetypeNodesForLinkData(data);
@@ -118,7 +117,6 @@ export class GraphLinksModel extends Model {
   /** 移除链接数据 */
   removeLinkData(data: ObjectData): boolean {
     if (!data) return false;
-    if (this.isReadOnly) throw new Error('Model is read-only');
     const idx = this._linkDataArray.indexOf(data);
     if (idx < 0) return false;
     this._linkDataArray.splice(idx, 1);

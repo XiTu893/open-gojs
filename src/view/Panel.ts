@@ -1050,10 +1050,14 @@ export class Panel extends GraphObject {
     }
     // Copy row/column definitions
     for (const def of this._rowDefinitions) {
-      copy._rowDefinitions.push(def.copy());
+      const defCopy = def.copy();
+      defCopy._setPanel(copy);
+      copy._rowDefinitions.push(defCopy);
     }
     for (const def of this._columnDefinitions) {
-      copy._columnDefinitions.push(def.copy());
+      const defCopy = def.copy();
+      defCopy._setPanel(copy);
+      copy._columnDefinitions.push(defCopy);
     }
   }
 
@@ -1582,6 +1586,10 @@ export class Panel extends GraphObject {
       }
     }
     if (!hasOther) union.setTo(sBoxX, sBoxY, sBoxW, sBoxH);
+    // 官方 PanelLayoutSpot.measure 首遍结尾：isClipping 时 union 与主元素盒 k=(0,0,kw,kh)
+    // 求交（而非并入 S）。processFlow 的 isClipping Spot 里塞了 5000 宽的水面子面板，
+    // 若并入 S 会让 originX 被拉到 -2400，主元素（白底）被 arrange 到 x=2400 而露出黑底。
+    else if (this.isClipping) union.intersect(0, 0, kw, kh);
     else this._unionInto(sBoxX, sBoxY, sBoxW, sBoxH);
     // 主元素 stretch 早退（官方 switch）
     let R = main.stretch;
@@ -1611,7 +1619,9 @@ export class Panel extends GraphObject {
       const Y = A.y * kh + A.offsetY - (ft !== null ? ft.y : I.y * mb.height + I.offsetY) - em.top;
       this._unionInto(X, Y, y, x);
     }
-    this._unionInto(sBoxX, sBoxY, sBoxW, sBoxH);
+    // 官方 PanelLayoutSpot.measure 次遍结尾：isClipping 时同样与主元素 margin 盒 k 求交。
+    if (this.isClipping) union.intersect(-ma.left, -ma.top, kw, kh);
+    else this._unionInto(sBoxX, sBoxY, sBoxW, sBoxH);
   }
 
   /** 官方 PanelLayoutSpot.arrange */

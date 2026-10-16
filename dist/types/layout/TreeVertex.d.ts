@@ -31,8 +31,6 @@ export declare class TreeVertex extends LayoutVertex {
     mm: Point[] | null;
     /** 官方 pm — 结束边线 */
     pm: Point[] | null;
-    /** 官方 LayoutVertex.focus — 从 bounds 原点到节点中心的绝对偏移 */
-    focus: Point;
     sorting: EnumValue;
     comparer: (a: TreeVertex, b: TreeVertex) => number;
     angle: number;

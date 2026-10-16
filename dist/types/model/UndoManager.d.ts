@@ -12,6 +12,10 @@ export declare class UndoManager {
     private _currentTransaction;
     private _transactionLevel;
     private _maxHistory;
+    /** 官方 `UndoManager` 构造器默认 `this.Wi = false`（isEnabled=false）。
+     * 样例想要撤销必须显式 `'undoManager.isEnabled': true`。早先本项目默认 true，
+     * 导致 updateDemo 这类「先赋 model 再开 undo」的样例在初始布局时就冒出
+     * 事务 ChangedEvent（官方因 isEnabled=false 静默不发）。 */
     private _isEnabled;
     private _hasUndo;
     private _hasRedo;

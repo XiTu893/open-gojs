@@ -12,5 +12,9 @@ export declare const CORE_FIGURE_NAMES: string[];
 /** 注册一个图形生成器（官方 `Shape.defineFigureGenerator`）。 */
 export declare function defineFigureGenerator(name: string, func: ((shape: any, w: number, h: number) => Geometry) | string): void;
 export declare function isExtensionFigure(name: string): boolean;
-/** 按图形名取几何；`p1/p2` 对应官方传入的 parameter1/parameter2。 */
-export declare function getFigureGeometry(name: string, w: number, h: number, p1?: number, p2?: number, shape?: any): Geometry | null;
+/** 按图形名取几何；`p1/p2` 对应官方传入的 parameter1/parameter2。
+ *  `setSize=true` 时把生成尺寸记到几何上（官方 `Shape.AE` 的 `n.Ec=e; n.Uc=i`，包围盒至少覆盖 (0,0,w,h)）。
+ *  官方 `Shape.FN` 缓存（自然尺寸、defaultStretch 用）是**裸生成器** `y(null,100,100)` 的产物，
+ *  不记尺寸 —— 包围盒 = 路径 ∪ 原点。对 LineV/LineH 这类路径不铺满 100×100 的图形，
+ *  两者差 2 倍（自然宽度 50 vs 100），正是 graduated 时间轴宽 100 的根因。故 setSize=false。 */
+export declare function getFigureGeometry(name: string, w: number, h: number, p1?: number, p2?: number, shape?: any, setSize?: boolean): Geometry | null;

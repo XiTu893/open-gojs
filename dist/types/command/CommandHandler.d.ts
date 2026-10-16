@@ -10,6 +10,8 @@ export declare class CommandHandler {
     private _diagram;
     private _isEnabled;
     private static _clipboard;
+    /** 官方 `Diagram.Tb`：剪贴板内容对应的 model.dataFormat（paste 前要核对） */
+    private static _clipboardFormat;
     get diagram(): any;
     set diagram(val: any);
     get isEnabled(): boolean;
@@ -34,10 +36,23 @@ export declare class CommandHandler {
     zoomIn(): void;
     canZoomOut(): boolean;
     zoomOut(): void;
+    /**
+     * 官方 `model.Dh()`：GraphLinksModel 支持组/链接结构（基类 Model 与 TreeModel 返回 false）。
+     * canGroup/canUngroup 以此为门。model 实例没有 `_className` 字段（那是 GraphObject 家族的），
+     * 走 constructor 上的 static className。
+     */
+    private _modelSupportsGroups;
     canGroupSelection(): boolean;
     groupSelection(): void;
-    canUngroupSelection(): boolean;
+    canUngroupSelection(part?: any): boolean;
     ungroupSelection(): void;
+    /**
+     * 官方 `canEditTextBlock(t=null)`：
+     * `isReadOnly||isModelReadOnly||!allowTextEdit||!toolManager.findTool("TextEditing") → false`；
+     * t 指定时须为 TextBlock 且其 Part.canEdit()；否则选中任一 Part canEdit 且
+     * findInVisualTree 内存在 editable TextBlock。
+     */
+    canEditTextBlock(part?: any): boolean;
     canCollapseSubGraph(group?: any): boolean;
     collapseSubGraph(group?: any): void;
     canExpandSubGraph(group?: any): boolean;
@@ -124,12 +139,12 @@ export declare class CommandHandler {
     increaseZoom(factor?: number): void;
     canResetZoom(newscale?: number): boolean;
     resetZoom(newscale?: number): void;
+    /** 官方 `canScrollToPart(t=null)`：t 非 Part → false；无选中且无高亮 → false；否则看横纵滚动许可 */
     canScrollToPart(part?: any): boolean;
     private _scrollToPartPause;
     get scrollToPartPause(): number;
     set scrollToPartPause(val: number);
     scrollToPart(part?: any): void;
-    canEditTextBlock(textblock?: any): boolean;
     editTextBlock(textblock?: any): void;
     canShowContextMenu(obj?: any): boolean;
     showContextMenu(obj?: any): void;

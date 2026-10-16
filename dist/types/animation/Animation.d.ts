@@ -13,6 +13,9 @@ export declare class Animation {
     private _duration;
     private _easing;
     private _reversible;
+    /** 官方自定义效果的 easing 是 4 参 `(time, start, delta, duration) => value`，
+     * 把本项目的 0~1 easing 包成官方签名（数学上与官方默认插值等价）。 */
+    private _easing4;
     /** 官方 `Animation.runCount`：跑几遍；Infinity 表示无限循环（belts 的传送带就是它） */
     private _runCount;
     private _isViewportUnconstrained;

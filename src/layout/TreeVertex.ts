@@ -40,9 +40,6 @@ export class TreeVertex extends LayoutVertex {
   /** 官方 pm — 结束边线 */
   pm: Point[] | null = null;
 
-  /** 官方 LayoutVertex.focus — 从 bounds 原点到节点中心的绝对偏移 */
-  focus: Point = new Point(0, 0);
-
   // ============ 可继承属性（官方构造器默认值） ============
   sorting: EnumValue = TreeSortingForwards;
   comparer: (a: TreeVertex, b: TreeVertex) => number = TreeVertex.standardComparer;

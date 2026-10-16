@@ -355,7 +355,7 @@ export declare class Link extends Part {
     get flattenedLengths(): number[];
     /** 官方 `Link.flattenedTotalLength` */
     get flattenedTotalLength(): number;
-    /** 官方 `Link.computeMidPoint(result)`（本项目无 Transform，跳过 Geometry 沿路径取中点分支） */
+    /** 官方 `Link.computeMidPoint(result)`（Bezier 分支走中间段 t=0.5，其余走 flattened 长度） */
     computeMidPoint(result: Point): Point;
     /** 官方 `Link.midAngle` */
     get midAngle(): number;

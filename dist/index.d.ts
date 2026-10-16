@@ -2045,7 +2045,9 @@ declare class Transaction {
     private _level;
     private _nestedNames;
     constructor(name?: string);
-    get changes(): ChangedEvent[];
+    /** 官方 `Transaction.changes` 是一条 List（`.each`/`.count`/`.elt`）。早先返回普通数组，
+     * updateDemo 这类调 `tx.changes.each(...)` 的官方样例直接崩。 */
+    get changes(): List<ChangedEvent>;
     get level(): number;
     get nestedNames(): string[];
     addNestedName(name: string): void;
@@ -2076,7 +2078,7 @@ declare class Transaction {
      */
     optimize(): void;
     /** 官方 Transaction.WI：把另一份变更列表追加到本事务尾部 */
-    addAllChanges(changes: ChangedEvent[]): void;
+    addAllChanges(changes: ChangedEvent[] | List<ChangedEvent>): void;
 }
 
 /**
@@ -2089,6 +2091,10 @@ declare class UndoManager {
     private _currentTransaction;
     private _transactionLevel;
     private _maxHistory;
+    /** 官方 `UndoManager` 构造器默认 `this.Wi = false`（isEnabled=false）。
+     * 样例想要撤销必须显式 `'undoManager.isEnabled': true`。早先本项目默认 true，
+     * 导致 updateDemo 这类「先赋 model 再开 undo」的样例在初始布局时就冒出
+     * 事务 ChangedEvent（官方因 isEnabled=false 静默不发）。 */
     private _isEnabled;
     private _hasUndo;
     private _hasRedo;
@@ -2410,6 +2416,11 @@ declare class Model {
     addChangedListener(listener: ChangedEventListener): void;
     removeChangedListener(listener: ChangedEventListener): void;
     raiseChangedEvent(change: any, object: any, propertyName: string, oldValue: any, newValue: any, index?: number): ChangedEvent;
+    /**
+     * 官方 `UndoManager.jl(t, i, e)`：`s.change=1, s.propertyName=t, s.object=e(事务), s.oldValue=i(事务名)`。
+     * 早先本项目把 `object` 设成了 model 本身 → updateDemo 这类读 `e.object.changes` 的
+     * 样例拿到 `model.changes === undefined`，`.each` 直接崩。
+     */
     raiseTransactionEvent(propertyName: string, tname: string, transObj?: any): ChangedEvent;
     /** 更新目标绑定 */
     updateTargetBindings(propname?: string): void;
@@ -4171,22 +4182,38 @@ declare class Shape extends GraphObject {
 /**
  * HTMLInfo - provides custom HTML-based editing or display for tools.
  * Used by TextEditingTool and ContextMenuTool to integrate HTML elements.
+ * 官方 `HTMLInfo`（go-debug 逐字对齐）：
+ *   constructor(t) { ...; t && Object.assign(this, t) } —— `{show, hide}` 直接落到 setter；
+ *   属性名是 **show/hide/mainElement/valueFunction**（不是 showFunction/hideFunction）。
+ *   回调签名：show(obj, diagram, tool)、hide(diagram, tool)。
+ * 样例 customContextMenu `new go.HTMLInfo({show, hide})`、vendingPlanogram
+ * `customEditor.show = (textBlock, diagram, tool) => ...` 都走这套名字。
  */
 declare class HTMLInfo {
     static readonly className: string;
-    private _element;
-    private _showFunction;
-    private _hideFunction;
+    private _show;
+    private _hide;
+    private _mainElement;
     private _valueFunction;
-    constructor();
+    constructor(init?: Partial<HTMLInfo>);
+    /** 官方 HTMLInfo.show —— show(obj, diagram, tool) */
+    get show(): ((...args: any[]) => void) | null;
+    set show(val: ((...args: any[]) => void) | null);
+    /** 官方 HTMLInfo.hide —— hide(diagram, tool) */
+    get hide(): ((...args: any[]) => void) | null;
+    set hide(val: ((...args: any[]) => void) | null);
+    /** 官方 HTMLInfo.mainElement：无 show/hide 回调时兜底显示/隐藏的元素 */
+    get mainElement(): HTMLElement | null;
+    set mainElement(val: HTMLElement | null);
+    /** 官方 HTMLInfo.valueFunction：取编辑框当前值 */
+    get valueFunction(): (() => string) | null;
+    set valueFunction(val: (() => string) | null);
+    get showFunction(): ((...args: any[]) => void) | null;
+    set showFunction(val: ((...args: any[]) => void) | null);
+    get hideFunction(): ((...args: any[]) => void) | null;
+    set hideFunction(val: ((...args: any[]) => void) | null);
     get element(): HTMLElement | null;
     set element(val: HTMLElement | null);
-    get showFunction(): ((htmlInfo: HTMLInfo, tool: any, ...args: any[]) => void) | null;
-    set showFunction(val: ((htmlInfo: HTMLInfo, tool: any, ...args: any[]) => void) | null);
-    get hideFunction(): ((htmlInfo: HTMLInfo, tool: any, ...args: any[]) => void) | null;
-    set hideFunction(val: ((htmlInfo: HTMLInfo, tool: any, ...args: any[]) => void) | null);
-    get valueFunction(): ((htmlInfo: HTMLInfo, tool: any, ...args: any[]) => string) | null;
-    set valueFunction(val: ((htmlInfo: HTMLInfo, tool: any, ...args: any[]) => string) | null);
 }
 
 /**
@@ -4536,7 +4563,7 @@ declare class Link extends Part {
     get flattenedLengths(): number[];
     /** 官方 `Link.flattenedTotalLength` */
     get flattenedTotalLength(): number;
-    /** 官方 `Link.computeMidPoint(result)`（本项目无 Transform，跳过 Geometry 沿路径取中点分支） */
+    /** 官方 `Link.computeMidPoint(result)`（Bezier 分支走中间段 t=0.5，其余走 flattened 长度） */
     computeMidPoint(result: Point): Point;
     /** 官方 `Link.midAngle` */
     get midAngle(): number;
@@ -5132,11 +5159,26 @@ declare class CanvasRenderer {
     renderLink(link: Link): void;
     /** Render the main link path */
     private _renderLinkPath;
+    /** 官方 `Shape.R3` 的链接路径平铺：先按已绘制曲线把 arr 采样成密折线，再平铺装饰。 */
+    private _renderLinkPathPattern;
+    /** 把链接路径（含贝塞尔）采样成 [x0,y0,x1,y1,...] 密折线，与 _renderLinkPath 的画法一致。 */
+    private _sampleLinkPolyline;
+    private _sampleQuad;
+    private _sampleCubic;
+    /** 官方 `Shape.hg`：沿密折线逐格平铺 pathPattern 装饰几何（t=ctx, e=折线, s=装饰 Shape）。 */
+    private _drawPathPatternTiling;
+    /** 官方 `Shape.Xh` 的平铺格绘制：把 pathPattern 的几何 fill+stroke 画在当前变换下。 */
+    private _drawPatternTile;
     /**
-     * 官方 `Link.f3()` 的拐角圆角：把正交点列改写成带「控制点落在拐点」的二次
-     * 贝塞尔圆角的折线（采样成折线点，便于 JumpGap/JumpOver 分支沿用）。
-     * 半径封顶语义与官方一致：`c = min(radius, |拐点-上一拐点|/2)`，
-     * 再 `min(c, |下一拐点-拐点|/2)`，`c < 0.5` 视作不圆角。
+     * 官方 `Link` 拐角圆角（`computeCorner()` → 几何构建时把折线拐点改写成
+     * 「控制点落在拐点」的二次贝塞尔圆角）。
+     *
+     * 官方对**任意角度**的折线拐角都圆滑，不只正交段 —— PERT 的路由点
+     * `(120,71) → (145,206) → (276,206)` 是「斜线接水平」，早期实现只认
+     * 水平↔垂直两种正交情形，斜线拐角完全没被圆角化，渲染出直角折线。
+     *
+     * 半径封顶与官方一致：`c = min(corner, |拐点-上一点|/2, |下一点-拐点|/2)`，
+     * `c < 0.5` 视作不圆角；共线（straight-through）点跳过不圆角。
      */
     private _roundCorners;
     private _findCrossings;
@@ -5149,6 +5191,8 @@ declare class CanvasRenderer {
     renderGraphObject(obj: GraphObject, offsetX: number, offsetY: number): void;
     /** Render a Panel and its children */
     renderPanel(panel: Panel, offsetX: number, offsetY: number): void;
+    /** 把某 Shape 的几何按其 actualBounds 缩放后画进当前路径（供 isClipping 做裁剪区）。 */
+    private _clipToShapeGeometry;
     /** Render a Shape */
     renderShape(shape: Shape, offsetX: number, offsetY: number, paintBox?: Rect | null): void;
     /** Render a TextBlock —— 官方 TextBlock.draw + aF 管线逐条复刻 */
@@ -5283,6 +5327,14 @@ declare class InputEvent {
     down: boolean;
     /** 官方 InputEvent.up —— 逻辑主键是否处于抬起状态。 */
     up: boolean;
+    /**
+     * 官方 InputEvent.right（ContextMenuTool.canStart 依赖它）：
+     * down/up 事件用 button（mouseup 时 button===2 表示刚释放的是右键），
+     * 其余事件用 buttons 的第 1 位。
+     */
+    get right(): boolean;
+    /** 官方 InputEvent.middle：同 right，button===1 / buttons 第 2 位。 */
+    get middle(): boolean;
     /**
      * 官方 InputEvent.isMultiTouch
      * 是否为多点触控（两个及以上触点同时作用于图）。
@@ -5635,108 +5687,92 @@ declare class PanningTool extends Tool {
     doDeactivate(): void;
 }
 
-declare class Placeholder extends GraphObject {
-    static readonly className: string;
-    /** 官方 Placeholder.padding：number 或 Margin（官方 setter 把 number 归一成 Margin） */
-    private _padding;
-    constructor(init?: Placeholder);
-    get padding(): number | Margin;
-    set padding(val: number | Margin);
-    /** padding 的四边值（number 四边均匀；Margin 按 top/right/bottom/left） */
-    private _padSides;
-    get _placeholderBounds(): Rect;
-    /**
-     * 官方 `Placeholder.computeMemberBounds(result)`：把所属 Group 的可见成员并集写入 `result`（原地修改并返回）。
-     * - 跳过不可见成员；Link 仅在 `Group.computesBoundsIncludingLinks` 时计入，且端点为本 Group 的 Link 不计入；
-     * - 无有效成员 → `result = (group.location.x, group.location.y, 0, 0)`。
-     */
-    computeMemberBounds(result: Rect): Rect;
-    /**
-     * 官方 `Placeholder.computeBorder(result)`：成员并集再按 `padding`（Margin）外扩，写入 `result`。
-     * - 子图折叠（`!isSubGraphExpanded`）时宽高为 0；
-     * - `Group.computesBoundsIncludingLocation` 且 group.location 有效时，把 location 并入边界。
-     */
-    computeBorder(result: Rect): Rect;
-    /**
-     * 官方 `Placeholder.measure` 的 **Adornment 分支**（官方 `Id` 的 else 分支）：
-     * - `adornment.angle = adornedObject.getDocumentAngle()`；
-     * - Selection 类装饰把 `adornment.location` 定位到被装饰对象的 **TopLeft**（其余类别用 locationSpot）；
-     * - 自身尺寸 = 被装饰对象 `(naturalBounds + strokeWidth) * documentScale` + padding 四边；
-     * - 自身 arrange 到 `(-padding.left, -padding.top)`；
-     * - 被装饰对象尺寸无效时退化为「四角并集」。
-     */
-    private _measureForAdornment;
-    /**
-     * 官方 Placeholder.measure（computeBorder）：
-     * 1) union 可见成员的 actualBounds（文档坐标，成员 ab 实值才计入；跳过 Link）；
-     * 2) 无成员 union → border = group.location 实值点 (0×0)，否则 (0,0)；
-     * 3) padding（number = 四边均匀）外扩；
-     * 4) measuredBounds = (0,0,max(borderW,minW),max(borderH,minH))；
-     * 5) 有成员 union 且 border x/y 实值 → group.location = border 按 group.locationSpot 锚点。
-     */
-    _measure(availW: number, availH: number): void;
-    _arrange(bounds: Rect): void;
-    private _findGroup;
-    copy(): Placeholder;
-}
-
-/**
- * Adornment - 装饰
- * 用于选择手柄、工具提示、上下文菜单等
- */
-declare class Adornment extends Part {
-    static readonly className: string;
-    /** 被装饰的 GraphObject */
-    private _adornedObject;
-    /** 装饰类别 */
-    private _adornmentCategory;
-    constructor();
-    constructor(type: any);
-    constructor(type: any, init?: any);
-    get adornedObject(): GraphObject | null;
-    /** 官方 `Adornment.set adornedObject`：换绑时先解绑旧 part，再由新 part.addAdornment 挂载自身 */
-    set adornedObject(val: GraphObject | null);
-    get adornedPart(): Part | null;
-    get adornedElement(): GraphObject | null;
-    get category(): string;
-    set category(val: string);
-    /** 是否为占位装饰 */
-    get isPlaceholder(): boolean;
-    /**
-     * 官方 `Adornment.placeholder`：本 Adornment 面板树中第一个 Placeholder。
-     * 官方缓存在内部字段（`vt`），本项目按需递归查找。
-     */
-    get placeholder(): Placeholder | null;
-    private static _findPlaceholder;
-    hasPlaceholder(): boolean;
-    copy(): Adornment;
-}
-
 /**
  * ContextMenuTool - shows context menus on right-click.
- * Displays the context menu for the object under the mouse.
+ * 官方 `ContextMenuTool`（go-debug 逐字复刻，customContextMenu 调试对齐）：
+ *   canStart → doStart(mouseDownPoint) → doMouseUp→doContextClick → openMenu
+ *   → showContextMenu(Adornment 摆位 / HTMLInfo.show(obj, diagram, tool))
+ *   → 保持 isActive（不 stopTool），第二次点击经 maybeStopTool 关闭。
+ * 早先实现的三个致命偏差：
+ *   1. HTMLInfo 调的是 `menu.showFunction(...)`——官方 HTMLInfo 属性叫 `show`，
+ *      且参数顺序 (obj, diagram, tool)，样例的 show 因此从不执行（菜单不显示）；
+ *   2. doMouseUp 无条件 stopTool()——官方打开菜单后保持 currentTool=ContextMenu，
+ *      关闭走 doStop→hideContextMenu；
+ *   3. 缺 currentObject/mouseDownPoint 公开面（样例 paste 读 mouseDownPoint）。
  */
 declare class ContextMenuTool extends Tool {
     static readonly className: string;
     private _currentContextMenu;
+    private _currentObject;
     private _mouseDownPoint;
+    /** 官方 `o0`：openMenu 重入护栏（show 回调里再触发点击时防嵌套） */
+    private _inOpen;
+    /** 官方 defaultTouchContextMenu */
+    private _defaultTouchContextMenu;
     constructor();
-    get currentContextMenu(): Adornment | null;
-    set currentContextMenu(val: Adornment | null);
+    get currentContextMenu(): any;
+    set currentContextMenu(val: any);
+    /** 官方 ContextMenuTool.currentObject：右键命中的 GraphObject（HTMLInfo show 的 obj 参数） */
+    get currentObject(): GraphObject | null;
+    set currentObject(val: GraphObject | null);
+    /** 官方 ContextMenuTool.mouseDownPoint（customContextMenu 的 paste 用它定位粘贴） */
+    get mouseDownPoint(): Point;
+    get defaultTouchContextMenu(): any;
+    set defaultTouchContextMenu(val: any);
     /**
      * 官方 ContextMenuTool.canStart（go.js 逐字）：
      *   isBeyondDragSize() || !lastInput.right || clickCount > 1 → false
-     *   否则看 touch 的 defaultTouchContextMenu 或 findObjectWithContextMenu()
-     * 注意它排在 mouseUpTools 首位，所以右键菜单在 mouseup 才弹。
+     *   否则 touch 的 defaultTouchContextMenu 或 findObjectWithContextMenu()。
      */
     canStart(): boolean;
-    /** 官方 ContextMenuTool.findObjectWithContextMenu —— 沿 panel 链找 contextMenu。 */
-    findObjectWithContextMenu(): any | null;
-    /** Show the context menu on mouse up (right-click). */
+    /** 官方 doStart：记录 firstInput 文档点 */
+    doStart(): void;
+    /** 官方 doStop：关菜单、清 currentObject/重入位 */
+    doStop(): void;
+    /**
+     * 官方 ContextMenuTool.doActivate(){} —— **故意空实现**：
+     * 不把 isActive 置 true（基类 doActivate 会），isActive 只在 openMenu 里
+     * 手动置位。调 super 会破坏 doContextClick 的 !isActive 分支（启动即激活
+     * → 永远进 else → currentContextMenu===null → return，菜单永远开不了）。
+     */
+    doActivate(): void;
+    /**
+     * 官方 ContextMenuTool.findObjectWithContextMenu(obj?)：
+     * 沿 panel 链找 contextMenu；命中空时回落 diagram.contextMenu。
+     */
+    findObjectWithContextMenu(obj?: any): any | null;
+    doMouseDown(): void;
+    /** 官方 doMouseUp：Adornment 菜单先让 ActionTool 处理，然后 doContextClick */
     doMouseUp(): void;
-    /** Show the context menu at the given position. */
-    showContextMenu(menu: any, point: Point): void;
-    /** Hide the current context menu. */
+    /**
+     * 官方 doContextClick：
+     *   未激活 → canStart() && (openMenu(true), isActive || stopTool())
+     *   已激活（菜单开着）→ 判定点击是否落在 Adornment 菜单内 → maybeStopTool
+     */
+    doContextClick(): void;
+    /** 官方 maybeStopTool：先 stop（doStop 会 hide），若还满足 canStart 就立刻重启（连续右键换菜单） */
+    private maybeStopTool;
+    /**
+     * 官方 openMenu(flag, obj?)：选中（右键选目标）→ 查菜单 → show。
+     * HTMLInfo/Adornment 都经 showContextMenu；成功打开则 isActive=true（不 stopTool）。
+     */
+    openMenu(select: boolean, obj?: any): void;
+    doMouseMove(): void;
+    /**
+     * 官方 showContextMenu(menu, obj)：
+     *   menu !== currentContextMenu → 先 hideContextMenu
+     *   Adornment → Tool 层 add + positionContextMenu
+     *   HTMLInfo → menu.show(obj, diagram, tool)
+     *   最后 currentContextMenu = menu
+     */
+    showContextMenu(menu: any, obj: GraphObject | null): void;
+    /** 官方 positionContextMenu：摆在 lastInput 文档点，viewport 边界夹取（右/下溢出时回移） */
+    private positionContextMenu;
+    /**
+     * 官方 hideContextMenu：Adornment → remove + 清 data/adornedObject；
+     * HTMLInfo → hide(diagram, tool) 或 mainElement.display=none；
+     * 末尾 currentContextMenu=null + standardMouseOver。
+     */
     hideContextMenu(): void;
 }
 
@@ -5949,6 +5985,8 @@ declare class CommandHandler {
     private _diagram;
     private _isEnabled;
     private static _clipboard;
+    /** 官方 `Diagram.Tb`：剪贴板内容对应的 model.dataFormat（paste 前要核对） */
+    private static _clipboardFormat;
     get diagram(): any;
     set diagram(val: any);
     get isEnabled(): boolean;
@@ -5973,10 +6011,23 @@ declare class CommandHandler {
     zoomIn(): void;
     canZoomOut(): boolean;
     zoomOut(): void;
+    /**
+     * 官方 `model.Dh()`：GraphLinksModel 支持组/链接结构（基类 Model 与 TreeModel 返回 false）。
+     * canGroup/canUngroup 以此为门。model 实例没有 `_className` 字段（那是 GraphObject 家族的），
+     * 走 constructor 上的 static className。
+     */
+    private _modelSupportsGroups;
     canGroupSelection(): boolean;
     groupSelection(): void;
-    canUngroupSelection(): boolean;
+    canUngroupSelection(part?: any): boolean;
     ungroupSelection(): void;
+    /**
+     * 官方 `canEditTextBlock(t=null)`：
+     * `isReadOnly||isModelReadOnly||!allowTextEdit||!toolManager.findTool("TextEditing") → false`；
+     * t 指定时须为 TextBlock 且其 Part.canEdit()；否则选中任一 Part canEdit 且
+     * findInVisualTree 内存在 editable TextBlock。
+     */
+    canEditTextBlock(part?: any): boolean;
     canCollapseSubGraph(group?: any): boolean;
     collapseSubGraph(group?: any): void;
     canExpandSubGraph(group?: any): boolean;
@@ -6063,12 +6114,12 @@ declare class CommandHandler {
     increaseZoom(factor?: number): void;
     canResetZoom(newscale?: number): boolean;
     resetZoom(newscale?: number): void;
+    /** 官方 `canScrollToPart(t=null)`：t 非 Part → false；无选中且无高亮 → false；否则看横纵滚动许可 */
     canScrollToPart(part?: any): boolean;
     private _scrollToPartPause;
     get scrollToPartPause(): number;
     set scrollToPartPause(val: number);
     scrollToPart(part?: any): void;
-    canEditTextBlock(textblock?: any): boolean;
     editTextBlock(textblock?: any): void;
     canShowContextMenu(obj?: any): boolean;
     showContextMenu(obj?: any): void;
@@ -6155,6 +6206,9 @@ declare class Animation {
     private _duration;
     private _easing;
     private _reversible;
+    /** 官方自定义效果的 easing 是 4 参 `(time, start, delta, duration) => value`，
+     * 把本项目的 0~1 easing 包成官方签名（数学上与官方默认插值等价）。 */
+    private _easing4;
     /** 官方 `Animation.runCount`：跑几遍；Infinity 表示无限循环（belts 的传送带就是它） */
     private _runCount;
     private _isViewportUnconstrained;
@@ -6218,6 +6272,8 @@ interface AnimationConfig {
     onFinish?: () => void;
 }
 
+/** 官方自定义动画效果函数签名。easing 是官方 4 参 `(time, start, delta, duration) => value`。 */
+type AnimationEffectFn = (obj: object, from: any, to: any, easing: (time: number, start: number, delta: number, duration: number) => number, currentTime: number, duration: number, animation: Animation) => void;
 declare class AnimationManager {
     static readonly className: string;
     private _diagram;
@@ -6248,9 +6304,11 @@ declare class AnimationManager {
     unregisterAnimation(anim: Animation): void;
     /** 官方 `AnimationManager.activeAnimations: Set<Animation>` */
     get activeAnimations(): Set<Animation>;
-    /** 官方 `AnimationManager.defineAnimationEffect(effectName, animationFunction)`（静态） */
-    static defineAnimationEffect(name: string, effect: (obj: object, from: any, to: any, duration: number) => Animation): void;
-    static getEffect(name: string): ((obj: object, from: any, to: any, duration: number) => Animation) | undefined;
+    /** 官方 `AnimationManager.defineAnimationEffect(effectName, animationFunction)`（静态）
+     * 官方效果函数签名：`(obj, from, to, easing, currentTime, duration, animation) => void`，
+     * easing 是 4 参 `(time, start, delta, duration) => value`。 */
+    static defineAnimationEffect(name: string, effect: AnimationEffectFn): void;
+    static getEffect(name: string): AnimationEffectFn | undefined;
     updateAnimation(): void;
     private _startTicking;
     private _stopTicking;
@@ -6380,6 +6438,14 @@ declare class Diagram {
      * 画 graduated 时间轴时报 `Invalid arguments to Rect constructor: 0, Infinity, 0, -Infinity`。
      */
     private _lastRaisedDocBounds;
+    /** 最近一次 raise ViewportChanged 时的 viewportBounds（防重复 raise 的比对基准） */
+    private _lastRaisedViewport;
+    /**
+     * 官方 `Diagram.je`：ViewportBoundsChanged 的 subject（**变化前**的 viewport 快照
+     * `{scale, position, bounds, canvasSize, newCanvasSize, isScroll}`，官方是单例
+     * 复用、每次 raise 前原地改写）。
+     */
+    private _je;
     protected _allowSelect: boolean;
     protected _allowMove: boolean;
     protected _allowCopy: boolean;
@@ -6413,6 +6479,24 @@ declare class Diagram {
     private _layout;
     private _isInitial;
     _layoutInvalid: boolean;
+    /**
+     * 官方 GraphObject.Ef→os 置的测量脏位：子元素属性（TextBlock.text、
+     * Shape.width/height 等）变更后，下一个 update 必须跑一遍
+     * measure+arrange（_measureArrangeAll(true)），否则 actualBounds
+     * 停留在旧值（gantt 任务行 Start/Dur. 文本宽 0、时间轴 MAIN 宽度不更新）。
+     */
+    _measureInvalid: boolean;
+    /** 测量进行中（_measureArrangeAll(true) 执行期间）：期间的 _invalidateMeasure 不再重武装
+     *  _measureInvalid —— 否则 _invalidateLinkRoutes→invalidateRoute→_invalidateMeasure 会在
+     *  每次重测时把脏位重新置上，形成「重测→失效路线→重测」的每帧空转（grafcet 避障 link
+     *  在直路/绕障两条路线间每帧闪烁的根因）。 */
+    _isMeasuring: boolean;
+    /** 官方 Part.Kd(oldBounds,newBounds) 的持久化上次 bounds：
+     *  跨测量趟保存各端点部件（Node/Group）的 position+measuredBounds，
+     *  arrange 后比对，变了才 invalidateConnectedLinks。
+     *  快照必须跨趟持久 —— 每趟开始时重取会让两趟之间被 layout 移动的
+     *  部件（如 Group.move 改写成员 position）漏掉失效。 */
+    private _endpointBounds;
     private _contextMenu;
     _layers: Layer[];
     /** 官方 Diagram.ms（grid Panel）与其宿主 Part（XL 创建的常驻 Part） */
@@ -6429,6 +6513,8 @@ declare class Diagram {
     private _updateSuspended;
     /** 官方 Ar 入口的 vs 自锁：同步 maybeUpdate 期间禁止嵌套跑第二轮 */
     private _isInUpdate;
+    /** 官方 `Or` 的 `fo`：首帧 Initial Layout 已跑过（跑过后不再开该事务，history 允许记 'Layout'） */
+    private _initialLayoutDone;
     private _resizeObserver;
     private _lastDivWidth;
     private _lastDivHeight;
@@ -6565,11 +6651,32 @@ declare class Diagram {
     findNodesByExample(data: any): List<Node>;
     findLinksByExample(data: any): List<Link>;
     findPartAt(point: Point, selectableOnly?: boolean): Part | null;
-    /** 官方 Diagram.findObjectAt：逐层向下调 Layer.findObjectAt（**不过滤 temporary**，与 findPartAt 不同） */
-    findObjectAt(point: Point): GraphObject | null;
+    /**
+     * 官方 Diagram.findObjectAt：逐层向下调 Layer.findObjectAt（**不过滤 temporary**，与 findPartAt 不同）。
+     * 官方签名还带 pred/target（ContextMenuTool 用 `n => !n.layer?.isTemporary` 排除 Tool 层）。
+     */
+    findObjectAt(point: Point, pred?: ((obj: GraphObject) => boolean) | null): GraphObject | null;
     findNodeAt(point: Point): Node | null;
+    /**
+     * 官方 `Diagram.select(t)`：
+     * `t!==null && t.diagram===this && (!t.isSelected || selection.count>1) &&
+     *  (D("ChangingSelection"), clearSelection(!0), t.isSelected=!0, D("ChangedSelection"))`
+     * 早先这里 clearSelection()（带事件）+ 直接改 _isSelected/_selection.add，
+     * **从不 raise ChangedSelection**（首次选中时 clearSelection 里 hadSelection=false 也不发）。
+     * 后果：依赖该事件的样例相机/联动逻辑永不启动
+     * （miningSim 的 ChangedSelection → startFollow 追车相机，viewport 停在
+     *  初始 centerRect 的 620,139，官方一直跟车到 490,593）。
+     */
     select(part: Part | null): void;
-    clearSelection(): void;
+    /**
+     * @param suppressEvent 官方 `clearSelection(t)` 的 t：true 时不 raise ChangedSelection
+     * （供 select/selectCollection 在自己的 Changing/Changed 对之间内部清空用）。
+     */
+    clearSelection(suppressEvent?: boolean): void;
+    /**
+     * 官方 `Diagram.selectCollection(t)`：`D("ChangingSelection"), clearSelection(!0),
+     * 逐个 isSelected=!0, D("ChangedSelection")`。
+     */
     selectCollection(parts: Iterable$1<Part>): void;
     startTransaction(tname?: string): boolean;
     commitTransaction(tname?: string): boolean;
@@ -6619,6 +6726,16 @@ declare class Diagram {
      * 面板尺寸 = 视口 + 2×Cf（四周留出一整个周期，平移视口时线相位保持不变）。
      */
     private _updateGridBounds;
+    /**
+     * 官方 `Layer.PL()`：把视口对齐层（isViewportAligned，如 ViewportBackground/
+     * ViewportForeground）里的 Part 按 alignment 摆到当前视口角落。
+     *  - 设备局部坐标：f = a.x*clientW + a.offsetX − (c.x*naturalW + c.offsetX)
+     *                  u = a.y*clientH + a.offsetY − (c.y*naturalH + c.offsetY)
+     *  - 转文档坐标：doc = position + (f/scale, u/scale)
+     *  - 该 Part 的 scale 置为 1/diagramScale，抵消图缩放（图例/水印恒显固定尺寸）
+     * 缺此逻辑时 PERT 图例(legend)停在 (null,null) 不摆放，位置完全错位。
+     */
+    private _layoutViewportAlignedParts;
     private _createDefaultNodeTemplate;
     private _createDefaultLinkTemplate;
     private _clearAllParts;
@@ -6846,6 +6963,17 @@ declare class Diagram {
     invalidateDocumentBounds(): void;
     /** 官方语义：文档包围盒发生变化时（且仅此时）raise `DocumentBoundsChanged` */
     private _checkDocumentBoundsChanged;
+    /** viewportBounds 真的变了才 raise ViewportChanged（对齐 _checkDocumentBoundsChanged 的模式） */
+    private _checkViewportChanged;
+    /**
+     * 官方 `Diagram.onViewportBoundsChanged(t,e,i,s)`（t=旧 viewportRect，e=新，
+     * i=旧 scale）：`t.equals(e)` 则不 raise；否则把 **旧值** 填进单例 `this.je`
+     * `{scale, position, bounds, canvasSize, newCanvasSize, isScroll}`，
+     * `this.D("ViewportBoundsChanged", this.je, t)` —— subject 是 je（**旧** viewport）。
+     * 早先这里只传了个裸 Rect 且全是新值，miningSim 监听器里
+     * `e.subject.bounds.width` / `e.subject.position.equals(...)` 直接 TypeError。
+     */
+    private _raiseViewportChanged;
     invalidateViewport(): void;
     zoomToRect(rect: Rect): void;
     zoomPoint(factor: number): void;
@@ -6998,6 +7126,10 @@ declare class Diagram {
     private _positionArray;
     /** 官方 `Jr`：computePoints 成功后登记的待避障路由 link 集合 */
     private _invalidRoutes;
+    /** 布局 doLayout 期间提交且路线有效的 link（_measureArrangeAll 快照比对失效后恢复用，一次性）
+     *  —— 仅由 LayeredDigraph._commitLinksOfficial 登记（它沿 dummy 链插的多点折线
+     *  重算会丢；TreeLayout/Grid/Force/Circular 走 computePoints，重算可复现，不登记）。 */
+    _layoutCommittedRoutes: Set<any>;
     /** 官方 `Ta`：路由进行中（vo=true）登记的延迟批 */
     private _invalidRoutesDuringRouting;
     /** 官方 `vo`：doLinkRouting 进行中标志（addInvalidRoute 据此分流） */
@@ -7370,6 +7502,51 @@ declare class PanelLayout {
     remeasureObject(obj: GraphObject): void;
 }
 
+declare class Placeholder extends GraphObject {
+    static readonly className: string;
+    /** 官方 Placeholder.padding：number 或 Margin（官方 setter 把 number 归一成 Margin） */
+    private _padding;
+    constructor(init?: Placeholder);
+    get padding(): number | Margin;
+    set padding(val: number | Margin);
+    /** padding 的四边值（number 四边均匀；Margin 按 top/right/bottom/left） */
+    private _padSides;
+    get _placeholderBounds(): Rect;
+    /**
+     * 官方 `Placeholder.computeMemberBounds(result)`：把所属 Group 的可见成员并集写入 `result`（原地修改并返回）。
+     * - 跳过不可见成员；Link 仅在 `Group.computesBoundsIncludingLinks` 时计入，且端点为本 Group 的 Link 不计入；
+     * - 无有效成员 → `result = (group.location.x, group.location.y, 0, 0)`。
+     */
+    computeMemberBounds(result: Rect): Rect;
+    /**
+     * 官方 `Placeholder.computeBorder(result)`：成员并集再按 `padding`（Margin）外扩，写入 `result`。
+     * - 子图折叠（`!isSubGraphExpanded`）时宽高为 0；
+     * - `Group.computesBoundsIncludingLocation` 且 group.location 有效时，把 location 并入边界。
+     */
+    computeBorder(result: Rect): Rect;
+    /**
+     * 官方 `Placeholder.measure` 的 **Adornment 分支**（官方 `Id` 的 else 分支）：
+     * - `adornment.angle = adornedObject.getDocumentAngle()`；
+     * - Selection 类装饰把 `adornment.location` 定位到被装饰对象的 **TopLeft**（其余类别用 locationSpot）；
+     * - 自身尺寸 = 被装饰对象 `(naturalBounds + strokeWidth) * documentScale` + padding 四边；
+     * - 自身 arrange 到 `(-padding.left, -padding.top)`；
+     * - 被装饰对象尺寸无效时退化为「四角并集」。
+     */
+    private _measureForAdornment;
+    /**
+     * 官方 Placeholder.measure（computeBorder）：
+     * 1) union 可见成员的 actualBounds（文档坐标，成员 ab 实值才计入；跳过 Link）；
+     * 2) 无成员 union → border = group.location 实值点 (0×0)，否则 (0,0)；
+     * 3) padding（number = 四边均匀）外扩；
+     * 4) measuredBounds = (0,0,max(borderW,minW),max(borderH,minH))；
+     * 5) 有成员 union 且 border x/y 实值 → group.location = border 按 group.locationSpot 锚点。
+     */
+    _measure(availW: number, availH: number): void;
+    _arrange(bounds: Rect): void;
+    private _findGroup;
+    copy(): Placeholder;
+}
+
 /**
  * LayoutEdge - represents a link in the layout network.
  */
@@ -7387,8 +7564,28 @@ declare class LayoutEdge {
     length: number;
     /** The weight of this edge for layout calculations */
     weight: number;
-    /** Get the other vertex given one vertex of this edge */
+    /** 官方 LayeredDigraphEdge.valid：交叉约简/拉直时该边是否参与 */
+    valid: boolean;
+    /** 官方 LayeredDigraphEdge.rev：该边在去环时被反转（from/to 已交换） */
+    rev: boolean;
+    /** 官方 LayeredDigraphEdge.portFromPos：起端口在列轴上的位置（像素） */
+    portFromPos: number;
+    /** 官方 LayeredDigraphEdge.portToPos：末端口在列轴上的位置（像素） */
+    portToPos: number;
+    /** 官方 LayeredDigraphEdge.portFromColOffset：起端口相对焦点的列偏移（columnSpacing 单位） */
+    portFromColOffset: number;
+    /** 官方 LayeredDigraphEdge.portToColOffset：末端口相对焦点的列偏移（columnSpacing 单位） */
+    portToColOffset: number;
+    /** 官方 GraphLayout.Edge.getOtherVertex */
     getOtherVertex(vertex: LayoutVertex): LayoutVertex | null;
+    /** 官方 `LayoutEdge.reverseEdge()`：仅交换端点字段（列表同步由 LayoutNetwork.reverseEdge 负责） */
+    reverseEdge(): void;
+    /**
+     * 官方 `LayeredDigraphEdge.commit()` → `TreeEdge.commit` → `adjustRouteForAngleChange`。
+     * 在正交路由的转角处微调连线路由点。当前为占位（未移植角度调整逻辑），
+     * 仅保留调用点以对齐官方 commitLinks 流程。
+     */
+    commit(): void;
 }
 
 /**
@@ -7405,17 +7602,32 @@ declare class LayoutVertex {
     network: LayoutNetwork | null;
     /** 官方 LayoutVertex.data：一般就是 Node/Link 的 data */
     data: any;
-    /** X position of the vertex center */
-    x: number;
-    /** Y position of the vertex center */
-    y: number;
-    /** Bounding rectangle of the vertex */
+    /** X position of the vertex center — 官方 `x` 即 `bounds.x`（centerX setter 写 bounds.x） */
+    get x(): number;
+    set x(val: number);
+    /** Y position of the vertex center — 官方 `y` 即 `bounds.y` */
+    get y(): number;
+    set y(val: number);
+    /**
+     * Bounding rectangle of the vertex — 官方构造默认 `Rect(0,0,10,10)`。
+     * 真实节点由 `addNode` 立刻覆盖；未拿到 node 的人工顶点（dummy）保持 10×10，
+     * `commitNodes`/`commitLinks` 的中心与端点计算才与官方一致。
+     */
     bounds: Rect;
     /**
      * 官方 LayoutVertex.focus：bounds 左上角到「连接点」的偏移（像素）。
      * `centerX`/`centerY` 就是 `bounds.x/y + focus`。
+     * 官方构造默认 `Point(5,5)`；真实节点在 `node` 被赋值时算一次。
+     * 通过 `focus`/`focusX`/`focusY` 写入的值记为「调用方显式指定」，
+     * `_applyVertexFocus` 不得再覆盖（如 sankey 样例 SankeyLayout.makeNetwork
+     * 里 `v.focusX = shape.actualBounds.x`）。
      */
-    focus: Point;
+    private _focus;
+    private _focusUserSet;
+    get focus(): Point;
+    set focus(v: Point);
+    /** 官方语义：focus 是否已被调用方显式设置 */
+    get isFocusUserSet(): boolean;
     /**
      * 官方 `LayoutVertex.actualAngle`（度）：该 vertex 最终被摆放的角度。
      * CircularLayout 在环上定位时写入；子类（如 friendWheel 的 WheelLayout）
@@ -7430,10 +7642,17 @@ declare class LayoutVertex {
     /** Height of the vertex */
     get height(): number;
     set height(val: number);
-    /** Focus X offset (0-1 relative to width) for connection points */
-    focusX: number;
-    /** Focus Y offset (0-1 relative to height) for connection points */
-    focusY: number;
+    /**
+     * `focus.x` 的别名（官方 `LayoutVertex.focusX`）。
+     * 官方 focusX/focusY 与 focus 是同一份数据的两个名字：子类布局
+     * （如 sankey 样例的 SankeyLayout.makeNetwork 里 `v.focusX = shape.actualBounds.x`）
+     * 直接写这两个字段，必须真正落到像素偏移 `focus` 上，否则列内打包读到的仍是默认值。
+     */
+    get focusX(): number;
+    set focusX(val: number);
+    /** `focus.y` 的别名（官方 `LayoutVertex.focusY`） */
+    get focusY(): number;
+    set focusY(val: number);
     /** The Part associated with this vertex, if any */
     part: Part | null;
     /** Edges where this vertex is the source */
@@ -7446,6 +7665,64 @@ declare class LayoutVertex {
     _isArtificial: boolean;
     /** Internal index for algorithms */
     _index: number;
+    /** 官方 LayoutVertex.layer：层号（LayeredDigraphLayout.assignLayers 写入） */
+    layer: number;
+    /** 官方 LayoutVertex.component：OptimalLinkLength 归组用 */
+    component: number;
+    /** 官方 LayoutVertex.oi：visited 标记（OptimalLinkLength 用） */
+    oi: boolean;
+    /** 官方 LayoutVertex.index：层内序号（= _index，官方全流水线统一用 .index） */
+    get index(): number;
+    set index(val: number);
+    /** 官方 LayoutVertex.column：列号（列轴推进位，columnSpacing 单位） */
+    column: number;
+    /** 官方 LayeredDigraphVertex.near：人工顶点对齐的相邻真实顶点 */
+    near: LayoutVertex | null;
+    /** 官方 LayeredDigraphVertex.bk：人工顶点种类（1 起点旁/2 中段/3 终点旁） */
+    bk: number;
+    /** 官方 LayeredDigraphVertex.Se：打包后的列轴位置（像素，NaN=未算） */
+    Se: number;
+    /** 官方 LayeredDigraphVertex._n：链上累计端口偏移（像素） */
+    _n: number;
+    /** 官方 LayeredDigraphVertex.Qn：链上的下一个顶点（环状，单点=自身） */
+    Qn: LayoutVertex | null;
+    /** 官方 LayeredDigraphVertex.Ec：链头 */
+    Ec: LayoutVertex | null;
+    /** 官方 LayeredDigraphVertex.gs：共享组根（Fu 累计用） */
+    gs: LayoutVertex | null;
+    /** 官方 LayeredDigraphVertex.Fu：组内最小余量 */
+    Fu: number;
+    /** 官方 LayeredDigraphVertex.aI：在层表中的层号位置 */
+    aI: number;
+    /** 官方 LayeredDigraphVertex.ca：层内序号（=index） */
+    ca: number;
+    /** 官方 LayeredDigraphVertex.yk：nodeMinColumnSpace(v, true) 缓存 */
+    yk: number | null;
+    /** 官方 LayeredDigraphVertex.wk：nodeMinColumnSpace(v, false) 缓存 */
+    wk: number | null;
+    /** 官方 LayoutVertex.centered：非居中顶点在 oB 中做同层同宽扩展 */
+    centered: boolean;
+    /** 官方 LayeredDigraphVertex.Uw：getProperSourceVertexes 缓存 */
+    private _properSourceVertexes;
+    /** 官方 LayeredDigraphVertex.Gw：getProperDestinationVertexes 缓存 */
+    private _properDestinationVertexes;
+    /** 官方 LayeredDigraphVertex.qw：getProperSourceEdges 缓存 */
+    private _properSourceEdges;
+    /** 官方 LayeredDigraphVertex.Hw：getProperDestinationEdges 缓存 */
+    private _properDestinationEdges;
+    /** 官方 LayeredDigraphVertex.getProperSourceEdges：valid 的入边 */
+    getProperSourceEdges(): LayoutEdge[];
+    /** 官方 LayeredDigraphVertex.getProperDestinationEdges：valid 的出边 */
+    getProperDestinationEdges(): LayoutEdge[];
+    /** 官方 LayeredDigraphVertex.getProperSourceVertexes：高→低层入边的起点（按 index 排序） */
+    getProperSourceVertexes(): LayoutVertex[];
+    /** 官方 LayeredDigraphVertex.getProperDestinationVertexes：高→低层出边的终点（按 index 排序） */
+    getProperDestinationVertexes(): LayoutVertex[];
+    /** 官方 LayeredDigraphVertex.getDestinationEdge(v)：指向 v 的 valid 出边 */
+    getDestinationEdge(v: LayoutVertex): LayoutEdge;
+    /** 官方 addSourceEdge/deleteSourceEdge：同时失效 proper 缓存 */
+    invalidateProperCaches(): void;
+    private _invalidateProper;
     /** Add an edge where this vertex is the destination */
     addDestinationEdge(edge: LayoutEdge): void;
     /** Add an edge where this vertex is the source */
@@ -7469,7 +7746,7 @@ declare class LayoutVertex {
     get edges(): any;
     /** 官方 LayoutVertex.edgesCount */
     get edgesCount(): number;
-    /** 官方 LayoutVertex.commit()：把最终 bounds 写回 data.bounds（TreeVertex 覆写） */
+    /** 官方 LayoutVertex.commit()：把最终 bounds 移动 Node（并写回 data.bounds） */
     commit(): void;
     /** Get the center point of this vertex（官方 `bounds + focus`） */
     get center(): {
@@ -7522,6 +7799,16 @@ declare class LayoutNetwork {
     reattach(vertexes: LayoutVertex[], edges: LayoutEdge[]): void;
     /** Add an edge to this network (官方：toVertex.addSourceEdge, fromVertex.addDestinationEdge) */
     addEdge(edge: LayoutEdge): LayoutEdge;
+    /**
+     * 官方 `LayoutNetwork.reverseEdge(edge)`：反转边方向并同步两个顶点的边列表
+     * （`from.deleteDestinationEdge → to.deleteSourceEdge → edge.reverseEdge →
+     *   from.addSourceEdge → to.addDestinationEdge`）。
+     * 只交换 `edge.fromVertex/toVertex` 字段是不够的 —— 顶点的
+     * sourceEdges/destinationEdges 是建网时存的列表，不跟着字段走；
+     * 层号分配（memo 沿 destinationEdges 递归）读的是列表，
+     * 环还在 → customExpandCollapse 栈溢出。
+     */
+    reverseEdge(edge: LayoutEdge): void;
     /** Add a link to the network, creating an edge between the from/to vertexes */
     addLink(link: Link): LayoutEdge | null;
     /** Add a node to the network, creating a vertex */
@@ -7808,6 +8095,38 @@ declare class Group extends Node {
     copy(): Group;
 }
 
+/**
+ * Adornment - 装饰
+ * 用于选择手柄、工具提示、上下文菜单等
+ */
+declare class Adornment extends Part {
+    static readonly className: string;
+    /** 被装饰的 GraphObject */
+    private _adornedObject;
+    /** 装饰类别 */
+    private _adornmentCategory;
+    constructor();
+    constructor(type: any);
+    constructor(type: any, init?: any);
+    get adornedObject(): GraphObject | null;
+    /** 官方 `Adornment.set adornedObject`：换绑时先解绑旧 part，再由新 part.addAdornment 挂载自身 */
+    set adornedObject(val: GraphObject | null);
+    get adornedPart(): Part | null;
+    get adornedElement(): GraphObject | null;
+    get category(): string;
+    set category(val: string);
+    /** 是否为占位装饰 */
+    get isPlaceholder(): boolean;
+    /**
+     * 官方 `Adornment.placeholder`：本 Adornment 面板树中第一个 Placeholder。
+     * 官方缓存在内部字段（`vt`），本项目按需递归查找。
+     */
+    get placeholder(): Placeholder | null;
+    private static _findPlaceholder;
+    hasPlaceholder(): boolean;
+    copy(): Adornment;
+}
+
 declare class Overview {
     static readonly className: string;
     static _dbg: boolean;
@@ -7990,8 +8309,6 @@ declare class TreeVertex extends LayoutVertex {
     mm: Point[] | null;
     /** 官方 pm — 结束边线 */
     pm: Point[] | null;
-    /** 官方 LayoutVertex.focus — 从 bounds 原点到节点中心的绝对偏移 */
-    focus: Point;
     sorting: EnumValue;
     comparer: (a: TreeVertex, b: TreeVertex) => number;
     angle: number;
@@ -8427,9 +8744,46 @@ declare class LayeredDigraphLayout extends Layout {
     private _centered;
     private _maxLayer;
     private _maxIndex;
-    private _maxColumn;
     private _minIndexLayer;
     private _maxIndexLayer;
+    /** OptimalLinkLength 归并时缓存的顶点表 */
+    private _netVertexes;
+    /** 官方 ot：最大层号 */
+    private _ot;
+    /** 官方 Wt：最大列号 */
+    private _Wt;
+    /** 官方 `xn`：componentPack 的分量计数 */
+    private _xn;
+    /** 官方 ci：各层顶点数 */
+    private _ci;
+    /** 官方 Lu：层表 Lu[layer][index] = vertex */
+    private _Lu;
+    /** 官方 js：顶点数最多的层号 */
+    private _js;
+    /** 官方 cm：顶点数最少的层号 */
+    private _cm;
+    /** 官方 zw：最大层内序号-1 */
+    private _zw;
+    /** 官方 $n：层表临时数组池 */
+    private _dollarN;
+    /** 官方 um：he/ds 快照缓冲 */
+    private _um;
+    /** 官方 pk：交叉矩阵缓冲 */
+    private _pk;
+    /** 官方 Zn：alignOption 位（默认 AlignAll=15，控制 MB 四向打包） */
+    private _alignBits;
+    /** 官方 jA：列轴总跨度（commitNodes 写入） */
+    private _jA;
+    /** 官方 kr：列轴打包启用时的原点偏移 */
+    private _kr;
+    /** 官方 Js：各层前沿空间（commitNodes） */
+    private _Js;
+    /** 官方 Ss：各层后沿空间（commitNodes） */
+    private _Ss;
+    /** 官方 ks：各层推进轴起点（commitNodes） */
+    private _ks;
+    /** 官方 Yt：各层推进轴终点（commitNodes） */
+    private _Yt;
     get direction(): number;
     set direction(val: number);
     get layerSpacing(): number;
@@ -8458,7 +8812,6 @@ declare class LayeredDigraphLayout extends Layout {
     set centered(val: boolean);
     get maxLayer(): number;
     get maxIndex(): number;
-    get maxColumn(): number;
     get minIndexLayer(): number;
     get maxIndexLayer(): number;
     /** 官方 protected linkMinLength(edge)：默认最小长度 1 */
@@ -8498,6 +8851,11 @@ declare class LayeredDigraphLayout extends Layout {
     copy(): LayeredDigraphLayout;
     doLayout(coll: any): void;
     /**
+     * 官方 `LayeredDigraphLayout.setPortSpots` 等价逻辑（`Sk(isFrom)`）：
+     * 依据 direction 决定连线两端的端口点，非反向时为 MiddleRight/MiddleLeft。
+     */
+    private _portSpotFor;
+    /**
      * Remove cycles by reversing back edges in a DFS traversal.
      */
     private _removeCycles;
@@ -8505,27 +8863,134 @@ declare class LayeredDigraphLayout extends Layout {
      * Assign layers to vertexes using longest path from source.
      */
     private _assignLayers;
+    /** 官方 `jv/Wv`：LongestPathSink。layer(v) = max over 出边 (layer(to) + linkMinLength) */
+    private _networkMaxSrcLayerSpan;
+    /** 官方 `cU/Jv`：LongestPathSource。layer(v) = max over 入边 (layer(from) + linkMinLength)（源=0） */
+    private _networkMaxDestLayerSpan;
+    /** 官方 `fU/$v/uU/dU/Ew`：OptimalLinkLength。先 LongestPathSink，再从源做组归并/双向收缩 */
+    private _networkMinimizeLinkLength;
+    /** 官方 `$v(t)`：DFS 到所有汇，逐个做 uU(t)/dU(t) 归并 */
+    private _nlvVisited;
+    /** 官方 `uU(t)`：把 t 的「紧边连通分量」整体上移（减 layer），使所有边达到最小长度 */
+    private _nlvMoveUp;
+    /** 官方 `dU(t)`：把 t 的紧边分量整体下移（加 layer） */
+    private _nlvMoveDown;
+    /** 官方 `Ew(t,e,i,s,n)`：从 t 沿「紧边」（层差==最小长度）传播，把可达点并入分量 e */
+    private _nlvEw;
+    /** 官方 `nB()`：布局运行时状态复位（lu/zw/cm/js 等） */
+    private _nB;
+    /** 官方 `initializeIndices()`：按 Nu 选索引初始化器（20=DFO→kB，21=DFI→PB，22/默认→SB） */
+    private _initializeIndices;
+    /** 官方 `SB()`：naive 索引初始化 —— 按近邻分组后顺序赋 index */
+    private _SB;
+    /** 官方 `kB()`：DepthFirstOut 索引初始化 —— 从高层向低层递归 */
+    private _kB;
+    /** 官方 `oI(t,i)`：DFS 出边（按 portFromColOffset 排序）赋 index */
+    private _oI;
+    /** 官方 `PB()`：DepthFirstIn 索引初始化 —— 从低层向高层递归 */
+    private _PB;
+    /** 官方 `rI(t,i)`：DFS 入边（按 portToColOffset 排序）赋 index */
+    private _rI;
+    /** 官方 `lB()`：索引初始化 + 层表 Lu */
+    private _initLayerIndexes;
+    /** 官方 `hB()`：列初始化 —— 层内按 nodeMinColumnSpace 排开，算 Wt */
+    private _initColumns;
+    /** 官方 `ha(t)`：取/建 层 t 的顶点表（按 index），带池化复用 */
+    private _ha;
+    /** 官方 `aa(t,i)`：把顶点表放回池 */
+    private _aa;
+    /** 官方 `Xw()`：列归一化 —— 减去最小（列-minColSpace），更新 Wt */
+    private _Xw;
+    /** 官方 `he()`：把全部顶点的 (column,index) 快照进 um（Int16 对） */
+    private _he;
+    /** 官方 `ds(t)`：从快照恢复 column+index */
+    private _ds;
+    /** 官方 `countCrossings()`：对每层求交叉矩阵并累加三角和 */
+    private _countCrossings;
+    /** 官方 `Yw(t,i)`：各顶点的邻域重心（i<=0 用入边，i>=0 用出边） */
+    private _barycenters;
+    /** 官方 `$R(t,i)`：各顶点的邻域中位数（带端口偏移） */
+    private _medians;
+    /** 官方 `JR(t,i)`：交叉矩阵（i>=0 用出边、i<=0 用入边；i=1 只算出边） */
+    private _crossingMatrix;
+    /** 官方 `kk(t,i)`：中位数-重心交叉约简 —— 按 (median,barycenter) 排一层 */
+    private _medianBarycenter;
+    /** 官方 `Ps(t,i,e,s)`：贪心相邻交换交叉约简（评估交叉/拉直/中位/重心代价） */
+    private _crossingReduction;
+    /** 官方 `reduceCrossings()`：多轮 median/barycenter + 贪心交换 + aggressive 局部精化 */
+    private _reduceCrossingsOfficial;
+    /** 官方 aggressiveOption 的数值（30=None，31=Less，32=More） */
+    private _aggressiveNum;
+    /** 官方 packOption 的数值（位标志：1=Expand,2=Straighten,4=Median，15=All） */
+    private _packNum;
+    /** 官方 alignOption 的数值（位标志：1=UL,2=UR,4=LL,8=LR，15=All） */
+    private _alignNum;
+    /** 官方 `rB()`：网络细化 —— 算端口位置、把跨层>1的长边拆成人工顶点链 */
+    private _refineNetwork;
+    /** 官方 `xB(t)`：算端口方向位（bit0=起、bit1=止） */
+    private _xB;
+    /** 官方 `sI(t,i)`：基准方向角 */
+    private _sI;
+    /** 官方 `bB(t,i)`：沿有效非反转入边回溯到 t，返回对齐链 */
+    private _bB;
+    /** 官方 `nI(t,i)`：递归找 t（DFS 入边） */
+    private _nI;
+    /** 官方 `straightenAndPack()`：Zn!==0 时走 MB 四向打包 */
+    private _straightenAndPack;
+    /** 官方 `dm(t,i)`：bendStraighten 单层 */
+    private _bendStraighten;
+    /** 官方 `CB(t,i)`：shiftbendStraighten 单层 */
+    private _shiftBendStraighten;
+    /** 官方 `ZA(t,i)`：medianStraighten 单层 */
+    private _medianStraighten;
+    /** 官方 `NB()`：packAux 全列扫描 */
+    private _packAux;
+    /** 官方 `AB(t,i)`：packAux 单列 */
+    private _packAuxCol;
+    /** 官方 `TB()`：tightPackAux 全列扫描 */
+    private _tightPack;
+    /** 官方 `LB(t,i)`：tightPackAux 单列 */
+    private _tightPackCol;
+    /** 官方 `lI(t)`：componentPack —— 分量打包 */
+    private _componentPack;
+    /** 官方 `hI(t,i)`：componentShift —— 把跨过列 t 的分量整体平移 */
+    private _componentShift;
+    /** 官方 `JA(t,i,e,s,n)`：连通分量 DFS */
+    private _JA;
+    /** 官方 `xk(t)`：componentPack 用的代价度量 */
+    private _xk;
+    /** 官方 `MB()`：四向打包 —— 各方向 Pl/Pk 求 Se，FB 对齐，取中位 */
+    private _MB;
+    /** 官方 `DB(t,i)`：收集需要拉直的边到集合 */
+    private _DB;
+    /** 官方 `RB(t)`：是否为「人工→人工」链首 */
+    private _RB;
+    /** 官方 `Pl(t,i,e)`：按近邻链（Qn/Ec 环）串联 */
+    private _Pl;
+    /** 官方 `IB(t)`：初始化各顶点的环链（Ec=Qn=自身）与层内位置 */
+    private _IB;
+    /** 官方 `Pk(t,i,e)`：单向打包 —— OB 端口、cI 递推 Fu/Se、回写列轴位置 */
+    private _Pk;
+    /** 官方 `OB(t,i,e)`：沿环链累加端口偏移 _n（归一到 min=0） */
+    private _OB;
+    /** 官方 `cI(t,i)`：递推组内 Se（相对前一顶点） */
+    private _cI;
+    /** 官方 `fI(t,i)`：层内前一顶点 */
+    private _fI;
+    /** 官方 `FB(...)`：四向结果对齐 —— 取最佳方向并平移其余 */
+    private _FB;
+    /** 官方 `EB(t,i,e,s)`：单向 min/max 跨度 */
+    private _EB;
+    /** 官方 `commitNodes()`（LD 覆写）：推进轴 ks/Yt + 列轴 column*le + Se 覆盖 + 归一 */
+    private _commitNodesOfficial;
+    /** 官方 `setPortSpots`（Vw）：按 direction 设两端端口点 */
+    private _commitSetPortSpots;
     /**
-     * Reduce edge crossings using barycenter heuristic.
+     * 官方 `commitLinks()`（LD 覆写）：沿人工顶点链生成多点折线路由。
+     * 三阶段：①清空旧路由 ②updateRoute 重建基础路由 ③沿 dummy 链插点。
      */
-    private _reduceCrossings;
-    /**
-     * Reorder a layer based on barycenter of neighbors.
-     */
-    private _barycenterOrder;
-    /**
-     * Position nodes within each layer.
-     *
-     * 移植官方 `LayeredDigraphLayout.commitNodes()` 的坐标生成：
-     * 1) 推进轴（direction 决定 x/y）：每层取 `nodeMinLayerSpace(v, before/after)`
-     *    的最大值（焦点前/后各 +10），再按 `layerSpacing/2` 两侧累加，
-     *    得到该层的「焦点线」——这正是官方层间距 = layerSpacing + 20 的来源。
-     * 2) 列轴：层内按 `columnSpacing` 逐个排开，再把该层的**焦点跨度**居中
-     *    （`centered=true` 时官方文档原话："aligned in the center of its layer
-     *    according to its LayoutVertex.focus"）。
-     * 3) 两轴各自归一化到 0，由 doLayout 的 commit 再加 arrangementOrigin。
-     */
-    private _positionNodes;
+    private _commitLinksOfficial;
+    /** 官方 `nB()`：运行时状态复位（占位，_nB 已实现） */
     static CycleDepthFirst: EnumValue;
     static CycleGreedy: EnumValue;
     static CycleFromLayers: EnumValue;
@@ -9089,8 +9554,12 @@ type FigureGenerator = (shape: any, w: number, h: number) => Geometry;
  * （官方 `defineFigureGenerator(name, 'Other')`，如 StoredData -> DataStorage）。
  */
 declare const figures: Map$1<string, FigureGenerator | string>;
-/** 按图形名取几何；`p1/p2` 对应官方传入的 parameter1/parameter2。 */
-declare function getFigureGeometry(name: string, w: number, h: number, p1?: number, p2?: number, shape?: any): Geometry | null;
+/** 按图形名取几何；`p1/p2` 对应官方传入的 parameter1/parameter2。
+ *  `setSize=true` 时把生成尺寸记到几何上（官方 `Shape.AE` 的 `n.Ec=e; n.Uc=i`，包围盒至少覆盖 (0,0,w,h)）。
+ *  官方 `Shape.FN` 缓存（自然尺寸、defaultStretch 用）是**裸生成器** `y(null,100,100)` 的产物，
+ *  不记尺寸 —— 包围盒 = 路径 ∪ 原点。对 LineV/LineH 这类路径不铺满 100×100 的图形，
+ *  两者差 2 倍（自然宽度 50 vs 100），正是 graduated 时间轴宽 100 的根因。故 setSize=false。 */
+declare function getFigureGeometry(name: string, w: number, h: number, p1?: number, p2?: number, shape?: any, setSize?: boolean): Geometry | null;
 
 /** 本包版本（官方 GoJS 同名导出 `go.version` 为 "4.0.4"，此处诚实地报告自身版本）。 */
 declare const version = "0.1.0";

@@ -7918,8 +7918,10 @@ var Transaction = /** @class */ (function () {
         this._nestedNames = [];
     }
     Object.defineProperty(Transaction.prototype, "changes", {
+        /** 官方 `Transaction.changes` 是一条 List（`.each`/`.count`/`.elt`）。早先返回普通数组，
+         * updateDemo 这类调 `tx.changes.each(...)` 的官方样例直接崩。 */
         get: function () {
-            return this._changes;
+            return new List(this._changes);
         },
         enumerable: false,
         configurable: true
@@ -8057,8 +8059,15 @@ var Transaction = /** @class */ (function () {
     };
     /** 官方 Transaction.WI：把另一份变更列表追加到本事务尾部 */
     Transaction.prototype.addAllChanges = function (changes) {
-        for (var i = 0; i < changes.length; i++)
-            this._changes.push(changes[i]);
+        if (changes instanceof List) {
+            var it = changes.iterator;
+            while (it.next())
+                this._changes.push(it.value);
+        }
+        else {
+            for (var i = 0; i < changes.length; i++)
+                this._changes.push(changes[i]);
+        }
     };
     Transaction.className = "Transaction";
     return Transaction;
@@ -8074,7 +8083,11 @@ var UndoManager = /** @class */ (function () {
         this._currentTransaction = null;
         this._transactionLevel = 0;
         this._maxHistory = 0; // 0 = unlimited
-        this._isEnabled = true;
+        /** 官方 `UndoManager` 构造器默认 `this.Wi = false`（isEnabled=false）。
+         * 样例想要撤销必须显式 `'undoManager.isEnabled': true`。早先本项目默认 true，
+         * 导致 updateDemo 这类「先赋 model 再开 undo」的样例在初始布局时就冒出
+         * 事务 ChangedEvent（官方因 isEnabled=false 静默不发）。 */
+        this._isEnabled = false;
         this._hasUndo = false;
         this._hasRedo = false;
         this._model = null;
@@ -8094,12 +8107,7 @@ var UndoManager = /** @class */ (function () {
             return this._isEnabled;
         },
         set: function (val) {
-            if (this._isEnabled !== val) {
-                this._isEnabled = val;
-                if (!val) {
-                    this.clear();
-                }
-            }
+            this._isEnabled = val;
         },
         enumerable: false,
         configurable: true
@@ -8230,15 +8238,24 @@ var UndoManager = /** @class */ (function () {
             return false;
         if (this._transactionLevel <= 0)
             return false;
+        // 官方 zT：`const e=transactionLevel===1; ... e&&t&&jl("CommittingTransaction",...)`，
+        // 顶层提交的 CommittingTransaction 在 `this.vl--` **之前**发（此刻 level 仍为 1）。
+        // 共享 model 的另一张图（updateDemo blue/green 共用一个 model + undoManager）收到
+        // 该事件会同步 maybeUpdate，在蓝图尚未关闭的事务里跑自己的 Initial Layout（嵌套到
+        // lvl2）→ 顶层只提交一次 CommittedTransaction。早先先递减到 0 再发，且排除在
+        // maybeUpdate 之外 → green 只能等下一帧单独开事务（2 次 Committed，undoDisplay 多 3 节点）。
+        var isTopLevel = this._transactionLevel === 1;
+        if (isTopLevel && this._currentTransaction) {
+            this._fireTransactionEvent('CommittingTransaction', this._currentTransaction.name);
+        }
         if (this._nestedTransactionNames.length > 0)
             this._nestedTransactionNames.pop();
         this._transactionLevel--;
         if (name !== undefined && this._currentTransaction) {
             this._currentTransaction.name = name;
         }
-        if (this._transactionLevel === 0) {
+        if (isTopLevel) {
             if (this._currentTransaction) {
-                this._fireTransactionEvent('CommittingTransaction', this._currentTransaction.name);
                 try {
                     for (var _b = __values(this._changes), _c = _b.next(); !_c.done; _c = _b.next()) {
                         var change = _c.value;
@@ -8320,8 +8337,8 @@ var UndoManager = /** @class */ (function () {
         this._redoStack.push(transaction);
         this._skipsUndoManager = true;
         var changes = transaction.changes;
-        for (var i = changes.length - 1; i >= 0; i--) {
-            this._undoChange(changes[i]);
+        for (var i = changes.count - 1; i >= 0; i--) {
+            this._undoChange(changes.elt(i));
         }
         this._skipsUndoManager = false;
         this._fireStateChanged();
@@ -8356,6 +8373,40 @@ var UndoManager = /** @class */ (function () {
     };
     /** 清空历史 */
     UndoManager.prototype.clear = function () {
+        var e_3, _a, e_4, _b;
+        try {
+            // 官方 UndoManager.clear()：先 `for(i in history){ e=elt(i); e&&e.clear() }` 把每条
+            // 事务的 changes 清空，再 t.clear() 清历史。首帧 Initial Layout 提交后（Yx）会调 clear，
+            // 刚提交的事务对象虽已被 CommittedTransaction 事件引用，但 changes 已被清空 ——
+            // updateDemo 的 undoDisplay 在 setTimeout(+10ms) 才读 tx.changes，官方那时已空
+            // → 只画 1 个父节点；本项目早先直接 `length=0` 不清 changes → undoDisplay 多画 2 个子节点。
+            for (var _c = __values(this._undoStack), _d = _c.next(); !_d.done; _d = _c.next()) {
+                var t = _d.value;
+                if (t)
+                    t.clear();
+            }
+        }
+        catch (e_3_1) { e_3 = { error: e_3_1 }; }
+        finally {
+            try {
+                if (_d && !_d.done && (_a = _c.return)) _a.call(_c);
+            }
+            finally { if (e_3) throw e_3.error; }
+        }
+        try {
+            for (var _e = __values(this._redoStack), _f = _e.next(); !_f.done; _f = _e.next()) {
+                var t = _f.value;
+                if (t)
+                    t.clear();
+            }
+        }
+        catch (e_4_1) { e_4 = { error: e_4_1 }; }
+        finally {
+            try {
+                if (_f && !_f.done && (_b = _e.return)) _b.call(_e);
+            }
+            finally { if (e_4) throw e_4.error; }
+        }
         this._undoStack.length = 0;
         this._redoStack.length = 0;
         this._currentTransaction = null;
@@ -8480,19 +8531,19 @@ var UndoManager = /** @class */ (function () {
         }
     };
     UndoManager.prototype._fireStateChanged = function () {
-        var e_3, _a;
+        var e_5, _a;
         try {
             for (var _b = __values(this._stateChangedListeners), _c = _b.next(); !_c.done; _c = _b.next()) {
                 var listener = _c.value;
                 listener(this);
             }
         }
-        catch (e_3_1) { e_3 = { error: e_3_1 }; }
+        catch (e_5_1) { e_5 = { error: e_5_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_3) throw e_3.error; }
+            finally { if (e_5) throw e_5.error; }
         }
     };
     UndoManager.prototype._fireTransactionEvent = function (propertyName, tname, transObj) {
@@ -9200,8 +9251,6 @@ var Model = /** @class */ (function () {
     Model.prototype.addNodeData = function (data) {
         if (!data)
             throw new Error('Cannot add null node data');
-        if (this.isReadOnly)
-            throw new Error('Model is read-only');
         if (this.containsNodeData(data))
             return; // 官方 av：重复添加直接 no-op
         this.ensureUniqueKey(data);
@@ -9231,8 +9280,6 @@ var Model = /** @class */ (function () {
     Model.prototype.removeNodeData = function (data) {
         if (!data)
             return false;
-        if (this.isReadOnly)
-            throw new Error('Model is read-only');
         var idx = this._nodeDataArray.indexOf(data);
         if (idx < 0)
             return false;
@@ -9355,8 +9402,6 @@ var Model = /** @class */ (function () {
     };
     /** 设置 modelData 中的属性（支持撤销） */
     Model.prototype.setModelData = function (key, value) {
-        if (this.isReadOnly)
-            throw new Error('Model is read-only');
         var old = this.modelData[key];
         if (old === value)
             return;
@@ -9367,8 +9412,6 @@ var Model = /** @class */ (function () {
     Model.prototype.setDataProperty = function (data, propname, value) {
         if (!data)
             return;
-        if (this.isReadOnly)
-            throw new Error('Model is read-only');
         var old = data[propname];
         if (old === value)
             return;
@@ -9522,9 +9565,18 @@ var Model = /** @class */ (function () {
         }
         return e;
     };
+    /**
+     * 官方 `UndoManager.jl(t, i, e)`：`s.change=1, s.propertyName=t, s.object=e(事务), s.oldValue=i(事务名)`。
+     * 早先本项目把 `object` 设成了 model 本身 → updateDemo 这类读 `e.object.changes` 的
+     * 样例拿到 `model.changes === undefined`，`.each` 直接崩。
+     */
     Model.prototype.raiseTransactionEvent = function (propertyName, tname, transObj) {
         var e_7, _a;
-        var e = new ChangedEvent(ChangedEventTransaction, this, propertyName, tname, transObj);
+        var e = new ChangedEvent();
+        e.change = ChangedEventTransaction;
+        e.propertyName = propertyName;
+        e.object = transObj !== undefined ? transObj : null;
+        e.oldValue = tname;
         e.isModelChange = true;
         e.model = this;
         e.transactionName = tname;
@@ -10152,8 +10204,8 @@ var Model = /** @class */ (function () {
             }
         };
         var changes = t.changes;
-        for (var i = 0; i < changes.length; i++) {
-            var e = changes[i];
+        for (var i = 0; i < changes.count; i++) {
+            var e = changes.elt(i);
             if (e.diagram === null || e.diagram === undefined)
                 continue;
             if (e.change === ChangedEventProperty) {
@@ -10208,8 +10260,8 @@ var Model = /** @class */ (function () {
         var modified = new Set$1();
         var removes = new Set$1();
         var changes = t.changes;
-        for (var i = 0; i < changes.length; i++) {
-            var e = changes[i];
+        for (var i = 0; i < changes.count; i++) {
+            var e = changes.elt(i);
             if (e.model !== this)
                 continue;
             if (e.object === this && e.propertyName === 'nodeDataArray') {
@@ -10822,8 +10874,6 @@ var GraphLinksModel = /** @class */ (function (_super) {
     GraphLinksModel.prototype.addLinkData = function (data) {
         if (!data)
             throw new Error('Cannot add null link data');
-        if (this.isReadOnly)
-            throw new Error('Model is read-only');
         if (this.containsLinkData(data))
             return; // 官方 mv：重复添加直接 no-op
         this._linkDataArray.push(data);
@@ -10842,8 +10892,6 @@ var GraphLinksModel = /** @class */ (function (_super) {
     GraphLinksModel.prototype.removeLinkData = function (data) {
         if (!data)
             return false;
-        if (this.isReadOnly)
-            throw new Error('Model is read-only');
         var idx = this._linkDataArray.indexOf(data);
         if (idx < 0)
             return false;
@@ -14042,13 +14090,18 @@ function defineFigureGenerator(name, func) {
     if (CORE_FIGURE_NAMES.indexOf(name) < 0)
         extensionFigureNames.add(name);
 }
-/** 按图形名取几何；`p1/p2` 对应官方传入的 parameter1/parameter2。 */
-function getFigureGeometry(name, w, h, p1, p2, shape) {
+/** 按图形名取几何；`p1/p2` 对应官方传入的 parameter1/parameter2。
+ *  `setSize=true` 时把生成尺寸记到几何上（官方 `Shape.AE` 的 `n.Ec=e; n.Uc=i`，包围盒至少覆盖 (0,0,w,h)）。
+ *  官方 `Shape.FN` 缓存（自然尺寸、defaultStretch 用）是**裸生成器** `y(null,100,100)` 的产物，
+ *  不记尺寸 —— 包围盒 = 路径 ∪ 原点。对 LineV/LineH 这类路径不铺满 100×100 的图形，
+ *  两者差 2 倍（自然宽度 50 vs 100），正是 graduated 时间轴宽 100 的根因。故 setSize=false。 */
+function getFigureGeometry(name, w, h, p1, p2, shape, setSize) {
     if (p1 === void 0) { p1 = NaN; }
     if (p2 === void 0) { p2 = NaN; }
-    return resolveFigureGeometry(name, w, h, p1, p2, shape, new Set$1());
+    if (setSize === void 0) { setSize = true; }
+    return resolveFigureGeometry(name, w, h, p1, p2, shape, setSize, new Set$1());
 }
-function resolveFigureGeometry(name, w, h, p1, p2, shape, visited) {
+function resolveFigureGeometry(name, w, h, p1, p2, shape, setSize, visited) {
     var func = figures.get(name);
     if (func === undefined)
         return null;
@@ -14056,14 +14109,14 @@ function resolveFigureGeometry(name, w, h, p1, p2, shape, visited) {
         if (visited.has(func))
             return null; // 循环别名保护
         visited.add(func);
-        return resolveFigureGeometry(func, w, h, p1, p2, shape, visited);
+        return resolveFigureGeometry(func, w, h, p1, p2, shape, setSize, visited);
     }
     if (typeof func !== 'function')
         return null;
     var geo = func(shape || null, w, h);
     // 官方 Shape 的图形几何入口（go.js 里 `n.Ec = e; n.Uc = i;`）会把生成尺寸记在几何上，
     // 包围盒至少覆盖 (0,0,w,h)。少了这一步，按窄包围盒拉伸会让拐角出现尖刺。
-    if (geo && !isNaN(w) && !isNaN(h))
+    if (geo && setSize && !isNaN(w) && !isNaN(h))
         geo.setSize(w, h);
     return geo;
 }
@@ -19615,13 +19668,26 @@ var Shape = /** @class */ (function (_super) {
     });
     Object.defineProperty(Shape.prototype, "strokeDashArray", {
         get: function () { return this._strokeDashArray; },
-        set: function (val) { this._strokeDashArray = val; },
+        set: function (val) {
+            if (this._strokeDashArray !== val) {
+                this._strokeDashArray = val;
+                this._invalidateMeasure();
+            }
+        },
         enumerable: false,
         configurable: true
     });
     Object.defineProperty(Shape.prototype, "strokeDashOffset", {
         get: function () { return this._strokeDashOffset; },
-        set: function (val) { this._strokeDashOffset = val; },
+        set: function (val) {
+            if (this._strokeDashOffset !== val) {
+                this._strokeDashOffset = val;
+                // 官方 Shape 画笔属性 setter 会失效 paint/measure，触发重绘。
+                // 漏掉它：belts 的传送带动画每帧改 strokeDashOffset，但 Shape 永不重绘，
+                // 皮带静止（`_renderLoop` 只在 measure 失效时重画该 part）。
+                this._invalidateMeasure();
+            }
+        },
         enumerable: false,
         configurable: true
     });
@@ -20227,7 +20293,9 @@ var Shape = /** @class */ (function (_super) {
             return { w: b.width, h: b.height };
         }
         if (this._figure && this._figure !== 'None') {
-            var g = getFigureGeometry(this._figure, 100, 100, NaN, NaN, null);
+            // 官方 Shape.FN[figure] 缓存：裸生成器（null,100,100）不记尺寸（Ec/Uc=NaN），
+            // 包围盒 = 路径 ∪ 原点 → LineV 自然宽 50 而非 100。setSize=false 对齐之。
+            var g = getFigureGeometry(this._figure, 100, 100, NaN, NaN, null, false);
             if (g) {
                 var b = g.bounds;
                 return { w: b.width, h: b.height };
@@ -20446,7 +20514,7 @@ var Shape = /** @class */ (function (_super) {
         // **不读** geometry.defaultStretch；只有 figure（rn===null）才回落到
         // figure geometry 的 defaultStretch（Shape.FN[figure].defaultStretch）。
         if (this._geometry === null && !this._geometryString && this._figure && this._figure !== 'None') {
-            var g = getFigureGeometry(this._figure, 100, 100, NaN, NaN, null);
+            var g = getFigureGeometry(this._figure, 100, 100, NaN, NaN, null, false);
             if (g)
                 return g.defaultStretch !== undefined ? (g.defaultStretch === 1 ? 2 : g.defaultStretch) : 2;
         }
@@ -23379,7 +23447,9 @@ var Panel = /** @class */ (function (_super) {
             // Copy row/column definitions
             for (var _f = __values(this._rowDefinitions), _g = _f.next(); !_g.done; _g = _f.next()) {
                 var def = _g.value;
-                copy._rowDefinitions.push(def.copy());
+                var defCopy = def.copy();
+                defCopy._setPanel(copy);
+                copy._rowDefinitions.push(defCopy);
             }
         }
         catch (e_15_1) { e_15 = { error: e_15_1 }; }
@@ -23392,7 +23462,9 @@ var Panel = /** @class */ (function (_super) {
         try {
             for (var _h = __values(this._columnDefinitions), _j = _h.next(); !_j.done; _j = _h.next()) {
                 var def = _j.value;
-                copy._columnDefinitions.push(def.copy());
+                var defCopy = def.copy();
+                defCopy._setPanel(copy);
+                copy._columnDefinitions.push(defCopy);
             }
         }
         catch (e_16_1) { e_16 = { error: e_16_1 }; }
@@ -24090,6 +24162,11 @@ var Panel = /** @class */ (function (_super) {
         }
         if (!hasOther)
             union.setTo(sBoxX, sBoxY, sBoxW, sBoxH);
+        // 官方 PanelLayoutSpot.measure 首遍结尾：isClipping 时 union 与主元素盒 k=(0,0,kw,kh)
+        // 求交（而非并入 S）。processFlow 的 isClipping Spot 里塞了 5000 宽的水面子面板，
+        // 若并入 S 会让 originX 被拉到 -2400，主元素（白底）被 arrange 到 x=2400 而露出黑底。
+        else if (this.isClipping)
+            union.intersect(0, 0, kw, kh);
         else
             this._unionInto(sBoxX, sBoxY, sBoxW, sBoxH);
         // 主元素 stretch 早退（官方 switch）
@@ -24140,7 +24217,11 @@ var Panel = /** @class */ (function (_super) {
             }
             finally { if (e_29) throw e_29.error; }
         }
-        this._unionInto(sBoxX, sBoxY, sBoxW, sBoxH);
+        // 官方 PanelLayoutSpot.measure 次遍结尾：isClipping 时同样与主元素 margin 盒 k 求交。
+        if (this.isClipping)
+            union.intersect(-ma.left, -ma.top, kw, kh);
+        else
+            this._unionInto(sBoxX, sBoxY, sBoxW, sBoxH);
     };
     /** 官方 PanelLayoutSpot.arrange */
     Panel.prototype._arrangeSpot = function (innerX, innerY, innerW, innerH) {
@@ -26468,8 +26549,14 @@ var Part = /** @class */ (function (_super) {
     Part.prototype._invalidateMeasure = function () {
         _super.prototype._invalidateMeasure.call(this);
         var d = this._diagram;
-        if (d && typeof d.requestUpdate === 'function') {
-            d.requestUpdate();
+        if (d) {
+            // 测量进行中（_measureArrangeAll(true)）不重武装脏位：期间 _invalidateLinkRoutes
+            // →invalidateRoute→_invalidateMeasure 会无限重武装（grafcet 避障 link 每帧闪烁根因）。
+            if (!d._isMeasuring) {
+                d._measureInvalid = true;
+                if (typeof d.requestUpdate === 'function')
+                    d.requestUpdate();
+            }
         }
     };
     Object.defineProperty(Part.prototype, "visible", {
@@ -27025,6 +27112,11 @@ var Part = /** @class */ (function (_super) {
         if (!this._isLayoutPositioned || !this._visible)
             return false;
         if (this.isLinkLabel)
+            return false;
+        // 临时层（Grid/ViewportBackground/Adornment/Tool 等）里的 Part 不参与布局 ——
+        // 官方 canLayout 要求 isLayoutPositioned，而临时层部件的该标志为 false；
+        // 否则 PERT 图例(legend) 会混进 LD 网络，拉偏末层间距 41px。
+        if (this._layer && this._layer.isTemporary)
             return false;
         return true;
     };
@@ -30156,7 +30248,7 @@ var Link = /** @class */ (function (_super) {
         enumerable: false,
         configurable: true
     });
-    /** 官方 `Link.computeMidPoint(result)`（本项目无 Transform，跳过 Geometry 沿路径取中点分支） */
+    /** 官方 `Link.computeMidPoint(result)`（Bezier 分支走中间段 t=0.5，其余走 flattened 长度） */
     Link.prototype.computeMidPoint = function (result) {
         var n = this.pointsCount;
         if (n === 0) {
@@ -30175,6 +30267,34 @@ var Link = /** @class */ (function (_super) {
             var b = this.getPoint(1);
             result.x = (a.x + b.x) / 2;
             result.y = (a.y + b.y) / 2;
+            return result;
+        }
+        // 官方 computeMidPoint 的 Bezier 分支（computeCurve()===9）：
+        // 直接对**中间那一段三次贝塞尔**取 t=0.5（G.PT），不走「flattened 长度 +
+        // 锚点线性插值」——后者对曲线段是错的，会把中点（及依赖它的 link 标签
+        // 位置、Link actualBounds/documentBounds）带偏数十 px（stateChart 顶部
+        // 文字被视口裁掉的根因）。
+        if (this.computeCurve() === CurveBezier) {
+            if (n === 3) {
+                // 官方 i===3：两控制点都在 p1
+                var p0 = this.getPoint(0);
+                var p1 = this.getPoint(1);
+                var p2 = this.getPoint(2);
+                return cubicMid(p0.x, p0.y, p1.x, p1.y, p1.x, p1.y, p2.x, p2.y, result);
+            }
+            var segs = (n - 1) / 3 | 0;
+            var c = ((segs / 2) | 0) * 3;
+            if (segs % 2 === 1) {
+                var p0 = this.getPoint(c);
+                var p1 = this.getPoint(c + 1);
+                var p2 = this.getPoint(c + 2);
+                var p3 = this.getPoint(c + 3);
+                return cubicMid(p0.x, p0.y, p1.x, p1.y, p2.x, p2.y, p3.x, p3.y, result);
+            }
+            // 官方 else：偶数段 → 取两段共享的锚点
+            var p = this.getPoint(c);
+            result.x = p.x;
+            result.y = p.y;
             return result;
         }
         var lens = this.flattenedLengths;
@@ -31668,6 +31788,15 @@ var Link = /** @class */ (function (_super) {
     return Link;
 }(Part));
 GraphObject.defineBuilder('Link', Link);
+/**
+ * 三次贝塞尔在 t=0.5 处的点：B(0.5) = (P0 + 3·P1 + 3·P2 + P3) / 8。
+ * 对应官方 `G.PT(..., t=0.5)`，用于 `Link.computeMidPoint` 的 Bezier 分支。
+ */
+function cubicMid(x0, y0, x1, y1, x2, y2, x3, y3, result) {
+    result.x = (x0 + 3 * x1 + 3 * x2 + x3) / 8;
+    result.y = (y0 + 3 * y1 + 3 * y2 + y3) / 8;
+    return result;
+}
 
 /**
  * Node - a Part that can be connected by Links.
@@ -32775,17 +32904,22 @@ var LayoutVertex = /** @class */ (function () {
         this.network = null;
         /** 官方 LayoutVertex.data：一般就是 Node/Link 的 data */
         this.data = null;
-        /** X position of the vertex center */
-        this.x = 0;
-        /** Y position of the vertex center */
-        this.y = 0;
-        /** Bounding rectangle of the vertex */
+        /**
+         * Bounding rectangle of the vertex — 官方构造默认 `Rect(0,0,10,10)`。
+         * 真实节点由 `addNode` 立刻覆盖；未拿到 node 的人工顶点（dummy）保持 10×10，
+         * `commitNodes`/`commitLinks` 的中心与端点计算才与官方一致。
+         */
         this.bounds = new Rect(0, 0, 0, 0);
         /**
          * 官方 LayoutVertex.focus：bounds 左上角到「连接点」的偏移（像素）。
          * `centerX`/`centerY` 就是 `bounds.x/y + focus`。
+         * 官方构造默认 `Point(5,5)`；真实节点在 `node` 被赋值时算一次。
+         * 通过 `focus`/`focusX`/`focusY` 写入的值记为「调用方显式指定」，
+         * `_applyVertexFocus` 不得再覆盖（如 sankey 样例 SankeyLayout.makeNetwork
+         * 里 `v.focusX = shape.actualBounds.x`）。
          */
-        this.focus = new Point(0, 0);
+        this._focus = new Point(0, 0);
+        this._focusUserSet = false;
         /**
          * 官方 `LayoutVertex.actualAngle`（度）：该 vertex 最终被摆放的角度。
          * CircularLayout 在环上定位时写入；子类（如 friendWheel 的 WheelLayout）
@@ -32794,10 +32928,6 @@ var LayoutVertex = /** @class */ (function () {
          * friendWheel 的旋转与曲率逻辑全部拿到 NaN。
          */
         this.actualAngle = 0;
-        /** Focus X offset (0-1 relative to width) for connection points */
-        this.focusX = 0.5;
-        /** Focus Y offset (0-1 relative to height) for connection points */
-        this.focusY = 0.5;
         /** The Part associated with this vertex, if any */
         this.part = null;
         /** Edges where this vertex is the source */
@@ -32810,7 +32940,76 @@ var LayoutVertex = /** @class */ (function () {
         this._isArtificial = false;
         /** Internal index for algorithms */
         this._index = -1;
+        /** 官方 LayoutVertex.layer：层号（LayeredDigraphLayout.assignLayers 写入） */
+        this.layer = -1;
+        /** 官方 LayoutVertex.component：OptimalLinkLength 归组用 */
+        this.component = -1;
+        /** 官方 LayoutVertex.oi：visited 标记（OptimalLinkLength 用） */
+        this.oi = false;
+        /** 官方 LayoutVertex.column：列号（列轴推进位，columnSpacing 单位） */
+        this.column = 0;
+        // ============ 官方 LayeredDigraphVertex 字段 ============
+        /** 官方 LayeredDigraphVertex.near：人工顶点对齐的相邻真实顶点 */
+        this.near = null;
+        /** 官方 LayeredDigraphVertex.bk：人工顶点种类（1 起点旁/2 中段/3 终点旁） */
+        this.bk = 0;
+        /** 官方 LayeredDigraphVertex.Se：打包后的列轴位置（像素，NaN=未算） */
+        this.Se = NaN;
+        /** 官方 LayeredDigraphVertex._n：链上累计端口偏移（像素） */
+        this._n = 0;
+        /** 官方 LayeredDigraphVertex.Qn：链上的下一个顶点（环状，单点=自身） */
+        this.Qn = null;
+        /** 官方 LayeredDigraphVertex.Ec：链头 */
+        this.Ec = null;
+        /** 官方 LayeredDigraphVertex.gs：共享组根（Fu 累计用） */
+        this.gs = null;
+        /** 官方 LayeredDigraphVertex.Fu：组内最小余量 */
+        this.Fu = Infinity;
+        /** 官方 LayeredDigraphVertex.aI：在层表中的层号位置 */
+        this.aI = 0;
+        /** 官方 LayeredDigraphVertex.ca：层内序号（=index） */
+        this.ca = 0;
+        /** 官方 LayeredDigraphVertex.yk：nodeMinColumnSpace(v, true) 缓存 */
+        this.yk = null;
+        /** 官方 LayeredDigraphVertex.wk：nodeMinColumnSpace(v, false) 缓存 */
+        this.wk = null;
+        /** 官方 LayoutVertex.centered：非居中顶点在 oB 中做同层同宽扩展 */
+        this.centered = true;
+        /** 官方 LayeredDigraphVertex.Uw：getProperSourceVertexes 缓存 */
+        this._properSourceVertexes = null;
+        /** 官方 LayeredDigraphVertex.Gw：getProperDestinationVertexes 缓存 */
+        this._properDestinationVertexes = null;
+        /** 官方 LayeredDigraphVertex.qw：getProperSourceEdges 缓存 */
+        this._properSourceEdges = null;
+        /** 官方 LayeredDigraphVertex.Hw：getProperDestinationEdges 缓存 */
+        this._properDestinationEdges = null;
     }
+    Object.defineProperty(LayoutVertex.prototype, "x", {
+        /** X position of the vertex center — 官方 `x` 即 `bounds.x`（centerX setter 写 bounds.x） */
+        get: function () { return this.bounds.x; },
+        set: function (val) { this.bounds.x = val; },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(LayoutVertex.prototype, "y", {
+        /** Y position of the vertex center — 官方 `y` 即 `bounds.y` */
+        get: function () { return this.bounds.y; },
+        set: function (val) { this.bounds.y = val; },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(LayoutVertex.prototype, "focus", {
+        get: function () { return this._focus; },
+        set: function (v) { this._focus = v; this._focusUserSet = true; },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(LayoutVertex.prototype, "isFocusUserSet", {
+        /** 官方语义：focus 是否已被调用方显式设置 */
+        get: function () { return this._focusUserSet; },
+        enumerable: false,
+        configurable: true
+    });
     Object.defineProperty(LayoutVertex.prototype, "width", {
         /** Width of the vertex */
         get: function () {
@@ -32833,12 +33032,141 @@ var LayoutVertex = /** @class */ (function () {
         enumerable: false,
         configurable: true
     });
+    Object.defineProperty(LayoutVertex.prototype, "focusX", {
+        /**
+         * `focus.x` 的别名（官方 `LayoutVertex.focusX`）。
+         * 官方 focusX/focusY 与 focus 是同一份数据的两个名字：子类布局
+         * （如 sankey 样例的 SankeyLayout.makeNetwork 里 `v.focusX = shape.actualBounds.x`）
+         * 直接写这两个字段，必须真正落到像素偏移 `focus` 上，否则列内打包读到的仍是默认值。
+         */
+        get: function () { return this._focus.x; },
+        set: function (val) { this._focus.x = val; this._focusUserSet = true; },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(LayoutVertex.prototype, "focusY", {
+        /** `focus.y` 的别名（官方 `LayoutVertex.focusY`） */
+        get: function () { return this._focus.y; },
+        set: function (val) { this._focus.y = val; this._focusUserSet = true; },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(LayoutVertex.prototype, "index", {
+        /** 官方 LayoutVertex.index：层内序号（= _index，官方全流水线统一用 .index） */
+        get: function () { return this._index; },
+        set: function (val) { this._index = val; },
+        enumerable: false,
+        configurable: true
+    });
+    /** 官方 LayeredDigraphVertex.getProperSourceEdges：valid 的入边 */
+    LayoutVertex.prototype.getProperSourceEdges = function () {
+        if (this._properSourceEdges === null) {
+            var t = [];
+            var it = this.sourceEdges.iterator;
+            while (it.next()) {
+                var e = it.value;
+                if (e.valid)
+                    t.push(e);
+            }
+            this._properSourceEdges = t;
+        }
+        return this._properSourceEdges;
+    };
+    /** 官方 LayeredDigraphVertex.getProperDestinationEdges：valid 的出边 */
+    LayoutVertex.prototype.getProperDestinationEdges = function () {
+        if (this._properDestinationEdges === null) {
+            var t = [];
+            var it = this.destinationEdges.iterator;
+            while (it.next()) {
+                var e = it.value;
+                if (e.valid)
+                    t.push(e);
+            }
+            this._properDestinationEdges = t;
+        }
+        return this._properDestinationEdges;
+    };
+    /** 官方 LayeredDigraphVertex.getProperSourceVertexes：高→低层入边的起点（按 index 排序） */
+    LayoutVertex.prototype.getProperSourceVertexes = function () {
+        if (this._properSourceVertexes === null) {
+            var t = [];
+            var it = this.sourceEdges.iterator;
+            while (it.next()) {
+                var e = it.value;
+                if (!e.valid)
+                    continue;
+                var fv = e.fromVertex;
+                var tv = e.toVertex;
+                if (fv === null || tv === null)
+                    continue;
+                if (fv.layer <= tv.layer)
+                    continue;
+                t.push(fv);
+            }
+            t.sort(function (a, b) { return b._index - a._index; });
+            this._properSourceVertexes = t;
+        }
+        return this._properSourceVertexes;
+    };
+    /** 官方 LayeredDigraphVertex.getProperDestinationVertexes：高→低层出边的终点（按 index 排序） */
+    LayoutVertex.prototype.getProperDestinationVertexes = function () {
+        if (this._properDestinationVertexes === null) {
+            var t = [];
+            var it = this.destinationEdges.iterator;
+            while (it.next()) {
+                var e = it.value;
+                if (!e.valid)
+                    continue;
+                var fv = e.fromVertex;
+                var tv = e.toVertex;
+                if (fv === null || tv === null)
+                    continue;
+                if (fv.layer <= tv.layer)
+                    continue;
+                t.push(tv);
+            }
+            t.sort(function (a, b) { return b._index - a._index; });
+            this._properDestinationVertexes = t;
+        }
+        return this._properDestinationVertexes;
+    };
+    /** 官方 LayeredDigraphVertex.getDestinationEdge(v)：指向 v 的 valid 出边 */
+    LayoutVertex.prototype.getDestinationEdge = function (v) {
+        var e_1, _a;
+        var list = this.getProperDestinationEdges();
+        try {
+            for (var list_1 = __values(list), list_1_1 = list_1.next(); !list_1_1.done; list_1_1 = list_1.next()) {
+                var e = list_1_1.value;
+                if (e.toVertex === v)
+                    return e;
+            }
+        }
+        catch (e_1_1) { e_1 = { error: e_1_1 }; }
+        finally {
+            try {
+                if (list_1_1 && !list_1_1.done && (_a = list_1.return)) _a.call(list_1);
+            }
+            finally { if (e_1) throw e_1.error; }
+        }
+        throw new Error('Unable to find destination edge to given vertex');
+    };
+    /** 官方 addSourceEdge/deleteSourceEdge：同时失效 proper 缓存 */
+    LayoutVertex.prototype.invalidateProperCaches = function () {
+        this._properSourceVertexes = null;
+        this._properDestinationVertexes = null;
+        this._properSourceEdges = null;
+        this._properDestinationEdges = null;
+    };
+    LayoutVertex.prototype._invalidateProper = function () {
+        this.invalidateProperCaches();
+    };
     /** Add an edge where this vertex is the destination */
     LayoutVertex.prototype.addDestinationEdge = function (edge) {
         if (edge === null || edge === undefined)
             return;
         if (!this.destinationEdges.contains(edge))
             this.destinationEdges.add(edge);
+        this._invalidateProper();
     };
     /** Add an edge where this vertex is the source */
     LayoutVertex.prototype.addSourceEdge = function (edge) {
@@ -32846,18 +33174,21 @@ var LayoutVertex = /** @class */ (function () {
             return;
         if (!this.sourceEdges.contains(edge))
             this.sourceEdges.add(edge);
+        this._invalidateProper();
     };
     /** 官方 LayoutVertex.deleteSourceEdge */
     LayoutVertex.prototype.deleteSourceEdge = function (edge) {
         if (edge === null || edge === undefined)
             return;
         this.sourceEdges.remove(edge);
+        this._invalidateProper();
     };
     /** 官方 LayoutVertex.deleteDestinationEdge */
     LayoutVertex.prototype.deleteDestinationEdge = function (edge) {
         if (edge === null || edge === undefined)
             return;
         this.destinationEdges.remove(edge);
+        this._invalidateProper();
     };
     /** Delete an edge from both source and destination lists */
     LayoutVertex.prototype.deleteEdge = function (edge) {
@@ -32921,7 +33252,7 @@ var LayoutVertex = /** @class */ (function () {
          * 官方迭代器带 `each`，扩展（RadialLayout / ParallelLayout）直接 `v.edges.each(...)`。
          */
         get: function () {
-            var e_1, _a, e_2, _b;
+            var e_2, _a, e_3, _b;
             var l = new List();
             try {
                 for (var _c = __values(this.sourceEdges), _d = _c.next(); !_d.done; _d = _c.next()) {
@@ -32929,12 +33260,12 @@ var LayoutVertex = /** @class */ (function () {
                     l.add(e);
                 }
             }
-            catch (e_1_1) { e_1 = { error: e_1_1 }; }
+            catch (e_2_1) { e_2 = { error: e_2_1 }; }
             finally {
                 try {
                     if (_d && !_d.done && (_a = _c.return)) _a.call(_c);
                 }
-                finally { if (e_1) throw e_1.error; }
+                finally { if (e_2) throw e_2.error; }
             }
             try {
                 for (var _e = __values(this.destinationEdges), _f = _e.next(); !_f.done; _f = _e.next()) {
@@ -32942,12 +33273,12 @@ var LayoutVertex = /** @class */ (function () {
                     l.add(e);
                 }
             }
-            catch (e_2_1) { e_2 = { error: e_2_1 }; }
+            catch (e_3_1) { e_3 = { error: e_3_1 }; }
             finally {
                 try {
                     if (_f && !_f.done && (_b = _e.return)) _b.call(_e);
                 }
-                finally { if (e_2) throw e_2.error; }
+                finally { if (e_3) throw e_3.error; }
             }
             return l.iterator;
         },
@@ -32962,7 +33293,7 @@ var LayoutVertex = /** @class */ (function () {
         enumerable: false,
         configurable: true
     });
-    /** 官方 LayoutVertex.commit()：把最终 bounds 写回 data.bounds（TreeVertex 覆写） */
+    /** 官方 LayoutVertex.commit()：把最终 bounds 移动 Node（并写回 data.bounds） */
     LayoutVertex.prototype.commit = function () {
         var d = this.data;
         if (d !== null && d !== undefined && d.bounds) {
@@ -32972,6 +33303,9 @@ var LayoutVertex = /** @class */ (function () {
             db.y = b.y;
             db.width = b.width;
             db.height = b.height;
+        }
+        if (this.node !== null) {
+            this.node.move(new Point(this.bounds.x, this.bounds.y));
         }
     };
     Object.defineProperty(LayoutVertex.prototype, "center", {
@@ -33038,14 +33372,40 @@ var LayoutEdge = /** @class */ (function () {
         this.length = NaN;
         /** The weight of this edge for layout calculations */
         this.weight = 1;
+        /** 官方 LayeredDigraphEdge.valid：交叉约简/拉直时该边是否参与 */
+        this.valid = false;
+        /** 官方 LayeredDigraphEdge.rev：该边在去环时被反转（from/to 已交换） */
+        this.rev = false;
+        /** 官方 LayeredDigraphEdge.portFromPos：起端口在列轴上的位置（像素） */
+        this.portFromPos = 0;
+        /** 官方 LayeredDigraphEdge.portToPos：末端口在列轴上的位置（像素） */
+        this.portToPos = 0;
+        /** 官方 LayeredDigraphEdge.portFromColOffset：起端口相对焦点的列偏移（columnSpacing 单位） */
+        this.portFromColOffset = 0;
+        /** 官方 LayeredDigraphEdge.portToColOffset：末端口相对焦点的列偏移（columnSpacing 单位） */
+        this.portToColOffset = 0;
     }
-    /** Get the other vertex given one vertex of this edge */
+    /** 官方 GraphLayout.Edge.getOtherVertex */
     LayoutEdge.prototype.getOtherVertex = function (vertex) {
         if (vertex === this.fromVertex)
             return this.toVertex;
         if (vertex === this.toVertex)
             return this.fromVertex;
         return null;
+    };
+    /** 官方 `LayoutEdge.reverseEdge()`：仅交换端点字段（列表同步由 LayoutNetwork.reverseEdge 负责） */
+    LayoutEdge.prototype.reverseEdge = function () {
+        var t = this.fromVertex;
+        this.fromVertex = this.toVertex;
+        this.toVertex = t;
+    };
+    /**
+     * 官方 `LayeredDigraphEdge.commit()` → `TreeEdge.commit` → `adjustRouteForAngleChange`。
+     * 在正交路由的转角处微调连线路由点。当前为占位（未移植角度调整逻辑），
+     * 仅保留调用点以对齐官方 commitLinks 流程。
+     */
+    LayoutEdge.prototype.commit = function () {
+        // 占位：正交转角调整（adjustRouteForAngleChange）后续移植
     };
     LayoutEdge.className = "LayoutEdge";
     return LayoutEdge;
@@ -33134,6 +33494,26 @@ var LayoutNetwork = /** @class */ (function () {
             edge.fromVertex.addDestinationEdge(edge);
         }
         return edge;
+    };
+    /**
+     * 官方 `LayoutNetwork.reverseEdge(edge)`：反转边方向并同步两个顶点的边列表
+     * （`from.deleteDestinationEdge → to.deleteSourceEdge → edge.reverseEdge →
+     *   from.addSourceEdge → to.addDestinationEdge`）。
+     * 只交换 `edge.fromVertex/toVertex` 字段是不够的 —— 顶点的
+     * sourceEdges/destinationEdges 是建网时存的列表，不跟着字段走；
+     * 层号分配（memo 沿 destinationEdges 递归）读的是列表，
+     * 环还在 → customExpandCollapse 栈溢出。
+     */
+    LayoutNetwork.prototype.reverseEdge = function (edge) {
+        var f = edge.fromVertex;
+        var t = edge.toVertex;
+        if (f === null || t === null)
+            return;
+        f.deleteDestinationEdge(edge);
+        t.deleteSourceEdge(edge);
+        edge.reverseEdge();
+        f.addSourceEdge(edge);
+        t.addDestinationEdge(edge);
     };
     /** Add a link to the network, creating an edge between the from/to vertexes */
     LayoutNetwork.prototype.addLink = function (link) {
@@ -37100,11 +37480,10 @@ var CanvasRenderer = /** @class */ (function () {
         };
         applyShort(true);
         applyShort(false);
-        // 官方 `Link.makeGeometry()`：正交（或点数===2）且非贝塞尔曲线时，
-        // 在每个拐点处按 `computeCorner()` 画「控制点落在拐点」的二次贝塞尔圆角。
-        // 早先 JumpOver/JumpGap 分支直接拿 points 折线绘制，完全绕过圆角 ——
-        // dynamicPorts 官方是圆滑拐角、我们全是直角折线就是这么来的。
-        if (curve !== CurveBezier && (link.isOrthogonal || arr.length === 2)) {
+        // 官方 `Link.makeGeometry()`：非贝塞尔曲线时，只要 computeCorner()>0 就在每个
+        // 拐点处按「控制点落在拐点」画二次贝塞尔圆角（正交/普通折线都适用；PERT 的
+        // curve:None 多点路由同样需要 corner 圆角，否则转角全是直角不圆滑）。
+        if (curve !== CurveBezier) {
             var radius = typeof link.computeCorner === 'function'
                 ? link.computeCorner()
                 : 0;
@@ -37172,79 +37551,271 @@ var CanvasRenderer = /** @class */ (function () {
             ctx.lineWidth = shape.strokeWidth;
             if (shape.strokeDashArray) {
                 ctx.setLineDash(shape.strokeDashArray);
+                ctx.lineDashOffset = shape.strokeDashOffset;
             }
             this._strokeNoShadow(ctx);
         }
+        // 官方 `Shape.R3`：主路径形状带 pathPattern 时，沿路径把装饰几何平铺上去
+        // （relationships 的 Single/Dash/Zigzag/Coil 等全靠这条；stroke 常为 transparent）。
+        if (shape.pathPattern) {
+            this._renderLinkPathPattern(ctx, shape, arr, curve, link);
+        }
         ctx.restore();
     };
+    /** 官方 `Shape.R3` 的链接路径平铺：先按已绘制曲线把 arr 采样成密折线，再平铺装饰。 */
+    CanvasRenderer.prototype._renderLinkPathPattern = function (ctx, shape, arr, curve, link) {
+        var patt = shape.pathPattern;
+        if (!patt)
+            return;
+        var geo = patt._getGeometry();
+        if (!geo)
+            return;
+        var pts = this._sampleLinkPolyline(arr, curve, link);
+        if (pts.length < 4)
+            return;
+        this._drawPathPatternTiling(ctx, pts, patt, geo);
+    };
+    /** 把链接路径（含贝塞尔）采样成 [x0,y0,x1,y1,...] 密折线，与 _renderLinkPath 的画法一致。 */
+    CanvasRenderer.prototype._sampleLinkPolyline = function (arr, curve, link) {
+        var e_8, _a;
+        var pts = [];
+        if (arr.length < 2)
+            return pts;
+        if (curve === CurveBezier) {
+            if (arr.length === 2) {
+                var curviness = typeof link.computeCurviness === 'function'
+                    ? link.computeCurviness()
+                    : link._curviness;
+                var cx = void 0, cy = void 0;
+                if (curviness && isFinite(curviness) && curviness !== 0) {
+                    var dx = arr[1].x - arr[0].x, dy = arr[1].y - arr[0].y;
+                    var len = Math.sqrt(dx * dx + dy * dy);
+                    var nx = len > 0 ? -dy / len : 0, ny = len > 0 ? dx / len : 1;
+                    cx = (arr[0].x + arr[1].x) / 2 + nx * curviness;
+                    cy = (arr[0].y + arr[1].y) / 2 + ny * curviness;
+                }
+                else {
+                    cx = (arr[0].x + arr[1].x) / 2;
+                    cy = (arr[0].y + arr[1].y) / 2;
+                }
+                this._sampleQuad(pts, arr[0].x, arr[0].y, cx, cy, arr[1].x, arr[1].y);
+            }
+            else if (arr.length === 3) {
+                this._sampleQuad(pts, arr[0].x, arr[0].y, arr[1].x, arr[1].y, arr[2].x, arr[2].y);
+            }
+            else {
+                pts.push(arr[0].x, arr[0].y);
+                for (var i = 1; i < arr.length - 2; i += 3) {
+                    this._sampleCubic(pts, arr[i - 1].x, arr[i - 1].y, arr[i].x, arr[i].y, arr[i + 1].x, arr[i + 1].y, arr[i + 2].x, arr[i + 2].y);
+                }
+                var rem = (arr.length - 1) % 3;
+                if (rem === 1)
+                    pts.push(arr[arr.length - 1].x, arr[arr.length - 1].y);
+                else if (rem === 2)
+                    this._sampleQuad(pts, arr[arr.length - 2].x, arr[arr.length - 2].y, arr[arr.length - 2].x, arr[arr.length - 2].y, arr[arr.length - 1].x, arr[arr.length - 1].y);
+            }
+        }
+        else {
+            try {
+                for (var arr_1 = __values(arr), arr_1_1 = arr_1.next(); !arr_1_1.done; arr_1_1 = arr_1.next()) {
+                    var p = arr_1_1.value;
+                    pts.push(p.x, p.y);
+                }
+            }
+            catch (e_8_1) { e_8 = { error: e_8_1 }; }
+            finally {
+                try {
+                    if (arr_1_1 && !arr_1_1.done && (_a = arr_1.return)) _a.call(arr_1);
+                }
+                finally { if (e_8) throw e_8.error; }
+            }
+        }
+        return pts;
+    };
+    CanvasRenderer.prototype._sampleQuad = function (pts, x0, y0, cx, cy, x1, y1) {
+        pts.push(x0, y0);
+        var n = 24;
+        for (var i = 1; i <= n; i++) {
+            var t = i / n, u = 1 - t;
+            pts.push(u * u * x0 + 2 * u * t * cx + t * t * x1, u * u * y0 + 2 * u * t * cy + t * t * y1);
+        }
+    };
+    CanvasRenderer.prototype._sampleCubic = function (pts, x0, y0, c1x, c1y, c2x, c2y, x1, y1) {
+        pts.push(x0, y0);
+        var n = 24;
+        for (var i = 1; i <= n; i++) {
+            var t = i / n, u = 1 - t;
+            pts.push(u * u * u * x0 + 3 * u * u * t * c1x + 3 * u * t * t * c2x + t * t * t * x1, u * u * u * y0 + 3 * u * u * t * c1y + 3 * u * t * t * c2y + t * t * t * y1);
+        }
+    };
+    /** 官方 `Shape.hg`：沿密折线逐格平铺 pathPattern 装饰几何（t=ctx, e=折线, s=装饰 Shape）。 */
+    CanvasRenderer.prototype._drawPathPatternTiling = function (ctx, e, patt, geo) {
+        var n = e.length;
+        if (n < 4)
+            return;
+        var gb = geo.bounds;
+        var r = Math.max(1, gb.width);
+        var l = gb.height;
+        var sw = typeof patt.strokeWidth === 'number' && patt.strokeWidth > 0 ? patt.strokeWidth : 0;
+        var spacing = (function () { var w = gb.width - sw; return w < 1 ? 1 : w; })();
+        // 分段信息 [dx, angle, slope, len]
+        var segs = [];
+        var total = 0;
+        var hx = e[0], hy = e[1];
+        for (var C = 2; C < n; C += 2) {
+            var cx = e[C], cy = e[C + 1];
+            var dx = cx - hx, dy = cy - hy;
+            if (dx === 0)
+                dx = 0.001;
+            var slope = dy / dx;
+            var angle = Math.atan2(dy, dx);
+            var len = Math.sqrt(dx * dx + dy * dy);
+            segs.push([dx, angle, slope, len]);
+            total += len;
+            hx = cx;
+            hy = cy;
+        }
+        hx = e[0];
+        hy = e[1];
+        var S = spacing;
+        var k = r / 2;
+        var firstHalf = k !== 0;
+        var A = 0;
+        var seg = segs[A];
+        var u = seg[0], ang = seg[1], m = seg[2], p = seg[3];
+        var M = 0;
+        while (total >= 0.1) {
+            if (M === 0) {
+                if (firstHalf) {
+                    S = spacing;
+                    S -= k;
+                    total -= k;
+                    firstHalf = false;
+                }
+                else
+                    S = spacing;
+                if (S === 0)
+                    S = 1;
+            }
+            if (S > total)
+                break;
+            if (S > p) {
+                M = S - p;
+                S = p;
+            }
+            else
+                M = 0;
+            var adv = Math.sqrt((S * S) / (1 + m * m));
+            if (u < 0)
+                adv = -adv;
+            hx += adv;
+            hy += m * adv;
+            ctx.save();
+            ctx.translate(hx, hy);
+            ctx.rotate(ang);
+            ctx.translate(-r / 2, -l / 2);
+            if (M === 0)
+                this._drawPatternTile(ctx, patt, geo);
+            ctx.restore();
+            total -= S;
+            p -= S;
+            if (M !== 0) {
+                A++;
+                if (A >= segs.length)
+                    break;
+                seg = segs[A];
+                u = seg[0];
+                ang = seg[1];
+                m = seg[2];
+                p = seg[3];
+                S = M;
+            }
+        }
+    };
+    /** 官方 `Shape.Xh` 的平铺格绘制：把 pathPattern 的几何 fill+stroke 画在当前变换下。 */
+    CanvasRenderer.prototype._drawPatternTile = function (ctx, patt, geo) {
+        var doFill = !!patt.fill;
+        var doStroke = !!patt.stroke && patt.strokeWidth > 0;
+        var bounds = geo.bounds;
+        var figIt = geo.figures.iterator;
+        while (figIt.next()) {
+            var fig = figIt.value;
+            this._drawFigure(ctx, fig);
+            if (doFill && fig.isFilled) {
+                ctx.fillStyle = this._applyBrush(ctx, patt.fill, bounds);
+                ctx.fill();
+            }
+            if (doStroke) {
+                ctx.strokeStyle = this._applyBrush(ctx, patt.stroke, bounds);
+                ctx.lineWidth = patt.strokeWidth;
+                ctx.lineCap = patt.strokeCap;
+                ctx.lineJoin = patt.strokeJoin;
+                this._strokeNoShadow(ctx);
+            }
+        }
+    };
     /**
-     * 官方 `Link.f3()` 的拐角圆角：把正交点列改写成带「控制点落在拐点」的二次
-     * 贝塞尔圆角的折线（采样成折线点，便于 JumpGap/JumpOver 分支沿用）。
-     * 半径封顶语义与官方一致：`c = min(radius, |拐点-上一拐点|/2)`，
-     * 再 `min(c, |下一拐点-拐点|/2)`，`c < 0.5` 视作不圆角。
+     * 官方 `Link` 拐角圆角（`computeCorner()` → 几何构建时把折线拐点改写成
+     * 「控制点落在拐点」的二次贝塞尔圆角）。
+     *
+     * 官方对**任意角度**的折线拐角都圆滑，不只正交段 —— PERT 的路由点
+     * `(120,71) → (145,206) → (276,206)` 是「斜线接水平」，早期实现只认
+     * 水平↔垂直两种正交情形，斜线拐角完全没被圆角化，渲染出直角折线。
+     *
+     * 半径封顶与官方一致：`c = min(corner, |拐点-上一点|/2, |下一点-拐点|/2)`，
+     * `c < 0.5` 视作不圆角；共线（straight-through）点跳过不圆角。
      */
     CanvasRenderer.prototype._roundCorners = function (src, radius) {
         var n = src.length;
         if (!(radius > 0) || n < 3)
             return src;
         var out = [src[0]];
-        // dirPrev = 上一拐角的圆角终点（官方 `s`/`f`），capPrev = 上一拐点（官方 `l`/`d`）
-        var dirPrev = src[0];
-        var capPrev = src[0];
         for (var i = 1; i < n - 1; i++) {
+            var prev = src[i - 1];
             var nn = src[i];
-            var after = src[i + 1];
-            var start = null;
-            var end = null;
-            if (Math.abs(dirPrev.y - nn.y) < 0.5 && Math.abs(nn.x - after.x) < 0.5) {
-                // 水平段 → 垂直段
-                var c = Math.min(radius, Math.abs(nn.x - capPrev.x) / 2);
-                c = Math.min(c, Math.abs(after.y - nn.y) / 2);
-                if (c >= 0.5) {
-                    var u = nn.x > dirPrev.x ? nn.x - c : nn.x + c;
-                    var gy = after.y > nn.y ? nn.y + c : nn.y - c;
-                    start = new Point(u, nn.y);
-                    end = new Point(nn.x, gy);
-                }
-            }
-            else if (Math.abs(dirPrev.x - nn.x) < 0.5 && Math.abs(nn.y - after.y) < 0.5) {
-                // 垂直段 → 水平段
-                var c = Math.min(radius, Math.abs(nn.y - capPrev.y) / 2);
-                c = Math.min(c, Math.abs(after.x - nn.x) / 2);
-                if (c >= 0.5) {
-                    var u = nn.y > dirPrev.y ? nn.y - c : nn.y + c;
-                    var mx = after.x > nn.x ? nn.x + c : nn.x - c;
-                    start = new Point(nn.x, u);
-                    end = new Point(mx, nn.y);
-                }
-            }
-            if (start && end) {
-                out.push(start);
-                for (var k = 1; k <= 3; k++) {
-                    var t = k / 4;
-                    var m = 1 - t;
-                    out.push(new Point(m * m * start.x + 2 * m * t * nn.x + t * t * end.x, m * m * start.y + 2 * m * t * nn.y + t * t * end.y));
-                }
-                out.push(end);
-                dirPrev = end;
-                capPrev = nn;
-            }
-            else {
+            var next = src[i + 1];
+            // 入/出方向单位向量（由拐点指向两侧）
+            var d1x = prev.x - nn.x, d1y = prev.y - nn.y;
+            var d2x = next.x - nn.x, d2y = next.y - nn.y;
+            var l1 = Math.sqrt(d1x * d1x + d1y * d1y);
+            var l2 = Math.sqrt(d2x * d2x + d2y * d2y);
+            if (!(l1 > 1e-6) || !(l2 > 1e-6)) {
                 out.push(nn);
-                // 官方 `Link.cT()` 会跳过共线点：半径封顶要用「上一拐点」而不是共线中间点，
-                // 否则连续两个拐点之间夹着共线点时 |拐点-上一拐点| 会被算成 0 → 圆角消失。
-                var collinearV = Math.abs(dirPrev.x - nn.x) < 0.5 && Math.abs(nn.x - after.x) < 0.5;
-                var collinearH = Math.abs(dirPrev.y - nn.y) < 0.5 && Math.abs(nn.y - after.y) < 0.5;
-                if (!collinearV && !collinearH)
-                    capPrev = nn;
-                dirPrev = nn;
+                continue;
             }
+            d1x /= l1;
+            d1y /= l1;
+            d2x /= l2;
+            d2y /= l2;
+            // 共线直通（两向量反向）不是拐角，保持为直线段
+            if (Math.abs(d1x + d2x) < 1e-6 && Math.abs(d1y + d2y) < 1e-6) {
+                out.push(nn);
+                continue;
+            }
+            var c = radius;
+            if (c > l1 / 2)
+                c = l1 / 2;
+            if (c > l2 / 2)
+                c = l2 / 2;
+            if (c < 0.5) {
+                out.push(nn);
+                continue;
+            }
+            var sx = nn.x + d1x * c, sy = nn.y + d1y * c;
+            var ex = nn.x + d2x * c, ey = nn.y + d2y * c;
+            out.push(new Point(sx, sy));
+            for (var k = 1; k <= 4; k++) {
+                var t = k / 5;
+                var m = 1 - t;
+                out.push(new Point(m * m * sx + 2 * m * t * nn.x + t * t * ex, m * m * sy + 2 * m * t * nn.y + t * t * ey));
+            }
+            out.push(new Point(ex, ey));
         }
         out.push(src[n - 1]);
         return out;
     };
     CanvasRenderer.prototype._findCrossings = function (link) {
-        var e_8, _a;
+        var e_9, _a;
         var diagram = this._diagram;
         if (!diagram)
             return [];
@@ -37288,12 +37859,12 @@ var CanvasRenderer = /** @class */ (function () {
                 }
             }
         }
-        catch (e_8_1) { e_8 = { error: e_8_1 }; }
+        catch (e_9_1) { e_9 = { error: e_9_1 }; }
         finally {
             try {
                 if (layers_1_1 && !layers_1_1.done && (_a = layers_1.return)) _a.call(layers_1);
             }
-            finally { if (e_8) throw e_8.error; }
+            finally { if (e_9) throw e_9.error; }
         }
         crossings.sort(function (a, b) { return a - b; });
         return crossings;
@@ -37314,7 +37885,7 @@ var CanvasRenderer = /** @class */ (function () {
         return null;
     };
     CanvasRenderer.prototype._drawPathWithJumpOver = function (ctx, arr, crossings, jumpSize) {
-        var e_9, _a;
+        var e_10, _a;
         ctx.beginPath();
         ctx.moveTo(arr[0].x, arr[0].y);
         if (crossings.length === 0) {
@@ -37339,7 +37910,7 @@ var CanvasRenderer = /** @class */ (function () {
             var segEnd = cumDist + segLen;
             var pos = segStart;
             try {
-                for (var crossings_1 = (e_9 = void 0, __values(crossings)), crossings_1_1 = crossings_1.next(); !crossings_1_1.done; crossings_1_1 = crossings_1.next()) {
+                for (var crossings_1 = (e_10 = void 0, __values(crossings)), crossings_1_1 = crossings_1.next(); !crossings_1_1.done; crossings_1_1 = crossings_1.next()) {
                     var crossDist = crossings_1_1.value;
                     if (crossDist <= segStart + halfJump || crossDist >= segEnd - halfJump)
                         continue;
@@ -37362,12 +37933,12 @@ var CanvasRenderer = /** @class */ (function () {
                     pos = crossDist + halfJump;
                 }
             }
-            catch (e_9_1) { e_9 = { error: e_9_1 }; }
+            catch (e_10_1) { e_10 = { error: e_10_1 }; }
             finally {
                 try {
                     if (crossings_1_1 && !crossings_1_1.done && (_a = crossings_1.return)) _a.call(crossings_1);
                 }
-                finally { if (e_9) throw e_9.error; }
+                finally { if (e_10) throw e_10.error; }
             }
             if (pos < segEnd - 0.01) {
                 ctx.lineTo(curr.x, curr.y);
@@ -37376,7 +37947,7 @@ var CanvasRenderer = /** @class */ (function () {
         }
     };
     CanvasRenderer.prototype._drawPathWithJumpGap = function (ctx, arr, crossings, gapSize) {
-        var e_10, _a;
+        var e_11, _a;
         ctx.beginPath();
         ctx.moveTo(arr[0].x, arr[0].y);
         if (crossings.length === 0) {
@@ -37399,7 +37970,7 @@ var CanvasRenderer = /** @class */ (function () {
             var segEnd = cumDist + segLen;
             var pos = segStart;
             try {
-                for (var crossings_2 = (e_10 = void 0, __values(crossings)), crossings_2_1 = crossings_2.next(); !crossings_2_1.done; crossings_2_1 = crossings_2.next()) {
+                for (var crossings_2 = (e_11 = void 0, __values(crossings)), crossings_2_1 = crossings_2.next(); !crossings_2_1.done; crossings_2_1 = crossings_2.next()) {
                     var crossDist = crossings_2_1.value;
                     if (crossDist <= segStart + halfGap || crossDist >= segEnd - halfGap)
                         continue;
@@ -37410,12 +37981,12 @@ var CanvasRenderer = /** @class */ (function () {
                     pos = crossDist + halfGap;
                 }
             }
-            catch (e_10_1) { e_10 = { error: e_10_1 }; }
+            catch (e_11_1) { e_11 = { error: e_11_1 }; }
             finally {
                 try {
                     if (crossings_2_1 && !crossings_2_1.done && (_a = crossings_2.return)) _a.call(crossings_2);
                 }
-                finally { if (e_10) throw e_10.error; }
+                finally { if (e_11) throw e_11.error; }
             }
             if (pos < segEnd - 0.01) {
                 ctx.lineTo(curr.x, curr.y);
@@ -37604,6 +38175,31 @@ var CanvasRenderer = /** @class */ (function () {
             ctx.fillRect(bgRect.x, bgRect.y, bgRect.width, bgRect.height);
             ctx.restore();
         }
+        // 官方 GraphObject.shadowVisible / eS(panel)：
+        //  - shadowVisible===false → 该对象自身不投影。
+        //  - shadowVisible 默认(null) 且是 Auto/Spot 面板的"非主元素"子对象 → 不投影
+        //    （官方 eS：非主元素子对象虽继承 Part 阴影，但其自身不投影，避免文字等
+        //    在主形状之上出现"重影"；只有主元素 box 投影）。
+        var shadowDisabled = false;
+        var _sv = obj.shadowVisible;
+        if (_sv === false) {
+            shadowDisabled = true;
+        }
+        else if (_sv == null) {
+            var _p = obj.panel;
+            if (_p !== null && (_p.type === PanelAuto || _p.type === PanelSpot)) {
+                var _main = _p.findMainElement();
+                if (_main !== null && _main !== obj)
+                    shadowDisabled = true;
+            }
+        }
+        if (shadowDisabled) {
+            ctx.save();
+            ctx.shadowColor = 'rgba(0, 0, 0, 0)';
+            ctx.shadowBlur = 0;
+            ctx.shadowOffsetX = 0;
+            ctx.shadowOffsetY = 0;
+        }
         // Dispatch by type
         if (obj instanceof Shape) {
             this.renderShape(obj, offsetX, offsetY, paintBox);
@@ -37618,6 +38214,9 @@ var CanvasRenderer = /** @class */ (function () {
             this.renderPanel(obj, offsetX, offsetY);
         }
         else ;
+        if (shadowDisabled) {
+            ctx.restore();
+        }
         // Restore angle/scale transform
         if (obj.angle !== 0 || obj.scale !== 1) {
             ctx.restore();
@@ -37629,7 +38228,7 @@ var CanvasRenderer = /** @class */ (function () {
     };
     /** Render a Panel and its children */
     CanvasRenderer.prototype.renderPanel = function (panel, offsetX, offsetY) {
-        var e_11, _a, e_12, _b, e_13, _c, e_14, _d, e_15, _e, e_16, _f, e_17, _g, e_18, _h, e_19, _j;
+        var e_12, _a, e_13, _b, e_14, _c, e_15, _d, e_16, _e, e_17, _f, e_18, _g, e_19, _h, e_20, _j;
         if (!panel.visible)
             return;
         var ctx = this.ctx;
@@ -37643,8 +38242,17 @@ var CanvasRenderer = /** @class */ (function () {
         // Apply clipping if isClipping is true（官方：先 clip 再画 background）
         if (panel.isClipping) {
             ctx.save();
+            // 官方 isClipping Spot 面板用【主元素几何】做裁剪区（`clipInsteadOfFill`），
+            // 主元素本身不填充。早先这里用矩形裁剪并把主元素当普通子元素画（默认黑填充），
+            // processFlow 的 CAPSULE 裁剪形状被画成一大块黑底盖住金属渐变。
+            var clipMain = panel.type === PanelSpot ? panel.findMainElement() : null;
             ctx.beginPath();
-            ctx.rect(panelX, panelY, panelW, panelH);
+            if (clipMain instanceof Shape) {
+                this._clipToShapeGeometry(ctx, clipMain, panelX, panelY);
+            }
+            else {
+                ctx.rect(panelX, panelY, panelW, panelH);
+            }
             ctx.clip();
         }
         // Render panel background
@@ -37688,12 +38296,12 @@ var CanvasRenderer = /** @class */ (function () {
                     }
                 }
             }
-            catch (e_11_1) { e_11 = { error: e_11_1 }; }
+            catch (e_12_1) { e_12 = { error: e_12_1 }; }
             finally {
                 try {
                     if (elements_4_1 && !elements_4_1.done && (_a = elements_4.return)) _a.call(elements_4);
                 }
-                finally { if (e_11) throw e_11.error; }
+                finally { if (e_12) throw e_12.error; }
             }
             if (main !== null) {
                 this.renderGraphObject(main, panelX, panelY);
@@ -37704,12 +38312,12 @@ var CanvasRenderer = /** @class */ (function () {
                     this.renderGraphObject(elem, childOX, childOY);
                 }
             }
-            catch (e_12_1) { e_12 = { error: e_12_1 }; }
+            catch (e_13_1) { e_13 = { error: e_13_1 }; }
             finally {
                 try {
                     if (others_1_1 && !others_1_1.done && (_b = others_1.return)) _b.call(others_1);
                 }
-                finally { if (e_12) throw e_12.error; }
+                finally { if (e_13) throw e_13.error; }
             }
         }
         else if (panelType === PanelVertical || panelType === PanelHorizontal) {
@@ -37721,12 +38329,12 @@ var CanvasRenderer = /** @class */ (function () {
                     this.renderGraphObject(elem, childOX, childOY);
                 }
             }
-            catch (e_13_1) { e_13 = { error: e_13_1 }; }
+            catch (e_14_1) { e_14 = { error: e_14_1 }; }
             finally {
                 try {
                     if (elements_5_1 && !elements_5_1.done && (_c = elements_5.return)) _c.call(elements_5);
                 }
-                finally { if (e_13) throw e_13.error; }
+                finally { if (e_14) throw e_14.error; }
             }
         }
         else if (panelType === PanelSpot) {
@@ -37748,14 +38356,16 @@ var CanvasRenderer = /** @class */ (function () {
                     }
                 }
             }
-            catch (e_14_1) { e_14 = { error: e_14_1 }; }
+            catch (e_15_1) { e_15 = { error: e_15_1 }; }
             finally {
                 try {
                     if (elements_6_1 && !elements_6_1.done && (_d = elements_6.return)) _d.call(elements_6);
                 }
-                finally { if (e_14) throw e_14.error; }
+                finally { if (e_15) throw e_15.error; }
             }
-            if (main !== null) {
+            // 官方 isClipping Spot：主元素只用来生成裁剪区（clipInsteadOfFill），不填充。
+            var skipClipMain = panel.isClipping;
+            if (main !== null && !skipClipMain) {
                 this.renderGraphObject(main, panelX, panelY);
             }
             try {
@@ -37764,12 +38374,12 @@ var CanvasRenderer = /** @class */ (function () {
                     this.renderGraphObject(elem, childOX, childOY);
                 }
             }
-            catch (e_15_1) { e_15 = { error: e_15_1 }; }
+            catch (e_16_1) { e_16 = { error: e_16_1 }; }
             finally {
                 try {
                     if (others_2_1 && !others_2_1.done && (_e = others_2.return)) _e.call(others_2);
                 }
-                finally { if (e_15) throw e_15.error; }
+                finally { if (e_16) throw e_16.error; }
             }
         }
         else if (panelType === PanelTable) {
@@ -37782,12 +38392,12 @@ var CanvasRenderer = /** @class */ (function () {
                     this.renderGraphObject(elem, childOX, childOY);
                 }
             }
-            catch (e_16_1) { e_16 = { error: e_16_1 }; }
+            catch (e_17_1) { e_17 = { error: e_17_1 }; }
             finally {
                 try {
                     if (elements_7_1 && !elements_7_1.done && (_f = elements_7.return)) _f.call(elements_7);
                 }
-                finally { if (e_16) throw e_16.error; }
+                finally { if (e_17) throw e_17.error; }
             }
         }
         else if (panelType === PanelPosition) {
@@ -37798,12 +38408,12 @@ var CanvasRenderer = /** @class */ (function () {
                     this.renderGraphObject(elem, childOX, childOY);
                 }
             }
-            catch (e_17_1) { e_17 = { error: e_17_1 }; }
+            catch (e_18_1) { e_18 = { error: e_18_1 }; }
             finally {
                 try {
                     if (elements_8_1 && !elements_8_1.done && (_g = elements_8.return)) _g.call(elements_8);
                 }
-                finally { if (e_17) throw e_17.error; }
+                finally { if (e_18) throw e_18.error; }
             }
         }
         else if (panelType === PanelViewbox) {
@@ -37821,12 +38431,12 @@ var CanvasRenderer = /** @class */ (function () {
                     this.renderGraphObject(elem, childOX, childOY);
                 }
             }
-            catch (e_18_1) { e_18 = { error: e_18_1 }; }
+            catch (e_19_1) { e_19 = { error: e_19_1 }; }
             finally {
                 try {
                     if (elements_9_1 && !elements_9_1.done && (_h = elements_9.return)) _h.call(elements_9);
                 }
-                finally { if (e_18) throw e_18.error; }
+                finally { if (e_19) throw e_19.error; }
             }
         }
         else {
@@ -37838,18 +38448,41 @@ var CanvasRenderer = /** @class */ (function () {
                     this.renderGraphObject(elem, childOX, childOY);
                 }
             }
-            catch (e_19_1) { e_19 = { error: e_19_1 }; }
+            catch (e_20_1) { e_20 = { error: e_20_1 }; }
             finally {
                 try {
                     if (elements_10_1 && !elements_10_1.done && (_j = elements_10.return)) _j.call(elements_10);
                 }
-                finally { if (e_19) throw e_19.error; }
+                finally { if (e_20) throw e_20.error; }
             }
         }
         // Restore clipping
         if (panel.isClipping) {
             ctx.restore();
         }
+    };
+    /** 把某 Shape 的几何按其 actualBounds 缩放后画进当前路径（供 isClipping 做裁剪区）。 */
+    CanvasRenderer.prototype._clipToShapeGeometry = function (ctx, shape, docX, docY) {
+        var geo = shape._getGeometry();
+        var ab = shape.actualBounds;
+        if (!geo || !ab || ab.width <= 0 || ab.height <= 0) {
+            if (ab)
+                ctx.rect(docX + ab.x, docY + ab.y, Math.max(ab.width, 0), Math.max(ab.height, 0));
+            return;
+        }
+        var gb = geo.bounds;
+        var sx = gb.width > 0 ? ab.width / gb.width : 1;
+        var sy = gb.height > 0 ? ab.height / gb.height : 1;
+        ctx.save();
+        ctx.translate(docX + ab.x, docY + ab.y);
+        if (sx !== 1 || sy !== 1)
+            ctx.scale(sx, sy);
+        if (gb.x !== 0 || gb.y !== 0)
+            ctx.translate(-gb.x, -gb.y);
+        var figIt = geo.figures.iterator;
+        while (figIt.next())
+            this._drawFigureSegments(ctx, figIt.value);
+        ctx.restore();
     };
     /** Render a Shape */
     CanvasRenderer.prototype.renderShape = function (shape, offsetX, offsetY, paintBox) {
@@ -37896,6 +38529,7 @@ var CanvasRenderer = /** @class */ (function () {
                 ctx.lineWidth = shape.strokeWidth;
                 if (shape.strokeDashArray) {
                     ctx.setLineDash(shape.strokeDashArray);
+                    ctx.lineDashOffset = shape.strokeDashOffset;
                 }
                 this._strokeRectNoShadow(ctx, shapeX, shapeY, shapeW, shapeH);
                 ctx.restore();
@@ -37925,6 +38559,7 @@ var CanvasRenderer = /** @class */ (function () {
         var doStroke = !!shape.stroke && shape.strokeWidth > 0;
         if (doStroke && shape.strokeDashArray) {
             ctx.setLineDash(shape.strokeDashArray);
+            ctx.lineDashOffset = shape.strokeDashOffset;
         }
         var figIt = geo.figures.iterator;
         while (figIt.next()) {
@@ -38317,7 +38952,7 @@ var CanvasRenderer = /** @class */ (function () {
         ctx.restore();
     };
     CanvasRenderer.prototype._renderGraduated = function (panel, panelX, panelY, _panelW, _panelH) {
-        var e_20, _a, e_21, _b;
+        var e_21, _a, e_22, _b;
         var ctx = this.ctx;
         if (!ctx)
             return;
@@ -38362,7 +38997,7 @@ var CanvasRenderer = /** @class */ (function () {
                     var geoR = geo.bounds;
                     var brushRect = new Rect(0, 0, geoR.width, geoR.height);
                     try {
-                        for (var mk_1 = (e_20 = void 0, __values(mk)), mk_1_1 = mk_1.next(); !mk_1_1.done; mk_1_1 = mk_1.next()) {
+                        for (var mk_1 = (e_21 = void 0, __values(mk)), mk_1_1 = mk_1.next(); !mk_1_1.done; mk_1_1 = mk_1.next()) {
                             var m = mk_1_1.value;
                             // gE：translate(pt+mainAB) → rotate(markAngle+elemAngle) →
                             //     translate(-w*fx+fxOff+o/2, -h*fy+fyOff+o/2) → scale
@@ -38379,8 +39014,10 @@ var CanvasRenderer = /** @class */ (function () {
                             var stroke = el.stroke;
                             var doStroke = !!stroke && el.strokeWidth > 0;
                             var doFill = !!el.fill;
-                            if (doStroke && el.strokeDashArray)
+                            if (doStroke && el.strokeDashArray) {
                                 ctx.setLineDash(el.strokeDashArray);
+                                ctx.lineDashOffset = el.strokeDashOffset || 0;
+                            }
                             var figIt = geo.figures.iterator;
                             while (figIt.next()) {
                                 var fig = figIt.value;
@@ -38402,12 +39039,12 @@ var CanvasRenderer = /** @class */ (function () {
                             ctx.restore();
                         }
                     }
-                    catch (e_20_1) { e_20 = { error: e_20_1 }; }
+                    catch (e_21_1) { e_21 = { error: e_21_1 }; }
                     finally {
                         try {
                             if (mk_1_1 && !mk_1_1.done && (_a = mk_1.return)) _a.call(mk_1);
                         }
-                        finally { if (e_20) throw e_20.error; }
+                        finally { if (e_21) throw e_21.error; }
                     }
                 }
                 else if (el instanceof TextBlock) {
@@ -38420,7 +39057,7 @@ var CanvasRenderer = /** @class */ (function () {
                     if (temp === null)
                         continue;
                     try {
-                        for (var mk_2 = (e_21 = void 0, __values(mk)), mk_2_1 = mk_2.next(); !mk_2_1.done; mk_2_1 = mk_2.next()) {
+                        for (var mk_2 = (e_22 = void 0, __values(mk)), mk_2_1 = mk_2.next(); !mk_2_1.done; mk_2_1 = mk_2.next()) {
                             var m = mk_2_1.value;
                             if (!m.actualBounds || !m.measuredBounds || !m.naturalBounds)
                                 continue;
@@ -38446,12 +39083,12 @@ var CanvasRenderer = /** @class */ (function () {
                             ctx.restore();
                         }
                     }
-                    catch (e_21_1) { e_21 = { error: e_21_1 }; }
+                    catch (e_22_1) { e_22 = { error: e_22_1 }; }
                     finally {
                         try {
                             if (mk_2_1 && !mk_2_1.done && (_b = mk_2.return)) _b.call(mk_2);
                         }
-                        finally { if (e_21) throw e_21.error; }
+                        finally { if (e_22) throw e_22.error; }
                     }
                 }
             }
@@ -38762,7 +39399,7 @@ var CanvasRenderer = /** @class */ (function () {
     };
     /** Resolve a BrushLike to a fill style string or CanvasGradient */
     CanvasRenderer.prototype._applyBrush = function (ctx, brush, bounds) {
-        var e_22, _a, e_23, _b;
+        var e_23, _a, e_24, _b;
         if (!brush) {
             return 'transparent';
         }
@@ -38795,12 +39432,12 @@ var CanvasRenderer = /** @class */ (function () {
                         gradient.addColorStop(stop_1.offset, stop_1.color);
                     }
                 }
-                catch (e_22_1) { e_22 = { error: e_22_1 }; }
+                catch (e_23_1) { e_23 = { error: e_23_1 }; }
                 finally {
                     try {
                         if (_d && !_d.done && (_a = _c.return)) _a.call(_c);
                     }
-                    finally { if (e_22) throw e_22.error; }
+                    finally { if (e_23) throw e_23.error; }
                 }
                 return gradient;
             }
@@ -38839,12 +39476,12 @@ var CanvasRenderer = /** @class */ (function () {
                         gradient.addColorStop(stop_2.offset, stop_2.color);
                     }
                 }
-                catch (e_23_1) { e_23 = { error: e_23_1 }; }
+                catch (e_24_1) { e_24 = { error: e_24_1 }; }
                 finally {
                     try {
                         if (_f && !_f.done && (_b = _e.return)) _b.call(_e);
                     }
-                    finally { if (e_23) throw e_23.error; }
+                    finally { if (e_24) throw e_24.error; }
                 }
                 return gradient;
             }
@@ -39445,6 +40082,36 @@ var InputEvent = /** @class */ (function () {
             }
             if (value && this.button !== 0)
                 this.button = 0;
+        },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(InputEvent.prototype, "right", {
+        /**
+         * 官方 InputEvent.right（ContextMenuTool.canStart 依赖它）：
+         * down/up 事件用 button（mouseup 时 button===2 表示刚释放的是右键），
+         * 其余事件用 buttons 的第 1 位。
+         */
+        get: function () {
+            var e = this.nativeEvent;
+            if (e !== null && (e.type === 'mouseup' || e.type === 'mousedown' || e.type === 'pointerup' || e.type === 'pointerdown'))
+                return this.button === 2;
+            if (e !== null && typeof e.buttons === 'number')
+                return (e.buttons & 2) === 2;
+            return this.button === 2;
+        },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(InputEvent.prototype, "middle", {
+        /** 官方 InputEvent.middle：同 right，button===1 / buttons 第 2 位。 */
+        get: function () {
+            var e = this.nativeEvent;
+            if (e !== null && (e.type === 'mouseup' || e.type === 'mousedown' || e.type === 'pointerup' || e.type === 'pointerdown'))
+                return this.button === 1;
+            if (e !== null && typeof e.buttons === 'number')
+                return (e.buttons & 4) === 4;
+            return this.button === 1;
         },
         enumerable: false,
         configurable: true
@@ -41669,15 +42336,119 @@ var PanningTool = /** @class */ (function (_super) {
 }(Tool));
 
 /**
+ * HTMLInfo - provides custom HTML-based editing or display for tools.
+ * Used by TextEditingTool and ContextMenuTool to integrate HTML elements.
+ * 官方 `HTMLInfo`（go-debug 逐字对齐）：
+ *   constructor(t) { ...; t && Object.assign(this, t) } —— `{show, hide}` 直接落到 setter；
+ *   属性名是 **show/hide/mainElement/valueFunction**（不是 showFunction/hideFunction）。
+ *   回调签名：show(obj, diagram, tool)、hide(diagram, tool)。
+ * 样例 customContextMenu `new go.HTMLInfo({show, hide})`、vendingPlanogram
+ * `customEditor.show = (textBlock, diagram, tool) => ...` 都走这套名字。
+ */
+var HTMLInfo = /** @class */ (function () {
+    function HTMLInfo(init) {
+        this._show = null;
+        this._hide = null;
+        this._mainElement = null;
+        this._valueFunction = null;
+        if (init) {
+            // 官方 `Object.assign(this, t)`：经 setter 赋值，同时允许样例挂任意扩展字段
+            // （vendingPlanogram 的 `customEditor._textBlockName = ...`）。
+            Object.assign(this, init);
+        }
+    }
+    Object.defineProperty(HTMLInfo.prototype, "show", {
+        // ============ Properties ============
+        /** 官方 HTMLInfo.show —— show(obj, diagram, tool) */
+        get: function () {
+            return this._show;
+        },
+        set: function (val) {
+            this._show = val;
+        },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(HTMLInfo.prototype, "hide", {
+        /** 官方 HTMLInfo.hide —— hide(diagram, tool) */
+        get: function () {
+            return this._hide;
+        },
+        set: function (val) {
+            this._hide = val;
+        },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(HTMLInfo.prototype, "mainElement", {
+        /** 官方 HTMLInfo.mainElement：无 show/hide 回调时兜底显示/隐藏的元素 */
+        get: function () {
+            return this._mainElement;
+        },
+        set: function (val) {
+            this._mainElement = val;
+        },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(HTMLInfo.prototype, "valueFunction", {
+        /** 官方 HTMLInfo.valueFunction：取编辑框当前值 */
+        get: function () {
+            return this._valueFunction;
+        },
+        set: function (val) {
+            this._valueFunction = val;
+        },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(HTMLInfo.prototype, "showFunction", {
+        // ---- 兼容别名（早先实现的名字，保留避免外部代码断裂） ----
+        get: function () { return this._show; },
+        set: function (val) { this._show = val; },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(HTMLInfo.prototype, "hideFunction", {
+        get: function () { return this._hide; },
+        set: function (val) { this._hide = val; },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(HTMLInfo.prototype, "element", {
+        get: function () { return this._mainElement; },
+        set: function (val) { this._mainElement = val; },
+        enumerable: false,
+        configurable: true
+    });
+    HTMLInfo.className = "HTMLInfo";
+    return HTMLInfo;
+}());
+
+/**
  * ContextMenuTool - shows context menus on right-click.
- * Displays the context menu for the object under the mouse.
+ * 官方 `ContextMenuTool`（go-debug 逐字复刻，customContextMenu 调试对齐）：
+ *   canStart → doStart(mouseDownPoint) → doMouseUp→doContextClick → openMenu
+ *   → showContextMenu(Adornment 摆位 / HTMLInfo.show(obj, diagram, tool))
+ *   → 保持 isActive（不 stopTool），第二次点击经 maybeStopTool 关闭。
+ * 早先实现的三个致命偏差：
+ *   1. HTMLInfo 调的是 `menu.showFunction(...)`——官方 HTMLInfo 属性叫 `show`，
+ *      且参数顺序 (obj, diagram, tool)，样例的 show 因此从不执行（菜单不显示）；
+ *   2. doMouseUp 无条件 stopTool()——官方打开菜单后保持 currentTool=ContextMenu，
+ *      关闭走 doStop→hideContextMenu；
+ *   3. 缺 currentObject/mouseDownPoint 公开面（样例 paste 读 mouseDownPoint）。
  */
 var ContextMenuTool = /** @class */ (function (_super) {
     __extends(ContextMenuTool, _super);
     function ContextMenuTool() {
         var _this = _super.call(this) || this;
-        _this._currentContextMenu = null;
-        _this._mouseDownPoint = null;
+        _this._currentContextMenu = null; // Adornment | HTMLInfo
+        _this._currentObject = null;
+        _this._mouseDownPoint = new Point(NaN, NaN);
+        /** 官方 `o0`：openMenu 重入护栏（show 回调里再触发点击时防嵌套） */
+        _this._inOpen = false;
+        /** 官方 defaultTouchContextMenu */
+        _this._defaultTouchContextMenu = null;
         _this.name = 'ContextMenu';
         return _this;
     }
@@ -41688,95 +42459,294 @@ var ContextMenuTool = /** @class */ (function (_super) {
         enumerable: false,
         configurable: true
     });
-    // ============ Methods ============
+    Object.defineProperty(ContextMenuTool.prototype, "currentObject", {
+        /** 官方 ContextMenuTool.currentObject：右键命中的 GraphObject（HTMLInfo show 的 obj 参数） */
+        get: function () { return this._currentObject; },
+        set: function (val) { this._currentObject = val; },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(ContextMenuTool.prototype, "mouseDownPoint", {
+        /** 官方 ContextMenuTool.mouseDownPoint（customContextMenu 的 paste 用它定位粘贴） */
+        get: function () { return this._mouseDownPoint; },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(ContextMenuTool.prototype, "defaultTouchContextMenu", {
+        get: function () { return this._defaultTouchContextMenu; },
+        set: function (val) { this._defaultTouchContextMenu = val; },
+        enumerable: false,
+        configurable: true
+    });
+    // ============ 官方生命周期 ============
     /**
      * 官方 ContextMenuTool.canStart（go.js 逐字）：
      *   isBeyondDragSize() || !lastInput.right || clickCount > 1 → false
-     *   否则看 touch 的 defaultTouchContextMenu 或 findObjectWithContextMenu()
-     * 注意它排在 mouseUpTools 首位，所以右键菜单在 mouseup 才弹。
+     *   否则 touch 的 defaultTouchContextMenu 或 findObjectWithContextMenu()。
      */
     ContextMenuTool.prototype.canStart = function () {
         var diagram = this.diagram;
         if (diagram === null || !this.isEnabled)
             return false;
         var lastInput = diagram.lastInput;
-        if (this.isBeyondDragSize() || !lastInput.rightButton || lastInput.clickCount > 1)
+        if (this.isBeyondDragSize() || !lastInput.right || lastInput.clickCount > 1)
             return false;
-        if (lastInput.isTouchEvent && this.defaultTouchContextMenu !== null)
+        if (lastInput.isTouchEvent && this._defaultTouchContextMenu !== null)
             return true;
         return this.findObjectWithContextMenu() !== null;
     };
-    /** 官方 ContextMenuTool.findObjectWithContextMenu —— 沿 panel 链找 contextMenu。 */
-    ContextMenuTool.prototype.findObjectWithContextMenu = function () {
+    /** 官方 doStart：记录 firstInput 文档点 */
+    ContextMenuTool.prototype.doStart = function () {
         var diagram = this.diagram;
-        if (!diagram)
+        if (diagram)
+            this._mouseDownPoint = new Point(diagram.firstInput.documentPoint.x, diagram.firstInput.documentPoint.y);
+    };
+    /** 官方 doStop：关菜单、清 currentObject/重入位 */
+    ContextMenuTool.prototype.doStop = function () {
+        this.hideContextMenu();
+        this._currentObject = null;
+        this._inOpen = false;
+    };
+    /**
+     * 官方 ContextMenuTool.doActivate(){} —— **故意空实现**：
+     * 不把 isActive 置 true（基类 doActivate 会），isActive 只在 openMenu 里
+     * 手动置位。调 super 会破坏 doContextClick 的 !isActive 分支（启动即激活
+     * → 永远进 else → currentContextMenu===null → return，菜单永远开不了）。
+     */
+    ContextMenuTool.prototype.doActivate = function () { };
+    /**
+     * 官方 ContextMenuTool.findObjectWithContextMenu(obj?)：
+     * 沿 panel 链找 contextMenu；命中空时回落 diagram.contextMenu。
+     */
+    ContextMenuTool.prototype.findObjectWithContextMenu = function (obj) {
+        var diagram = this.diagram;
+        if (diagram === null)
             return null;
-        var hit = diagram.findObjectAt(new Point(diagram.lastInput.documentPoint.x, diagram.lastInput.documentPoint.y));
-        var s = (hit !== null && hit.layer && hit.layer.isTemporary) ? null : hit;
-        if (s !== null) {
-            var n = s;
+        var input = diagram.lastInput;
+        var hit = null;
+        if (obj instanceof GraphObject) {
+            hit = obj;
+        }
+        else if (obj !== null && obj !== undefined && obj.toolManager && obj.div !== undefined) {
+            // 官方 `t instanceof Diagram`（避免 import Diagram 形成环，用鸭子类型判）
+            hit = obj;
+        }
+        else {
+            hit = diagram.findObjectAt(new Point(input.documentPoint.x, input.documentPoint.y), function (n) { return !(n.layer && n.layer.isTemporary); });
+        }
+        if (hit !== null) {
+            var n = hit;
             while (n !== null) {
                 if (n.contextMenu !== null && n.contextMenu !== undefined)
                     return n;
                 n = n.panel;
             }
+            if (input.isTouchEvent && this._defaultTouchContextMenu !== null)
+                return hit.part;
         }
-        var dm = diagram.contextMenu;
-        if (dm !== null && dm !== undefined)
+        else if (diagram.contextMenu !== null && diagram.contextMenu !== undefined) {
             return diagram;
+        }
         return null;
     };
-    /** Show the context menu on mouse up (right-click). */
+    ContextMenuTool.prototype.doMouseDown = function () {
+        _super.prototype.doMouseDown.call(this);
+        if (this.isActive && this._currentContextMenu instanceof Adornment) {
+            var t = this.diagram ? this.diagram.toolManager.findTool('Action') : null;
+            if (t !== null && t.canStart()) {
+                t.doActivate();
+                t.doMouseDown();
+                t.doDeactivate();
+            }
+        }
+        var dm = this.diagram;
+        var mt = dm && dm.toolManager ? dm.toolManager.mouseDownTools : null;
+        // 官方：ContextMenuTool 若被注册进 mouseDownTools，mousedown 也走一次 doContextClick
+        if (mt && typeof mt.has === 'function' && mt.has(this)) {
+            this.doContextClick();
+        }
+    };
+    /** 官方 doMouseUp：Adornment 菜单先让 ActionTool 处理，然后 doContextClick */
     ContextMenuTool.prototype.doMouseUp = function () {
+        if (this.isActive && this._currentContextMenu instanceof Adornment) {
+            var t = this.diagram ? this.diagram.toolManager.findTool('Action') : null;
+            if (t !== null && t.canStart()) {
+                t.doActivate();
+                t.doCancel();
+                t.doDeactivate();
+            }
+        }
+        this.doContextClick();
+    };
+    /**
+     * 官方 doContextClick：
+     *   未激活 → canStart() && (openMenu(true), isActive || stopTool())
+     *   已激活（菜单开着）→ 判定点击是否落在 Adornment 菜单内 → maybeStopTool
+     */
+    ContextMenuTool.prototype.doContextClick = function () {
+        if (!this.isActive) {
+            if (this.canStart()) {
+                this.openMenu(true);
+                if (!this.isActive)
+                    this.stopTool();
+            }
+            return;
+        }
+        var menu = this._currentContextMenu;
+        if (menu === null)
+            return;
+        var inside = null;
+        if (!(menu instanceof HTMLInfo)) {
+            var diagram = this.diagram;
+            if (diagram) {
+                var hit = diagram.findObjectAt(new Point(diagram.lastInput.documentPoint.x, diagram.lastInput.documentPoint.y));
+                if (hit !== null && hit.isContainedBy && hit.isContainedBy(menu)) {
+                    this.standardMouseClick();
+                    inside = hit;
+                }
+            }
+        }
+        this.maybeStopTool(inside);
+    };
+    /** 官方 maybeStopTool：先 stop（doStop 会 hide），若还满足 canStart 就立刻重启（连续右键换菜单） */
+    ContextMenuTool.prototype.maybeStopTool = function (_hit) {
+        this.stopTool();
+        if (this.canStart()) {
+            var d = this.diagram;
+            if (d)
+                d.currentTool = this;
+            this.doMouseUp();
+        }
+    };
+    /**
+     * 官方 openMenu(flag, obj?)：选中（右键选目标）→ 查菜单 → show。
+     * HTMLInfo/Adornment 都经 showContextMenu；成功打开则 isActive=true（不 stopTool）。
+     */
+    ContextMenuTool.prototype.openMenu = function (select, obj) {
+        if (this._inOpen)
+            return;
+        this._inOpen = true;
+        if (select)
+            this.standardMouseSelect();
+        this.standardMouseClick();
+        this._inOpen = false;
+        if (!this.isActive)
+            this._isActive = true;
+        var target = obj !== undefined ? obj : this.findObjectWithContextMenu();
+        var defaultMenu = ContextMenuTool._defaultMenu;
+        if (target !== null && target !== undefined) {
+            var n = target.contextMenu;
+            if (n !== null && n !== undefined) {
+                this._currentObject = target instanceof GraphObject ? target : null;
+                this.showContextMenu(n, this._currentObject);
+            }
+            else if (defaultMenu !== null && defaultMenu !== undefined) {
+                this.showContextMenu(defaultMenu, this._currentObject);
+            }
+        }
+        else if (defaultMenu !== null && defaultMenu !== undefined) {
+            this.showContextMenu(defaultMenu, null);
+        }
+        var cm = this._currentContextMenu;
+        if (cm instanceof Adornment && !cm.visible)
+            this.stopTool();
+    };
+    ContextMenuTool.prototype.doMouseMove = function () {
+        var d = this.diagram;
+        if (!d)
+            return;
+        var action = d.toolManager.findTool('Action');
+        if (action !== null)
+            action.doMouseMove();
+        if (this.isActive)
+            d.toolManager.doMouseMove();
+    };
+    /**
+     * 官方 showContextMenu(menu, obj)：
+     *   menu !== currentContextMenu → 先 hideContextMenu
+     *   Adornment → Tool 层 add + positionContextMenu
+     *   HTMLInfo → menu.show(obj, diagram, tool)
+     *   最后 currentContextMenu = menu
+     */
+    ContextMenuTool.prototype.showContextMenu = function (menu, obj) {
+        var diagram = this.diagram;
+        if (diagram === null)
+            return;
+        if (menu !== this._currentContextMenu)
+            this.hideContextMenu();
+        if (menu instanceof Adornment) {
+            menu.layerName = 'Tool';
+            menu.selectable = false;
+            menu.scale = 1 / diagram.scale;
+            menu.category = this.name;
+            if (menu.hasPlaceholder && menu.hasPlaceholder() && menu.placeholder) {
+                menu.placeholder.scale = diagram.scale;
+            }
+            var cur = menu.diagram;
+            if (cur !== null && cur !== diagram)
+                diagram.remove(menu);
+            diagram.add(menu);
+            if (obj !== null)
+                menu.adornedObject = obj;
+            else
+                menu.data = diagram.model;
+            menu.ensureBounds();
+            this.positionContextMenu(menu, obj);
+        }
+        else if (menu && typeof menu.show === 'function') {
+            // 官方：`t.show(i, e, this)` = show(obj, diagram, tool)
+            menu.show(obj, diagram, this);
+        }
+        this._currentContextMenu = menu;
+    };
+    /** 官方 positionContextMenu：摆在 lastInput 文档点，viewport 边界夹取（右/下溢出时回移） */
+    ContextMenuTool.prototype.positionContextMenu = function (adornment, _obj) {
+        if (adornment.hasPlaceholder && adornment.hasPlaceholder())
+            return;
         var diagram = this.diagram;
         if (!diagram)
             return;
-        var lastInput = diagram.lastInput;
-        if (!lastInput)
-            return;
-        var point = new Point(lastInput.documentPoint.x, lastInput.documentPoint.y);
-        var obj = diagram.findObjectAt(point);
-        // Look for contextMenu on the part or object
-        var menu = null;
-        if (obj) {
-            var part = obj.part;
-            if (part && part.contextMenu) {
-                menu = part.contextMenu;
-            }
-        }
-        // Look for diagram-level context menu
-        if (!menu && diagram.contextMenu) {
-            menu = diagram.contextMenu;
-        }
-        if (menu) {
-            this.showContextMenu(menu, point);
-        }
-        this.stopTool();
+        var input = diagram.lastInput;
+        var pt = new Point(input.documentPoint.x, input.documentPoint.y);
+        var size = adornment.measuredBounds;
+        var vp = diagram.viewportBounds;
+        if (input.isTouchEvent)
+            pt.x -= size.width;
+        if (pt.x + size.width > vp.right)
+            pt.x -= size.width + 5 / diagram.scale;
+        if (pt.x < vp.x)
+            pt.x = vp.x;
+        if (pt.y + size.height > vp.bottom)
+            pt.y -= size.height + 5 / diagram.scale;
+        if (pt.y < vp.y)
+            pt.y = vp.y;
+        adornment.location = pt;
     };
-    /** Show the context menu at the given position. */
-    ContextMenuTool.prototype.showContextMenu = function (menu, point) {
-        this._currentContextMenu = menu;
-        if (menu instanceof Adornment) {
-            menu.location = point;
-            var diagram = this.diagram;
-            if (diagram) {
-                diagram.add(menu);
-            }
-        }
-        // If menu has a showFunction (HTMLInfo), call it
-        if (menu && typeof menu.showFunction === 'function') {
-            menu.showFunction(menu, this, point);
-        }
-    };
-    /** Hide the current context menu. */
+    /**
+     * 官方 hideContextMenu：Adornment → remove + 清 data/adornedObject；
+     * HTMLInfo → hide(diagram, tool) 或 mainElement.display=none；
+     * 末尾 currentContextMenu=null + standardMouseOver。
+     */
     ContextMenuTool.prototype.hideContextMenu = function () {
-        if (this._currentContextMenu) {
-            var diagram = this.diagram;
-            if (diagram) {
-                diagram.remove(this._currentContextMenu);
+        var diagram = this.diagram;
+        var menu = this._currentContextMenu;
+        if (menu === null || menu === undefined)
+            return;
+        if (diagram !== null) {
+            if (menu instanceof Adornment) {
+                diagram.remove(menu);
+                menu.data = null;
+                menu.adornedObject = null;
             }
-            this._currentContextMenu = null;
+            else if (typeof menu.hide === 'function') {
+                menu.hide(diagram, this);
+            }
+            else if (menu.mainElement !== null && menu.mainElement !== undefined) {
+                menu.mainElement.style.display = 'none';
+            }
         }
+        this._currentContextMenu = null;
+        this.standardMouseOver();
     };
     ContextMenuTool.className = "ContextMenuTool";
     return ContextMenuTool;
@@ -43071,6 +44041,7 @@ var CommandHandler = /** @class */ (function () {
         if (!this.canCopy())
             return;
         CommandHandler._clipboard = [];
+        CommandHandler._clipboardFormat = this._diagram && this._diagram.model ? this._diagram.model.dataFormat : null;
         var selection = this._diagram.selection;
         var it = selection.iterator;
         while (it.next()) {
@@ -43186,7 +44157,9 @@ var CommandHandler = /** @class */ (function () {
             return false;
         if (!this._diagram)
             return false;
-        if (this._diagram.isReadOnly)
+        if (this._diagram.isReadOnly || this._diagram.isModelReadOnly)
+            return false;
+        if (!this._diagram.allowUndo)
             return false;
         var undoManager = this._diagram.undoManager;
         if (!undoManager)
@@ -43204,7 +44177,9 @@ var CommandHandler = /** @class */ (function () {
             return false;
         if (!this._diagram)
             return false;
-        if (this._diagram.isReadOnly)
+        if (this._diagram.isReadOnly || this._diagram.isModelReadOnly)
+            return false;
+        if (!this._diagram.allowUndo)
             return false;
         var undoManager = this._diagram.undoManager;
         if (!undoManager)
@@ -43317,16 +44292,34 @@ var CommandHandler = /** @class */ (function () {
         this._diagram.scale = this._diagram.scale / 1.1;
     };
     // ============ Group ============
+    /**
+     * 官方 `model.Dh()`：GraphLinksModel 支持组/链接结构（基类 Model 与 TreeModel 返回 false）。
+     * canGroup/canUngroup 以此为门。model 实例没有 `_className` 字段（那是 GraphObject 家族的），
+     * 走 constructor 上的 static className。
+     */
+    CommandHandler.prototype._modelSupportsGroups = function () {
+        var m = this._diagram ? this._diagram.model : null;
+        return !!m && !!(m.constructor && m.constructor.className === 'GraphLinksModel');
+    };
     CommandHandler.prototype.canGroupSelection = function () {
-        if (!this._isEnabled)
+        var d = this._diagram;
+        if (!this._isEnabled || !d)
             return false;
-        if (!this._diagram)
+        if (d.isReadOnly || d.isModelReadOnly)
             return false;
-        if (this._diagram.isReadOnly)
+        if (!d.allowInsert || !d.allowGroup)
             return false;
-        if (!this._diagram.allowGroup)
+        if (!this._modelSupportsGroups())
             return false;
-        return this._diagram.selection.count > 0;
+        if (this._archetypeGroupData === null)
+            return false;
+        var it = d.selection.iterator;
+        while (it.next()) {
+            var p = it.value;
+            if (p && typeof p.canGroup === 'function' && p.canGroup())
+                return true;
+        }
+        return false;
     };
     CommandHandler.prototype.groupSelection = function () {
         if (!this.canGroupSelection())
@@ -43334,21 +44327,70 @@ var CommandHandler = /** @class */ (function () {
         // Stub: group selected parts
     };
     // ============ Ungroup ============
-    CommandHandler.prototype.canUngroupSelection = function () {
-        if (!this._isEnabled)
+    CommandHandler.prototype.canUngroupSelection = function (part) {
+        if (part === void 0) { part = null; }
+        var d = this._diagram;
+        if (!this._isEnabled || !d)
             return false;
-        if (!this._diagram)
+        if (d.isReadOnly || d.isModelReadOnly)
             return false;
-        if (this._diagram.isReadOnly)
+        if (!d.allowDelete || !d.allowUngroup)
             return false;
-        if (!this._diagram.allowUngroup)
+        if (!this._modelSupportsGroups())
             return false;
-        return this._diagram.selection.count > 0;
+        if (part !== null && part !== undefined) {
+            // 官方：`t instanceof Group && t.canUngroup()`
+            if (part._className !== 'Group')
+                return false;
+            return part.canUngroup();
+        }
+        var it = d.selection.iterator;
+        while (it.next()) {
+            var p = it.value;
+            if (p && p._className === 'Group' && p.canUngroup())
+                return true;
+        }
+        return false;
     };
     CommandHandler.prototype.ungroupSelection = function () {
         if (!this.canUngroupSelection())
             return;
         // Stub: ungroup selected groups
+    };
+    // ============ Edit Text ============
+    /**
+     * 官方 `canEditTextBlock(t=null)`：
+     * `isReadOnly||isModelReadOnly||!allowTextEdit||!toolManager.findTool("TextEditing") → false`；
+     * t 指定时须为 TextBlock 且其 Part.canEdit()；否则选中任一 Part canEdit 且
+     * findInVisualTree 内存在 editable TextBlock。
+     */
+    CommandHandler.prototype.canEditTextBlock = function (part) {
+        if (part === void 0) { part = null; }
+        var d = this._diagram;
+        if (!this._isEnabled || !d)
+            return false;
+        if (d.isReadOnly || d.isModelReadOnly)
+            return false;
+        if (!d.allowTextEdit)
+            return false;
+        if (!d.toolManager || typeof d.toolManager.findTool !== 'function' || !d.toolManager.findTool('TextEditing'))
+            return false;
+        if (part !== null && part !== undefined) {
+            if (part._className !== 'TextBlock')
+                return false;
+            var p = part.part;
+            return p !== null && p !== undefined && p.canEdit();
+        }
+        var it = d.selection.iterator;
+        while (it.next()) {
+            var p = it.value;
+            if (p && typeof p.canEdit === 'function' && p.canEdit() && typeof p.findInVisualTree === 'function') {
+                var tb = p.findInVisualTree(function (n) { return n && n._className === 'TextBlock' && n.editable; });
+                if (tb !== null)
+                    return true;
+            }
+        }
+        return false;
     };
     // ============ Collapse SubGraph ============
     CommandHandler.prototype.canCollapseSubGraph = function (group) {
@@ -43784,6 +44826,27 @@ var CommandHandler = /** @class */ (function () {
             return false;
         if (!d.allowInsert || !d.allowClipboard)
             return false;
+        if (this._storageLocation === 'systemClipboard')
+            return true;
+        if (this._storageLocation !== 'memory') {
+            try {
+                var s = globalThis[this._storageLocation];
+                if (!s)
+                    return false;
+                var e = s.getItem('gojs-copy');
+                var n = s.getItem('gojs-dataFormat');
+                return !(e === null || e === '' || n !== d.model.dataFormat);
+            }
+            catch (_a) {
+                return false;
+            }
+        }
+        // memory：剪贴板为空或格式不符 → 不可粘贴
+        // （customContextMenu 右键菜单 paste 项：官方空剪贴板隐藏，我方早先恒 true 多显示一项）
+        if (CommandHandler._clipboard === null || CommandHandler._clipboard.length === 0)
+            return false;
+        if (CommandHandler._clipboardFormat !== null && CommandHandler._clipboardFormat !== d.model.dataFormat)
+            return false;
         return true;
     };
     CommandHandler.prototype.pasteSelectionAsync = function (pos) {
@@ -43819,9 +44882,11 @@ var CommandHandler = /** @class */ (function () {
     CommandHandler.prototype.copyToClipboard = function (coll) {
         if (coll === null) {
             CommandHandler._clipboard = [];
+            CommandHandler._clipboardFormat = null;
             return;
         }
         CommandHandler._clipboard = [];
+        CommandHandler._clipboardFormat = this._diagram && this._diagram.model ? this._diagram.model.dataFormat : null;
         var iter = coll && coll.iterator ? coll.iterator() : coll;
         if (iter && iter.next) {
             while (iter.next()) {
@@ -43950,15 +45015,20 @@ var CommandHandler = /** @class */ (function () {
         this._diagram.scale = s;
     };
     // ---- 滚动到部件 ----
+    /** 官方 `canScrollToPart(t=null)`：t 非 Part → false；无选中且无高亮 → false；否则看横纵滚动许可 */
     CommandHandler.prototype.canScrollToPart = function (part) {
         var d = this._diagram;
         if (!this._isEnabled || !d)
             return false;
-        if (!d.allowHorizontalScroll || !d.allowVerticalScroll)
+        if (part !== null && part !== undefined) {
+            // 官方 `t instanceof Part`；本项目实例用 `_className`（constructor.name 风格字段）
+            var cn = part._className;
+            if (cn !== 'Link' && cn !== 'Node' && cn !== 'Group' && cn !== 'Part' && cn !== 'Adornment')
+                return false;
+        }
+        if (d.selection.count === 0 && (!d.highlighteds || d.highlighteds.count === 0))
             return false;
-        if (part)
-            return true;
-        return d.selection.count > 0;
+        return !!(d.allowHorizontalScroll && d.allowVerticalScroll);
     };
     Object.defineProperty(CommandHandler.prototype, "scrollToPartPause", {
         get: function () { return this._scrollToPartPause; },
@@ -43988,16 +45058,6 @@ var CommandHandler = /** @class */ (function () {
             d.centerRect(r);
     };
     // ---- 文本编辑 ----
-    CommandHandler.prototype.canEditTextBlock = function (textblock) {
-        var d = this._diagram;
-        if (!this._isEnabled || !d)
-            return false;
-        if (d.isReadOnly)
-            return false;
-        if (!d.allowTextEdit)
-            return false;
-        return d.selection.count > 0;
-    };
     CommandHandler.prototype.editTextBlock = function (textblock) {
         if (!this.canEditTextBlock(textblock))
             return;
@@ -44563,6 +45623,8 @@ var CommandHandler = /** @class */ (function () {
     };
     CommandHandler.className = "CommandHandler";
     CommandHandler._clipboard = [];
+    /** 官方 `Diagram.Tb`：剪贴板内容对应的 model.dataFormat（paste 前要核对） */
+    CommandHandler._clipboardFormat = null;
     // ============ 官方 CommandHandler API 对齐（阶段 6） ============
     // ---- 静态成员 ----
     CommandHandler._modifierNames = ['Ctrl', 'Shft', 'Alt', 'Meta'];
@@ -44572,10 +45634,16 @@ var CommandHandler = /** @class */ (function () {
 
 var Animation = /** @class */ (function () {
     function Animation() {
+        var _this = this;
         this._isRunning = false;
         this._duration = NaN;
         this._easing = Animation.EaseInOut;
         this._reversible = false;
+        /** 官方自定义效果的 easing 是 4 参 `(time, start, delta, duration) => value`，
+         * 把本项目的 0~1 easing 包成官方签名（数学上与官方默认插值等价）。 */
+        this._easing4 = function (time, start, delta, duration) {
+            return start + delta * (duration > 0 ? _this._easing(time / duration) : 1);
+        };
         /** 官方 `Animation.runCount`：跑几遍；Infinity 表示无限循环（belts 的传送带就是它） */
         this._runCount = 1;
         this._isViewportUnconstrained = false;
@@ -44916,7 +45984,18 @@ var Animation = /** @class */ (function () {
             for (var _c = __values(this._animations), _d = _c.next(); !_d.done; _d = _c.next()) {
                 var config = _d.value;
                 if (config.target && config.property) {
-                    this._interpolate(config, easedProgress);
+                    // 官方：对每个属性查 AnimationManager 的注册效果（w1 map），命中就用
+                    // 官方签名 `(obj, from, to, easing, currentTime, duration, animation)` 调用；
+                    // 没注册的走默认插值。processFlow 的 'waves'/'offset' 是样例用
+                    // defineAnimationEffect 注册的自定义效果（改 parameter1 / alignment），
+                    // 直接当普通属性 set 无效，必须派发给注册的 effect 函数。
+                    var effect = AnimationManager.getEffect(config.property);
+                    if (effect) {
+                        effect(config.target, config.from, config.to, this._easing4, elapsed, dur, this);
+                    }
+                    else {
+                        this._interpolate(config, easedProgress);
+                    }
                 }
             }
         }
@@ -45167,7 +46246,9 @@ var AnimationManager = /** @class */ (function () {
         enumerable: false,
         configurable: true
     });
-    /** 官方 `AnimationManager.defineAnimationEffect(effectName, animationFunction)`（静态） */
+    /** 官方 `AnimationManager.defineAnimationEffect(effectName, animationFunction)`（静态）
+     * 官方效果函数签名：`(obj, from, to, easing, currentTime, duration, animation) => void`，
+     * easing 是 4 参 `(time, start, delta, duration) => value`。 */
     AnimationManager.defineAnimationEffect = function (name, effect) {
         AnimationManager._effects[name] = effect;
     };
@@ -45597,6 +46678,21 @@ var Diagram = /** @class */ (function () {
          * 画 graduated 时间轴时报 `Invalid arguments to Rect constructor: 0, Infinity, 0, -Infinity`。
          */
         this._lastRaisedDocBounds = null;
+        /** 最近一次 raise ViewportChanged 时的 viewportBounds（防重复 raise 的比对基准） */
+        this._lastRaisedViewport = null;
+        /**
+         * 官方 `Diagram.je`：ViewportBoundsChanged 的 subject（**变化前**的 viewport 快照
+         * `{scale, position, bounds, canvasSize, newCanvasSize, isScroll}`，官方是单例
+         * 复用、每次 raise 前原地改写）。
+         */
+        this._je = {
+            scale: 1,
+            position: new Point(0, 0),
+            bounds: new Rect(0, 0, 0, 0),
+            canvasSize: new Size(0, 0),
+            newCanvasSize: new Size(0, 0),
+            isScroll: false
+        };
         this._allowSelect = true;
         this._allowMove = true;
         this._allowCopy = true;
@@ -45628,6 +46724,24 @@ var Diagram = /** @class */ (function () {
         this._layout = null;
         this._isInitial = true;
         this._layoutInvalid = false;
+        /**
+         * 官方 GraphObject.Ef→os 置的测量脏位：子元素属性（TextBlock.text、
+         * Shape.width/height 等）变更后，下一个 update 必须跑一遍
+         * measure+arrange（_measureArrangeAll(true)），否则 actualBounds
+         * 停留在旧值（gantt 任务行 Start/Dur. 文本宽 0、时间轴 MAIN 宽度不更新）。
+         */
+        this._measureInvalid = false;
+        /** 测量进行中（_measureArrangeAll(true) 执行期间）：期间的 _invalidateMeasure 不再重武装
+         *  _measureInvalid —— 否则 _invalidateLinkRoutes→invalidateRoute→_invalidateMeasure 会在
+         *  每次重测时把脏位重新置上，形成「重测→失效路线→重测」的每帧空转（grafcet 避障 link
+         *  在直路/绕障两条路线间每帧闪烁的根因）。 */
+        this._isMeasuring = false;
+        /** 官方 Part.Kd(oldBounds,newBounds) 的持久化上次 bounds：
+         *  跨测量趟保存各端点部件（Node/Group）的 position+measuredBounds，
+         *  arrange 后比对，变了才 invalidateConnectedLinks。
+         *  快照必须跨趟持久 —— 每趟开始时重取会让两趟之间被 layout 移动的
+         *  部件（如 Group.move 改写成员 position）漏掉失效。 */
+        this._endpointBounds = new Map$1();
         this._contextMenu = null;
         this._layers = [];
         /** 官方 Diagram.ms（grid Panel）与其宿主 Part（XL 创建的常驻 Part） */
@@ -45644,6 +46758,8 @@ var Diagram = /** @class */ (function () {
         this._updateSuspended = false;
         /** 官方 Ar 入口的 vs 自锁：同步 maybeUpdate 期间禁止嵌套跑第二轮 */
         this._isInUpdate = false;
+        /** 官方 `Or` 的 `fo`：首帧 Initial Layout 已跑过（跑过后不再开该事务，history 允许记 'Layout'） */
+        this._initialLayoutDone = false;
         this._resizeObserver = null;
         this._lastDivWidth = 0;
         this._lastDivHeight = 0;
@@ -45725,6 +46841,10 @@ var Diagram = /** @class */ (function () {
         this._positionArray = null;
         /** 官方 `Jr`：computePoints 成功后登记的待避障路由 link 集合 */
         this._invalidRoutes = new Set$1();
+        /** 布局 doLayout 期间提交且路线有效的 link（_measureArrangeAll 快照比对失效后恢复用，一次性）
+         *  —— 仅由 LayeredDigraph._commitLinksOfficial 登记（它沿 dummy 链插的多点折线
+         *  重算会丢；TreeLayout/Grid/Force/Circular 走 computePoints，重算可复现，不登记）。 */
+        this._layoutCommittedRoutes = new Set$1();
         /** 官方 `Ta`：路由进行中（vo=true）登记的延迟批 */
         this._invalidRoutesDuringRouting = new Set$1();
         /** 官方 `vo`：doLinkRouting 进行中标志（addInvalidRoute 据此分流） */
@@ -45891,6 +47011,15 @@ var Diagram = /** @class */ (function () {
                 this.add(gridPart);
                 this._parts.delete(gridPart);
             }
+            // 官方 set model 尾：`i&&t.undoManager.copyProperties(i.undoManager)`。
+            // 换 model 后 diagram.undoManager 指向新 model 的 undoManager（默认
+            // isEnabled=false），要把旧 model 上配置过的 isEnabled/maxHistoryLength 等
+            // 拷过来，否则 `'undoManager.isEnabled': true` 的样例（processFlow 等）
+            // 在 `load()` 换 model 后事务不再跟踪、TransactionFinished 事件不发，
+            // 依赖它的动画（strokeDashOffset 水流）完全不动。
+            if (oldModel && val && oldModel.undoManager && val.undoManager) {
+                val.undoManager.copyProperties(oldModel.undoManager);
+            }
             // 官方 `Diagram.model` setter（go.js: set model(t){…}）**不会**走事务，
             // 只是 `invalidateDocumentBounds()` + 重挂监听者。
             // 以前这里额外 start/commit 了一个 'Replace Model' 事务，于是
@@ -46006,6 +47135,10 @@ var Diagram = /** @class */ (function () {
         set: function (val) {
             if (this._position.equals(val))
                 return;
+            // 官方 set position：先存旧 viewportRect/scale，改完 _position 后
+            // onViewportBoundsChanged(旧rect, 新viewport, 旧scale) —— subject=旧值。
+            var oldRect = this.viewportBounds.copy();
+            var oldScale = this._scale;
             this._position = val.copy();
             // 官方 `set position` 尾部：未在嵌套夹取中且(div 存在或 documentBounds 已成形)时
             // 立刻 H2/clampViewportPosition —— 否则滚轮能把 position 拖出文档范围(实测 flowchart)。
@@ -46014,7 +47147,7 @@ var Diagram = /** @class */ (function () {
                 this._clampViewportPosition(this.documentBounds, this.viewSize.width / this._scale, this.viewSize.height / this._scale, this._contentAlignment);
                 this._isClampingPosition = false;
             }
-            this._raiseDiagramEvent('ViewportChanged');
+            this._raiseViewportChanged(oldRect, oldScale);
             this.requestUpdate();
         },
         enumerable: false,
@@ -46028,8 +47161,12 @@ var Diagram = /** @class */ (function () {
             val = Math.max(this._minScale, Math.min(this._maxScale, val));
             if (this._scale === val)
                 return;
+            // 官方 set scale→ZA：先存旧 viewportRect/scale，改 scale 后
+            // onViewportBoundsChanged(旧rect, 新viewport, 旧scale)。
+            var oldRect = this.viewportBounds.copy();
+            var oldScale = this._scale;
             this._scale = val;
-            this._raiseDiagramEvent('ViewportChanged');
+            this._raiseViewportChanged(oldRect, oldScale);
             this.requestUpdate();
         },
         enumerable: false,
@@ -46699,15 +47836,21 @@ var Diagram = /** @class */ (function () {
         }
         return null;
     };
-    /** 官方 Diagram.findObjectAt：逐层向下调 Layer.findObjectAt（**不过滤 temporary**，与 findPartAt 不同） */
-    Diagram.prototype.findObjectAt = function (point) {
+    /**
+     * 官方 Diagram.findObjectAt：逐层向下调 Layer.findObjectAt（**不过滤 temporary**，与 findPartAt 不同）。
+     * 官方签名还带 pred/target（ContextMenuTool 用 `n => !n.layer?.isTemporary` 排除 Tool 层）。
+     */
+    Diagram.prototype.findObjectAt = function (point, pred) {
         for (var i = this._layers.length - 1; i >= 0; i--) {
             var layer = this._layers[i];
             if (!layer.visible)
                 continue;
             var hit = layer.findObjectAt(point);
-            if (hit !== null)
+            if (hit !== null) {
+                if (pred && !pred(hit))
+                    continue;
                 return hit;
+            }
         }
         return null;
     };
@@ -46718,15 +47861,37 @@ var Diagram = /** @class */ (function () {
         return null;
     };
     // ============ Selection Methods ============
+    /**
+     * 官方 `Diagram.select(t)`：
+     * `t!==null && t.diagram===this && (!t.isSelected || selection.count>1) &&
+     *  (D("ChangingSelection"), clearSelection(!0), t.isSelected=!0, D("ChangedSelection"))`
+     * 早先这里 clearSelection()（带事件）+ 直接改 _isSelected/_selection.add，
+     * **从不 raise ChangedSelection**（首次选中时 clearSelection 里 hadSelection=false 也不发）。
+     * 后果：依赖该事件的样例相机/联动逻辑永不启动
+     * （miningSim 的 ChangedSelection → startFollow 追车相机，viewport 停在
+     *  初始 centerRect 的 620,139，官方一直跟车到 490,593）。
+     */
     Diagram.prototype.select = function (part) {
-        this.clearSelection();
-        if (part && this._allowSelect && part.selectable) {
+        if (part === null || part === undefined) {
+            this.clearSelection();
+            return;
+        }
+        if (part.diagram !== this)
+            return;
+        if (!part.isSelected || this._selection.count > 1) {
+            this.raiseDiagramEvent('ChangingSelection', this._selection);
+            this.clearSelection(true);
             part.isSelected = true;
-            this._selection.add(part);
+            this.raiseDiagramEvent('ChangedSelection', this._selection);
         }
     };
-    Diagram.prototype.clearSelection = function () {
+    /**
+     * @param suppressEvent 官方 `clearSelection(t)` 的 t：true 时不 raise ChangedSelection
+     * （供 select/selectCollection 在自己的 Changing/Changed 对之间内部清空用）。
+     */
+    Diagram.prototype.clearSelection = function (suppressEvent) {
         var e_10, _a;
+        if (suppressEvent === void 0) { suppressEvent = false; }
         var hadSelection = this._selection.count > 0;
         var it = this._selection.iterator;
         var parts = [];
@@ -46758,12 +47923,17 @@ var Diagram = /** @class */ (function () {
             }
             finally { if (e_10) throw e_10.error; }
         }
-        if (hadSelection) {
+        if (hadSelection && !suppressEvent) {
             this.raiseDiagramEvent('ChangedSelection', this._selection);
         }
     };
+    /**
+     * 官方 `Diagram.selectCollection(t)`：`D("ChangingSelection"), clearSelection(!0),
+     * 逐个 isSelected=!0, D("ChangedSelection")`。
+     */
     Diagram.prototype.selectCollection = function (parts) {
-        this.clearSelection();
+        this.raiseDiagramEvent('ChangingSelection', this._selection);
+        this.clearSelection(true);
         if (!this._allowSelect)
             return;
         var it = parts.iterator;
@@ -47258,6 +48428,61 @@ var Diagram = /** @class */ (function () {
         if (typeof part.syncPositionFromLocation === 'function')
             part.syncPositionFromLocation();
     };
+    /**
+     * 官方 `Layer.PL()`：把视口对齐层（isViewportAligned，如 ViewportBackground/
+     * ViewportForeground）里的 Part 按 alignment 摆到当前视口角落。
+     *  - 设备局部坐标：f = a.x*clientW + a.offsetX − (c.x*naturalW + c.offsetX)
+     *                  u = a.y*clientH + a.offsetY − (c.y*naturalH + c.offsetY)
+     *  - 转文档坐标：doc = position + (f/scale, u/scale)
+     *  - 该 Part 的 scale 置为 1/diagramScale，抵消图缩放（图例/水印恒显固定尺寸）
+     * 缺此逻辑时 PERT 图例(legend)停在 (null,null) 不摆放，位置完全错位。
+     */
+    Diagram.prototype._layoutViewportAlignedParts = function () {
+        var e_18, _a;
+        var scale = this._scale;
+        if (!(scale > 0))
+            return;
+        var div = this._div;
+        var cw = div && div.clientWidth ? div.clientWidth : 0;
+        var ch = div && div.clientHeight ? div.clientHeight : 0;
+        if (!(cw > 0) || !(ch > 0))
+            return;
+        var posX = this._position.x;
+        var posY = this._position.y;
+        try {
+            for (var _b = __values(this._layers), _c = _b.next(); !_c.done; _c = _b.next()) {
+                var layer = _c.value;
+                if (!layer.isViewportAligned)
+                    continue;
+                var pit = layer.parts;
+                while (pit.next()) {
+                    var part = pit.value;
+                    if (!part || !part.naturalBounds)
+                        continue;
+                    var nb = part.naturalBounds;
+                    if (!(nb.width > 0) || !(nb.height > 0))
+                        continue;
+                    var a = part.alignment;
+                    if (a.isDefault() || !a.isSpot())
+                        a = Spot.BottomRight;
+                    var c = part.alignmentFocus;
+                    if (c.isDefault())
+                        c = new Spot(a.x, a.y, a.offsetX, a.offsetY);
+                    var f = a.x * cw + a.offsetX - (c.x * nb.width + c.offsetX);
+                    var u = a.y * ch + a.offsetY - (c.y * nb.height + c.offsetY);
+                    part.position = new Point(posX + f / scale, posY + u / scale);
+                    part.scale = 1 / scale;
+                }
+            }
+        }
+        catch (e_18_1) { e_18 = { error: e_18_1 }; }
+        finally {
+            try {
+                if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
+            }
+            finally { if (e_18) throw e_18.error; }
+        }
+    };
     Diagram.prototype._createDefaultNodeTemplate = function () {
         var node = new Node(PanelAuto);
         var shape = new Shape();
@@ -47284,7 +48509,7 @@ var Diagram = /** @class */ (function () {
         return link;
     };
     Diagram.prototype._clearAllParts = function () {
-        var e_18, _a, e_19, _b, e_20, _c;
+        var e_19, _a, e_20, _b, e_21, _c;
         try {
             // 官方 PartManager.rebuildParts 只移除有 data 的部件；无数据部件（如 diagram.grid 的 Part）保留
             for (var _d = __values(this._layers), _e = _d.next(); !_e.done; _e = _d.next()) {
@@ -47297,26 +48522,26 @@ var Diagram = /** @class */ (function () {
                         toRemove.push(part);
                 }
                 try {
-                    for (var toRemove_1 = (e_19 = void 0, __values(toRemove)), toRemove_1_1 = toRemove_1.next(); !toRemove_1_1.done; toRemove_1_1 = toRemove_1.next()) {
+                    for (var toRemove_1 = (e_20 = void 0, __values(toRemove)), toRemove_1_1 = toRemove_1.next(); !toRemove_1_1.done; toRemove_1_1 = toRemove_1.next()) {
                         var part = toRemove_1_1.value;
                         layer.remove(part);
                     }
                 }
-                catch (e_19_1) { e_19 = { error: e_19_1 }; }
+                catch (e_20_1) { e_20 = { error: e_20_1 }; }
                 finally {
                     try {
                         if (toRemove_1_1 && !toRemove_1_1.done && (_b = toRemove_1.return)) _b.call(toRemove_1);
                     }
-                    finally { if (e_19) throw e_19.error; }
+                    finally { if (e_20) throw e_20.error; }
                 }
             }
         }
-        catch (e_18_1) { e_18 = { error: e_18_1 }; }
+        catch (e_19_1) { e_19 = { error: e_19_1 }; }
         finally {
             try {
                 if (_e && !_e.done && (_a = _d.return)) _a.call(_d);
             }
-            finally { if (e_18) throw e_18.error; }
+            finally { if (e_19) throw e_19.error; }
         }
         var dataKeys = [];
         var pit = this._parts.iterator;
@@ -47334,12 +48559,12 @@ var Diagram = /** @class */ (function () {
                     this._selection.remove(part);
             }
         }
-        catch (e_20_1) { e_20 = { error: e_20_1 }; }
+        catch (e_21_1) { e_21 = { error: e_21_1 }; }
         finally {
             try {
                 if (dataKeys_1_1 && !dataKeys_1_1.done && (_c = dataKeys_1.return)) _c.call(dataKeys_1);
             }
-            finally { if (e_20) throw e_20.error; }
+            finally { if (e_21) throw e_21.error; }
         }
         this._nodeKeyMap.clear();
         this._treeLinkDataByChildKey.clear();
@@ -47396,7 +48621,7 @@ var Diagram = /** @class */ (function () {
     };
     Diagram.prototype._propagatePartToChildren = function (part) {
         var setPart = function (obj) {
-            var e_21, _a;
+            var e_22, _a;
             obj._part = part;
             if (obj instanceof Panel) {
                 try {
@@ -47405,19 +48630,19 @@ var Diagram = /** @class */ (function () {
                         setPart(child);
                     }
                 }
-                catch (e_21_1) { e_21 = { error: e_21_1 }; }
+                catch (e_22_1) { e_22 = { error: e_22_1 }; }
                 finally {
                     try {
                         if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
                     }
-                    finally { if (e_21) throw e_21.error; }
+                    finally { if (e_22) throw e_22.error; }
                 }
             }
         };
         setPart(part);
     };
     Diagram.prototype._addLinkForData = function (data) {
-        var e_22, _a;
+        var e_23, _a;
         var _b, _c;
         if (!data)
             return null;
@@ -47468,12 +48693,12 @@ var Diagram = /** @class */ (function () {
                         ln.labeledLink = link;
                 }
             }
-            catch (e_22_1) { e_22 = { error: e_22_1 }; }
+            catch (e_23_1) { e_23 = { error: e_23_1 }; }
             finally {
                 try {
                     if (labelKeys_1_1 && !labelKeys_1_1.done && (_a = labelKeys_1.return)) _a.call(labelKeys_1);
                 }
-                finally { if (e_22) throw e_22.error; }
+                finally { if (e_23) throw e_23.error; }
             }
         }
         this._parts.set(data, link);
@@ -47556,7 +48781,7 @@ var Diagram = /** @class */ (function () {
         }
     };
     Diagram.prototype._removeLinksForNode = function (node) {
-        var e_23, _a, e_24, _b;
+        var e_24, _a, e_25, _b;
         var linksToRemove = [];
         try {
             for (var _c = __values(this._layers), _d = _c.next(); !_d.done; _d = _c.next()) {
@@ -47572,12 +48797,12 @@ var Diagram = /** @class */ (function () {
                 }
             }
         }
-        catch (e_23_1) { e_23 = { error: e_23_1 }; }
+        catch (e_24_1) { e_24 = { error: e_24_1 }; }
         finally {
             try {
                 if (_d && !_d.done && (_a = _c.return)) _a.call(_c);
             }
-            finally { if (e_23) throw e_23.error; }
+            finally { if (e_24) throw e_24.error; }
         }
         try {
             for (var linksToRemove_1 = __values(linksToRemove), linksToRemove_1_1 = linksToRemove_1.next(); !linksToRemove_1_1.done; linksToRemove_1_1 = linksToRemove_1.next()) {
@@ -47592,12 +48817,12 @@ var Diagram = /** @class */ (function () {
                 this.remove(link);
             }
         }
-        catch (e_24_1) { e_24 = { error: e_24_1 }; }
+        catch (e_25_1) { e_25 = { error: e_25_1 }; }
         finally {
             try {
                 if (linksToRemove_1_1 && !linksToRemove_1_1.done && (_b = linksToRemove_1.return)) _b.call(linksToRemove_1);
             }
-            finally { if (e_24) throw e_24.error; }
+            finally { if (e_25) throw e_25.error; }
         }
     };
     Diagram.prototype._removeLinkForData = function (data) {
@@ -47652,7 +48877,7 @@ var Diagram = /** @class */ (function () {
         }
     };
     Diagram.prototype._applyBindingsToObject = function (obj, data, part) {
-        var e_25, _a, e_26, _b;
+        var e_26, _a, e_27, _b;
         var bindings = obj._bindings;
         if (bindings && bindings.length > 0) {
             try {
@@ -47664,12 +48889,12 @@ var Diagram = /** @class */ (function () {
                     }
                 }
             }
-            catch (e_25_1) { e_25 = { error: e_25_1 }; }
+            catch (e_26_1) { e_26 = { error: e_26_1 }; }
             finally {
                 try {
                     if (bindings_1_1 && !bindings_1_1.done && (_a = bindings_1.return)) _a.call(bindings_1);
                 }
-                finally { if (e_25) throw e_25.error; }
+                finally { if (e_26) throw e_26.error; }
             }
         }
         if (obj instanceof Panel) {
@@ -47681,12 +48906,12 @@ var Diagram = /** @class */ (function () {
                     this._applyBindingsToObject(child, childData !== null && childData !== undefined ? childData : data, part);
                 }
             }
-            catch (e_26_1) { e_26 = { error: e_26_1 }; }
+            catch (e_27_1) { e_27 = { error: e_27_1 }; }
             finally {
                 try {
                     if (elements_1_1 && !elements_1_1.done && (_b = elements_1.return)) _b.call(elements_1);
                 }
-                finally { if (e_26) throw e_26.error; }
+                finally { if (e_27) throw e_27.error; }
             }
         }
     };
@@ -47701,7 +48926,7 @@ var Diagram = /** @class */ (function () {
     };
     /** 官方 GraphObject.Zo：只应用 isToTheme 绑定，递归子对象（themeData 源数据沿 panel 链取条目 data，回退 part.data） */
     Diagram.prototype._applyThemeBindingsOnly = function (obj, part) {
-        var e_27, _a, e_28, _b;
+        var e_28, _a, e_29, _b;
         var _c;
         var bindings = obj._bindings;
         if (bindings && bindings.length > 0) {
@@ -47726,12 +48951,12 @@ var Diagram = /** @class */ (function () {
                     }
                 }
             }
-            catch (e_27_1) { e_27 = { error: e_27_1 }; }
+            catch (e_28_1) { e_28 = { error: e_28_1 }; }
             finally {
                 try {
                     if (bindings_2_1 && !bindings_2_1.done && (_a = bindings_2.return)) _a.call(bindings_2);
                 }
-                finally { if (e_27) throw e_27.error; }
+                finally { if (e_28) throw e_28.error; }
             }
         }
         if (obj instanceof Panel) {
@@ -47742,17 +48967,17 @@ var Diagram = /** @class */ (function () {
                     this._applyThemeBindingsOnly(child, part);
                 }
             }
-            catch (e_28_1) { e_28 = { error: e_28_1 }; }
+            catch (e_29_1) { e_29 = { error: e_29_1 }; }
             finally {
                 try {
                     if (elements_2_1 && !elements_2_1.done && (_b = elements_2.return)) _b.call(elements_2);
                 }
-                finally { if (e_28) throw e_28.error; }
+                finally { if (e_29) throw e_29.error; }
             }
         }
     };
     Diagram.prototype._updateBindingsForObject = function (obj, data, propname, part) {
-        var e_29, _a, e_30, _b;
+        var e_30, _a, e_31, _b;
         var bindings = obj._bindings;
         if (bindings && bindings.length > 0) {
             try {
@@ -47772,12 +48997,12 @@ var Diagram = /** @class */ (function () {
                     }
                 }
             }
-            catch (e_29_1) { e_29 = { error: e_29_1 }; }
+            catch (e_30_1) { e_30 = { error: e_30_1 }; }
             finally {
                 try {
                     if (bindings_3_1 && !bindings_3_1.done && (_a = bindings_3.return)) _a.call(bindings_3);
                 }
-                finally { if (e_29) throw e_29.error; }
+                finally { if (e_30) throw e_30.error; }
             }
         }
         if (obj instanceof Panel) {
@@ -47789,17 +49014,17 @@ var Diagram = /** @class */ (function () {
                     this._updateBindingsForObject(child, childData !== null && childData !== undefined ? childData : data, propname, part);
                 }
             }
-            catch (e_30_1) { e_30 = { error: e_30_1 }; }
+            catch (e_31_1) { e_31 = { error: e_31_1 }; }
             finally {
                 try {
                     if (elements_3_1 && !elements_3_1.done && (_b = elements_3.return)) _b.call(elements_3);
                 }
-                finally { if (e_30) throw e_30.error; }
+                finally { if (e_31) throw e_31.error; }
             }
         }
     };
     Diagram.prototype._handlePartPropertyChanged = function (part, obj, propname, value) {
-        var e_31, _a;
+        var e_32, _a;
         var data = part.data;
         if (!data)
             return;
@@ -47833,16 +49058,16 @@ var Diagram = /** @class */ (function () {
                 }
             }
         }
-        catch (e_31_1) { e_31 = { error: e_31_1 }; }
+        catch (e_32_1) { e_32 = { error: e_32_1 }; }
         finally {
             try {
                 if (bindings_4_1 && !bindings_4_1.done && (_a = bindings_4.return)) _a.call(bindings_4);
             }
-            finally { if (e_31) throw e_31.error; }
+            finally { if (e_32) throw e_32.error; }
         }
     };
     Diagram.prototype._onModelChanged = function (e) {
-        var e_32, _a, e_33, _b, e_34, _c, e_35, _d, e_36, _e, e_37, _f;
+        var e_33, _a, e_34, _b, e_35, _c, e_36, _d, e_37, _e, e_38, _f;
         if (e.isTransactionChange) {
             this._raiseChangedEvent(e);
             // 官方 `Diagram.tI(t)`（go.js @332017）：事务级变更（modelChange===""）在
@@ -47853,15 +49078,13 @@ var Diagram = /** @class */ (function () {
             // sync 之前），本项目早先只 requestUpdate(RAF) → 首帧布局排在 initFleet
             // 的 `position=(0,0)` **之后**，初始视口把图心居中覆盖成 (-19,12)。
             var p = e.propertyName;
-            // 'CommittingTransaction' 例外：此刻 UndoManager 已把 transactionLevel 减到 0
-            // 但 _currentTransaction 还没置 null（要等 CommittedTransaction 之后）。
-            // 这时同步跑布局会走 _runLayoutInTransaction 的 `nested===0` 分支新开一条
-            // 'Layout' 事务，把外层的 _currentTransaction 顶掉 → 外层恢复时
-            // `this._currentTransaction.count` 读 null 崩溃。CommittedTransaction 阶段
-            // 再跑同样能得到官方的「事务提交内同步完成首帧布局」时序。
+            // 早先排除了 'CommittingTransaction'（当时它在层级减到 0 之后发，同步跑布局会走
+            // nested===0 新开 'Layout' 事务顶掉外层 _currentTransaction → 崩溃）。现已对齐官方
+            // zT：CommittingTransaction 在递减层级**之前**（level 仍为 1）发，同步跑布局时
+            // nested=1 不开新事务，安全；共享 model 的另一张图靠它在顶层事务内嵌套跑完自己的
+            // Initial Layout（updateDemo blue/green 只提交一次 CommittedTransaction）。
             if (p !== 'StartingFirstTransaction' && p !== 'StartingUndo' &&
-                p !== 'StartingRedo' && p !== 'StartedTransaction' &&
-                p !== 'CommittingTransaction') {
+                p !== 'StartingRedo' && p !== 'StartedTransaction') {
                 this.maybeUpdate();
             }
             return;
@@ -47925,12 +49148,12 @@ var Diagram = /** @class */ (function () {
                                     this._removeNodeForData(d);
                             }
                         }
-                        catch (e_32_1) { e_32 = { error: e_32_1 }; }
+                        catch (e_33_1) { e_33 = { error: e_33_1 }; }
                         finally {
                             try {
                                 if (oldArr_1_1 && !oldArr_1_1.done && (_a = oldArr_1.return)) _a.call(oldArr_1);
                             }
-                            finally { if (e_32) throw e_32.error; }
+                            finally { if (e_33) throw e_33.error; }
                         }
                         try {
                             for (var newArr_1 = __values(newArr), newArr_1_1 = newArr_1.next(); !newArr_1_1.done; newArr_1_1 = newArr_1.next()) {
@@ -47939,12 +49162,12 @@ var Diagram = /** @class */ (function () {
                                     this._addNodeForData(d);
                             }
                         }
-                        catch (e_33_1) { e_33 = { error: e_33_1 }; }
+                        catch (e_34_1) { e_34 = { error: e_34_1 }; }
                         finally {
                             try {
                                 if (newArr_1_1 && !newArr_1_1.done && (_b = newArr_1.return)) _b.call(newArr_1);
                             }
-                            finally { if (e_33) throw e_33.error; }
+                            finally { if (e_34) throw e_34.error; }
                         }
                         // 官方 Set 变更路径的 xw(new) 对 TreeModel 同样建父链；
                         // 我们的 _addNodeForData 只建节点 → 整替赋值（如 DragZooming
@@ -47964,12 +49187,12 @@ var Diagram = /** @class */ (function () {
                                     this._removeLinkForData(d);
                             }
                         }
-                        catch (e_34_1) { e_34 = { error: e_34_1 }; }
+                        catch (e_35_1) { e_35 = { error: e_35_1 }; }
                         finally {
                             try {
                                 if (oldArr_2_1 && !oldArr_2_1.done && (_c = oldArr_2.return)) _c.call(oldArr_2);
                             }
-                            finally { if (e_34) throw e_34.error; }
+                            finally { if (e_35) throw e_35.error; }
                         }
                         try {
                             for (var newArr_2 = __values(newArr), newArr_2_1 = newArr_2.next(); !newArr_2_1.done; newArr_2_1 = newArr_2.next()) {
@@ -47978,12 +49201,12 @@ var Diagram = /** @class */ (function () {
                                     this._addLinkForData(d);
                             }
                         }
-                        catch (e_35_1) { e_35 = { error: e_35_1 }; }
+                        catch (e_36_1) { e_36 = { error: e_36_1 }; }
                         finally {
                             try {
                                 if (newArr_2_1 && !newArr_2_1.done && (_d = newArr_2.return)) _d.call(newArr_2);
                             }
-                            finally { if (e_35) throw e_35.error; }
+                            finally { if (e_36) throw e_36.error; }
                         }
                         needsLayout = true;
                         this.requestUpdate();
@@ -48037,12 +49260,12 @@ var Diagram = /** @class */ (function () {
                                             n.labeledLink = null;
                                     }
                                 }
-                                catch (e_36_1) { e_36 = { error: e_36_1 }; }
+                                catch (e_37_1) { e_37 = { error: e_37_1 }; }
                                 finally {
                                     try {
                                         if (oldArr_3_1 && !oldArr_3_1.done && (_e = oldArr_3.return)) _e.call(oldArr_3);
                                     }
-                                    finally { if (e_36) throw e_36.error; }
+                                    finally { if (e_37) throw e_37.error; }
                                 }
                                 try {
                                     for (var newArr_3 = __values(newArr), newArr_3_1 = newArr_3.next(); !newArr_3_1.done; newArr_3_1 = newArr_3.next()) {
@@ -48052,12 +49275,12 @@ var Diagram = /** @class */ (function () {
                                             n.labeledLink = part;
                                     }
                                 }
-                                catch (e_37_1) { e_37 = { error: e_37_1 }; }
+                                catch (e_38_1) { e_38 = { error: e_38_1 }; }
                                 finally {
                                     try {
                                         if (newArr_3_1 && !newArr_3_1.done && (_f = newArr_3.return)) _f.call(newArr_3);
                                     }
-                                    finally { if (e_37) throw e_37.error; }
+                                    finally { if (e_38) throw e_38.error; }
                                 }
                                 needsLayout = true;
                             }
@@ -48087,7 +49310,7 @@ var Diagram = /** @class */ (function () {
     };
     /** 官方 Diagram.Ib(t) 的护栏版：Diagram.layout + 全体 Group.layout 失效 */
     Diagram.prototype._invalidateLayoutsFromChanges = function () {
-        var e_38, _a;
+        var e_39, _a;
         var dl = this._layout;
         if (dl && typeof dl.invalidateLayout === 'function')
             dl.invalidateLayout();
@@ -48100,16 +49323,16 @@ var Diagram = /** @class */ (function () {
                     gl.invalidateLayout();
             }
         }
-        catch (e_38_1) { e_38 = { error: e_38_1 }; }
+        catch (e_39_1) { e_39 = { error: e_39_1 }; }
         finally {
             try {
                 if (groups_1_1 && !groups_1_1.done && (_a = groups_1.return)) _a.call(groups_1);
             }
-            finally { if (e_38) throw e_38.error; }
+            finally { if (e_39) throw e_39.error; }
         }
     };
     Diagram.prototype._rebuildTreeLinks = function () {
-        var e_39, _a, e_40, _b, e_41, _c;
+        var e_40, _a, e_41, _b, e_42, _c;
         var linksToRemove = [];
         try {
             for (var _d = __values(this._layers), _e = _d.next(); !_e.done; _e = _d.next()) {
@@ -48123,12 +49346,12 @@ var Diagram = /** @class */ (function () {
                 }
             }
         }
-        catch (e_39_1) { e_39 = { error: e_39_1 }; }
+        catch (e_40_1) { e_40 = { error: e_40_1 }; }
         finally {
             try {
                 if (_e && !_e.done && (_a = _d.return)) _a.call(_d);
             }
-            finally { if (e_39) throw e_39.error; }
+            finally { if (e_40) throw e_40.error; }
         }
         try {
             for (var linksToRemove_2 = __values(linksToRemove), linksToRemove_2_1 = linksToRemove_2.next(); !linksToRemove_2_1.done; linksToRemove_2_1 = linksToRemove_2.next()) {
@@ -48143,12 +49366,12 @@ var Diagram = /** @class */ (function () {
                 this.remove(link);
             }
         }
-        catch (e_40_1) { e_40 = { error: e_40_1 }; }
+        catch (e_41_1) { e_41 = { error: e_41_1 }; }
         finally {
             try {
                 if (linksToRemove_2_1 && !linksToRemove_2_1.done && (_b = linksToRemove_2.return)) _b.call(linksToRemove_2);
             }
-            finally { if (e_40) throw e_40.error; }
+            finally { if (e_41) throw e_41.error; }
         }
         if (this._model instanceof TreeModel) {
             var tm = this._model;
@@ -48164,12 +49387,12 @@ var Diagram = /** @class */ (function () {
                     }
                 }
             }
-            catch (e_41_1) { e_41 = { error: e_41_1 }; }
+            catch (e_42_1) { e_42 = { error: e_42_1 }; }
             finally {
                 try {
                     if (_g && !_g.done && (_c = _f.return)) _c.call(_f);
                 }
-                finally { if (e_41) throw e_41.error; }
+                finally { if (e_42) throw e_42.error; }
             }
         }
     };
@@ -48186,7 +49409,7 @@ var Diagram = /** @class */ (function () {
         return e;
     };
     Diagram.prototype._raiseChangedEvent = function (e) {
-        var e_42, _a;
+        var e_43, _a;
         // 官方语义：model 非空时 diagram 为空
         if (!e.model)
             e.model = this._model;
@@ -48209,22 +49432,24 @@ var Diagram = /** @class */ (function () {
                 listener(e);
             }
         }
-        catch (e_42_1) { e_42 = { error: e_42_1 }; }
+        catch (e_43_1) { e_43 = { error: e_43_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_42) throw e_42.error; }
+            finally { if (e_43) throw e_43.error; }
         }
     };
     /** 官方 DiagramEvent：监听器收到 `{ diagram, type, subject, subjectData, args }`；官方事件名为 ViewportBoundsChanged */
     Diagram.prototype._raiseDiagramEvent = function (name, subject, subjectData) {
-        var e_43, _a, e_44, _b;
+        var e_44, _a, e_45, _b;
         var rest = [];
         for (var _i = 3; _i < arguments.length; _i++) {
             rest[_i - 3] = arguments[_i];
         }
         var names = name === 'ViewportChanged' ? ['ViewportChanged', 'ViewportBoundsChanged'] : [name];
+        if (name === 'ViewportChanged')
+            this._lastRaisedViewport = this.viewportBounds.copy();
         try {
             for (var names_1 = __values(names), names_1_1 = names_1.next(); !names_1_1.done; names_1_1 = names_1.next()) {
                 var n = names_1_1.value;
@@ -48232,27 +49457,27 @@ var Diagram = /** @class */ (function () {
                 if (listeners) {
                     var event_1 = { diagram: this, type: n, subject: subject, subjectData: subjectData, args: rest };
                     try {
-                        for (var listeners_1 = (e_44 = void 0, __values(listeners)), listeners_1_1 = listeners_1.next(); !listeners_1_1.done; listeners_1_1 = listeners_1.next()) {
+                        for (var listeners_1 = (e_45 = void 0, __values(listeners)), listeners_1_1 = listeners_1.next(); !listeners_1_1.done; listeners_1_1 = listeners_1.next()) {
                             var listener = listeners_1_1.value;
                             listener(event_1);
                         }
                     }
-                    catch (e_44_1) { e_44 = { error: e_44_1 }; }
+                    catch (e_45_1) { e_45 = { error: e_45_1 }; }
                     finally {
                         try {
                             if (listeners_1_1 && !listeners_1_1.done && (_b = listeners_1.return)) _b.call(listeners_1);
                         }
-                        finally { if (e_44) throw e_44.error; }
+                        finally { if (e_45) throw e_45.error; }
                     }
                 }
             }
         }
-        catch (e_43_1) { e_43 = { error: e_43_1 }; }
+        catch (e_44_1) { e_44 = { error: e_44_1 }; }
         finally {
             try {
                 if (names_1_1 && !names_1_1.done && (_a = names_1.return)) _a.call(names_1);
             }
-            finally { if (e_43) throw e_43.error; }
+            finally { if (e_44) throw e_44.error; }
         }
     };
     Diagram.prototype.raiseDiagramEvent = function (name, subject, subjectData) {
@@ -48282,30 +49507,88 @@ var Diagram = /** @class */ (function () {
         return null;
     };
     Diagram.prototype._renderLoop = function () {
-        this._needsRender = false;
+        var _this = this;
+        // 先消费本 RAF 的 id，再过守卫：早退时不能留下「陈旧 af + _needsRender」的假配对。
         this._animationFrameId = 0;
         if (this._updateSuspended)
-            return; // 官方 Ar 入口的 vs 守卫（冻结期挂起帧直接丢弃）
+            return; // 官方 Ar 入口的 vs 守卫（挂起期丢帧，但保留 _needsRender）
         // 官方 Ar 入口把 vs 置 true → 嵌套的 maybeUpdate/Ar 直接早退。
         // maybeUpdate 现在是同步的（事务提交会触发），布局/绑定里再冒出的
         // 模型变更必须能被挡回去，否则会递归进第二轮布局。
+        // 早退时**不清** _needsRender：maybeUpdate 会先 cancelAnimationFrame 再同步
+        // 调进来，若这里清掉就成「_needsRender=true 且无 RAF」→ 挂起的测量请求永久丢失
+        // （gantt 任务行 Start/Dur. 文本宽 0 的成因：flag=true, needsRender=false, af=0）。
         if (this._isInUpdate)
             return;
+        this._needsRender = false;
         this._isInUpdate = true;
         try {
             this._renderLoopBody();
         }
         finally {
             this._isInUpdate = false;
+            // 帧内 requestUpdate 排的 RAF 被嵌套 maybeUpdate 取消后，在这里补一张，
+            // 维持不变量：_needsRender=true ⇒ 必有挂起的 RAF。
+            if (this._needsRender && !this._animationFrameId) {
+                this._animationFrameId = requestAnimationFrame(function () { return _this._renderLoop(); });
+            }
         }
     };
     Diagram.prototype._renderLoopBody = function () {
         var _this = this;
         this._checkResize();
         if (this._layoutInvalid) {
-            this._runLayoutInTransaction(function () { return _this._performLayout(); });
+            // 布局开始前丢弃既有测量脏位（布局内自带全量 measure+arrange）；
+            // 布局途中/之后新产生的脏位**保留** → 下一帧走测量分支补一次重测
+            // （布局完成回调里改 TextBlock.text/Shape.width 时 actualBounds 不落伍）。
+            this._measureInvalid = false;
+            // 官方 `Or`（=minified Ar）首帧流程：
+            //   `startTransaction("Initial Layout") → iC(布局) → h&&a&&commitTransaction("Initial Layout")`，
+            //   且首帧 `a=true` 时 `!skipsUndoManager → undoManager.Yx=true` → commitTransaction(zT)
+            //   尾部 `Yx && clear()` —— 首帧布局整体不可撤销，官方实测 htmlLightBoxContextMenu
+            //   idle 时 `history.length=0`、`canUndo=false`（右键菜单不显示 Undo）。
+            //   本项目早先首帧直接开真 'Layout' 事务且照常压栈 → history=[Layout]、canUndo=true，
+            //   菜单比官方多出 Undo/Group/Ungroup/Edit Text 四项。
+            //   嵌套场景（首帧在样例自己的事务内跑）：官方 Yx-clear 只发生在**顶层** commit
+            //   （zT 的 `if(e)` 分支，e = transactionLevel===1）→ 嵌套 commit(e=false) 不 clear。
+            //   这里同型：commit 后 transactionLevel===0 才 clear。
+            var firstFrame = !this._initialLayoutDone;
+            if (firstFrame) {
+                this._initialLayoutDone = true;
+                this.startTransaction('Initial Layout');
+                var ok = false;
+                try {
+                    this._runLayoutInTransaction(function () { return _this._performLayout(); });
+                    ok = true;
+                }
+                finally {
+                    if (ok) {
+                        this.commitTransaction('Initial Layout');
+                        var um = this._model ? this._model.undoManager : null;
+                        if (um && um.transactionLevel === 0)
+                            um.clear();
+                    }
+                    else {
+                        this.rollbackTransaction();
+                    }
+                }
+            }
+            else {
+                this._runLayoutInTransaction(function () { return _this._performLayout(); });
+            }
             // 布局期间发生的级联失效不再触发新一轮（对齐官方：单次 layoutDiagram 通过）
             this._layoutInvalid = false;
+        }
+        else if (this._measureInvalid) {
+            // 官方 update 的测量分支（GraphObject.Ef 置脏 → 重跑 Ht）：
+            // 子元素属性变更（TextBlock.text / Shape.width / Shape.graduatedMax 等）
+            // 不走布局，只走一次 measure+arrange，让 actualBounds 跟上新文本/新尺寸。
+            // 跑完再清一次：pass 内 _invalidateLinkRoutes → invalidateRoute →
+            // _invalidateMeasure 会把脏位重新置上，不清会形成每帧重测空转
+            // （与 Part._invalidateMeasure 早先「冒泡 _layoutInvalid 死循环」同型陷阱）。
+            this._measureInvalid = false;
+            this._measureArrangeAll(true);
+            this._measureInvalid = false;
         }
         else if (this._invalidRoutes.count > 0) {
             // 官方 update: `r = !undoingRedoing && (Jl || Pf.count!==0 && Jr.size!==0)`；
@@ -48323,8 +49606,17 @@ var Diagram = /** @class */ (function () {
         this._updateGeometry();
         // 官方：documentBounds 真的变了才 raise DocumentBoundsChanged（见 _lastRaisedDocBounds 注释）
         this._checkDocumentBoundsChanged();
+        // 官方 tD 尾部：viewport 真的变了才 raise ViewportChanged/ViewportBoundsChanged。
+        // _applyInitialViewport / _clampViewportPosition 直接写 _position（官方走 setter
+        // 会 raise），不补这一下，样例里同步 viewport 的监听器（gantt 的
+        // ViewportBoundsChanged → myTimeline.position.y = viewportBounds.y）首帧永远不跑
+        // （实测 gantt 时间轴停在 y=0，官方 −28）。
+        this._checkViewportChanged();
         // 官方：Or() 更新循环末尾调用 eC()（grid 面板按视口重定位）
         this._updateGridBounds();
+        // 官方 Layer.PL()：把 ViewportBackground/ViewportForeground 等视口对齐层里的
+        // Part 按 alignment 摆到当前视口角落（PERT legend 等图例/水印）。
+        this._layoutViewportAlignedParts();
         if (this._renderer) {
             this._renderer.render();
         }
@@ -48341,10 +49633,45 @@ var Diagram = /** @class */ (function () {
      * position 为 NaN 时按原样传入（ab.x/y 保持 NaN，对齐官方）。
      */
     Diagram.prototype._measureArrangeAll = function (measure) {
+        var e_46, _a;
         var _this = this;
         if (measure === void 0) { measure = true; }
+        var wasMeasuring = this._isMeasuring;
+        if (measure)
+            this._isMeasuring = true;
+        // 官方 Part bounds setter / Kd(oldBounds,newBounds)：`!old.equalsApproxClose(new)`
+        // 时 Node 直接 invalidateConnectedLinks()（go.js @668627 + Part.Kd）。
+        // 本项目没有单独的 bounds setter，改在测量趟里对「端点部件」（Node/Group）留一份
+        // **跨趟持久**的快照，arrange 后比对，真的移动/改尺寸了才失效其相连连线。
+        //
+        // 关键：快照必须跨趟持久，不能在每趟开始时重新取。早期实现在趟开始时取快照，
+        // 于是 group 在两趟之间被 doMinimalNoNetworkLayout 移动（Group.move 逐个改
+        // 成员 position）后，成员 position 在下一趟开始时已是新值 → 比对无变化 →
+        // 相连连线永不失效 → basic 的 3>4 / 3>1 路线停在 group 移动前的坐标
+        // （y 偏移正好是 group 的 Δy=70），官方则在 arrange 时用持久化的上次
+        // bounds 比对并失效。官方实测 group.moveTo 后成员 link 路由立即跟随。
+        //
+        // 不能图省事换成全体 _invalidateLinkRoutes()：那会让 AvoidsNodesRouter
+        // 在每次重测后重新绕障 → 下一帧又被算回基础直线，形成每帧往复
+        // （grafcet 21>24 Skip link 在直线与绕障两条路线间闪烁的根因）。
+        var changedEndpoints = [];
+        var trackEndpoint = function (part) {
+            if (measure && !(part instanceof Link) && typeof part.invalidateConnectedLinks === 'function') {
+                var p = part.position;
+                var b = part.measuredBounds;
+                var cur = [p.x, p.y, b.width, b.height];
+                var prev = _this._endpointBounds.get(part);
+                var changed = false;
+                if (prev != null) {
+                    changed = prev[0] !== cur[0] || prev[1] !== cur[1] || prev[2] !== cur[2] || prev[3] !== cur[3];
+                    if (changed)
+                        changedEndpoints.push(part);
+                }
+                _this._endpointBounds.set(part, cur);
+            }
+        };
         var pass = function (kind) {
-            var e_45, _a;
+            var e_47, _a;
             try {
                 for (var _b = __values(_this._layers), _c = _b.next(); !_c.done; _c = _b.next()) {
                     var layer = _c.value;
@@ -48390,32 +49717,68 @@ var Diagram = /** @class */ (function () {
                         if (!isLink && typeof part.syncPositionFromLocation === 'function') {
                             part.syncPositionFromLocation();
                         }
+                        trackEndpoint(part);
                     }
                 }
             }
-            catch (e_45_1) { e_45 = { error: e_45_1 }; }
+            catch (e_47_1) { e_47 = { error: e_47_1 }; }
             finally {
                 try {
                     if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
                 }
-                finally { if (e_45) throw e_45.error; }
+                finally { if (e_47) throw e_47.error; }
             }
         };
         pass(0);
         pass(1);
-        // 节点/组排好后端口 actualBounds 才定型。首次算路线时它们还是 null，
-        // 算出的路线被标记 _isRouteValid=true 后 updateRoute() 一直短路，
-        // 于是 link 永远拿着那条「陈旧路线」（实测 basic：端口最终在 x=0 / 78.16，
-        // 而路线长度仍停在第一次的 3.226）。这里统一失效一次再排链接。
-        // 只在 measure=true（布局期/部件重新测量）时做：渲染期（_updateGeometry→measure=false）
-        // 节点位置不变、端口不动，若也失效会导致「失效→requestUpdate→再失效」的每帧空转。
-        if (measure)
-            this._invalidateLinkRoutes();
+        // 端点部件真的移动/改尺寸了才失效其相连连线（官方 Part.Kd 语义）。
+        if (measure && changedEndpoints.length > 0) {
+            var um = this.undoManager;
+            if (!um || !um.isUndoingRedoing) {
+                try {
+                    for (var changedEndpoints_1 = __values(changedEndpoints), changedEndpoints_1_1 = changedEndpoints_1.next(); !changedEndpoints_1_1.done; changedEndpoints_1_1 = changedEndpoints_1.next()) {
+                        var part = changedEndpoints_1_1.value;
+                        part.invalidateConnectedLinks();
+                    }
+                }
+                catch (e_46_1) { e_46 = { error: e_46_1 }; }
+                finally {
+                    try {
+                        if (changedEndpoints_1_1 && !changedEndpoints_1_1.done && (_a = changedEndpoints_1.return)) _a.call(changedEndpoints_1);
+                    }
+                    finally { if (e_46) throw e_46.error; }
+                }
+            }
+            changedEndpoints.length = 0;
+        }
+        // 布局刚提交的路线：commitNodes 移动 → 快照比对二次失效，但官方里这次失效
+        // 被 commitLinks 的重新提交吸收。把仍属布局提交批次的 link 恢复为有效
+        // （invalidateRoute 只标失效、不清点列），pass(2)/懒惰几何重建沿用现有点列。
+        if (this._layoutCommittedRoutes.count > 0) {
+            var rit = this._layoutCommittedRoutes.iterator;
+            while (rit.next()) {
+                var l = rit.value;
+                if (!l._isRouteValid)
+                    l._isRouteValid = true;
+            }
+            this._layoutCommittedRoutes.clear();
+        }
+        // 注意：这里**不能**无条件 _invalidateLinkRoutes()。
+        // 官方测量趟 Oe() 只 measure+arrange 被失效的部件，从不碰 link 路线；
+        // 路线只在 Node.location/端口/属性变化时经 invalidateConnectedLinks 失效。
+        // 早先每趟 measure=true 都统一失效一次（为修「首次算路线时端口 actualBounds
+        // 还是 null → 路线被 _isRouteValid=true 永久短路」），结果形成活锁：
+        //   路由 commit → invalidateGeometry → _measureInvalid → 整趟重测 →
+        //   全体路线失效 → updateRoute 算回基础直线 → 进 _invalidRoutes →
+        //   下一帧 AvoidsNodesRouter 重新绕障 → 又 commit，如此每帧往复
+        //   （grafcet 21>24 Skip link 在直线与绕障两条路线间每帧闪烁的根因）。
+        // 首次路线的端口问题改由 _performLayout 收尾（最终 arrange 之后）统一失效一次。
         pass(2);
+        this._isMeasuring = wasMeasuring;
     };
     /** 官方在节点布局定稿后让所有 link 重算路线 */
     Diagram.prototype._invalidateLinkRoutes = function () {
-        var e_46, _a;
+        var e_48, _a;
         try {
             for (var _b = __values(this._layers), _c = _b.next(); !_c.done; _c = _b.next()) {
                 var layer = _c.value;
@@ -48430,16 +49793,16 @@ var Diagram = /** @class */ (function () {
                 }
             }
         }
-        catch (e_46_1) { e_46 = { error: e_46_1 }; }
+        catch (e_48_1) { e_48 = { error: e_48_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_46) throw e_46.error; }
+            finally { if (e_48) throw e_48.error; }
         }
     };
     Diagram.prototype._collectGroups = function () {
-        var e_47, _a;
+        var e_49, _a;
         var groups = [];
         try {
             for (var _b = __values(this._layers), _c = _b.next(); !_c.done; _c = _b.next()) {
@@ -48454,17 +49817,17 @@ var Diagram = /** @class */ (function () {
                 }
             }
         }
-        catch (e_47_1) { e_47 = { error: e_47_1 }; }
+        catch (e_49_1) { e_49 = { error: e_49_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_47) throw e_47.error; }
+            finally { if (e_49) throw e_49.error; }
         }
         return groups;
     };
     Diagram.prototype._performLayout = function () {
-        var e_48, _a, e_49, _b;
+        var e_50, _a, e_51, _b;
         var _this = this;
         var oldPositions = new Map$1();
         if (this._animationManager.isEnabled) {
@@ -48485,12 +49848,12 @@ var Diagram = /** @class */ (function () {
                     }
                 }
             }
-            catch (e_48_1) { e_48 = { error: e_48_1 }; }
+            catch (e_50_1) { e_50 = { error: e_50_1 }; }
             finally {
                 try {
                     if (_d && !_d.done && (_a = _c.return)) _a.call(_c);
                 }
-                finally { if (e_48) throw e_48.error; }
+                finally { if (e_50) throw e_50.error; }
             }
         }
         // ====== 官方 layoutDiagram(iC) 顺序 ======
@@ -48515,7 +49878,7 @@ var Diagram = /** @class */ (function () {
             return out;
         };
         var visitGroup = function (g) {
-            var e_50, _a;
+            var e_52, _a;
             if (visited.has(g))
                 return;
             visited.add(g);
@@ -48525,12 +49888,12 @@ var Diagram = /** @class */ (function () {
                     visitGroup(sub);
                 }
             }
-            catch (e_50_1) { e_50 = { error: e_50_1 }; }
+            catch (e_52_1) { e_52 = { error: e_52_1 }; }
             finally {
                 try {
                     if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
                 }
-                finally { if (e_50) throw e_50.error; }
+                finally { if (e_52) throw e_52.error; }
             }
             var gl = g.layout;
             if (!gl)
@@ -48554,12 +49917,12 @@ var Diagram = /** @class */ (function () {
                 visitGroup(g);
             }
         }
-        catch (e_49_1) { e_49 = { error: e_49_1 }; }
+        catch (e_51_1) { e_51 = { error: e_51_1 }; }
         finally {
             try {
                 if (allGroups_1_1 && !allGroups_1_1.done && (_b = allGroups_1.return)) _b.call(allGroups_1);
             }
-            finally { if (e_49) throw e_49.error; }
+            finally { if (e_51) throw e_51.error; }
         }
         // 2) Diagram 基础布局（官方 o.doLayout(this)）——守卫对齐 iC：
         //    `o.isValidLayout || (cond ? doLayout : defer)`（n===0 恒真 → cond 只看 isValidLayout）
@@ -48574,6 +49937,9 @@ var Diagram = /** @class */ (function () {
                 dl.doLayout(this);
                 dl.isValidLayout = true;
                 dl.isOngoing = wasOngoing;
+                // LayeredDigraph.commitLinks 沿 dummy 链插好的多点折线会被布局后的
+                // _measureArrangeAll 快照比对二次失效重算（见 _layoutCommittedRoutes 注释），
+                // 其登记已在 _commitLinksOfficial 内完成。
             }
         }
         // 官方 Db(this)：diagram 布局后全体补测重排 + 位置同步（否则 location 保持 NaN）
@@ -48621,6 +49987,13 @@ var Diagram = /** @class */ (function () {
         }
         // 官方 layoutDiagram 收尾：o.doLayout(t) 后 this.doLinkRouting(t)
         // + Jr.clear + Ta 非空 23 轮（helper 第一轮即无条件 doLinkRouting）
+        //
+        // 这里**不再**无条件 _invalidateLinkRoutes()：布局（LayeredDigraph.commitLinks /
+        // TreeLayout 等）刚刚提交的 route 已是有效路由，一旦 blanket 失效就会被
+        // doLinkRouting 按基础两点路由重算，布局插入的多点折线全部丢失
+        // （PERT 1→3 官方 6 点被压回 4 点）。
+        // 端点真的移动过的 link 由 arrange 途中的 invalidateRoute 自然进入 Jr，
+        // 由下面的 _routeInvalidatedLinks 统一重算 —— 这正是官方语义。
         this._routeInvalidatedLinks();
     };
     /**
@@ -48808,7 +50181,7 @@ var Diagram = /** @class */ (function () {
         this.alignDocument(this._contentAlignment, this._contentAlignment);
     };
     Diagram.prototype._updateGeometry = function () {
-        var e_51, _a;
+        var e_53, _a;
         this._measureArrangeAll(false);
         try {
             for (var _b = __values(this._layers), _c = _b.next(); !_c.done; _c = _b.next()) {
@@ -48831,12 +50204,12 @@ var Diagram = /** @class */ (function () {
                 }
             }
         }
-        catch (e_51_1) { e_51 = { error: e_51_1 }; }
+        catch (e_53_1) { e_53 = { error: e_53_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_51) throw e_51.error; }
+            finally { if (e_53) throw e_53.error; }
         }
     };
     Diagram.prototype._setupResizeObserver = function () {
@@ -49060,7 +50433,7 @@ var Diagram = /** @class */ (function () {
         get: function () { return this._currentCursor; },
         /** 官方 `set currentCursor(t)`: `t==="" && (t=this.defaultCursor)`，并写 div/canvas style */
         set: function (val) {
-            var e_52, _a;
+            var e_54, _a;
             var t = val === '' ? this._defaultCursor : val;
             if (this._currentCursor === t)
                 return;
@@ -49081,12 +50454,12 @@ var Diagram = /** @class */ (function () {
                     n.style.cursor = t;
                 }
             }
-            catch (e_52_1) { e_52 = { error: e_52_1 }; }
+            catch (e_54_1) { e_54 = { error: e_54_1 }; }
             finally {
                 try {
                     if (nodes_1_1 && !nodes_1_1.done && (_a = nodes_1.return)) _a.call(nodes_1);
                 }
-                finally { if (e_52) throw e_52.error; }
+                finally { if (e_54) throw e_54.error; }
             }
         },
         enumerable: false,
@@ -49388,7 +50761,7 @@ var Diagram = /** @class */ (function () {
         return this.findPartForData(data);
     };
     Diagram.prototype.findLinkForKey = function (key) {
-        var e_53, _a;
+        var e_55, _a;
         var model = this._model;
         if (!model || typeof model.getLinkDataForKey !== 'function')
             return null;
@@ -49408,12 +50781,12 @@ var Diagram = /** @class */ (function () {
                 }
             }
         }
-        catch (e_53_1) { e_53 = { error: e_53_1 }; }
+        catch (e_55_1) { e_55 = { error: e_55_1 }; }
         finally {
             try {
                 if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
             }
-            finally { if (e_53) throw e_53.error; }
+            finally { if (e_55) throw e_55.error; }
         }
         return null;
     };
@@ -49432,7 +50805,7 @@ var Diagram = /** @class */ (function () {
         return result;
     };
     Diagram.prototype.findPartsIn = function (rect, partial) {
-        var e_54, _a;
+        var e_56, _a;
         if (partial === void 0) { partial = false; }
         var result = new List();
         var layers = this._layers;
@@ -49450,12 +50823,12 @@ var Diagram = /** @class */ (function () {
                 }
             }
         }
-        catch (e_54_1) { e_54 = { error: e_54_1 }; }
+        catch (e_56_1) { e_56 = { error: e_56_1 }; }
         finally {
             try {
                 if (layers_2_1 && !layers_2_1.done && (_a = layers_2.return)) _a.call(layers_2);
             }
-            finally { if (e_54) throw e_54.error; }
+            finally { if (e_56) throw e_56.error; }
         }
         return result;
     };
@@ -49469,7 +50842,7 @@ var Diagram = /** @class */ (function () {
         return result;
     };
     Diagram.prototype.findPartsNear = function (center, dist, partial) {
-        var e_55, _a;
+        var e_57, _a;
         var result = new List();
         var layers = this._layers;
         try {
@@ -49490,12 +50863,12 @@ var Diagram = /** @class */ (function () {
                 }
             }
         }
-        catch (e_55_1) { e_55 = { error: e_55_1 }; }
+        catch (e_57_1) { e_57 = { error: e_57_1 }; }
         finally {
             try {
                 if (layers_3_1 && !layers_3_1.done && (_a = layers_3.return)) _a.call(layers_3);
             }
-            finally { if (e_55) throw e_55.error; }
+            finally { if (e_57) throw e_57.error; }
         }
         return result;
     };
@@ -49508,7 +50881,7 @@ var Diagram = /** @class */ (function () {
         return result;
     };
     Diagram.prototype.findTopLevelNodesAndLinks = function () {
-        var e_56, _a;
+        var e_58, _a;
         var result = new List();
         var layers = this._layers;
         try {
@@ -49524,17 +50897,17 @@ var Diagram = /** @class */ (function () {
                 }
             }
         }
-        catch (e_56_1) { e_56 = { error: e_56_1 }; }
+        catch (e_58_1) { e_58 = { error: e_58_1 }; }
         finally {
             try {
                 if (layers_4_1 && !layers_4_1.done && (_a = layers_4.return)) _a.call(layers_4);
             }
-            finally { if (e_56) throw e_56.error; }
+            finally { if (e_58) throw e_58.error; }
         }
         return result;
     };
     Diagram.prototype.findTopLevelGroups = function () {
-        var e_57, _a;
+        var e_59, _a;
         var result = new List();
         var layers = this._layers;
         try {
@@ -49550,12 +50923,12 @@ var Diagram = /** @class */ (function () {
                 }
             }
         }
-        catch (e_57_1) { e_57 = { error: e_57_1 }; }
+        catch (e_59_1) { e_59 = { error: e_59_1 }; }
         finally {
             try {
                 if (layers_5_1 && !layers_5_1.done && (_a = layers_5.return)) _a.call(layers_5);
             }
-            finally { if (e_57) throw e_57.error; }
+            finally { if (e_59) throw e_59.error; }
         }
         return result;
     };
@@ -49577,7 +50950,7 @@ var Diagram = /** @class */ (function () {
     // 早期实现从 `new Rect()`(0,0,0,0) 起 union——把原点当成矩形并入，令
     // sharedStates 的 CustomLayout 拿到 (0,0) 起始的假成员包围盒。
     Diagram.prototype.computePartsBounds = function (parts, includeLinks) {
-        var e_58, _a, e_59, _b, e_60, _c;
+        var e_60, _a, e_61, _b, e_62, _c;
         var inc = includeLinks === true;
         var items = [];
         if (parts === null || parts === undefined) ;
@@ -49588,12 +50961,12 @@ var Diagram = /** @class */ (function () {
                     items.push(p);
                 }
             }
-            catch (e_58_1) { e_58 = { error: e_58_1 }; }
+            catch (e_60_1) { e_60 = { error: e_60_1 }; }
             finally {
                 try {
                     if (parts_2_1 && !parts_2_1.done && (_a = parts_2.return)) _a.call(parts_2);
                 }
-                finally { if (e_58) throw e_58.error; }
+                finally { if (e_60) throw e_60.error; }
             }
         }
         else {
@@ -49623,12 +50996,12 @@ var Diagram = /** @class */ (function () {
                         items.push(p);
                     }
                 }
-                catch (e_59_1) { e_59 = { error: e_59_1 }; }
+                catch (e_61_1) { e_61 = { error: e_61_1 }; }
                 finally {
                     try {
                         if (_e && !_e.done && (_b = _d.return)) _b.call(_d);
                     }
-                    finally { if (e_59) throw e_59.error; }
+                    finally { if (e_61) throw e_61.error; }
                 }
             }
         }
@@ -49651,12 +51024,12 @@ var Diagram = /** @class */ (function () {
                     result.unionRect(b);
             }
         }
-        catch (e_60_1) { e_60 = { error: e_60_1 }; }
+        catch (e_62_1) { e_62 = { error: e_62_1 }; }
         finally {
             try {
                 if (items_1_1 && !items_1_1.done && (_c = items_1.return)) _c.call(items_1);
             }
-            finally { if (e_60) throw e_60.error; }
+            finally { if (e_62) throw e_62.error; }
         }
         return result === null ? new Rect(NaN, NaN, 0, 0) : result;
     };
@@ -49685,8 +51058,49 @@ var Diagram = /** @class */ (function () {
         }
         this._raiseDiagramEvent('DocumentBoundsChanged');
     };
+    /** viewportBounds 真的变了才 raise ViewportChanged（对齐 _checkDocumentBoundsChanged 的模式） */
+    Diagram.prototype._checkViewportChanged = function () {
+        var v = this.viewportBounds;
+        var prev = this._lastRaisedViewport;
+        if (prev !== null && prev.x === v.x && prev.y === v.y &&
+            prev.width === v.width && prev.height === v.height) {
+            return;
+        }
+        this._raiseViewportChanged();
+    };
+    /**
+     * 官方 `Diagram.onViewportBoundsChanged(t,e,i,s)`（t=旧 viewportRect，e=新，
+     * i=旧 scale）：`t.equals(e)` 则不 raise；否则把 **旧值** 填进单例 `this.je`
+     * `{scale, position, bounds, canvasSize, newCanvasSize, isScroll}`，
+     * `this.D("ViewportBoundsChanged", this.je, t)` —— subject 是 je（**旧** viewport）。
+     * 早先这里只传了个裸 Rect 且全是新值，miningSim 监听器里
+     * `e.subject.bounds.width` / `e.subject.position.equals(...)` 直接 TypeError。
+     */
+    Diagram.prototype._raiseViewportChanged = function (oldRect, oldScale) {
+        var cur = this.viewportBounds;
+        var oRect = oldRect !== undefined ? oldRect
+            : (this._lastRaisedViewport !== null ? this._lastRaisedViewport : cur.copy());
+        var oScale = oldScale !== undefined ? oldScale : this._scale;
+        if (oRect.equals(cur) && oScale === this._scale)
+            return;
+        var je = this._je;
+        je.scale = oScale;
+        je.position.x = oRect.x;
+        je.position.y = oRect.y;
+        je.bounds.x = oRect.x;
+        je.bounds.y = oRect.y;
+        je.bounds.width = oRect.width;
+        je.bounds.height = oRect.height;
+        je.canvasSize.width = Math.round(oRect.width * oScale);
+        je.canvasSize.height = Math.round(oRect.height * oScale);
+        je.newCanvasSize.width = this.viewSize.width;
+        je.newCanvasSize.height = this.viewSize.height;
+        je.isScroll = false;
+        this._lastRaisedViewport = cur.copy();
+        this._raiseDiagramEvent('ViewportChanged', je, oRect);
+    };
     Diagram.prototype.invalidateViewport = function () {
-        this._raiseDiagramEvent('ViewportChanged');
+        this._raiseViewportChanged();
         this.requestUpdate();
     };
     Diagram.prototype.zoomToRect = function (rect) {
@@ -49886,7 +51300,7 @@ var Diagram = /** @class */ (function () {
         part._diagram = null;
     };
     Diagram.prototype.clear = function () {
-        var e_61, _a, e_62, _b;
+        var e_63, _a, e_64, _b;
         this.clearSelection();
         try {
             for (var _c = __values(this._layers), _d = _c.next(); !_d.done; _d = _c.next()) {
@@ -49895,33 +51309,33 @@ var Diagram = /** @class */ (function () {
                     continue;
                 var parts = iteratorToArray(layer.parts);
                 try {
-                    for (var parts_3 = (e_62 = void 0, __values(parts)), parts_3_1 = parts_3.next(); !parts_3_1.done; parts_3_1 = parts_3.next()) {
+                    for (var parts_3 = (e_64 = void 0, __values(parts)), parts_3_1 = parts_3.next(); !parts_3_1.done; parts_3_1 = parts_3.next()) {
                         var p = parts_3_1.value;
                         if (p._className !== 'Node' && p._className !== 'Link' && p._className !== 'Group')
                             continue;
                         layer.remove(p);
                     }
                 }
-                catch (e_62_1) { e_62 = { error: e_62_1 }; }
+                catch (e_64_1) { e_64 = { error: e_64_1 }; }
                 finally {
                     try {
                         if (parts_3_1 && !parts_3_1.done && (_b = parts_3.return)) _b.call(parts_3);
                     }
-                    finally { if (e_62) throw e_62.error; }
+                    finally { if (e_64) throw e_64.error; }
                 }
             }
         }
-        catch (e_61_1) { e_61 = { error: e_61_1 }; }
+        catch (e_63_1) { e_63 = { error: e_63_1 }; }
         finally {
             try {
                 if (_d && !_d.done && (_a = _c.return)) _a.call(_c);
             }
-            finally { if (e_61) throw e_61.error; }
+            finally { if (e_63) throw e_63.error; }
         }
         this.requestUpdate();
     };
     Diagram.prototype.removeParts = function (coll, ensureBounds) {
-        var e_63, _a, e_64, _b;
+        var e_65, _a, e_66, _b;
         if (ensureBounds === void 0) { ensureBounds = true; }
         var model = this._model;
         var iter = this._iterateParts(coll);
@@ -49945,12 +51359,12 @@ var Diagram = /** @class */ (function () {
                     model.removeLinkData(ld);
             }
         }
-        catch (e_63_1) { e_63 = { error: e_63_1 }; }
+        catch (e_65_1) { e_65 = { error: e_65_1 }; }
         finally {
             try {
                 if (links_1_1 && !links_1_1.done && (_a = links_1.return)) _a.call(links_1);
             }
-            finally { if (e_63) throw e_63.error; }
+            finally { if (e_65) throw e_65.error; }
         }
         try {
             for (var nodes_2 = __values(nodes), nodes_2_1 = nodes_2.next(); !nodes_2_1.done; nodes_2_1 = nodes_2.next()) {
@@ -49958,12 +51372,12 @@ var Diagram = /** @class */ (function () {
                 model.removeNodeData(nd);
             }
         }
-        catch (e_64_1) { e_64 = { error: e_64_1 }; }
+        catch (e_66_1) { e_66 = { error: e_66_1 }; }
         finally {
             try {
                 if (nodes_2_1 && !nodes_2_1.done && (_b = nodes_2.return)) _b.call(nodes_2);
             }
-            finally { if (e_64) throw e_64.error; }
+            finally { if (e_66) throw e_66.error; }
         }
         if (ensureBounds)
             this.invalidateDocumentBounds();
@@ -50014,7 +51428,7 @@ var Diagram = /** @class */ (function () {
         this.requestUpdate();
     };
     Diagram.prototype.copyParts = function (coll, targetDiagram, check) {
-        var e_65, _a, e_66, _b;
+        var e_67, _a, e_68, _b;
         var result = new Map$1();
         var srcModel = this._model;
         var dstModel = targetDiagram ? targetDiagram.model : srcModel;
@@ -50046,12 +51460,12 @@ var Diagram = /** @class */ (function () {
                     dataMap.add(oldKey, dstModel.getKeyForNodeData(d));
             }
         }
-        catch (e_65_1) { e_65 = { error: e_65_1 }; }
+        catch (e_67_1) { e_67 = { error: e_67_1 }; }
         finally {
             try {
                 if (items_2_1 && !items_2_1.done && (_a = items_2.return)) _a.call(items_2);
             }
-            finally { if (e_65) throw e_65.error; }
+            finally { if (e_67) throw e_67.error; }
         }
         if (targetDiagram)
             targetDiagram.rebuildParts();
@@ -50065,12 +51479,12 @@ var Diagram = /** @class */ (function () {
                 result.add(p, dstPart);
             }
         }
-        catch (e_66_1) { e_66 = { error: e_66_1 }; }
+        catch (e_68_1) { e_68 = { error: e_68_1 }; }
         finally {
             try {
                 if (items_3_1 && !items_3_1.done && (_b = items_3.return)) _b.call(items_3);
             }
-            finally { if (e_66) throw e_66.error; }
+            finally { if (e_68) throw e_68.error; }
         }
         return result;
     };
@@ -50423,22 +51837,26 @@ var Diagram = /** @class */ (function () {
     };
     /** 官方 `Diagram.doLinkRouting(container)`：遍历 routers，canRoute 过滤后 routeLinks(本图 links 集合, container) */
     Diagram.prototype.doLinkRouting = function (container) {
-        var e_67, _a;
+        var e_69, _a;
         var _this = this;
         var c = container !== undefined && container !== null ? container : this;
         var routers = this._routers;
         if (!routers)
             return;
-        // 官方传的是 `go.Set<Link>`（官方 `Diagram.Kr = new GSet`，见 go.js doLinkRouting），
-        // 扩展 LinkLabelRouter 会 `this.layout.activeSet = links` 再 `activeSet.has(part)`。
-        // 我们以前直接传 `this.links`（一个 Iterator，没有 `has`）→
-        // `_a.has is not a function`（实测 LinkLabelRouter）。
+        // 官方 `doLinkRouting`：`i[e].canRoute(t) && i[e].routeLinks(this.Jr, t)` —— 传给
+        // router 的是 **待避障路由集合 Jr（= _invalidRoutes）**，不是全体 link。
+        // 传全体会让 AvoidsNodesRouter 对每根 link 重算基础两点路由，抹掉布局
+        // （LayeredDigraph.commitLinks 等）刚沿 dummy 链插入的多点折线
+        // （PERT 1→3 官方 6 点被压回 4 点）。
+        // 扩展 LinkLabelRouter 依赖 `Set.has`，故仍用 Set 承载，只改集合来源。
         var linkSet = new Set$1();
-        var partsIt = this._parts.iteratorValues;
-        while (partsIt.next()) {
-            var p = partsIt.value;
-            if (p instanceof Link)
-                linkSet.add(p);
+        {
+            var jrit = this._invalidRoutes.iterator;
+            while (jrit.next()) {
+                var p = jrit.value;
+                if (p instanceof Link)
+                    linkSet.add(p);
+            }
         }
         var visit = function (r) {
             if (!r)
@@ -50470,12 +51888,12 @@ var Diagram = /** @class */ (function () {
                         visit(r);
                     }
                 }
-                catch (e_67_1) { e_67 = { error: e_67_1 }; }
+                catch (e_69_1) { e_69 = { error: e_69_1 }; }
                 finally {
                     try {
                         if (routers_1_1 && !routers_1_1.done && (_a = routers_1.return)) _a.call(routers_1);
                     }
-                    finally { if (e_67) throw e_67.error; }
+                    finally { if (e_69) throw e_69.error; }
                 }
             }
         }
@@ -51541,58 +52959,6 @@ function initBuilders() {
 initBuilders();
 
 /**
- * HTMLInfo - provides custom HTML-based editing or display for tools.
- * Used by TextEditingTool and ContextMenuTool to integrate HTML elements.
- */
-var HTMLInfo = /** @class */ (function () {
-    function HTMLInfo() {
-        this._element = null;
-        this._showFunction = null;
-        this._hideFunction = null;
-        this._valueFunction = null;
-    }
-    Object.defineProperty(HTMLInfo.prototype, "element", {
-        // ============ Properties ============
-        get: function () { return this._element; },
-        set: function (val) { this._element = val; },
-        enumerable: false,
-        configurable: true
-    });
-    Object.defineProperty(HTMLInfo.prototype, "showFunction", {
-        get: function () {
-            return this._showFunction;
-        },
-        set: function (val) {
-            this._showFunction = val;
-        },
-        enumerable: false,
-        configurable: true
-    });
-    Object.defineProperty(HTMLInfo.prototype, "hideFunction", {
-        get: function () {
-            return this._hideFunction;
-        },
-        set: function (val) {
-            this._hideFunction = val;
-        },
-        enumerable: false,
-        configurable: true
-    });
-    Object.defineProperty(HTMLInfo.prototype, "valueFunction", {
-        get: function () {
-            return this._valueFunction;
-        },
-        set: function (val) {
-            this._valueFunction = val;
-        },
-        enumerable: false,
-        configurable: true
-    });
-    HTMLInfo.className = "HTMLInfo";
-    return HTMLInfo;
-}());
-
-/**
  * GridLayout - arranges parts in a grid pattern.
  * 官方 GridLayout（pretty.js 31840）：sorting 默认 Ascending(comparer=standardComparer，按 part.text)、
  * alignment 默认 Location(I4)、arrangement 默认 LeftToRight、cellSize 默认 (NaN,NaN)、spacing (10,10)、
@@ -52086,8 +53452,6 @@ var TreeVertex = /** @class */ (function (_super) {
         _this.mm = null;
         /** 官方 pm — 结束边线 */
         _this.pm = null;
-        /** 官方 LayoutVertex.focus — 从 bounds 原点到节点中心的绝对偏移 */
-        _this.focus = new Point(0, 0);
         // ============ 可继承属性（官方构造器默认值） ============
         _this.sorting = TreeSortingForwards;
         _this.comparer = TreeVertex.standardComparer;
@@ -55899,9 +57263,9 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
         _this._layerSpacing = 25;
         _this._columnSpacing = 25;
         _this._setsPortSpots = true;
-        _this._aggressiveOption = LayeredDigraphAggressiveNone;
+        _this._aggressiveOption = LayeredDigraphAggressiveLess;
         _this._packOption = LayeredDigraphPackAll;
-        _this._layeringOption = 'longestpathsource';
+        _this._layeringOption = 'OptimalLinkLength';
         _this._cycleRemoveOption = 'depthfirst';
         _this._initializeOption = LayeredDigraphInitDepthFirstOut;
         _this._iterations = 4;
@@ -55910,9 +57274,47 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
         _this._centered = true;
         _this._maxLayer = -1;
         _this._maxIndex = -1;
-        _this._maxColumn = -1;
         _this._minIndexLayer = 0;
         _this._maxIndexLayer = 0;
+        /** OptimalLinkLength 归并时缓存的顶点表 */
+        _this._netVertexes = [];
+        // ============ 官方 LayeredDigraphLayout 运行时状态 ============
+        /** 官方 ot：最大层号 */
+        _this._ot = -1;
+        /** 官方 Wt：最大列号 */
+        _this._Wt = -1;
+        /** 官方 `xn`：componentPack 的分量计数 */
+        _this._xn = 0;
+        /** 官方 ci：各层顶点数 */
+        _this._ci = new Int16Array(0);
+        /** 官方 Lu：层表 Lu[layer][index] = vertex */
+        _this._Lu = [];
+        /** 官方 js：顶点数最多的层号 */
+        _this._js = 0;
+        /** 官方 cm：顶点数最少的层号 */
+        _this._cm = 0;
+        /** 官方 zw：最大层内序号-1 */
+        _this._zw = -1;
+        /** 官方 $n：层表临时数组池 */
+        _this._dollarN = [];
+        /** 官方 um：he/ds 快照缓冲 */
+        _this._um = new Int16Array(0);
+        /** 官方 pk：交叉矩阵缓冲 */
+        _this._pk = new Int16Array(0);
+        /** 官方 Zn：alignOption 位（默认 AlignAll=15，控制 MB 四向打包） */
+        _this._alignBits = 15;
+        /** 官方 jA：列轴总跨度（commitNodes 写入） */
+        _this._jA = 0;
+        /** 官方 kr：列轴打包启用时的原点偏移 */
+        _this._kr = new Point(0, 0);
+        /** 官方 Js：各层前沿空间（commitNodes） */
+        _this._Js = new Float32Array(0);
+        /** 官方 Ss：各层后沿空间（commitNodes） */
+        _this._Ss = new Float32Array(0);
+        /** 官方 ks：各层推进轴起点（commitNodes） */
+        _this._ks = new Float32Array(0);
+        /** 官方 Yt：各层推进轴终点（commitNodes） */
+        _this._Yt = new Float32Array(0);
         if (init)
             Object.assign(_this, init);
         return _this;
@@ -56005,11 +57407,6 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
         enumerable: false,
         configurable: true
     });
-    Object.defineProperty(LayeredDigraphLayout.prototype, "maxColumn", {
-        get: function () { return this._maxColumn; },
-        enumerable: false,
-        configurable: true
-    });
     Object.defineProperty(LayeredDigraphLayout.prototype, "minIndexLayer", {
         get: function () { return this._minIndexLayer; },
         enumerable: false,
@@ -56084,6 +57481,12 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
                 var n = v.node;
                 if (n === null || n === undefined)
                     continue;
+                // 子类布局可能在 makeNetwork 里已按业务需要自定义 focus（如 sankey 样例的
+                // SankeyLayout：`v.focusX = shape.actualBounds.x; v.focusY = v.height/2`，
+                // 把层内对齐点挪到条形顶端）。官方 focus 在 node setter 里只算一次，子类随后
+                // 写入的值必须保留 —— 否则这里会把它覆盖回中心，列内打包全部错位。
+                if (v.isFocusUserSet)
+                    continue;
                 var b = v.bounds;
                 var fx = b.width / 2;
                 var fy = b.height / 2;
@@ -56111,6 +57514,7 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
     /** 官方 protected removeCycles()：基于网络移除环 */
     LayeredDigraphLayout.prototype.removeCycles = function () {
         var e_2, _a;
+        var _b;
         var net = this.network;
         if (net === null || net.vertexes.count === 0)
             return;
@@ -56128,9 +57532,12 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
         try {
             for (var reversedEdges_1 = __values(reversedEdges), reversedEdges_1_1 = reversedEdges_1.next(); !reversedEdges_1_1.done; reversedEdges_1_1 = reversedEdges_1.next()) {
                 var edge = reversedEdges_1_1.value;
-                var temp = edge.fromVertex;
-                edge.fromVertex = edge.toVertex;
-                edge.toVertex = temp;
+                // 官方 cB/fB/uB：`network.reverseEdge(edge); edge.rev=!0` —— 只反转一次，
+                // 且必须走 network.reverseEdge（同步顶点 sourceEdges/destinationEdges 列表）。
+                // 早先 _removeCycles 里先手翻一次、这里再翻一次 = 净零反转，
+                // 环没断 → layering 的 memo 无限递归（customExpandCollapse 栈溢出）。
+                (_b = this.network) === null || _b === void 0 ? void 0 : _b.reverseEdge(edge);
+                edge.rev = true;
             }
         }
         catch (e_2_1) { e_2 = { error: e_2_1 }; }
@@ -56191,6 +57598,7 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
             finally { if (e_4) throw e_4.error; }
         }
         this._maxLayer = max;
+        this._ot = max;
     };
     /** 官方 protected initializeIndices()：为各层节点分配索引 */
     LayeredDigraphLayout.prototype.initializeIndices = function () {
@@ -56261,64 +57669,11 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
     };
     /** 官方 protected reduceCrossings()：减少同层节点间的连线交叉 */
     LayeredDigraphLayout.prototype.reduceCrossings = function () {
-        var e_5, _a;
-        var net = this.network;
-        if (net === null || net.vertexes.count === 0)
-            return;
-        var vertexes = [];
-        var edges = [];
-        var vit = net.vertexes.iterator;
-        while (vit.next())
-            vertexes.push(vit.value);
-        var eit = net.edges.iterator;
-        while (eit.next())
-            edges.push(eit.value);
-        var maxLayer = this._maxLayer;
-        var layers = createArrayOfArrays(maxLayer + 1);
-        try {
-            for (var vertexes_3 = __values(vertexes), vertexes_3_1 = vertexes_3.next(); !vertexes_3_1.done; vertexes_3_1 = vertexes_3.next()) {
-                var v = vertexes_3_1.value;
-                var l = v.layer;
-                if (l >= 0 && l <= maxLayer)
-                    layers[l].push(v);
-            }
-        }
-        catch (e_5_1) { e_5 = { error: e_5_1 }; }
-        finally {
-            try {
-                if (vertexes_3_1 && !vertexes_3_1.done && (_a = vertexes_3.return)) _a.call(vertexes_3);
-            }
-            finally { if (e_5) throw e_5.error; }
-        }
-        this._reduceCrossings(layers, edges);
+        // 新版 doLayout 走内部 _reduceCrossingsOfficial；此公开入口保留为空以免误用旧路径。
     };
     /** 官方 protected straightenAndPack()：调整列位置以拉直连线并紧凑排列 */
     LayeredDigraphLayout.prototype.straightenAndPack = function () {
-        var e_6, _a;
-        var net = this.network;
-        if (net === null || net.vertexes.count === 0)
-            return;
-        var vertexes = [];
-        var vit = net.vertexes.iterator;
-        while (vit.next())
-            vertexes.push(vit.value);
-        var layers = createArrayOfArrays(this._maxLayer + 1);
-        try {
-            for (var vertexes_4 = __values(vertexes), vertexes_4_1 = vertexes_4.next(); !vertexes_4_1.done; vertexes_4_1 = vertexes_4.next()) {
-                var v = vertexes_4_1.value;
-                var l = v.layer;
-                if (l >= 0 && l <= this._maxLayer)
-                    layers[l].push(v);
-            }
-        }
-        catch (e_6_1) { e_6 = { error: e_6_1 }; }
-        finally {
-            try {
-                if (vertexes_4_1 && !vertexes_4_1.done && (_a = vertexes_4.return)) _a.call(vertexes_4);
-            }
-            finally { if (e_6) throw e_6.error; }
-        }
-        this._positionNodes(layers);
+        // 新版 doLayout 走内部 _straightenAndPack；此公开入口保留为空以免误用旧路径。
     };
     /** 官方 protected commitLayers(layerRects, offset)：默认不做任何事 */
     LayeredDigraphLayout.prototype.commitLayers = function (layerRects, offset) {
@@ -56368,93 +57723,92 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
         return copy;
     };
     LayeredDigraphLayout.prototype.doLayout = function (coll) {
-        var e_7, _a, e_8, _b;
+        var e_5, _a;
         var parts = this.collectParts(coll);
         if (parts.count === 0)
             return;
         // Build network
         var net = this.makeNetwork(coll);
-        if (net.vertexes.count === 0)
+        this.network = net;
+        if (net.vertexes.count === 0) {
+            this.network = null;
             return;
+        }
+        net.deleteSelfEdges();
         var vertexes = [];
         var vit = net.vertexes.iterator;
-        while (vit.next()) {
+        while (vit.next())
             vertexes.push(vit.value);
-        }
         var edges = [];
         var eit = net.edges.iterator;
-        while (eit.next()) {
+        while (eit.next())
             edges.push(eit.value);
-        }
-        if (vertexes.length === 0)
-            return;
         // 官方在 LayoutVertex 的 node setter 里就定好 focus：
         //   非 Group → locationObject.getDocumentPoint(Spot.Center) − bounds.topLeft
         //   否则/取不到 → bounds 中心
         this._applyVertexFocus(vertexes);
-        // Assign indices
-        for (var i = 0; i < vertexes.length; i++) {
-            vertexes[i]._index = i;
-        }
-        // Step 1: Remove cycles using DFS
-        var reversedEdges = this._removeCycles(vertexes, edges).reversedEdges;
-        // Step 2: Assign layers
-        var layers = this._assignLayers(vertexes, edges);
-        // Step 3: Order nodes within layers (crossing reduction)
-        this._reduceCrossings(layers, edges);
-        // Step 4: Position nodes
-        this._positionNodes(layers);
         try {
-            // Restore reversed edges
-            for (var reversedEdges_2 = __values(reversedEdges), reversedEdges_2_1 = reversedEdges_2.next(); !reversedEdges_2_1.done; reversedEdges_2_1 = reversedEdges_2.next()) {
-                var edge = reversedEdges_2_1.value;
-                var temp = edge.fromVertex;
-                edge.fromVertex = edge.toVertex;
-                edge.toVertex = temp;
+            for (var vertexes_3 = __values(vertexes), vertexes_3_1 = vertexes_3.next(); !vertexes_3_1.done; vertexes_3_1 = vertexes_3.next()) {
+                var v = vertexes_3_1.value;
+                var n = v.node;
+                v.centered = n ? n.centered !== false : true;
+                v.data = n && n.data !== undefined ? n.data : null;
+                v._index = -1;
             }
         }
-        catch (e_7_1) { e_7 = { error: e_7_1 }; }
+        catch (e_5_1) { e_5 = { error: e_5_1 }; }
         finally {
             try {
-                if (reversedEdges_2_1 && !reversedEdges_2_1.done && (_a = reversedEdges_2.return)) _a.call(reversedEdges_2);
+                if (vertexes_3_1 && !vertexes_3_1.done && (_a = vertexes_3.return)) _a.call(vertexes_3);
             }
-            finally { if (e_7) throw e_7.error; }
+            finally { if (e_5) throw e_5.error; }
         }
-        // Commit positions
-        var origin = this.arrangementOrigin;
-        var isVertical = this._isVertical;
-        var isReversed = this._isReversed;
-        try {
-            for (var vertexes_5 = __values(vertexes), vertexes_5_1 = vertexes_5.next(); !vertexes_5_1.done; vertexes_5_1 = vertexes_5.next()) {
-                var v = vertexes_5_1.value;
-                if (v.node && !v._isArtificial) {
-                    var x = void 0, y = void 0;
-                    if (isVertical) {
-                        x = origin.x + v.x;
-                        y = isReversed ? origin.y - v.y : origin.y + v.y;
-                    }
-                    else {
-                        y = origin.y + v.x;
-                        x = isReversed ? origin.x - v.y : origin.x + v.y;
-                    }
-                    v.node.move(new Point(x, y));
-                }
-            }
-        }
-        catch (e_8_1) { e_8 = { error: e_8_1 }; }
-        finally {
-            try {
-                if (vertexes_5_1 && !vertexes_5_1.done && (_b = vertexes_5.return)) _b.call(vertexes_5);
-            }
-            finally { if (e_8) throw e_8.error; }
-        }
+        // 官方 doLayout()：nB → deleteSelfEdges → removeCycles → oB(层) → rB(端口+人工点)
+        //   → lB(索引) → hB(列) → reduceCrossings → straightenAndPack(MB 打包)
+        //   → commitLayout：Vw → commitNodes → QA → commitLinks
+        this._nB();
+        if (this._cycleRemoveOption !== 'fromlayers')
+            this.removeCycles();
+        // oB：分配层号（官方统一汇=0 的 sink 基层号），并算 ot
+        this.assignLayers();
+        // rB：网络细化 —— 计算端口位置，把跨层>1的长边拆成人工顶点链
+        this._refineNetwork();
+        // lB：索引初始化（near 对齐 + 端口偏移排序）+ 层表 Lu
+        this._initLayerIndexes();
+        // hB：列初始化（层内按 nodeMinColumnSpace 排开）
+        this._initColumns();
+        // 交叉约简（官方 kk/Ps/JR）
+        this._reduceCrossingsOfficial();
+        // 拉直+打包（alignOption!==0 时走 MB 四向打包，Se 写回列轴位置）
+        this._straightenAndPack();
+        // commitLayout
+        this._commitSetPortSpots();
+        this._commitNodesOfficial();
+        // 官方 commitLinks：沿人工顶点链生成多点折线路由
+        if (this._isRouting)
+            this._commitLinksOfficial();
+        this.network = null;
         this.isValidLayout = true;
+    };
+    /**
+     * 官方 `LayeredDigraphLayout.setPortSpots` 等价逻辑（`Sk(isFrom)`）：
+     * 依据 direction 决定连线两端的端口点，非反向时为 MiddleRight/MiddleLeft。
+     */
+    LayeredDigraphLayout.prototype._portSpotFor = function (isFrom) {
+        var d = this._direction;
+        if (d === LayeredDigraphDirectionUp)
+            return isFrom ? Spot.MiddleTop : Spot.MiddleBottom;
+        if (d === LayeredDigraphDirectionDown)
+            return isFrom ? Spot.MiddleBottom : Spot.MiddleTop;
+        if (d === LayeredDigraphDirectionLeft)
+            return isFrom ? Spot.MiddleLeft : Spot.MiddleRight;
+        return isFrom ? Spot.MiddleRight : Spot.MiddleLeft;
     };
     /**
      * Remove cycles by reversing back edges in a DFS traversal.
      */
     LayeredDigraphLayout.prototype._removeCycles = function (vertexes, edges) {
-        var e_9, _a;
+        var e_6, _a;
         var reversedEdges = [];
         var visited = new Uint8Array(vertexes.length); // 0=white, 1=gray, 2=black
         var adjList = createArrayOfArrays(vertexes.length);
@@ -56466,15 +57820,15 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
                 }
             }
         }
-        catch (e_9_1) { e_9 = { error: e_9_1 }; }
+        catch (e_6_1) { e_6 = { error: e_6_1 }; }
         finally {
             try {
                 if (edges_1_1 && !edges_1_1.done && (_a = edges_1.return)) _a.call(edges_1);
             }
-            finally { if (e_9) throw e_9.error; }
+            finally { if (e_6) throw e_6.error; }
         }
         var dfs = function (vIdx) {
-            var e_10, _a;
+            var e_7, _a;
             visited[vIdx] = 1; // gray (in progress)
             try {
                 for (var _b = __values(adjList[vIdx]), _c = _b.next(); !_c.done; _c = _b.next()) {
@@ -56484,10 +57838,8 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
                         continue;
                     var toIdx = edge.toVertex._index;
                     if (visited[toIdx] === 1) {
-                        // Back edge - reverse it
-                        var temp = edge.fromVertex;
-                        edge.fromVertex = edge.toVertex;
-                        edge.toVertex = temp;
+                        // Back edge —— 只收集，反转交给外层 removeCycles() 统一做一次
+                        // （network.reverseEdge + rev 标记），这里翻会和外层形成双重反转。
                         reversedEdges.push(edge);
                     }
                     else if (visited[toIdx] === 0) {
@@ -56495,12 +57847,12 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
                     }
                 }
             }
-            catch (e_10_1) { e_10 = { error: e_10_1 }; }
+            catch (e_7_1) { e_7 = { error: e_7_1 }; }
             finally {
                 try {
                     if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
                 }
-                finally { if (e_10) throw e_10.error; }
+                finally { if (e_7) throw e_7.error; }
             }
             visited[vIdx] = 2; // black (done)
         };
@@ -56515,315 +57867,3161 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
      * Assign layers to vertexes using longest path from source.
      */
     LayeredDigraphLayout.prototype._assignLayers = function (vertexes, edges) {
-        var e_11, _a, e_12, _b;
-        var inDegree = new Int32Array(vertexes.length);
-        var adjList = createArrayOfArrays(vertexes.length);
+        var e_8, _a, e_9, _b, e_10, _c, e_11, _d;
+        var opt = String(this._layeringOption);
+        if (opt === 'OptimalLinkLength') {
+            this._networkMinimizeLinkLength(vertexes, edges);
+        }
+        else if (opt === 'LongestPathSink') {
+            this._networkMaxSrcLayerSpan(vertexes, edges);
+        }
+        else {
+            // LongestPathSource（含默认回退）：源端=0 的最长路径
+            this._networkMaxDestLayerSpan(vertexes, edges);
+        }
+        // 规整：令最小层为 0，并按层号分桶
+        var min = Infinity;
         try {
-            for (var edges_2 = __values(edges), edges_2_1 = edges_2.next(); !edges_2_1.done; edges_2_1 = edges_2.next()) {
-                var edge = edges_2_1.value;
-                if (edge.fromVertex && edge.toVertex) {
-                    inDegree[edge.toVertex._index]++;
-                    adjList[edge.fromVertex._index].push(edge.toVertex._index);
-                }
+            for (var vertexes_4 = __values(vertexes), vertexes_4_1 = vertexes_4.next(); !vertexes_4_1.done; vertexes_4_1 = vertexes_4.next()) {
+                var v = vertexes_4_1.value;
+                if (v.layer < min)
+                    min = v.layer;
+            }
+        }
+        catch (e_8_1) { e_8 = { error: e_8_1 }; }
+        finally {
+            try {
+                if (vertexes_4_1 && !vertexes_4_1.done && (_a = vertexes_4.return)) _a.call(vertexes_4);
+            }
+            finally { if (e_8) throw e_8.error; }
+        }
+        try {
+            for (var vertexes_5 = __values(vertexes), vertexes_5_1 = vertexes_5.next(); !vertexes_5_1.done; vertexes_5_1 = vertexes_5.next()) {
+                var v = vertexes_5_1.value;
+                v.layer -= min;
+            }
+        }
+        catch (e_9_1) { e_9 = { error: e_9_1 }; }
+        finally {
+            try {
+                if (vertexes_5_1 && !vertexes_5_1.done && (_b = vertexes_5.return)) _b.call(vertexes_5);
+            }
+            finally { if (e_9) throw e_9.error; }
+        }
+        var maxLayer = 0;
+        try {
+            for (var vertexes_6 = __values(vertexes), vertexes_6_1 = vertexes_6.next(); !vertexes_6_1.done; vertexes_6_1 = vertexes_6.next()) {
+                var v = vertexes_6_1.value;
+                if (v.layer > maxLayer)
+                    maxLayer = v.layer;
+            }
+        }
+        catch (e_10_1) { e_10 = { error: e_10_1 }; }
+        finally {
+            try {
+                if (vertexes_6_1 && !vertexes_6_1.done && (_c = vertexes_6.return)) _c.call(vertexes_6);
+            }
+            finally { if (e_10) throw e_10.error; }
+        }
+        var layers = createArrayOfArrays(maxLayer + 1);
+        try {
+            for (var vertexes_7 = __values(vertexes), vertexes_7_1 = vertexes_7.next(); !vertexes_7_1.done; vertexes_7_1 = vertexes_7.next()) {
+                var v = vertexes_7_1.value;
+                layers[v.layer].push(v);
             }
         }
         catch (e_11_1) { e_11 = { error: e_11_1 }; }
         finally {
             try {
-                if (edges_2_1 && !edges_2_1.done && (_a = edges_2.return)) _a.call(edges_2);
+                if (vertexes_7_1 && !vertexes_7_1.done && (_d = vertexes_7.return)) _d.call(vertexes_7);
             }
             finally { if (e_11) throw e_11.error; }
         }
-        // Compute layer using longest path from sources
-        var layer = new Int32Array(vertexes.length).fill(-1);
-        var queue = [];
-        // Find sources (in-degree 0)
-        for (var i = 0; i < vertexes.length; i++) {
-            if (inDegree[i] === 0) {
-                layer[i] = 0;
-                queue.push(i);
-            }
-        }
-        while (queue.length > 0) {
-            var v = queue.shift();
-            try {
-                for (var _c = (e_12 = void 0, __values(adjList[v])), _d = _c.next(); !_d.done; _d = _c.next()) {
-                    var toIdx = _d.value;
-                    layer[toIdx] = Math.max(layer[toIdx], layer[v] + 1);
-                    inDegree[toIdx]--;
-                    if (inDegree[toIdx] === 0) {
-                        queue.push(toIdx);
-                    }
-                }
-            }
-            catch (e_12_1) { e_12 = { error: e_12_1 }; }
-            finally {
-                try {
-                    if (_d && !_d.done && (_b = _c.return)) _b.call(_c);
-                }
-                finally { if (e_12) throw e_12.error; }
-            }
-        }
-        // Handle any remaining unassigned (from cycles that weren't fully broken)
-        for (var i = 0; i < vertexes.length; i++) {
-            if (layer[i] === -1)
-                layer[i] = 0;
-        }
-        // Build layers
-        var maxLayer = 0;
-        for (var i = 0; i < vertexes.length; i++) {
-            if (layer[i] > maxLayer)
-                maxLayer = layer[i];
-        }
-        var layers = createArrayOfArrays(maxLayer + 1);
-        for (var i = 0; i < vertexes.length; i++) {
-            layers[layer[i]].push(vertexes[i]);
-        }
         return layers;
     };
-    /**
-     * Reduce edge crossings using barycenter heuristic.
-     */
-    LayeredDigraphLayout.prototype._reduceCrossings = function (layers, edges) {
-        var e_13, _a;
-        // Build adjacency info
-        var vertexIndex = new Map$1();
+    /** 官方 `jv/Wv`：LongestPathSink。layer(v) = max over 出边 (layer(to) + linkMinLength) */
+    LayeredDigraphLayout.prototype._networkMaxSrcLayerSpan = function (vertexes, edges) {
+        var e_12, _a, e_13, _b;
+        var _this = this;
+        new Int32Array(vertexes.length).fill(-1);
+        var memo = function (v) {
+            if (v.layer >= 0)
+                return v.layer;
+            var e = 0;
+            var it = v.destinationEdges.iterator;
+            while (it.next()) {
+                var s = it.value;
+                if (!s.toVertex)
+                    continue;
+                e = Math.max(e, memo(s.toVertex) + _this.linkMinLength(s));
+            }
+            v.layer = e;
+            return e;
+        };
         try {
-            for (var layers_1 = __values(layers), layers_1_1 = layers_1.next(); !layers_1_1.done; layers_1_1 = layers_1.next()) {
-                var layer = layers_1_1.value;
-                for (var i = 0; i < layer.length; i++) {
-                    vertexIndex.set(layer[i], i);
-                }
+            for (var vertexes_8 = __values(vertexes), vertexes_8_1 = vertexes_8.next(); !vertexes_8_1.done; vertexes_8_1 = vertexes_8.next()) {
+                var v = vertexes_8_1.value;
+                v.layer = -1;
+            }
+        }
+        catch (e_12_1) { e_12 = { error: e_12_1 }; }
+        finally {
+            try {
+                if (vertexes_8_1 && !vertexes_8_1.done && (_a = vertexes_8.return)) _a.call(vertexes_8);
+            }
+            finally { if (e_12) throw e_12.error; }
+        }
+        try {
+            for (var vertexes_9 = __values(vertexes), vertexes_9_1 = vertexes_9.next(); !vertexes_9_1.done; vertexes_9_1 = vertexes_9.next()) {
+                var v = vertexes_9_1.value;
+                memo(v);
             }
         }
         catch (e_13_1) { e_13 = { error: e_13_1 }; }
         finally {
             try {
-                if (layers_1_1 && !layers_1_1.done && (_a = layers_1.return)) _a.call(layers_1);
+                if (vertexes_9_1 && !vertexes_9_1.done && (_b = vertexes_9.return)) _b.call(vertexes_9);
             }
             finally { if (e_13) throw e_13.error; }
         }
-        // Multiple passes of barycenter ordering
-        for (var pass = 0; pass < 4; pass++) {
-            // Forward pass (top to bottom)
-            for (var l = 1; l < layers.length; l++) {
-                this._barycenterOrder(layers[l], layers[l - 1], edges, true);
-            }
-            // Backward pass (bottom to top)
-            for (var l = layers.length - 2; l >= 0; l--) {
-                this._barycenterOrder(layers[l], layers[l + 1], edges, false);
-            }
-        }
     };
-    /**
-     * Reorder a layer based on barycenter of neighbors.
-     */
-    LayeredDigraphLayout.prototype._barycenterOrder = function (layer, neighborLayer, edges, isDownward) {
-        var e_14, _a, e_15, _b;
-        var neighborPos = new Map$1();
-        for (var i = 0; i < neighborLayer.length; i++) {
-            neighborPos.set(neighborLayer[i], i);
-        }
-        // Compute barycenter for each vertex in the layer
-        var barycenters = new Map$1();
+    /** 官方 `cU/Jv`：LongestPathSource。layer(v) = max over 入边 (layer(from) + linkMinLength)（源=0） */
+    LayeredDigraphLayout.prototype._networkMaxDestLayerSpan = function (vertexes, edges) {
+        var e_14, _a, e_15, _b, e_16, _c, e_17, _d;
+        var _this = this;
+        var memo = function (v) {
+            if (v.layer >= 0)
+                return v.layer;
+            var e = 0;
+            var it = v.sourceEdges.iterator;
+            while (it.next()) {
+                var s = it.value;
+                if (!s.fromVertex)
+                    continue;
+                e = Math.max(e, memo(s.fromVertex) + _this.linkMinLength(s));
+            }
+            v.layer = e;
+            return e;
+        };
         try {
-            for (var layer_1 = __values(layer), layer_1_1 = layer_1.next(); !layer_1_1.done; layer_1_1 = layer_1.next()) {
-                var v = layer_1_1.value;
-                var sum = 0;
-                var count = 0;
-                try {
-                    for (var edges_3 = (e_15 = void 0, __values(edges)), edges_3_1 = edges_3.next(); !edges_3_1.done; edges_3_1 = edges_3.next()) {
-                        var edge = edges_3_1.value;
-                        var source = isDownward ? edge.fromVertex : edge.toVertex;
-                        var target = isDownward ? edge.toVertex : edge.fromVertex;
-                        if (target === v && source && neighborPos.has(source)) {
-                            sum += neighborPos.get(source);
-                            count++;
-                        }
-                    }
-                }
-                catch (e_15_1) { e_15 = { error: e_15_1 }; }
-                finally {
-                    try {
-                        if (edges_3_1 && !edges_3_1.done && (_b = edges_3.return)) _b.call(edges_3);
-                    }
-                    finally { if (e_15) throw e_15.error; }
-                }
-                barycenters.set(v, count > 0 ? sum / count : 0);
+            for (var vertexes_10 = __values(vertexes), vertexes_10_1 = vertexes_10.next(); !vertexes_10_1.done; vertexes_10_1 = vertexes_10.next()) {
+                var v = vertexes_10_1.value;
+                v.layer = -1;
             }
         }
         catch (e_14_1) { e_14 = { error: e_14_1 }; }
         finally {
             try {
-                if (layer_1_1 && !layer_1_1.done && (_a = layer_1.return)) _a.call(layer_1);
+                if (vertexes_10_1 && !vertexes_10_1.done && (_a = vertexes_10.return)) _a.call(vertexes_10);
             }
             finally { if (e_14) throw e_14.error; }
         }
-        // Sort by barycenter
-        layer.sort(function (a, b) { return (barycenters.get(a) || 0) - (barycenters.get(b) || 0); });
-    };
-    /**
-     * Position nodes within each layer.
-     *
-     * 移植官方 `LayeredDigraphLayout.commitNodes()` 的坐标生成：
-     * 1) 推进轴（direction 决定 x/y）：每层取 `nodeMinLayerSpace(v, before/after)`
-     *    的最大值（焦点前/后各 +10），再按 `layerSpacing/2` 两侧累加，
-     *    得到该层的「焦点线」——这正是官方层间距 = layerSpacing + 20 的来源。
-     * 2) 列轴：层内按 `columnSpacing` 逐个排开，再把该层的**焦点跨度**居中
-     *    （`centered=true` 时官方文档原话："aligned in the center of its layer
-     *    according to its LayoutVertex.focus"）。
-     * 3) 两轴各自归一化到 0，由 doLayout 的 commit 再加 arrangementOrigin。
-     */
-    LayeredDigraphLayout.prototype._positionNodes = function (layers) {
-        var e_16, _a, e_17, _b, e_18, _c, e_19, _d, e_20, _e, e_21, _f;
-        var nL = layers.length;
-        if (nL === 0)
-            return;
-        var vertical = this._isVertical;
-        var colSpace = this._columnSpacing;
-        var layerSpace = this._layerSpacing;
-        // ---- 推进轴：焦点线 ----
-        var before = [];
-        var after = [];
-        for (var d = 0; d < nL; d++) {
-            var b = 0;
-            var a = 0;
-            try {
-                for (var _g = (e_16 = void 0, __values(layers[d])), _h = _g.next(); !_h.done; _h = _g.next()) {
-                    var v = _h.value;
-                    var sb = this.nodeMinLayerSpace(v, true);
-                    var sa = this.nodeMinLayerSpace(v, false);
-                    if (sb > b)
-                        b = sb;
-                    if (sa > a)
-                        a = sa;
-                }
-            }
-            catch (e_16_1) { e_16 = { error: e_16_1 }; }
-            finally {
-                try {
-                    if (_h && !_h.done && (_a = _g.return)) _a.call(_g);
-                }
-                finally { if (e_16) throw e_16.error; }
-            }
-            before[d] = b;
-            after[d] = a;
-        }
-        var line = [];
-        var acc = 0;
-        for (var d = 0; d < nL; d++) {
-            var m = layerSpace;
-            if (before[d] + after[d] <= 0)
-                m = 0;
-            if (d > 0)
-                acc += m / 2;
-            acc += after[d];
-            line[d] = acc;
-            acc += before[d];
-            if (d < nL - 1)
-                acc += m / 2;
-        }
-        // ---- 列轴：层内排开 + 焦点跨度居中 ----
-        var across = new Map$1();
-        var minAcross = Infinity;
         try {
-            for (var layers_2 = __values(layers), layers_2_1 = layers_2.next(); !layers_2_1.done; layers_2_1 = layers_2.next()) {
-                var layer = layers_2_1.value;
-                var cursor = 0;
-                var minFocus = Infinity;
-                var maxFocus = -Infinity;
-                try {
-                    for (var layer_2 = (e_18 = void 0, __values(layer)), layer_2_1 = layer_2.next(); !layer_2_1.done; layer_2_1 = layer_2.next()) {
-                        var v = layer_2_1.value;
-                        var size = vertical ? v.bounds.width : v.bounds.height;
-                        var f = vertical ? v.focus.x : v.focus.y;
-                        across.set(v, cursor);
-                        var lo = cursor + f;
-                        if (lo < minFocus)
-                            minFocus = lo;
-                        if (lo > maxFocus)
-                            maxFocus = lo;
-                        cursor += size + colSpace;
-                    }
-                }
-                catch (e_18_1) { e_18 = { error: e_18_1 }; }
-                finally {
-                    try {
-                        if (layer_2_1 && !layer_2_1.done && (_c = layer_2.return)) _c.call(layer_2);
-                    }
-                    finally { if (e_18) throw e_18.error; }
-                }
-                if (minFocus === Infinity)
-                    continue;
-                var shift = -(minFocus + maxFocus) / 2;
-                try {
-                    for (var layer_3 = (e_19 = void 0, __values(layer)), layer_3_1 = layer_3.next(); !layer_3_1.done; layer_3_1 = layer_3.next()) {
-                        var v = layer_3_1.value;
-                        var p = across.get(v) + shift;
-                        across.set(v, p);
-                        if (p < minAcross)
-                            minAcross = p;
-                    }
-                }
-                catch (e_19_1) { e_19 = { error: e_19_1 }; }
-                finally {
-                    try {
-                        if (layer_3_1 && !layer_3_1.done && (_d = layer_3.return)) _d.call(layer_3);
-                    }
-                    finally { if (e_19) throw e_19.error; }
-                }
+            for (var vertexes_11 = __values(vertexes), vertexes_11_1 = vertexes_11.next(); !vertexes_11_1.done; vertexes_11_1 = vertexes_11.next()) {
+                var v = vertexes_11_1.value;
+                memo(v);
+            }
+        }
+        catch (e_15_1) { e_15 = { error: e_15_1 }; }
+        finally {
+            try {
+                if (vertexes_11_1 && !vertexes_11_1.done && (_b = vertexes_11.return)) _b.call(vertexes_11);
+            }
+            finally { if (e_15) throw e_15.error; }
+        }
+        // 官方 mB（LongestPathSource=12）：iI 算出源=0 后立即取补，
+        // 官方流水线统一使用汇=0 的 sink 基层号（commitNodes 再做推进轴镜像）。
+        var mx = 0;
+        try {
+            for (var vertexes_12 = __values(vertexes), vertexes_12_1 = vertexes_12.next(); !vertexes_12_1.done; vertexes_12_1 = vertexes_12.next()) {
+                var v = vertexes_12_1.value;
+                if (v.layer > mx)
+                    mx = v.layer;
+            }
+        }
+        catch (e_16_1) { e_16 = { error: e_16_1 }; }
+        finally {
+            try {
+                if (vertexes_12_1 && !vertexes_12_1.done && (_c = vertexes_12.return)) _c.call(vertexes_12);
+            }
+            finally { if (e_16) throw e_16.error; }
+        }
+        try {
+            for (var vertexes_13 = __values(vertexes), vertexes_13_1 = vertexes_13.next(); !vertexes_13_1.done; vertexes_13_1 = vertexes_13.next()) {
+                var v = vertexes_13_1.value;
+                v.layer = mx - v.layer;
             }
         }
         catch (e_17_1) { e_17 = { error: e_17_1 }; }
         finally {
             try {
-                if (layers_2_1 && !layers_2_1.done && (_b = layers_2.return)) _b.call(layers_2);
+                if (vertexes_13_1 && !vertexes_13_1.done && (_d = vertexes_13.return)) _d.call(vertexes_13);
             }
             finally { if (e_17) throw e_17.error; }
         }
-        if (!isFinite(minAcross))
-            minAcross = 0;
-        // ---- 归一化到 0 后写回 ----
-        var minProg = Infinity;
-        for (var d = 0; d < nL; d++) {
-            try {
-                for (var _j = (e_20 = void 0, __values(layers[d])), _k = _j.next(); !_k.done; _k = _j.next()) {
-                    var v = _k.value;
-                    var f = vertical ? v.focus.y : v.focus.x;
-                    var prog = this._centered ? line[d] - f : line[d];
-                    if (prog < minProg)
-                        minProg = prog;
-                }
-            }
-            catch (e_20_1) { e_20 = { error: e_20_1 }; }
-            finally {
-                try {
-                    if (_k && !_k.done && (_e = _j.return)) _e.call(_j);
-                }
-                finally { if (e_20) throw e_20.error; }
+    };
+    /** 官方 `fU/$v/uU/dU/Ew`：OptimalLinkLength。先 LongestPathSink，再从源做组归并/双向收缩 */
+    LayeredDigraphLayout.prototype._networkMinimizeLinkLength = function (vertexes, edges) {
+        var e_18, _a, e_19, _b;
+        this._netVertexes = vertexes;
+        this._networkMaxSrcLayerSpan(vertexes, edges);
+        try {
+            for (var vertexes_14 = __values(vertexes), vertexes_14_1 = vertexes_14.next(); !vertexes_14_1.done; vertexes_14_1 = vertexes_14.next()) {
+                var v = vertexes_14_1.value;
+                v.oi = false;
             }
         }
-        if (!isFinite(minProg))
-            minProg = 0;
-        for (var d = 0; d < nL; d++) {
+        catch (e_18_1) { e_18 = { error: e_18_1 }; }
+        finally {
             try {
-                for (var _l = (e_21 = void 0, __values(layers[d])), _m = _l.next(); !_m.done; _m = _l.next()) {
-                    var v = _m.value;
-                    var f = vertical ? v.focus.y : v.focus.x;
-                    v.y = (this._centered ? line[d] - f : line[d]) - minProg;
-                    v.x = (across.get(v) || 0) - minAcross;
+                if (vertexes_14_1 && !vertexes_14_1.done && (_a = vertexes_14.return)) _a.call(vertexes_14);
+            }
+            finally { if (e_18) throw e_18.error; }
+        }
+        try {
+            for (var vertexes_15 = __values(vertexes), vertexes_15_1 = vertexes_15.next(); !vertexes_15_1.done; vertexes_15_1 = vertexes_15.next()) {
+                var v = vertexes_15_1.value;
+                if (v.sourceEdges.count === 0)
+                    this._nlvVisited(v);
+            }
+        }
+        catch (e_19_1) { e_19 = { error: e_19_1 }; }
+        finally {
+            try {
+                if (vertexes_15_1 && !vertexes_15_1.done && (_b = vertexes_15.return)) _b.call(vertexes_15);
+            }
+            finally { if (e_19) throw e_19.error; }
+        }
+        // 官方 pB 到此结束：全程 sink 基（汇=0，源=最大层），不再取补。
+    };
+    /** 官方 `$v(t)`：DFS 到所有汇，逐个做 uU(t)/dU(t) 归并 */
+    LayeredDigraphLayout.prototype._nlvVisited = function (t) {
+        if (t.oi)
+            return;
+        t.oi = true;
+        var it = t.destinationEdges.iterator;
+        while (it.next()) {
+            var to = it.value.toVertex;
+            if (to)
+                this._nlvVisited(to);
+        }
+        this._nlvMoveUp(t);
+        this._nlvMoveDown(t);
+    };
+    /** 官方 `uU(t)`：把 t 的「紧边连通分量」整体上移（减 layer），使所有边达到最小长度 */
+    LayeredDigraphLayout.prototype._nlvMoveUp = function (t) {
+        var e_20, _a, e_21, _b, e_22, _c;
+        var vertexes = this._netVertexes;
+        try {
+            for (var vertexes_16 = __values(vertexes), vertexes_16_1 = vertexes_16.next(); !vertexes_16_1.done; vertexes_16_1 = vertexes_16.next()) {
+                var v = vertexes_16_1.value;
+                v.component = -1;
+            }
+        }
+        catch (e_20_1) { e_20 = { error: e_20_1 }; }
+        finally {
+            try {
+                if (vertexes_16_1 && !vertexes_16_1.done && (_a = vertexes_16.return)) _a.call(vertexes_16);
+            }
+            finally { if (e_20) throw e_20.error; }
+        }
+        var i = 0, s = 1;
+        var src = t.sourceEdges.iterator;
+        while (src.next()) {
+            var l = src.value;
+            var a = l.fromVertex, h = l.toVertex;
+            if (!a || !h)
+                continue;
+            var c = this.linkMinLength(l);
+            if (a.layer - h.layer > c)
+                this._nlvEw(a, i, -1, true, false);
+        }
+        this._nlvEw(t, s, -1, true, true);
+        while (t.component !== i) {
+            var r = 0, l = Infinity, a = 0, h = null;
+            try {
+                for (var vertexes_17 = (e_21 = void 0, __values(vertexes)), vertexes_17_1 = vertexes_17.next(); !vertexes_17_1.done; vertexes_17_1 = vertexes_17.next()) {
+                    var f = vertexes_17_1.value;
+                    if (f.component !== s)
+                        continue;
+                    var u = 0, d = false;
+                    var m = f.sourceEdges.iterator;
+                    while (m.next()) {
+                        var y = m.value;
+                        var x = y.fromVertex;
+                        if (!x)
+                            continue;
+                        u += this.linkLengthWeight(y);
+                        if (x.component !== s) {
+                            r += this.linkLengthWeight(y);
+                            var b = x.layer - f.layer, k = this.linkMinLength(y);
+                            if (b - k < l)
+                                l = b - k;
+                        }
+                    }
+                    var g = f.destinationEdges.iterator;
+                    while (g.next()) {
+                        var y = g.value;
+                        var x = y.toVertex;
+                        if (!x)
+                            continue;
+                        u -= this.linkLengthWeight(y);
+                        if (x.component !== s)
+                            r -= this.linkLengthWeight(y);
+                        else
+                            d = true;
+                    }
+                    if ((h === null || u < a) && !d) {
+                        h = f;
+                        a = u;
+                    }
                 }
             }
             catch (e_21_1) { e_21 = { error: e_21_1 }; }
             finally {
                 try {
-                    if (_m && !_m.done && (_f = _l.return)) _f.call(_l);
+                    if (vertexes_17_1 && !vertexes_17_1.done && (_b = vertexes_17.return)) _b.call(vertexes_17);
                 }
                 finally { if (e_21) throw e_21.error; }
             }
+            if (r > 0) {
+                try {
+                    for (var vertexes_18 = (e_22 = void 0, __values(vertexes)), vertexes_18_1 = vertexes_18.next(); !vertexes_18_1.done; vertexes_18_1 = vertexes_18.next()) {
+                        var f = vertexes_18_1.value;
+                        if (f.component === s)
+                            f.layer += l;
+                    }
+                }
+                catch (e_22_1) { e_22 = { error: e_22_1 }; }
+                finally {
+                    try {
+                        if (vertexes_18_1 && !vertexes_18_1.done && (_c = vertexes_18.return)) _c.call(vertexes_18);
+                    }
+                    finally { if (e_22) throw e_22.error; }
+                }
+                t.component = i;
+            }
+            else if (h !== null) {
+                h.component = i;
+            }
+            else {
+                break;
+            }
+        }
+    };
+    /** 官方 `dU(t)`：把 t 的紧边分量整体下移（加 layer） */
+    LayeredDigraphLayout.prototype._nlvMoveDown = function (t) {
+        var e_23, _a, e_24, _b, e_25, _c;
+        var vertexes = this._netVertexes;
+        try {
+            for (var vertexes_19 = __values(vertexes), vertexes_19_1 = vertexes_19.next(); !vertexes_19_1.done; vertexes_19_1 = vertexes_19.next()) {
+                var v = vertexes_19_1.value;
+                v.component = -1;
+            }
+        }
+        catch (e_23_1) { e_23 = { error: e_23_1 }; }
+        finally {
+            try {
+                if (vertexes_19_1 && !vertexes_19_1.done && (_a = vertexes_19.return)) _a.call(vertexes_19);
+            }
+            finally { if (e_23) throw e_23.error; }
+        }
+        var i = 0, s = 1;
+        this._nlvEw(t, s, -1, true, false);
+        while (t.component !== i) {
+            var n = 0, o = Infinity, r = 0, l = null;
+            try {
+                for (var vertexes_20 = (e_24 = void 0, __values(vertexes)), vertexes_20_1 = vertexes_20.next(); !vertexes_20_1.done; vertexes_20_1 = vertexes_20.next()) {
+                    var h = vertexes_20_1.value;
+                    if (h.component !== s)
+                        continue;
+                    var c = 0, f = false;
+                    var u = h.sourceEdges.iterator;
+                    while (u.next()) {
+                        var p = u.value;
+                        var y = p.fromVertex;
+                        if (!y)
+                            continue;
+                        c += this.linkLengthWeight(p);
+                        if (y.component !== s)
+                            n += this.linkLengthWeight(p);
+                        else
+                            f = true;
+                    }
+                    var m = h.destinationEdges.iterator;
+                    while (m.next()) {
+                        var p = m.value;
+                        var y = p.toVertex;
+                        if (!y)
+                            continue;
+                        c -= this.linkLengthWeight(p);
+                        if (y.component !== s) {
+                            n -= this.linkLengthWeight(p);
+                            var x = h.layer - y.layer, b = this.linkMinLength(p);
+                            if (x - b < o)
+                                o = x - b;
+                        }
+                    }
+                    if ((l === null || c > r) && !f) {
+                        l = h;
+                        r = c;
+                    }
+                }
+            }
+            catch (e_24_1) { e_24 = { error: e_24_1 }; }
+            finally {
+                try {
+                    if (vertexes_20_1 && !vertexes_20_1.done && (_b = vertexes_20.return)) _b.call(vertexes_20);
+                }
+                finally { if (e_24) throw e_24.error; }
+            }
+            if (n < 0) {
+                try {
+                    for (var vertexes_21 = (e_25 = void 0, __values(vertexes)), vertexes_21_1 = vertexes_21.next(); !vertexes_21_1.done; vertexes_21_1 = vertexes_21.next()) {
+                        var h = vertexes_21_1.value;
+                        if (h.component === s)
+                            h.layer -= o;
+                    }
+                }
+                catch (e_25_1) { e_25 = { error: e_25_1 }; }
+                finally {
+                    try {
+                        if (vertexes_21_1 && !vertexes_21_1.done && (_c = vertexes_21.return)) _c.call(vertexes_21);
+                    }
+                    finally { if (e_25) throw e_25.error; }
+                }
+                t.component = i;
+            }
+            else if (l !== null) {
+                l.component = i;
+            }
+            else {
+                break;
+            }
+        }
+    };
+    /** 官方 `Ew(t,e,i,s,n)`：从 t 沿「紧边」（层差==最小长度）传播，把可达点并入分量 e */
+    LayeredDigraphLayout.prototype._nlvEw = function (t, e, i, s, n) {
+        if (t.component !== i)
+            return;
+        t.component = e;
+        if (s) {
+            var it = t.destinationEdges.iterator;
+            while (it.next()) {
+                var a = it.value;
+                var h = a.toVertex;
+                if (!h)
+                    continue;
+                var o = t.layer - h.layer, r = this.linkMinLength(a);
+                if (o === r)
+                    this._nlvEw(h, e, i, s, n);
+            }
+        }
+        if (n) {
+            var it = t.sourceEdges.iterator;
+            while (it.next()) {
+                var a = it.value;
+                var h = a.fromVertex;
+                if (!h)
+                    continue;
+                var o = h.layer - t.layer, r = this.linkMinLength(a);
+                if (o === r)
+                    this._nlvEw(h, e, i, s, n);
+            }
+        }
+    };
+    /** 官方 `nB()`：布局运行时状态复位（lu/zw/cm/js 等） */
+    LayeredDigraphLayout.prototype._nB = function () {
+        this._zw = -1;
+        this._cm = 0;
+        this._js = 0;
+        this._Lu = [];
+        this._ci = new Int16Array(0);
+        for (var i = 0; i < this._dollarN.length; i++)
+            this._dollarN[i] = null;
+    };
+    /** 官方 `initializeIndices()`：按 Nu 选索引初始化器（20=DFO→kB，21=DFI→PB，22/默认→SB） */
+    LayeredDigraphLayout.prototype._initializeIndices = function () {
+        var opt = this._initializeOption;
+        if (opt === LayeredDigraphInitDepthFirstOut) {
+            this._kB();
+            return;
+        }
+        if (opt === LayeredDigraphInitDepthFirstIn) {
+            this._PB();
+            return;
+        }
+        this._SB();
+    };
+    /** 官方 `SB()`：naive 索引初始化 —— 按近邻分组后顺序赋 index */
+    LayeredDigraphLayout.prototype._SB = function () {
+        var _this = this;
+        var net = this.network;
+        var t = null;
+        var i = net.vertexes.iterator;
+        while (i.next()) {
+            var e = i.value;
+            if (e.near && (t === null && (t = new Map$1()), e.layer === e.near.layer)) {
+                var s = t.get(e.near) || [];
+                s.push(e);
+                t.set(e.near, s);
+            }
+        }
+        var _loop_1 = function () {
+            var e = i.value;
+            if (e.near)
+                return "continue";
+            var s = e.layer;
+            e.index = this_1._ci[s];
+            this_1._ci[s]++;
+            if (!t)
+                return "continue";
+            var n = t.get(e);
+            if (Array.isArray(n))
+                n.forEach(function (o) { o.index = _this._ci[s]; _this._ci[s]++; });
+        };
+        var this_1 = this;
+        for (i.reset(); i.next();) {
+            _loop_1();
+        }
+    };
+    /** 官方 `kB()`：DepthFirstOut 索引初始化 —— 从高层向低层递归 */
+    LayeredDigraphLayout.prototype._kB = function () {
+        var net = this.network;
+        var t = null;
+        var i = net.vertexes.iterator;
+        while (i.next()) {
+            var e = i.value;
+            if (e.near && (t === null && (t = new Map$1()), e.layer === e.near.layer)) {
+                var s = t.get(e.near) || [];
+                s.push(e);
+                t.set(e.near, s);
+            }
+        }
+        for (var e = this._ot; e >= 0; e--)
+            for (i.reset(); i.next();) {
+                var s = i.value;
+                if (s.layer === e && s.index === -1)
+                    this._oI(s, t);
+            }
+    };
+    /** 官方 `oI(t,i)`：DFS 出边（按 portFromColOffset 排序）赋 index */
+    LayeredDigraphLayout.prototype._oI = function (t, i) {
+        var _this = this;
+        if (t.near)
+            return;
+        var e = t.layer;
+        t.index = this._ci[e];
+        this._ci[e]++;
+        if (i) {
+            var o = i.get(t);
+            if (Array.isArray(o))
+                o.forEach(function (r) { r.index = _this._ci[e]; _this._ci[e]++; });
+        }
+        var s = t.destinationEdges;
+        var n = true;
+        while (n) {
+            n = false;
+            for (var o = 0; o < s.length - 1; o++) {
+                var r = s.elt(o), l = s.elt(o + 1);
+                if (r.portFromColOffset > l.portFromColOffset) {
+                    n = true;
+                    s.setElt(o, l);
+                    s.setElt(o + 1, r);
+                }
+            }
+        }
+        for (var o = 0; o < s.length; o++) {
+            var r = s.elt(o);
+            if (r.valid) {
+                var l = r.toVertex;
+                if (l.index === -1)
+                    this._oI(l, i);
+            }
+        }
+    };
+    /** 官方 `PB()`：DepthFirstIn 索引初始化 —— 从低层向高层递归 */
+    LayeredDigraphLayout.prototype._PB = function () {
+        var net = this.network;
+        var t = null;
+        var i = net.vertexes.iterator;
+        while (i.next()) {
+            var e = i.value;
+            if (e.near && (t === null && (t = new Map$1()), e.layer === e.near.layer)) {
+                var s = t.get(e.near) || [];
+                s.push(e);
+                t.set(e.near, s);
+            }
+        }
+        for (var e = 0; e <= this._ot; e++)
+            for (i.reset(); i.next();) {
+                var s = i.value;
+                if (s.layer === e && s.index === -1)
+                    this._rI(s, t);
+            }
+    };
+    /** 官方 `rI(t,i)`：DFS 入边（按 portToColOffset 排序）赋 index */
+    LayeredDigraphLayout.prototype._rI = function (t, i) {
+        var _this = this;
+        if (t.near)
+            return;
+        var e = t.layer;
+        t.index = this._ci[e];
+        this._ci[e]++;
+        if (i) {
+            var h = i.get(t);
+            if (Array.isArray(h))
+                h.forEach(function (a) { a.index = _this._ci[e]; _this._ci[e]++; });
+        }
+        var s = t.sourceEdges;
+        var n = true;
+        while (n) {
+            n = false;
+            for (var o = 0; o < s.length - 1; o++) {
+                var h = s.elt(o), a = s.elt(o + 1);
+                if (h.portToColOffset > a.portToColOffset) {
+                    n = true;
+                    s.setElt(o, a);
+                    s.setElt(o + 1, h);
+                }
+            }
+        }
+        for (var o = 0; o < s.length; o++) {
+            var l = s.elt(o);
+            if (l.valid) {
+                var r = l.fromVertex;
+                if (r.index === -1)
+                    this._rI(r, i);
+            }
+        }
+    };
+    /** 官方 `lB()`：索引初始化 + 层表 Lu */
+    LayeredDigraphLayout.prototype._initLayerIndexes = function () {
+        if (this._ci.length !== this._ot + 1)
+            this._ci = new Int16Array(this._ot + 1);
+        var t = this._ci;
+        for (var e = 0; e <= this._ot; e++)
+            t[e] = 0;
+        var i = this.network.vertexes.iterator;
+        for (; i.next();)
+            i.value.index = -1;
+        this._initializeIndices();
+        this._zw = -1;
+        this._cm = 0;
+        this._js = 0;
+        for (var e = 0; e <= this._ot; e++) {
+            if (t[e] > t[this._js]) {
+                this._zw = t[e] - 1;
+                this._js = e;
+            }
+            if (t[e] < t[this._cm])
+                this._cm = e;
+        }
+        this._Lu = [];
+        for (var e = 0; e < t.length; e++)
+            this._Lu[e] = [];
+        for (i.reset(); i.next();) {
+            var e = i.value;
+            var s = e.layer;
+            var n = this._Lu[s];
+            n[e.index] = e;
+        }
+    };
+    /** 官方 `hB()`：列初始化 —— 层内按 nodeMinColumnSpace 排开，算 Wt */
+    LayeredDigraphLayout.prototype._initColumns = function () {
+        this._Wt = -1;
+        for (var t = 0; t <= this._ot; t++) {
+            var i = this._ha(t);
+            var e = 0;
+            var s = this._ci[t];
+            for (var n = 0; n < s; n++) {
+                var o = i[n];
+                e += this.nodeMinColumnSpace(o, true);
+                o.column = e;
+                e += 1;
+                e += this.nodeMinColumnSpace(o, false);
+            }
+            this._Wt = Math.max(this._Wt, e - 1);
+            this._aa(t, i);
+        }
+    };
+    /** 官方 `ha(t)`：取/建 层 t 的顶点表（按 index），带池化复用 */
+    LayeredDigraphLayout.prototype._ha = function (t) {
+        var i;
+        var e = this._ci[t];
+        if (e >= this._dollarN.length) {
+            var n = [];
+            for (var o = 0; o < this._dollarN.length; o++)
+                n[o] = this._dollarN[o];
+            this._dollarN = n;
+        }
+        if (this._dollarN[e] === undefined || this._dollarN[e] === null)
+            i = [];
+        else {
+            i = this._dollarN[e];
+            this._dollarN[e] = null;
+        }
+        var s = this._Lu[t];
+        for (var n = 0; n < s.length; n++) {
+            var o = s[n];
+            i[o.index] = o;
+        }
+        return i;
+    };
+    /** 官方 `aa(t,i)`：把顶点表放回池 */
+    LayeredDigraphLayout.prototype._aa = function (t, i) {
+        this._dollarN[this._ci[t]] = i;
+    };
+    /** 官方 `Xw()`：列归一化 —— 减去最小（列-minColSpace），更新 Wt */
+    LayeredDigraphLayout.prototype._Xw = function () {
+        var t = Infinity;
+        this._Wt = -1;
+        var i = this.network.vertexes.iterator;
+        while (i.next()) {
+            var e = i.value;
+            t = Math.min(t, e.column - this.nodeMinColumnSpace(e, true));
+            this._Wt = Math.max(this._Wt, e.column + this.nodeMinColumnSpace(e, false));
+        }
+        for (i.reset(); i.next();) {
+            var e = i.value;
+            e.column -= t;
+        }
+        this._Wt -= t;
+    };
+    /** 官方 `he()`：把全部顶点的 (column,index) 快照进 um（Int16 对） */
+    LayeredDigraphLayout.prototype._he = function () {
+        var t = this.network.vertexes.count;
+        if (this._um.length < t * 2)
+            this._um = new Int16Array(t * 2);
+        var i = 0;
+        var e = this.network.vertexes.iterator;
+        for (; e.next();) {
+            var s = e.value;
+            this._um[i] = s.column;
+            i++;
+            this._um[i] = s.index;
+            i++;
+        }
+        return this._um;
+    };
+    /** 官方 `ds(t)`：从快照恢复 column+index */
+    LayeredDigraphLayout.prototype._ds = function (t) {
+        var i = 0;
+        var e = this.network.vertexes.iterator;
+        for (; e.next();) {
+            var s = e.value;
+            s.column = t[i];
+            i++;
+            s.index = t[i];
+            i++;
+        }
+    };
+    /** 官方 `countCrossings()`：对每层求交叉矩阵并累加三角和 */
+    LayeredDigraphLayout.prototype._countCrossings = function () {
+        var t = 0;
+        for (var i = 0; i <= this._ot; i++) {
+            var e = this._crossingMatrix(i, 1);
+            var s = this._ci[i];
+            for (var n = 0; n < s; n++)
+                for (var o = n; o < s; o++)
+                    t += e[n * s + o];
+        }
+        return t;
+    };
+    /** 官方 `Yw(t,i)`：各顶点的邻域重心（i<=0 用入边，i>=0 用出边） */
+    LayeredDigraphLayout.prototype._barycenters = function (t, i) {
+        var e = this._ha(t);
+        var s = this._ci[t];
+        var n = new Float32Array(s);
+        for (var o = 0; o < s; o++) {
+            var r = e[o];
+            var l = null;
+            if (i <= 0)
+                l = r.sourceEdges;
+            var h = null;
+            if (i >= 0)
+                h = r.destinationEdges;
+            var a = 0, c = 0;
+            var f = r.near;
+            if (f !== null && f.layer === r.layer) {
+                a += f.column - 1;
+                c++;
+            }
+            if (l !== null)
+                for (var d = 0; d < l.length; d++) {
+                    var u = l.elt(d);
+                    var m = u.fromVertex;
+                    if (u.valid && !u.rev && m.layer !== t) {
+                        a += m.column;
+                        c++;
+                    }
+                }
+            if (h !== null)
+                for (var d = 0; d < h.length; d++) {
+                    var u = h.elt(d);
+                    var m = u.toVertex;
+                    if (u.valid && !u.rev && m.layer !== t) {
+                        a += m.column;
+                        c++;
+                    }
+                }
+            n[o] = c === 0 ? -1 : a / c;
+        }
+        this._aa(t, e);
+        return n;
+    };
+    /** 官方 `$R(t,i)`：各顶点的邻域中位数（带端口偏移） */
+    LayeredDigraphLayout.prototype._medians = function (t, i) {
+        var e = this._ha(t);
+        var s = this._ci[t];
+        var n = new Int16Array(s);
+        for (var o = 0; o < s; o++) {
+            var r = e[o];
+            var l = null;
+            if (i <= 0)
+                l = r.sourceEdges;
+            var h = null;
+            if (i >= 0)
+                h = r.destinationEdges;
+            var a = 0;
+            var c = [];
+            var f = r.near;
+            if (f !== null && f.layer === r.layer) {
+                c[a] = f.column - 1;
+                a++;
+            }
+            if (l !== null)
+                for (var d = 0; d < l.length; d++) {
+                    var u = l.elt(d);
+                    var m = u.fromVertex;
+                    if (u.valid && !u.rev && m.layer !== t) {
+                        c[a] = m.column + u.portFromColOffset;
+                        a++;
+                    }
+                }
+            if (h !== null)
+                for (var d = 0; d < h.length; d++) {
+                    var u = h.elt(d);
+                    var m = u.toVertex;
+                    if (u.valid && !u.rev && m.layer !== t) {
+                        c[a] = m.column + u.portToColOffset;
+                        a++;
+                    }
+                }
+            if (a === 0)
+                n[o] = -1;
+            else {
+                c.sort(function (m, g) { return m - g; });
+                var d = a >> 1;
+                n[o] = (a & 1) !== 0 ? c[d] : (c[d - 1] + c[d]) >> 1;
+            }
+        }
+        this._aa(t, e);
+        return n;
+    };
+    /** 官方 `JR(t,i)`：交叉矩阵（i>=0 用出边、i<=0 用入边；i=1 只算出边） */
+    LayeredDigraphLayout.prototype._crossingMatrix = function (t, i) {
+        var e = this._ha(t);
+        var s = this._ci[t];
+        if (this._pk.length < s * s)
+            this._pk = new Int16Array(s * s);
+        var n = this._pk;
+        for (var o = 0; o < s; o++) {
+            var r = 0;
+            var l = e[o];
+            var h = l.near;
+            if (h !== null && h !== l && h.layer === l.layer)
+                r += Math.max(0, Math.abs(h.index - l.index) - 1);
+            var c = void 0;
+            var f = 0, u = void 0, d = 0, m = 0, g = 0, y = 0, x = void 0, b = 0, S = 0, k = 0;
+            if (i >= 0) {
+                c = l.sourceEdges;
+                for (f = 0; f < c.length; f++) {
+                    u = c.elt(f);
+                    if (u.valid && u.fromVertex.layer !== t) {
+                        d = u.fromVertex.index;
+                        m = u.portToPos;
+                        g = u.portFromPos;
+                        for (y = f + 1; y < c.length; y++) {
+                            x = c.elt(y);
+                            if (x.valid && x.fromVertex.layer !== t) {
+                                b = x.fromVertex.index;
+                                S = x.portToPos;
+                                k = x.portFromPos;
+                                if (m < S && (d > b || (d === b && g > k)))
+                                    r++;
+                                if (S < m && (b > d || (b === d && k > g)))
+                                    r++;
+                            }
+                        }
+                    }
+                }
+            }
+            if (i <= 0) {
+                c = l.destinationEdges;
+                for (f = 0; f < c.length; f++) {
+                    u = c.elt(f);
+                    if (u.valid && u.toVertex.layer !== t) {
+                        d = u.toVertex.index;
+                        m = u.portToPos;
+                        g = u.portFromPos;
+                        for (y = f + 1; y < c.length; y++) {
+                            x = c.elt(y);
+                            if (x.valid && x.toVertex.layer !== t) {
+                                b = x.toVertex.index;
+                                S = x.portToPos;
+                                k = x.portFromPos;
+                                if (g < k && (d > b || (d === b && m > S)))
+                                    r++;
+                                if (k < g && (b > d || (b === d && S > m)))
+                                    r++;
+                            }
+                        }
+                    }
+                }
+            }
+            n[o * s + o] = r;
+            for (var a = o + 1; a < s; a++) {
+                var A = 0, N = 0;
+                if (i >= 0) {
+                    var p1 = e[o].sourceEdges, P = e[a].sourceEdges;
+                    for (f = 0; f < p1.length; f++) {
+                        u = p1.elt(f);
+                        if (u.valid && u.fromVertex.layer !== t) {
+                            d = u.fromVertex.index;
+                            m = u.portToPos;
+                            g = u.portFromPos;
+                            for (y = 0; y < P.length; y++) {
+                                x = P.elt(y);
+                                if (x.valid && x.fromVertex.layer !== t) {
+                                    b = x.fromVertex.index;
+                                    S = x.portToPos;
+                                    k = x.portFromPos;
+                                    if (d < b || (d === b && g < k))
+                                        N++;
+                                    if (b < d || (b === d && k < g))
+                                        A++;
+                                }
+                            }
+                        }
+                    }
+                }
+                if (i <= 0) {
+                    var p1 = e[o].destinationEdges, P = e[a].destinationEdges;
+                    for (f = 0; f < p1.length; f++) {
+                        u = p1.elt(f);
+                        if (u.valid && u.toVertex.layer !== t) {
+                            d = u.toVertex.index;
+                            m = u.portToPos;
+                            g = u.portFromPos;
+                            for (y = 0; y < P.length; y++) {
+                                x = P.elt(y);
+                                if (x.valid && x.toVertex.layer !== t) {
+                                    b = x.toVertex.index;
+                                    S = x.portToPos;
+                                    k = x.portFromPos;
+                                    if (d < b || (d === b && m < S))
+                                        N++;
+                                    if (b < d || (b === d && S < m))
+                                        A++;
+                                }
+                            }
+                        }
+                    }
+                }
+                n[o * s + a] = A;
+                n[a * s + o] = N;
+            }
+        }
+        this._aa(t, e);
+        return n;
+    };
+    /** 官方 `kk(t,i)`：中位数-重心交叉约简 —— 按 (median,barycenter) 排一层 */
+    LayeredDigraphLayout.prototype._medianBarycenter = function (t, i) {
+        var e = 0, s = false;
+        var n = this._ha(t);
+        var o = this._ci[t];
+        var r = this._medians(t, i);
+        var l = this._barycenters(t, i);
+        for (e = 0; e < o; e++) {
+            if (l[e] === -1)
+                l[e] = n[e].column;
+            if (r[e] === -1)
+                r[e] = n[e].column;
+        }
+        var h = true;
+        var a;
+        for (; h;) {
+            h = false;
+            for (e = 0; e < o - 1; e++) {
+                if (r[e + 1] < r[e] || (r[e + 1] === r[e] && l[e + 1] < l[e])) {
+                    s = true;
+                    h = true;
+                    var f = r[e];
+                    r[e] = r[e + 1];
+                    r[e + 1] = f;
+                    var u = l[e];
+                    l[e] = l[e + 1];
+                    l[e + 1] = u;
+                    a = n[e];
+                    n[e] = n[e + 1];
+                    n[e + 1] = a;
+                }
+            }
+        }
+        var c = 0;
+        for (e = 0; e < o; e++) {
+            a = n[e];
+            a.index = e;
+            c += this.nodeMinColumnSpace(a, true);
+            a.column = c;
+            c += 1;
+            c += this.nodeMinColumnSpace(a, false);
+        }
+        this._aa(t, n);
+        return s;
+    };
+    /** 官方 `Ps(t,i,e,s)`：贪心相邻交换交叉约简（评估交叉/拉直/中位/重心代价） */
+    LayeredDigraphLayout.prototype._crossingReduction = function (t, i, e, s) {
+        var n = this._ha(t);
+        var o = this._ci[t];
+        var r = this._crossingMatrix(t, i);
+        var l = 0;
+        var mm;
+        if (!e || s > 0) {
+            mm = new Float32Array(o);
+            for (l = 0; l < o; l++)
+                mm[l] = -1;
+        }
+        else
+            mm = this._barycenters(t, -1);
+        var a;
+        if (!e || s < 0) {
+            a = new Float32Array(o);
+            for (l = 0; l < o; l++)
+                a[l] = -1;
+        }
+        else
+            a = this._barycenters(t, 1);
+        var c = false, f = true;
+        for (; f;) {
+            f = false;
+            for (l = 0; l < o - 1; l++) {
+                var u = r[n[l].index * o + n[l + 1].index];
+                var d = r[n[l + 1].index * o + n[l].index];
+                var m = 0, g = 0;
+                var p = n[l].column, y = n[l + 1].column;
+                var x = this.nodeMinColumnSpace(n[l], true), b = this.nodeMinColumnSpace(n[l], false);
+                var S = this.nodeMinColumnSpace(n[l + 1], true), k = this.nodeMinColumnSpace(n[l + 1], false);
+                var P = p - x + S, A = y - b + k;
+                var N = 0, M = 0, C = 0, T = 0, L = 0, D = 0, F = 0, R = void 0, I = 0, O = void 0, X = 0;
+                var Y = n[l].sourceEdges.iterator;
+                if (e && s <= 0)
+                    for (; Y.next();) {
+                        R = Y.value;
+                        var Rv = R.fromVertex;
+                        if (R.valid && Rv.layer !== t) {
+                            C = this.linkStraightenWeight(R);
+                            T = R.portFromColOffset;
+                            L = R.portToColOffset;
+                            D = Rv.column;
+                            N += (Math.abs(p + L - (D + T)) + 1) * C;
+                            M += (Math.abs(A + L - (D + T)) + 1) * C;
+                        }
+                    }
+                for (Y.reset(); Y.next();) {
+                    R = Y.value;
+                    var Rv = R.fromVertex;
+                    if (R.valid && Rv.layer === t) {
+                        for (I = 0; I < n.length && n[I] !== Rv;)
+                            I++;
+                        if (I < l) {
+                            m += 2 * (l - I);
+                            g += 2 * (l + 1 - I);
+                        }
+                        else if (I === l + 1) {
+                            m += 1;
+                        }
+                        else if (I > l + 1) {
+                            m += 4 * (I - l);
+                            g += 4 * (I - (l + 1));
+                        }
+                    }
+                }
+                var B = n[l].destinationEdges.iterator;
+                if (e && s >= 0)
+                    for (; B.next();) {
+                        O = B.value;
+                        var Ov = O.toVertex;
+                        if (O.valid && Ov.layer !== t) {
+                            C = this.linkStraightenWeight(O);
+                            T = O.portFromColOffset;
+                            L = O.portToColOffset;
+                            F = Ov.column;
+                            N += (Math.abs(p + T - (F + L)) + 1) * C;
+                            M += (Math.abs(A + T - (F + L)) + 1) * C;
+                        }
+                    }
+                for (B.reset(); B.next();) {
+                    O = B.value;
+                    var Ov = O.toVertex;
+                    if (O.valid && Ov.layer === t) {
+                        for (X = 0; X < n.length && n[X] !== Ov;)
+                            X++;
+                        if (X === l + 1)
+                            g += 1;
+                    }
+                }
+                var K = n[l + 1].sourceEdges.iterator;
+                if (e && s <= 0)
+                    for (; K.next();) {
+                        R = K.value;
+                        var Rv = R.fromVertex;
+                        if (R.valid && Rv.layer !== t) {
+                            C = this.linkStraightenWeight(R);
+                            T = R.portFromColOffset;
+                            L = R.portToColOffset;
+                            D = Rv.column;
+                            N += (Math.abs(y + L - (D + T)) + 1) * C;
+                            M += (Math.abs(P + L - (D + T)) + 1) * C;
+                        }
+                    }
+                for (K.reset(); K.next();) {
+                    R = K.value;
+                    var Rv = R.fromVertex;
+                    if (R.valid && Rv.layer === t) {
+                        for (I = 0; I < n.length && n[I] !== Rv;)
+                            I++;
+                        if (I < l) {
+                            m += 2 * (l + 1 - I);
+                            g += 2 * (l - I);
+                        }
+                        else if (I === l) {
+                            g += 1;
+                        }
+                        else if (I > l + 1) {
+                            m += 4 * (I - (l + 1));
+                            g += 4 * (I - l);
+                        }
+                    }
+                }
+                var z = n[l + 1].destinationEdges.iterator;
+                if (e && s >= 0)
+                    for (; z.next();) {
+                        O = z.value;
+                        var Ov = O.toVertex;
+                        if (O.valid && Ov.layer !== t) {
+                            C = this.linkStraightenWeight(O);
+                            T = O.portFromColOffset;
+                            L = O.portToColOffset;
+                            F = Ov.column;
+                            N += (Math.abs(y + T - (F + L)) + 1) * C;
+                            M += (Math.abs(P + T - (F + L)) + 1) * C;
+                        }
+                    }
+                for (z.reset(); z.next();) {
+                    O = z.value;
+                    var Ov = O.toVertex;
+                    if (O.valid && Ov.layer === t) {
+                        for (X = 0; X < n.length && n[X] !== Ov;)
+                            X++;
+                        if (X === l)
+                            m += 1;
+                    }
+                }
+                var H = 0, v = 0;
+                var j = mm[n[l].index], q = mm[n[l + 1].index];
+                var Q = a[n[l].index], Z = a[n[l + 1].index];
+                if (j !== -1) {
+                    H += Math.abs(j - p);
+                    v += Math.abs(j - A);
+                }
+                if (q !== -1) {
+                    H += Math.abs(q - y);
+                    v += Math.abs(q - P);
+                }
+                if (Q !== -1) {
+                    H += Math.abs(Q - p);
+                    v += Math.abs(Q - A);
+                }
+                if (Z !== -1) {
+                    H += Math.abs(Z - y);
+                    v += Math.abs(Z - P);
+                }
+                if (g < m - 0.5 || (g === m && d < u - 0.5) ||
+                    (g === m && d === u && M < N - 0.5) ||
+                    (g === m && d === u && M === N && v < H - 0.5)) {
+                    c = true;
+                    f = true;
+                    n[l].column = A;
+                    n[l + 1].column = P;
+                    var J = n[l];
+                    n[l] = n[l + 1];
+                    n[l + 1] = J;
+                }
+            }
+        }
+        for (l = 0; l < o; l++)
+            n[l].index = l;
+        this._aa(t, n);
+        return c;
+    };
+    /** 官方 `reduceCrossings()`：多轮 median/barycenter + 贪心交换 + aggressive 局部精化 */
+    LayeredDigraphLayout.prototype._reduceCrossingsOfficial = function () {
+        var t = this._countCrossings();
+        var i = this._he();
+        var e = 0, s = 0, n = 0;
+        // 官方阶段一：direction ±1，独立跑 iterations 轮
+        for (e = 0; e < this._iterations; e++) {
+            for (s = 0; s <= this._ot; s++) {
+                this._medianBarycenter(s, 1);
+                this._crossingReduction(s, 1, false, 1);
+            }
+            for (n = this._countCrossings(), n < t && (t = n, i = this._he()), s = this._ot; s >= 0; s--) {
+                this._medianBarycenter(s, -1);
+                this._crossingReduction(s, -1, false, -1);
+            }
+            n = this._countCrossings();
+            if (n < t) {
+                t = n;
+                i = this._he();
+            }
+        }
+        this._ds(i);
+        // 官方阶段二：direction 0，再独立跑 iterations 轮
+        for (e = 0; e < this._iterations; e++) {
+            for (s = 0; s <= this._ot; s++) {
+                this._medianBarycenter(s, 0);
+                this._crossingReduction(s, 0, false, 0);
+            }
+            for (n = this._countCrossings(), n < t && (t = n, i = this._he()), s = this._ot; s >= 0; s--) {
+                this._medianBarycenter(s, 0);
+                this._crossingReduction(s, 0, false, 0);
+            }
+            n = this._countCrossings();
+            if (n < t) {
+                t = n;
+                i = this._he();
+            }
+        }
+        this._ds(i);
+        var o = false, r = 0, l = 0, h = 0, a = 0;
+        var aggr = this._aggressiveNum();
+        if (aggr === 30) {
+            this._ds(i);
+            return;
+        }
+        if (aggr === 32) {
+            for (h = t + 1; (a = this._countCrossings()) < h;) {
+                for (h = a, r = this._ot; r >= 0; r--)
+                    for (l = 0; l <= r; l++) {
+                        for (o = true; o;)
+                            for (o = false, s = r; s >= l; s--)
+                                o = this._crossingReduction(s, -1, false, -1) || o;
+                        n = this._countCrossings();
+                        n >= t ? this._ds(i) : (t = n, i = this._he());
+                        for (o = true; o;)
+                            for (o = false, s = r; s >= l; s--)
+                                o = this._crossingReduction(s, 1, false, 1) || o;
+                        n = this._countCrossings();
+                        n >= t ? this._ds(i) : (t = n, i = this._he());
+                        for (o = true; o;)
+                            for (o = false, s = l; s <= r; s++)
+                                o = this._crossingReduction(s, 1, false, 1) || o;
+                        n >= t ? this._ds(i) : (t = n, i = this._he());
+                        for (o = true; o;)
+                            for (o = false, s = l; s <= r; s++)
+                                o = this._crossingReduction(s, -1, false, -1) || o;
+                        n >= t ? this._ds(i) : (t = n, i = this._he());
+                        for (o = true; o;)
+                            for (o = false, s = r; s >= l; s--)
+                                o = this._crossingReduction(s, 0, false, 0) || o;
+                        n >= t ? this._ds(i) : (t = n, i = this._he());
+                        for (o = true; o;)
+                            for (o = false, s = l; s <= r; s++)
+                                o = this._crossingReduction(s, 0, false, 0) || o;
+                        n >= t ? this._ds(i) : (t = n, i = this._he());
+                    }
+            }
+        }
+        else {
+            // 官方 default/case 31（AggressiveLess）：全层范围内 6 次扫描直到不再改善
+            for (r = this._ot, l = 0, h = t + 1; (a = this._countCrossings()) < h;) {
+                for (h = a, o = true; o;)
+                    for (o = false, s = r; s >= l; s--)
+                        o = this._crossingReduction(s, -1, false, -1) || o;
+                n = this._countCrossings();
+                n >= t ? this._ds(i) : (t = n, i = this._he());
+                for (o = true; o;)
+                    for (o = false, s = r; s >= l; s--)
+                        o = this._crossingReduction(s, 1, false, 1) || o;
+                n = this._countCrossings();
+                n >= t ? this._ds(i) : (t = n, i = this._he());
+                for (o = true; o;)
+                    for (o = false, s = l; s <= r; s++)
+                        o = this._crossingReduction(s, 1, false, 1) || o;
+                n >= t ? this._ds(i) : (t = n, i = this._he());
+                for (o = true; o;)
+                    for (o = false, s = l; s <= r; s++)
+                        o = this._crossingReduction(s, -1, false, -1) || o;
+                n >= t ? this._ds(i) : (t = n, i = this._he());
+                for (o = true; o;)
+                    for (o = false, s = r; s >= l; s--)
+                        o = this._crossingReduction(s, 0, false, 0) || o;
+                n >= t ? this._ds(i) : (t = n, i = this._he());
+                for (o = true; o;)
+                    for (o = false, s = l; s <= r; s++)
+                        o = this._crossingReduction(s, 0, false, 0) || o;
+                n >= t ? this._ds(i) : (t = n, i = this._he());
+            }
+        }
+        this._ds(i);
+    };
+    /** 官方 aggressiveOption 的数值（30=None，31=Less，32=More） */
+    LayeredDigraphLayout.prototype._aggressiveNum = function () {
+        var a = this._aggressiveOption;
+        if (a === LayeredDigraphAggressiveMore)
+            return 32;
+        if (a === LayeredDigraphAggressiveLess)
+            return 31;
+        return 30;
+    };
+    /** 官方 packOption 的数值（位标志：1=Expand,2=Straighten,4=Median，15=All） */
+    LayeredDigraphLayout.prototype._packNum = function () {
+        var p = this._packOption;
+        if (p === LayeredDigraphPackNone)
+            return 0;
+        if (p === LayeredDigraphPackAll)
+            return 15;
+        var nm = String(p);
+        if (nm.indexOf('Straighten') >= 0)
+            return 2;
+        if (nm.indexOf('Median') >= 0)
+            return 4;
+        if (nm.indexOf('Expand') >= 0)
+            return 1;
+        return 15;
+    };
+    /** 官方 alignOption 的数值（位标志：1=UL,2=UR,4=LL,8=LR，15=All） */
+    LayeredDigraphLayout.prototype._alignNum = function () {
+        var a = this._alignOption;
+        if (a === LayeredDigraphAlignNone)
+            return 0;
+        if (a === LayeredDigraphAlignAll)
+            return 15;
+        var nm = String(a);
+        if (nm.indexOf('UpperLeft') >= 0)
+            return 1;
+        if (nm.indexOf('UpperRight') >= 0)
+            return 2;
+        if (nm.indexOf('LowerLeft') >= 0)
+            return 4;
+        if (nm.indexOf('LowerRight') >= 0)
+            return 8;
+        return 15;
+    };
+    /** 官方 `rB()`：网络细化 —— 算端口位置、把跨层>1的长边拆成人工顶点链 */
+    LayeredDigraphLayout.prototype._refineNetwork = function () {
+        var t = this.network;
+        var i = [];
+        var e = t.edges.iterator;
+        for (; e.next();) {
+            var s = e.value;
+            s.valid = false;
+            i.push(s);
+        }
+        for (var s = 0; s < i.length; s++) {
+            var n = i[s];
+            var o = n.fromVertex;
+            var r = n.toVertex;
+            if (n.valid || ((o.node === null && o.data === null) || (r.node === null && r.data === null)) && o.layer === r.layer)
+                continue;
+            var l = 0, h = 0, a = 0, c = 0;
+            if (n.link !== null) {
+                var k = n.link;
+                if (k === null)
+                    continue;
+                var P = o.node, A = r.node;
+                if (P === null || A === null)
+                    continue;
+                var N = k.fromNode, M = k.toNode, C = k.fromPort;
+                for (; C !== null && !C.isVisibleObject();)
+                    C = C.panel;
+                var T = k.toPort;
+                for (; T !== null && !T.isVisibleObject();)
+                    T = T.panel;
+                if (n.rev) {
+                    var X = N, Y = C;
+                    N = M;
+                    C = T;
+                    M = X;
+                    T = Y;
+                }
+                var L = o.focus, D = r.focus, F = n.rev ? r.bounds : o.bounds, R = new Point();
+                if (P !== N) {
+                    if (F.isReal() && N.isVisible()) {
+                        if (N.actualBounds.isReal()) {
+                            N.getRelativePoint(C, Spot.Center, R);
+                            R.x += N.actualBounds.x - F.x;
+                            R.y += N.actualBounds.y - F.y;
+                        }
+                        else {
+                            N.getRelativePoint(C, Spot.Center, R);
+                            if (!R.isReal())
+                                R.setTo(L.x, L.y);
+                        }
+                    }
+                    else
+                        R.setTo(L.x, L.y);
+                }
+                else if (F.isReal()) {
+                    N.getRelativePoint(C, Spot.Center, R);
+                    if (!R.isReal())
+                        R.setTo(L.x, L.y);
+                }
+                else
+                    R.setTo(L.x, L.y);
+                var I = n.rev ? o.bounds : r.bounds, O = new Point();
+                if (A !== M) {
+                    if (I.isReal() && M.isVisible()) {
+                        if (M.actualBounds.isReal()) {
+                            M.getRelativePoint(T, Spot.Center, O);
+                            O.x += M.actualBounds.x - I.x;
+                            O.y += M.actualBounds.y - I.y;
+                        }
+                        else {
+                            M.getRelativePoint(T, Spot.Center, O);
+                            if (!O.isReal())
+                                O.setTo(D.x, D.y);
+                        }
+                    }
+                    else
+                        O.setTo(D.x, D.y);
+                }
+                else if (I.isReal()) {
+                    M.getRelativePoint(T, Spot.Center, O);
+                    if (!O.isReal())
+                        O.setTo(D.x, D.y);
+                }
+                else
+                    O.setTo(D.x, D.y);
+                if (this._isVertical) {
+                    l = Math.round((R.x - L.x) / this._columnSpacing);
+                    a = R.x;
+                    h = Math.round((O.x - D.x) / this._columnSpacing);
+                    c = O.x;
+                }
+                else {
+                    l = Math.round((R.y - L.y) / this._columnSpacing);
+                    a = R.y;
+                    h = Math.round((O.y - D.y) / this._columnSpacing);
+                    c = O.y;
+                }
+                n.portFromColOffset = l;
+                n.portFromPos = a;
+                n.portToColOffset = h;
+                n.portToPos = c;
+            }
+            else {
+                n.portFromColOffset = 0;
+                n.portFromPos = 0;
+                n.portToColOffset = 0;
+                n.portToPos = 0;
+            }
+            var f = o.layer;
+            var u = r.layer, d = this._xB(n), m = d === 1 || d === 3, g = d === 2 || d === 3;
+            var p = void 0, y = void 0, x = null, b = 0;
+            if (g) {
+                x = this._bB(o, r);
+                b = 1;
+                y = t.createVertex();
+                y.node = null;
+                y.bk = 1;
+                y.bounds = new Rect(0, 0, 10, 10);
+                y.focus = new Point(5, 5);
+                y.layer = f;
+                y.near = o;
+                t.addVertex(y);
+                p = t.linkVertexes(o, y, n.link);
+                p.valid = false;
+                p.rev = n.rev;
+                p.portFromColOffset = l;
+                p.portToColOffset = 0;
+                p.portFromPos = a;
+                p.portToPos = 0;
+                o = y;
+            }
+            var S = 1;
+            if (m)
+                S--;
+            if (f - u > S && f > 0) {
+                for (n.valid = false, y = t.createVertex(), y.node = null, y.bk = 2, y.bounds = new Rect(0, 0, 10, 10), y.focus = new Point(5, 5), y.layer = f - 1, x && b < x.length && y.layer === x[b].layer && (y.near = x[b++]), t.addVertex(y), p = t.linkVertexes(o, y, n.link), p.valid = true, p.rev = n.rev, p.portFromColOffset = g ? 0 : l, p.portToColOffset = 0, p.portFromPos = g ? 0 : a, p.portToPos = 0, o = y, f--; f - u > S && f > 0;) {
+                    y = t.createVertex();
+                    y.node = null;
+                    y.bk = 3;
+                    y.bounds = new Rect(0, 0, 10, 10);
+                    y.focus = new Point(5, 5);
+                    y.layer = f - 1;
+                    if (x && b < x.length && y.layer === x[b].layer)
+                        y.near = x[b++];
+                    t.addVertex(y);
+                    p = t.linkVertexes(o, y, n.link);
+                    p.valid = true;
+                    p.rev = n.rev;
+                    p.portFromColOffset = 0;
+                    p.portToColOffset = 0;
+                    p.portFromPos = 0;
+                    p.portToPos = 0;
+                    o = y;
+                    f--;
+                }
+                p = t.linkVertexes(y, r, n.link);
+                p.valid = !m;
+                if (m)
+                    y.near = r;
+                p.rev = n.rev;
+                p.portFromColOffset = 0;
+                p.portToColOffset = h;
+                p.portFromPos = 0;
+                p.portToPos = c;
+            }
+            else {
+                n.valid = true;
+            }
+        }
+    };
+    /** 官方 `xB(t)`：算端口方向位（bit0=起、bit1=止） */
+    LayeredDigraphLayout.prototype._xB = function (t) {
+        var i = 0;
+        var e = t.link;
+        if (e !== null) {
+            var s = e.fromPort, n = e.toPort;
+            if (s !== null && n !== null) {
+                var o = e.fromNode, r = e.toNode;
+                if (o !== null && r !== null) {
+                    var l = this._portSpotFor(true), h = this._portSpotFor(false);
+                    var a = this._setsPortSpots ? l : e.computeSpot(true, s);
+                    var c = this._setsPortSpots ? h : e.computeSpot(false, n);
+                    var f = e.isOrthogonal;
+                    if (a.isSide() && a.includesSide(h) && c.isSide() && c.includesSide(l))
+                        return 0;
+                    var u = e.getLinkPoint(o, s, a, true, f, r, n, new Point());
+                    var d = e.getLinkDirection(o, s, u, a, true, f, r, n);
+                    if ((!a.isNone() && d === this._sI(t, true)) || (this._setsPortSpots && o !== null && o.ports.count === 1 && t.rev))
+                        i += 1;
+                    var m = e.getLinkPoint(r, n, c, false, f, o, s, new Point());
+                    var g = e.getLinkDirection(r, n, m, c, false, f, o, s);
+                    if ((!c.isNone() && g === this._sI(t, false)) || (this._setsPortSpots && r !== null && r.ports.count === 1 && t.rev))
+                        i += 2;
+                }
+            }
+        }
+        return i;
+    };
+    /** 官方 `sI(t,i)`：基准方向角 */
+    LayeredDigraphLayout.prototype._sI = function (t, i) {
+        var P = this._direction;
+        if (P === 90)
+            return (i && !t.rev) || (!i && t.rev) ? 270 : 90;
+        if (P === 180)
+            return (i && !t.rev) || (!i && t.rev) ? 0 : 180;
+        if (P === 270)
+            return (i && !t.rev) || (!i && t.rev) ? 90 : 270;
+        return (i && !t.rev) || (!i && t.rev) ? 180 : 0;
+    };
+    /** 官方 `bB(t,i)`：沿有效非反转入边回溯到 t，返回对齐链 */
+    LayeredDigraphLayout.prototype._bB = function (t, i) {
+        var e = [];
+        e.push(i);
+        return this._nI(t, e) ? e.reverse() : [];
+    };
+    /** 官方 `nI(t,i)`：递归找 t（DFS 入边） */
+    LayeredDigraphLayout.prototype._nI = function (t, i) {
+        var e = i[i.length - 1].sourceEdges.iterator;
+        for (; e.next();) {
+            var s = e.value;
+            if (s.rev || !s.valid)
+                continue;
+            var n = s.fromVertex;
+            if (i.push(n), n === t || this._nI(t, i))
+                return true;
+            i.pop();
+        }
+        return false;
+    };
+    /** 官方 `straightenAndPack()`：Zn!==0 时走 MB 四向打包 */
+    LayeredDigraphLayout.prototype._straightenAndPack = function () {
+        var align = this._alignNum();
+        if (align !== 0) {
+            this._MB();
+            return;
+        }
+        var pack = this._packNum();
+        var e = (pack & 1) !== 0;
+        var s = (pack & 8) !== 0;
+        var t = 0, i = false;
+        if (this.network.edges.count > 1000 && s)
+            e && (e = false);
+        if (e) {
+            var n = [];
+            for (var o = 0; o <= this._ot; o++)
+                n[o] = 0;
+            var r = 0;
+            var l = this.network.vertexes.iterator;
+            for (; l.next();) {
+                var a = l.value;
+                t = a.layer;
+                r = a.column;
+                var c = this.nodeMinColumnSpace(a, false);
+                n[t] = Math.max(n[t], r + c);
+            }
+            var h = 8;
+            for (l.reset(); l.next();) {
+                var a = l.value;
+                t = a.layer;
+                r = a.column;
+                a.column = (((this._Wt - n[t]) * h) >> 1) + r * h;
+            }
+            this._Wt *= h;
+        }
+        if ((pack & 2) !== 0)
+            i = true;
+        var nn = 0;
+        for (; i && nn < this._packIterations;) {
+            i = false;
+            for (t = this._js + 1; t <= this._ot; t++)
+                i = this._bendStraighten(t, 1) || i;
+            for (t = this._js - 1; t >= 0; t--)
+                i = this._bendStraighten(t, -1) || i;
+            i = this._bendStraighten(this._js, 0) || i;
+            nn++;
+        }
+        if ((pack & 4) !== 0) {
+            for (t = this._js + 1; t <= this._ot; t++)
+                this._medianStraighten(t, 1);
+            for (t = this._js - 1; t >= 0; t--)
+                this._medianStraighten(t, -1);
+            this._medianStraighten(this._js, 0);
+        }
+        if (e && (this._componentPack(-1), this._componentPack(1)), (pack & 2) !== 0)
+            i = true;
+        nn = 0;
+        for (; i && nn < this._packIterations;) {
+            i = false;
+            i = this._bendStraighten(this._js, 0) || i;
+            for (t = this._js + 1; t <= this._ot; t++)
+                i = this._bendStraighten(t, 0) || i;
+            for (t = this._js - 1; t >= 0; t--)
+                i = this._bendStraighten(t, 0) || i;
+            nn++;
+        }
+    };
+    /** 官方 `dm(t,i)`：bendStraighten 单层 */
+    LayeredDigraphLayout.prototype._bendStraighten = function (t, i) {
+        var e = false;
+        if (this._shiftBendStraighten(t, i))
+            e = true;
+        return e;
+    };
+    /** 官方 `CB(t,i)`：shiftbendStraighten 单层 */
+    LayeredDigraphLayout.prototype._shiftBendStraighten = function (t, i) {
+        var e = 0;
+        var s = this._ha(t), n = this._ci[t], o = this._barycenters(t, -1);
+        if (i > 0)
+            for (e = 0; e < n; e++)
+                o[e] = -1;
+        var r = this._barycenters(t, 1);
+        if (i < 0)
+            for (e = 0; e < n; e++)
+                r[e] = -1;
+        var l = false, h = true;
+        for (; h;) {
+            h = false;
+            for (e = 0; e < n; e++) {
+                var a = s[e].column, c = this.nodeMinColumnSpace(s[e], true), f = this.nodeMinColumnSpace(s[e], false);
+                var u = 0;
+                if (e - 1 < 0 || a - s[e - 1].column - 1 > c + this.nodeMinColumnSpace(s[e - 1], false))
+                    u = a - 1;
+                else
+                    u = a;
+                var d = 0;
+                if (e + 1 >= n || s[e + 1].column - a - 1 > f + this.nodeMinColumnSpace(s[e + 1], true))
+                    d = a + 1;
+                else
+                    d = a;
+                var m = 0, g = 0, p = 0, y = 0, x = 0, b = 0;
+                if (i <= 0) {
+                    var M = s[e].sourceEdges.iterator;
+                    for (; M.next();) {
+                        var C = M.value, T = C.fromVertex;
+                        if (C.valid && T.layer !== t) {
+                            y = this.linkStraightenWeight(C);
+                            x = C.portFromColOffset;
+                            b = C.portToColOffset;
+                            var L = T.column;
+                            m += (Math.abs(a + b - (L + x)) + 1) * y;
+                            g += (Math.abs(u + b - (L + x)) + 1) * y;
+                            p += (Math.abs(d + b - (L + x)) + 1) * y;
+                        }
+                    }
+                }
+                if (i >= 0) {
+                    var M = s[e].destinationEdges.iterator;
+                    for (; M.next();) {
+                        var C = M.value, T = C.toVertex;
+                        if (C.valid && T.layer !== t) {
+                            y = this.linkStraightenWeight(C);
+                            x = C.portFromColOffset;
+                            b = C.portToColOffset;
+                            var L = T.column;
+                            m += (Math.abs(a + x - (L + b)) + 1) * y;
+                            g += (Math.abs(u + x - (L + b)) + 1) * y;
+                            p += (Math.abs(d + x - (L + b)) + 1) * y;
+                        }
+                    }
+                }
+                var S = 0, k = 0, P = 0;
+                var A = o[s[e].index], N = r[s[e].index];
+                if (A !== -1) {
+                    S += Math.abs(A - a);
+                    k += Math.abs(A - u);
+                    P += Math.abs(A - d);
+                }
+                if (N !== -1) {
+                    S += Math.abs(N - a);
+                    k += Math.abs(N - u);
+                    P += Math.abs(N - d);
+                }
+                if (g < m || (g === m && k < S)) {
+                    l = true;
+                    h = true;
+                    s[e].column = u;
+                }
+                else if (p < m || (p === m && P < S)) {
+                    l = true;
+                    h = true;
+                    s[e].column = d;
+                }
+            }
+        }
+        this._aa(t, s);
+        this._Xw();
+        return l;
+    };
+    /** 官方 `ZA(t,i)`：medianStraighten 单层 */
+    LayeredDigraphLayout.prototype._medianStraighten = function (t, i) {
+        var e = 0;
+        var s = this._ha(t), n = this._ci[t], o = this._medians(t, i), r = Int16Array.from(o);
+        var h = true;
+        for (; h;) {
+            h = false;
+            for (e = 0; e < n; e++) {
+                var a = s[e].column, c = this.nodeMinColumnSpace(s[e], true), f = this.nodeMinColumnSpace(s[e], false);
+                var u = 0, d = 0, m = 0, g = 0, p = 0;
+                if (r[e] === -1) {
+                    if (e === 0 && e === n - 1)
+                        u = a;
+                    else if (e === 0) {
+                        d = s[e + 1].column;
+                        u = d - a === f + this.nodeMinColumnSpace(s[e + 1], true) ? a - 1 : a;
+                    }
+                    else if (e === n - 1) {
+                        m = s[e - 1].column;
+                        u = a - m === c + this.nodeMinColumnSpace(s[e - 1], false) ? a + 1 : a;
+                    }
+                    else {
+                        m = s[e - 1].column;
+                        p = m + this.nodeMinColumnSpace(s[e - 1], false) + c + 1;
+                        d = s[e + 1].column;
+                        g = d - this.nodeMinColumnSpace(s[e + 1], true) - f - 1;
+                        u = (p + g) / 2 | 0;
+                    }
+                }
+                else if (e === 0 && e === n - 1)
+                    u = r[e];
+                else if (e === 0) {
+                    d = s[e + 1].column;
+                    g = d - this.nodeMinColumnSpace(s[e + 1], true) - f - 1;
+                    u = Math.min(r[e], g);
+                }
+                else if (e === n - 1) {
+                    m = s[e - 1].column;
+                    p = m + this.nodeMinColumnSpace(s[e - 1], false) + c + 1;
+                    u = Math.max(r[e], p);
+                }
+                else {
+                    m = s[e - 1].column;
+                    p = m + this.nodeMinColumnSpace(s[e - 1], false) + c + 1;
+                    d = s[e + 1].column;
+                    g = d - this.nodeMinColumnSpace(s[e + 1], true) - f - 1;
+                    if (p < r[e] && r[e] < g)
+                        u = r[e];
+                    else if (p >= r[e])
+                        u = p;
+                    else if (g <= r[e])
+                        u = g;
+                }
+                if (u !== a) {
+                    h = true;
+                    s[e].column = u;
+                }
+            }
+        }
+        this._aa(t, s);
+        this._Xw();
+    };
+    /** 官方 `NB()`：packAux 全列扫描 */
+    LayeredDigraphLayout.prototype._packAux = function () {
+        for (var t = 0; t <= this._Wt; t++)
+            for (; this._packAuxCol(t, 1);) { }
+        this._Xw();
+    };
+    /** 官方 `AB(t,i)`：packAux 单列 */
+    LayeredDigraphLayout.prototype._packAuxCol = function (t, i) {
+        var e = true;
+        var s = this.network.vertexes.iterator;
+        for (; s.next();) {
+            var o = s.value, r = this.nodeMinColumnSpace(o, true), l = this.nodeMinColumnSpace(o, false);
+            if (o.column - r <= t && o.column + l >= t) {
+                e = false;
+                break;
+            }
+        }
+        var n = false;
+        if (e) {
+            if (i > 0)
+                for (s.reset(); s.next();) {
+                    var o = s.value;
+                    if (o.column > t) {
+                        o.column -= 1;
+                        n = true;
+                    }
+                }
+            if (i < 0)
+                for (s.reset(); s.next();) {
+                    var o = s.value;
+                    if (o.column < t) {
+                        o.column += 1;
+                        n = true;
+                    }
+                }
+        }
+        return n;
+    };
+    /** 官方 `TB()`：tightPackAux 全列扫描 */
+    LayeredDigraphLayout.prototype._tightPack = function () {
+        this._packAux();
+        for (var t = 0; t < this._Wt; t++)
+            for (; this._tightPackCol(t, 1);) { }
+        this._Xw();
+    };
+    /** 官方 `LB(t,i)`：tightPackAux 单列 */
+    LayeredDigraphLayout.prototype._tightPackCol = function (t, i) {
+        var e = t;
+        if (i > 0)
+            e = t + 1;
+        if (i < 0)
+            e = t - 1;
+        var s = 0;
+        var n = [], o = [];
+        for (s = 0; s <= this._ot; s++) {
+            n[s] = false;
+            o[s] = false;
+        }
+        var r = this.network.vertexes.iterator;
+        for (; r.next();) {
+            var a = r.value, c = a.column - this.nodeMinColumnSpace(a, true), f = a.column + this.nodeMinColumnSpace(a, false);
+            if (c <= t && f >= t)
+                n[a.layer] = true;
+            if (c <= e && f >= e)
+                o[a.layer] = true;
+        }
+        var l = true, h = false;
+        for (s = 0; s <= this._ot; s++)
+            l = l && !(n[s] && o[s]);
+        if (l) {
+            if (i > 0)
+                for (r.reset(); r.next();) {
+                    var a = r.value;
+                    if (a.column > t) {
+                        a.column -= 1;
+                        h = true;
+                    }
+                }
+            if (i < 0)
+                for (r.reset(); r.next();) {
+                    var a = r.value;
+                    if (a.column < t) {
+                        a.column += 1;
+                        h = true;
+                    }
+                }
+        }
+        return h;
+    };
+    /** 官方 `lI(t)`：componentPack —— 分量打包 */
+    LayeredDigraphLayout.prototype._componentPack = function (t) {
+        this._tightPack();
+        var i = 0, e, s = 0, n = 0, o = 0;
+        if (t > 0)
+            for (i = 0; i <= this._Wt; i++)
+                for (e = this._he(), s = this._xk(true), n = s + 1; s < n;) {
+                    n = s;
+                    this._componentShift(i, 1);
+                    o = this._xk(true);
+                    if (o > s)
+                        this._ds(e);
+                    else if (o < s) {
+                        s = o;
+                        e = this._he();
+                    }
+                }
+        if (t < 0)
+            for (i = this._Wt; i >= 0; i--)
+                for (e = this._he(), s = this._xk(true), n = s + 1; s < n;) {
+                    n = s;
+                    this._componentShift(i, -1);
+                    o = this._xk(true);
+                    if (o > s)
+                        this._ds(e);
+                    else if (o < s) {
+                        s = o;
+                        e = this._he();
+                    }
+                }
+        this._Xw();
+    };
+    /** 官方 `hI(t,i)`：componentShift —— 把跨过列 t 的分量整体平移 */
+    LayeredDigraphLayout.prototype._componentShift = function (t, i) {
+        this._xn = 0;
+        var e = this.network.vertexes.iterator;
+        for (; e.next();)
+            e.value.component = -1;
+        if (i > 0)
+            for (e.reset(); e.next();) {
+                var c = e.value;
+                if (c.column - this.nodeMinColumnSpace(c, true) <= t)
+                    c.component = this._xn;
+            }
+        if (i < 0)
+            for (e.reset(); e.next();) {
+                var c = e.value;
+                if (c.column + this.nodeMinColumnSpace(c, false) >= t)
+                    c.component = this._xn;
+            }
+        for (this._xn++, e.reset(); e.next();) {
+            var c = e.value;
+            if (c.component === -1) {
+                this._JA(c, this._xn, -1, true, true);
+                this._xn++;
+            }
+        }
+        var s = 0;
+        var n = [];
+        for (s = 0; s < this._xn * this._xn; s++)
+            n[s] = false;
+        var o = [];
+        for (s = 0; s < (this._ot + 1) * (this._Wt + 1); s++)
+            o[s] = -1;
+        for (e.reset(); e.next();) {
+            var c = e.value, f = c.layer, u = Math.max(0, c.column - this.nodeMinColumnSpace(c, true)), d = Math.min(this._Wt, c.column + this.nodeMinColumnSpace(c, false));
+            for (var m = u; m <= d; m++)
+                o[f * (this._Wt + 1) + m] = c.component;
+        }
+        for (var c = 0; c <= this._ot; c++) {
+            if (i > 0)
+                for (var f = 0; f < this._Wt; f++)
+                    if (o[c * (this._Wt + 1) + f] !== -1 && o[c * (this._Wt + 1) + f + 1] !== -1 && o[c * (this._Wt + 1) + f] !== o[c * (this._Wt + 1) + f + 1])
+                        n[o[c * (this._Wt + 1) + f] * this._xn + o[c * (this._Wt + 1) + f + 1]] = true;
+            if (i < 0)
+                for (var f = this._Wt; f > 0; f--)
+                    if (o[c * (this._Wt + 1) + f] !== -1 && o[c * (this._Wt + 1) + f - 1] !== -1 && o[c * (this._Wt + 1) + f] !== o[c * (this._Wt + 1) + f - 1])
+                        n[o[c * (this._Wt + 1) + f] * this._xn + o[c * (this._Wt + 1) + f - 1]] = true;
+        }
+        var r = [];
+        for (s = 0; s < this._xn; s++)
+            r[s] = true;
+        var l = [];
+        l.push(0);
+        var h = 0;
+        for (; l.length !== 0;) {
+            h = l[l.length - 1];
+            l.pop();
+            if (r[h]) {
+                r[h] = false;
+                for (s = 0; s < this._xn; s++)
+                    if (n[h * this._xn + s])
+                        l.splice(0, 0, s);
+            }
+        }
+        var a = false;
+        if (i > 0)
+            for (e.reset(); e.next();) {
+                var c = e.value;
+                if (r[c.component]) {
+                    c.column -= 1;
+                    a = true;
+                }
+            }
+        if (i < 0)
+            for (e.reset(); e.next();) {
+                var c = e.value;
+                if (r[c.component]) {
+                    c.column += 1;
+                    a = true;
+                }
+            }
+        return a;
+    };
+    /** 官方 `JA(t,i,e,s,n)`：连通分量 DFS */
+    LayeredDigraphLayout.prototype._JA = function (t, i, e, s, n) {
+        if (t.component !== e)
+            return;
+        t.component = i;
+        if (s) {
+            var l = t.destinationEdges.iterator;
+            for (; l.next();) {
+                var h = l.value;
+                this._JA(h.toVertex, i, e, s, n);
+            }
+        }
+        if (n) {
+            var l = t.sourceEdges.iterator;
+            for (; l.next();) {
+                var h = l.value;
+                this._JA(h.fromVertex, i, e, s, n);
+            }
+        }
+    };
+    /** 官方 `xk(t)`：componentPack 用的代价度量 */
+    LayeredDigraphLayout.prototype._xk = function (t) {
+        var i = 0;
+        var e = this.network.vertexes.iterator;
+        for (; e.next();) {
+            var s = e.value;
+            if (t)
+                i += s.column;
+        }
+        return i;
+    };
+    /** 官方 `MB()`：四向打包 —— 各方向 Pl/Pk 求 Se，FB 对齐，取中位 */
+    LayeredDigraphLayout.prototype._MB = function () {
+        var e_26, _a;
+        var t = [];
+        var i = this._Lu.length;
+        for (var u = 0; u <= i; u++)
+            t[u] = [];
+        var e = this.network.vertexes.iterator;
+        for (; e.next();) {
+            var u = e.value, d = i - u.layer, m = t[d];
+            m[u.index] = u;
+        }
+        var s = new Set();
+        this._DB(t, s);
+        var n = null, o = null, r = null, l = null;
+        var h = (this._alignNum() & 1) !== 0, a = (this._alignNum() & 2) !== 0, c = (this._alignNum() & 4) !== 0, f = (this._alignNum() & 8) !== 0;
+        if (h) {
+            this._Pl(t, s, true);
+            n = this._Pk(t, true, false);
+        }
+        t.reverse();
+        if (c) {
+            this._Pl(t, s, false);
+            r = this._Pk(t, false, false);
+        }
+        try {
+            for (var t_1 = __values(t), t_1_1 = t_1.next(); !t_1_1.done; t_1_1 = t_1.next()) {
+                var u = t_1_1.value;
+                u.reverse();
+            }
+        }
+        catch (e_26_1) { e_26 = { error: e_26_1 }; }
+        finally {
+            try {
+                if (t_1_1 && !t_1_1.done && (_a = t_1.return)) _a.call(t_1);
+            }
+            finally { if (e_26) throw e_26.error; }
+        }
+        if (f) {
+            this._Pl(t, s, false);
+            l = this._Pk(t, false, true);
+        }
+        t.reverse();
+        if (a) {
+            this._Pl(t, s, true);
+            o = this._Pk(t, true, true);
+        }
+        this._FB(n, o, r, l);
+        this.network.vertexes.each(function (u) {
+            var d = u, m = [];
+            if (h && n)
+                m.push(n.get(d));
+            if (a && o)
+                m.push(o.get(d));
+            if (c && r)
+                m.push(r.get(d));
+            if (f && l)
+                m.push(l.get(d));
+            m.sort(function (b, S) { return b - S; });
+            var g = m.length, p = Math.floor((g - 1) / 2), y = Math.ceil((g - 1) / 2), x = (m[p] + m[y]) / 2;
+            d.Se = x;
+        });
+    };
+    /** 官方 `DB(t,i)`：收集需要拉直的边到集合 */
+    LayeredDigraphLayout.prototype._DB = function (t, i) {
+        var e_27, _a;
+        var e = t.length;
+        for (var s = 1; s < e - 1; s++) {
+            var n = 0, o = 0;
+            var r = t[s], l = t[s + 1];
+            for (var h = 0; o < l.length; h++) {
+                var a = l[h], c = this._RB(a);
+                if (h === l.length - 1 || c) {
+                    var f = r.length - 1;
+                    if (c)
+                        f = a.getProperSourceVertexes()[0].index;
+                    for (; o <= h;) {
+                        var d = l[o].getProperSourceEdges();
+                        try {
+                            for (var d_1 = (e_27 = void 0, __values(d)), d_1_1 = d_1.next(); !d_1_1.done; d_1_1 = d_1.next()) {
+                                var m = d_1_1.value;
+                                var p = m.fromVertex.index;
+                                if (p < n || p > f)
+                                    i.add(m);
+                            }
+                        }
+                        catch (e_27_1) { e_27 = { error: e_27_1 }; }
+                        finally {
+                            try {
+                                if (d_1_1 && !d_1_1.done && (_a = d_1.return)) _a.call(d_1);
+                            }
+                            finally { if (e_27) throw e_27.error; }
+                        }
+                        o++;
+                    }
+                    n = f;
+                }
+            }
+        }
+    };
+    /** 官方 `RB(t)`：是否为「人工→人工」链首 */
+    LayeredDigraphLayout.prototype._RB = function (t) {
+        if (t.node === null) {
+            var i = t.getProperSourceVertexes();
+            if (i.length > 0)
+                return i[0].node === null;
+        }
+        return false;
+    };
+    /** 官方 `Pl(t,i,e)`：按近邻链（Qn/Ec 环）串联 */
+    LayeredDigraphLayout.prototype._Pl = function (t, i, e) {
+        var e_28, _a, e_29, _b;
+        this._IB(t);
+        try {
+            for (var t_2 = __values(t), t_2_1 = t_2.next(); !t_2_1.done; t_2_1 = t_2.next()) {
+                var s = t_2_1.value;
+                var n = -1;
+                try {
+                    for (var s_1 = (e_29 = void 0, __values(s)), s_1_1 = s_1.next(); !s_1_1.done; s_1_1 = s_1.next()) {
+                        var o = s_1_1.value;
+                        var r = e ? o.getProperSourceVertexes() : o.getProperDestinationVertexes(), l = r.length;
+                        if (l > 0) {
+                            r.sort(function (a, c) { return a.ca - c.ca; });
+                            var h = (l - 1) / 2;
+                            for (var a = Math.floor(h), c = Math.ceil(h); a <= c; a++) {
+                                if (o.Qn === o) {
+                                    var f = r[a];
+                                    var u = void 0;
+                                    if (e)
+                                        u = f.getDestinationEdge(o);
+                                    else
+                                        u = o.getDestinationEdge(f);
+                                    if (!i.has(u) && n < f.ca) {
+                                        f.Qn = o;
+                                        o.Ec = f.Ec;
+                                        o.Qn = f.Ec;
+                                        n = f.ca;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                catch (e_29_1) { e_29 = { error: e_29_1 }; }
+                finally {
+                    try {
+                        if (s_1_1 && !s_1_1.done && (_b = s_1.return)) _b.call(s_1);
+                    }
+                    finally { if (e_29) throw e_29.error; }
+                }
+            }
+        }
+        catch (e_28_1) { e_28 = { error: e_28_1 }; }
+        finally {
+            try {
+                if (t_2_1 && !t_2_1.done && (_a = t_2.return)) _a.call(t_2);
+            }
+            finally { if (e_28) throw e_28.error; }
+        }
+    };
+    /** 官方 `IB(t)`：初始化各顶点的环链（Ec=Qn=自身）与层内位置 */
+    LayeredDigraphLayout.prototype._IB = function (t) {
+        for (var i = 0; i < t.length; i++) {
+            var e = t[i];
+            for (var s = 0; s < e.length; s++) {
+                var n = e[s];
+                n.Ec = n;
+                n.Qn = n;
+                n.aI = i;
+                n.ca = s;
+            }
+        }
+    };
+    /** 官方 `Pk(t,i,e)`：单向打包 —— OB 端口、cI 递推 Fu/Se、回写列轴位置 */
+    LayeredDigraphLayout.prototype._Pk = function (t, i, e) {
+        var e_30, _a, e_31, _b, e_32, _c, e_33, _d, e_34, _e, e_35, _f;
+        var s = this._isVertical;
+        try {
+            for (var t_3 = __values(t), t_3_1 = t_3.next(); !t_3_1.done; t_3_1 = t_3.next()) {
+                var o = t_3_1.value;
+                try {
+                    for (var o_1 = (e_31 = void 0, __values(o)), o_1_1 = o_1.next(); !o_1_1.done; o_1_1 = o_1.next()) {
+                        var r = o_1_1.value;
+                        r.gs = r;
+                        r.Fu = Infinity;
+                        r.Se = NaN;
+                        r._n = 0;
+                    }
+                }
+                catch (e_31_1) { e_31 = { error: e_31_1 }; }
+                finally {
+                    try {
+                        if (o_1_1 && !o_1_1.done && (_b = o_1.return)) _b.call(o_1);
+                    }
+                    finally { if (e_31) throw e_31.error; }
+                }
+            }
+        }
+        catch (e_30_1) { e_30 = { error: e_30_1 }; }
+        finally {
+            try {
+                if (t_3_1 && !t_3_1.done && (_a = t_3.return)) _a.call(t_3);
+            }
+            finally { if (e_30) throw e_30.error; }
+        }
+        this._OB(t, i, e);
+        try {
+            for (var t_4 = __values(t), t_4_1 = t_4.next(); !t_4_1.done; t_4_1 = t_4.next()) {
+                var o = t_4_1.value;
+                try {
+                    for (var o_2 = (e_33 = void 0, __values(o)), o_2_1 = o_2.next(); !o_2_1.done; o_2_1 = o_2.next()) {
+                        var r = o_2_1.value;
+                        if (r.Ec === r)
+                            this._cI(r, t);
+                    }
+                }
+                catch (e_33_1) { e_33 = { error: e_33_1 }; }
+                finally {
+                    try {
+                        if (o_2_1 && !o_2_1.done && (_d = o_2.return)) _d.call(o_2);
+                    }
+                    finally { if (e_33) throw e_33.error; }
+                }
+            }
+        }
+        catch (e_32_1) { e_32 = { error: e_32_1 }; }
+        finally {
+            try {
+                if (t_4_1 && !t_4_1.done && (_c = t_4.return)) _c.call(t_4);
+            }
+            finally { if (e_32) throw e_32.error; }
+        }
+        for (var o = 0; o < t.length; o++) {
+            if (t[o].length <= 0)
+                continue;
+            var r = t[o][0];
+            if (r.gs !== r)
+                continue;
+            if (r.gs.Fu === Infinity)
+                r.gs.Fu = 0;
+            var l = o, h = 0, a = void 0;
+            do {
+                for (a = t[l][h]; a.Qn !== a.Ec;) {
+                    if (a = a.Qn, l++, a.ca > 0) {
+                        var c = this._fI(a, t), f = s ? c.width : c.height, u = a.gs.Fu + a.Se + a._n - (c.Se + c._n + f + this._columnSpacing);
+                        c.gs.Fu = Math.min(c.gs.Fu, u);
+                    }
+                }
+                h = a.ca + 1;
+            } while (l < t.length && h < t[l].length && a.gs === t[l][h].gs);
+        }
+        var n = new Map$1();
+        try {
+            for (var t_5 = __values(t), t_5_1 = t_5.next(); !t_5_1.done; t_5_1 = t_5.next()) {
+                var o = t_5_1.value;
+                try {
+                    for (var o_3 = (e_35 = void 0, __values(o)), o_3_1 = o_3.next(); !o_3_1.done; o_3_1 = o_3.next()) {
+                        var r = o_3_1.value;
+                        r.Se = r.Se + r.gs.Fu + r._n;
+                        var l = s ? r.width : r.height;
+                        n.set(r, e ? -r.Se - l : r.Se);
+                    }
+                }
+                catch (e_35_1) { e_35 = { error: e_35_1 }; }
+                finally {
+                    try {
+                        if (o_3_1 && !o_3_1.done && (_f = o_3.return)) _f.call(o_3);
+                    }
+                    finally { if (e_35) throw e_35.error; }
+                }
+            }
+        }
+        catch (e_34_1) { e_34 = { error: e_34_1 }; }
+        finally {
+            try {
+                if (t_5_1 && !t_5_1.done && (_e = t_5.return)) _e.call(t_5);
+            }
+            finally { if (e_34) throw e_34.error; }
+        }
+        return n;
+    };
+    /** 官方 `OB(t,i,e)`：沿环链累加端口偏移 _n（归一到 min=0） */
+    LayeredDigraphLayout.prototype._OB = function (t, i, e) {
+        var e_36, _a, e_37, _b;
+        var s = this._isVertical;
+        try {
+            for (var t_6 = __values(t), t_6_1 = t_6.next(); !t_6_1.done; t_6_1 = t_6.next()) {
+                var n = t_6_1.value;
+                try {
+                    for (var n_1 = (e_37 = void 0, __values(n)), n_1_1 = n_1.next(); !n_1_1.done; n_1_1 = n_1.next()) {
+                        var o = n_1_1.value;
+                        if (o.Ec !== o)
+                            continue;
+                        var r = 0, l = o;
+                        for (; l.Qn !== o;) {
+                            var h = l.Qn, a = s ? l.width : l.height, c = s ? h.width : h.height;
+                            var f = void 0, u = void 0, d = void 0, m = void 0;
+                            if (i) {
+                                f = l.getDestinationEdge(h);
+                                u = f.portFromPos;
+                                d = f.portToPos;
+                                if (f.link !== null) {
+                                    if (l.node && l.node !== f.link.fromNode)
+                                        u = s ? l.focus.x : l.focus.y;
+                                    if (h.node && h.node !== f.link.toNode)
+                                        d = s ? h.focus.x : h.focus.y;
+                                }
+                                if (e)
+                                    m = l._n + (a - u) - (c - d);
+                                else
+                                    m = l._n + u - d;
+                            }
+                            else {
+                                f = h.getDestinationEdge(l);
+                                u = f.portToPos;
+                                d = f.portFromPos;
+                                if (f.link !== null) {
+                                    if (l.node && l.node !== f.link.toNode)
+                                        u = s ? l.focus.x : l.focus.y;
+                                    if (h.node && h.node !== f.link.fromNode)
+                                        d = s ? h.focus.x : h.focus.y;
+                                }
+                                if (e)
+                                    m = l._n + (a - u) - (c - d);
+                                else
+                                    m = l._n + u - d;
+                            }
+                            h._n = m;
+                            r = Math.min(r, m);
+                            l = h;
+                        }
+                        l = o;
+                        do {
+                            l._n = l._n - r;
+                            l = l.Qn;
+                        } while (l !== o);
+                    }
+                }
+                catch (e_37_1) { e_37 = { error: e_37_1 }; }
+                finally {
+                    try {
+                        if (n_1_1 && !n_1_1.done && (_b = n_1.return)) _b.call(n_1);
+                    }
+                    finally { if (e_37) throw e_37.error; }
+                }
+            }
+        }
+        catch (e_36_1) { e_36 = { error: e_36_1 }; }
+        finally {
+            try {
+                if (t_6_1 && !t_6_1.done && (_a = t_6.return)) _a.call(t_6);
+            }
+            finally { if (e_36) throw e_36.error; }
+        }
+    };
+    /** 官方 `cI(t,i)`：递推组内 Se（相对前一顶点） */
+    LayeredDigraphLayout.prototype._cI = function (t, i) {
+        if (!isNaN(t.Se))
+            return;
+        t.Se = 0;
+        var e = t;
+        do {
+            if (e.ca > 0) {
+                var s = this._fI(e, i), n = s.Ec;
+                this._cI(n, i);
+                if (t.gs === t)
+                    t.gs = n.gs;
+                var o = this._isVertical ? s.width : s.height;
+                if (t.gs === n.gs) {
+                    var r = n.Se + s._n + o - e._n + this._columnSpacing;
+                    t.Se = Math.max(t.Se, r);
+                }
+            }
+            e = e.Qn;
+        } while (e !== t);
+        // 官方：e 此时===t；从 t 出发沿链把 Se/gs 拷贝给其余顶点（含 t.Qn）
+        for (; e.Qn !== t;) {
+            e = e.Qn;
+            e.Se = t.Se;
+            e.gs = t.gs;
+        }
+    };
+    /** 官方 `fI(t,i)`：层内前一顶点 */
+    LayeredDigraphLayout.prototype._fI = function (t, i) {
+        return i[t.aI][t.ca - 1];
+    };
+    /** 官方 `FB(...)`：四向结果对齐 —— 取最佳方向并平移其余 */
+    LayeredDigraphLayout.prototype._FB = function () {
+        var t = [];
+        for (var _i = 0; _i < arguments.length; _i++) {
+            t[_i] = arguments[_i];
+        }
+        var i = -1;
+        var e = [], s = [];
+        var n = Infinity;
+        for (var o = 0; o < 4; o++) {
+            if (!t[o])
+                continue;
+            var r = this._EB(t[o], e, s, o);
+            if (r < n) {
+                i = o;
+                n = r;
+            }
+        }
+        var _loop_2 = function (o) {
+            var r = t[o];
+            if (!r)
+                return "continue";
+            var l = o === 0 || o === 2 ? e[i] - e[o] : s[i] - s[o];
+            if (l !== 0)
+                r.each(function (h) { r.set(h.key, h.value + l); });
+        };
+        for (var o = 0; o < 4; o++) {
+            _loop_2(o);
+        }
+    };
+    /** 官方 `EB(t,i,e,s)`：单向 min/max 跨度 */
+    LayeredDigraphLayout.prototype._EB = function (t, i, e, s) {
+        var _this = this;
+        if (!t || t.size === 0) {
+            i[s] = 0;
+            e[s] = 0;
+            return Infinity;
+        }
+        var n = Infinity, o = -Infinity;
+        t.each(function (r) {
+            var l = r.key, h = r.value, a = _this._isVertical ? l.width : l.height;
+            if (h < n)
+                n = h;
+            if (h + a > o)
+                o = h + a;
+        });
+        i[s] = n;
+        e[s] = o;
+        return o - n;
+    };
+    /** 官方 `commitNodes()`（LD 覆写）：推进轴 ks/Yt + 列轴 column*le + Se 覆盖 + 归一 */
+    LayeredDigraphLayout.prototype._commitNodesOfficial = function () {
+        var ot = this._ot;
+        if (this._Js.length !== ot + 1)
+            this._Js = new Float32Array(ot + 1);
+        if (this._Ss.length !== ot + 1)
+            this._Ss = new Float32Array(ot + 1);
+        if (this._ks.length !== ot + 1)
+            this._ks = new Float32Array(ot + 1);
+        if (this._Yt.length !== ot + 1)
+            this._Yt = new Float32Array(ot + 1);
+        for (var d = 0; d <= ot; d++) {
+            this._Js[d] = 0;
+            this._Ss[d] = 0;
+            this._ks[d] = 0;
+            this._Yt[d] = 0;
+        }
+        var t = this.network.vertexes.iterator;
+        for (; t.next();) {
+            var d = t.value, m = d.layer;
+            this._Js[m] = Math.max(this._Js[m], this.nodeMinLayerSpace(d, true));
+            this._Ss[m] = Math.max(this._Ss[m], this.nodeMinLayerSpace(d, false));
+        }
+        var i = 0;
+        var e = this._layerSpacing;
+        for (var d = 0; d <= ot; d++) {
+            var m = e;
+            if (this._Js[d] + this._Ss[d] <= 0)
+                m = 0;
+            if (d > 0)
+                i += m / 2;
+            if (this._direction === 90 || this._direction === 0) {
+                i += this._Ss[d];
+                this._ks[d] = i;
+                i += this._Js[d];
+            }
+            else {
+                i += this._Js[d];
+                this._ks[d] = i;
+                i += this._Ss[d];
+            }
+            if (d < ot)
+                i += m / 2;
+            this._Yt[d] = i;
+        }
+        var s = i, n = this.arrangementOrigin;
+        for (var d = 0; d <= ot; d++) {
+            if (this._direction === 270)
+                this._ks[d] = n.y + this._ks[d];
+            else if (this._direction === 90) {
+                this._ks[d] = n.y + s - this._ks[d];
+                this._Yt[d] = s - this._Yt[d];
+            }
+            else if (this._direction === 180)
+                this._ks[d] = n.x + this._ks[d];
+            else {
+                this._ks[d] = n.x + s - this._ks[d];
+                this._Yt[d] = s - this._Yt[d];
+            }
+        }
+        var o = this._alignNum() !== 0;
+        t.reset();
+        var r = this._direction === 270 || this._direction === 90;
+        var l = Infinity, h = Infinity, a = Infinity, c = -Infinity;
+        for (; t.next();) {
+            var d = t.value, m = d.layer, g = d.column | 0;
+            var p = 0, y = 0;
+            if (r) {
+                p = n.x + this._columnSpacing * g;
+                y = this._ks[m];
+            }
+            else {
+                p = this._ks[m];
+                y = n.y + this._columnSpacing * g;
+            }
+            d.centerX = p;
+            d.centerY = y;
+            if (o && isFinite(d.Se)) {
+                if (r) {
+                    if (d.node)
+                        d.x = n.x + d.Se;
+                    else
+                        d.centerX = n.x + d.Se;
+                }
+                else {
+                    if (d.node)
+                        d.y = n.y + d.Se;
+                    else
+                        d.centerY = n.y + d.Se;
+                }
+            }
+            l = Math.min(d.x, l);
+            h = Math.min(d.y, h);
+            if (r) {
+                a = l;
+                c = Math.max(c, d.bounds.right);
+            }
+            else {
+                a = h;
+                c = Math.max(c, d.bounds.bottom);
+            }
+        }
+        this._jA = c - a;
+        var f = n.x - l, u = n.y - h;
+        this._kr = new Point(o && r ? 0 : f, o && !r ? 0 : u);
+        t.reset();
+        for (; t.next();) {
+            var d = t.value;
+            d.x += f;
+            d.y += u;
+            d.commit();
+        }
+    };
+    /** 官方 `setPortSpots`（Vw）：按 direction 设两端端口点 */
+    LayeredDigraphLayout.prototype._commitSetPortSpots = function () {
+        if (!this._setsPortSpots)
+            return;
+        var fromSpot = this._portSpotFor(true);
+        var toSpot = this._portSpotFor(false);
+        var net = this.network;
+        var spit = net.edges.iterator;
+        while (spit.next()) {
+            var link = spit.value.link;
+            if (link !== null) {
+                link.fromSpot = fromSpot;
+                link.toSpot = toSpot;
+            }
+        }
+    };
+    /**
+     * 官方 `commitLinks()`（LD 覆写）：沿人工顶点链生成多点折线路由。
+     * 三阶段：①清空旧路由 ②updateRoute 重建基础路由 ③沿 dummy 链插点。
+     */
+    LayeredDigraphLayout.prototype._commitLinksOfficial = function () {
+        var net = this.network;
+        if (net === null)
+            return;
+        var dir = this._direction;
+        var ls = this._layerSpacing;
+        var colSp = this._columnSpacing;
+        // 官方 `Link.Rl(spot)`：spot 为 None 或中心(0.5,0.5)
+        var relink = function (s) { return s === Spot.None || (s.x === 0.5 && s.y === 0.5); };
+        var link = null;
+        var it = net.edges.iterator;
+        // 阶段①：清空所有已有点
+        while (it.next()) {
+            link = it.value.link;
+            if (link !== null && link.pointsCount > 0) {
+                link.startRoute();
+                link.clearPoints();
+                link.commitRoute();
+            }
+        }
+        // 阶段②：重建基础路由
+        for (it.reset(); it.next();) {
+            link = it.value.link;
+            if (link !== null)
+                link.updateRoute();
+        }
+        // 阶段③：主路由（沿 dummy 链插点）
+        for (it.reset(); it.next();) {
+            var edge = it.value;
+            link = edge.link;
+            if (link === null || link.pointsCount === 0)
+                continue;
+            link.startRoute();
+            var lnk = link;
+            var fromN = lnk.fromNode, toN = lnk.toNode;
+            var fromP = lnk.fromPort, toP = lnk.toPort;
+            if (fromN !== null) {
+                var vis = fromN.findVisibleNode();
+                if (vis !== null && vis !== fromN) {
+                    fromN = vis;
+                    fromP = vis.port;
+                }
+            }
+            if (toN !== null) {
+                var vis = toN.findVisibleNode();
+                if (vis !== null && vis !== toN) {
+                    toN = vis;
+                    toP = vis.port;
+                }
+            }
+            var fromSpot = lnk.computeSpot(true, fromP);
+            var toSpot = lnk.computeSpot(false, toP);
+            var fromV = edge.fromVertex;
+            var toV = edge.toVertex;
+            if (edge.valid) {
+                // 有效边（无 dummy）：直接端点处理
+                if (lnk.curve === CurveBezier && lnk.pointsCount === 4) {
+                    if (fromV.column === toV.column && this._alignNum() === 0) {
+                        var sp = lnk.getLinkPoint(fromN, fromP, fromSpot, true, false, toN, toP);
+                        var tp = lnk.getLinkPoint(toN, toP, toSpot, false, false, fromN, fromP);
+                        if (!sp.isReal())
+                            sp.set(fromN.actualBounds.center);
+                        if (!tp.isReal())
+                            tp.set(toN.actualBounds.center);
+                        lnk.clearPoints();
+                        lnk.addPointAt(sp.x, sp.y);
+                        lnk.addPointAt((2 * sp.x + tp.x) / 3, (2 * sp.y + tp.y) / 3);
+                        lnk.addPointAt((sp.x + 2 * tp.x) / 3, (sp.y + 2 * tp.y) / 3);
+                        lnk.addPointAt(tp.x, tp.y);
+                    }
+                    else {
+                        var needFrom = false, needTo = false;
+                        if (fromP !== null && relink(fromSpot))
+                            needFrom = true;
+                        if (toP !== null && relink(toSpot))
+                            needTo = true;
+                        if (needFrom || needTo) {
+                            var L = null;
+                            if (needFrom) {
+                                L = lnk.getLinkPointFromPoint(fromN, fromP, fromP.getDocumentPoint(Spot.Center), lnk.getPoint(3), true);
+                                if (!L.isReal())
+                                    L.set(fromN.actualBounds.center);
+                                lnk.setPointAt(0, L.x, L.y);
+                            }
+                            var D = null;
+                            if (needTo) {
+                                D = lnk.getLinkPointFromPoint(toN, toP, toP.getDocumentPoint(Spot.Center), lnk.getPoint(0), false);
+                                if (!D.isReal())
+                                    D.set(toN.actualBounds.center);
+                                lnk.setPointAt(3, D.x, D.y);
+                            }
+                            if (L) {
+                                var f = lnk.getPoint(2);
+                                lnk.setPointAt(1, (L.x * 2 + f.x) / 3, (L.y * 2 + f.y) / 3);
+                            }
+                            if (D) {
+                                var f = lnk.getPoint(1);
+                                lnk.setPointAt(2, (D.x * 2 + f.x) / 3, (D.y * 2 + f.y) / 3);
+                            }
+                        }
+                    }
+                }
+                lnk.commitRoute();
+                continue;
+            }
+            if (fromV.layer === toV.layer) {
+                lnk.commitRoute();
+                continue;
+            }
+            var isBezier = lnk.curve === CurveBezier;
+            var isOrtho = lnk.isOrthogonal;
+            var g = 0;
+            var p = lnk.firstPickIndex + 1;
+            if (isOrtho) {
+                g = lnk.pointsCount;
+                if (g > 4)
+                    lnk.points.removeRange(2, g - 3);
+            }
+            else if (isBezier) {
+                g = lnk.pointsCount;
+                if (g > 4)
+                    lnk.points.removeRange(2, g - 3);
+                if (g === 4)
+                    p = 2;
+            }
+            else {
+                g = lnk.pointsCount;
+                var noFrom = fromSpot === Spot.None, noTo = toSpot === Spot.None;
+                if (g > 2 && noFrom && noTo)
+                    lnk.points.removeRange(1, g - 2);
+                else if (g > 3 && noFrom && !noTo)
+                    lnk.points.removeRange(1, g - 3);
+                else if (g > 3 && !noFrom && noTo)
+                    lnk.points.removeRange(2, g - 2);
+                else if (g > 4 && !noFrom && !noTo)
+                    lnk.points.removeRange(2, g - 3);
+            }
+            var dummy = null, other = null;
+            var bx = 0, by = 0, cx = 0, cy = 0, A = 0, N = 0, M = 0;
+            if (edge.rev) {
+                // 反向边：从 toV 向 fromV 走 dummy 链
+                for (; toV !== null && fromV !== toV;) {
+                    dummy = null;
+                    other = null;
+                    var se = toV.sourceEdges.iterator;
+                    for (; se.next();) {
+                        var de = se.value;
+                        if (de.link === lnk && (dummy = de.fromVertex, other = de.toVertex, dummy.node === null))
+                            break;
+                    }
+                    if (dummy === null)
+                        break;
+                    if (dummy !== fromV) {
+                        bx = lnk.getPoint(p - 1).x;
+                        by = lnk.getPoint(p - 1).y;
+                        cx = dummy.centerX;
+                        cy = dummy.centerY;
+                        if (isOrtho) {
+                            if (dir === 180 || dir === 0) {
+                                if (p === lnk.firstPickIndex + 1) {
+                                    lnk.insertPointAt(p++, bx, by);
+                                    lnk.insertPointAt(p++, bx, cy);
+                                }
+                                else if ((other !== null ? other.centerY : by) !== cy) {
+                                    A = this._Yt[dummy.layer - 1] + this._kr.x;
+                                    lnk.insertPointAt(p++, A, by);
+                                    lnk.insertPointAt(p++, A, cy);
+                                }
+                            }
+                            else {
+                                if (p === lnk.firstPickIndex + 1) {
+                                    lnk.insertPointAt(p++, bx, by);
+                                    lnk.insertPointAt(p++, cx, by);
+                                }
+                                else if ((other !== null ? other.centerX : bx) !== cx) {
+                                    A = this._Yt[dummy.layer - 1] + this._kr.y;
+                                    lnk.insertPointAt(p++, bx, A);
+                                    lnk.insertPointAt(p++, cx, A);
+                                }
+                            }
+                        }
+                        else {
+                            if (p === lnk.firstPickIndex + 1) {
+                                N = Math.max(10, this._Js[toV.layer]);
+                                M = Math.max(10, this._Ss[toV.layer]);
+                                if (isBezier) {
+                                    if (dir === 180) {
+                                        if (cx <= toV.bounds.x) {
+                                            var e2 = toV.bounds.x;
+                                            lnk.insertPointAt(p++, e2 - N, cy);
+                                            lnk.insertPointAt(p++, e2, cy);
+                                            lnk.insertPointAt(p++, e2 + M, cy);
+                                        }
+                                        else {
+                                            lnk.insertPointAt(p++, cx - N, cy);
+                                            lnk.insertPointAt(p++, cx, cy);
+                                            lnk.insertPointAt(p++, cx + M, cy);
+                                        }
+                                    }
+                                    else if (dir === 90) {
+                                        if (cy >= toV.bounds.bottom) {
+                                            var e2 = toV.bounds.y + toV.bounds.height;
+                                            lnk.insertPointAt(p++, cx, e2 + M);
+                                            lnk.insertPointAt(p++, cx, e2);
+                                            lnk.insertPointAt(p++, cx, e2 - N);
+                                        }
+                                        else {
+                                            lnk.insertPointAt(p++, cx, cy + M);
+                                            lnk.insertPointAt(p++, cx, cy);
+                                            lnk.insertPointAt(p++, cx, cy - N);
+                                        }
+                                    }
+                                    else if (dir === 270) {
+                                        if (cy <= toV.bounds.y) {
+                                            var e2 = toV.bounds.y;
+                                            lnk.insertPointAt(p++, cx, e2 - N);
+                                            lnk.insertPointAt(p++, cx, e2);
+                                            lnk.insertPointAt(p++, cx, e2 + M);
+                                        }
+                                        else {
+                                            lnk.insertPointAt(p++, cx, cy - N);
+                                            lnk.insertPointAt(p++, cx, cy);
+                                            lnk.insertPointAt(p++, cx, cy + M);
+                                        }
+                                    }
+                                    else if (dir === 0) {
+                                        if (cx >= toV.bounds.right) {
+                                            var e2 = toV.bounds.x + toV.bounds.width;
+                                            lnk.insertPointAt(p++, e2 + M, cy);
+                                            lnk.insertPointAt(p++, e2, cy);
+                                            lnk.insertPointAt(p++, e2 - N, cy);
+                                        }
+                                        else {
+                                            lnk.insertPointAt(p++, cx + M, cy);
+                                            lnk.insertPointAt(p++, cx, cy);
+                                            lnk.insertPointAt(p++, cx - N, cy);
+                                        }
+                                    }
+                                }
+                                else {
+                                    lnk.insertPointAt(p++, bx, by);
+                                    var L2 = 0;
+                                    if (dir === 180 || dir === 0) {
+                                        if ((dir === 180 ? cx >= toV.bounds.right : cx <= toV.bounds.x))
+                                            L2 = (dir === 0 ? -N : M) / 2;
+                                        lnk.insertPointAt(p++, bx + L2, cy);
+                                    }
+                                    else {
+                                        if ((dir === 270 ? cy >= toV.bounds.bottom : cy <= toV.bounds.y))
+                                            L2 = (dir === 90 ? -N : M) / 2;
+                                        lnk.insertPointAt(p++, cx, by + L2);
+                                    }
+                                    lnk.insertPointAt(p++, cx, cy);
+                                }
+                            }
+                            else {
+                                N = Math.max(10, this._Js[dummy.layer]);
+                                M = Math.max(10, this._Ss[dummy.layer]);
+                                if (isBezier) {
+                                    if (dir === 180) {
+                                        lnk.insertPointAt(p++, cx - N - Math.max(10, ls), cy);
+                                        lnk.insertPointAt(p++, Math.min(cx - N + ls / 2, cx), cy);
+                                        lnk.insertPointAt(p++, cx, cy);
+                                        lnk.insertPointAt(p++, cx, cy);
+                                        lnk.insertPointAt(p++, Math.max(cx + M - ls / 2, cx), cy);
+                                        lnk.insertPointAt(p++, cx + M + ls, cy);
+                                    }
+                                    else if (dir === 90) {
+                                        lnk.insertPointAt(p++, cx, cy + M + Math.max(10, ls));
+                                        lnk.insertPointAt(p++, cx, Math.max(cy + M - ls / 2, cy));
+                                        lnk.insertPointAt(p++, cx, cy);
+                                        lnk.insertPointAt(p++, cx, cy);
+                                        lnk.insertPointAt(p++, cx, Math.min(cy - N + ls / 2, cy));
+                                        lnk.insertPointAt(p++, cx, cy - N - ls);
+                                    }
+                                    else if (dir === 270) {
+                                        lnk.insertPointAt(p++, cx, cy - N - Math.max(10, ls));
+                                        lnk.insertPointAt(p++, cx, Math.min(cy - N + ls / 2, cy));
+                                        lnk.insertPointAt(p++, cx, cy);
+                                        lnk.insertPointAt(p++, cx, cy);
+                                        lnk.insertPointAt(p++, cx, Math.max(cy + M - ls / 2, cy));
+                                        lnk.insertPointAt(p++, cx, cy + M + ls);
+                                    }
+                                    else {
+                                        lnk.insertPointAt(p++, cx + M + Math.max(10, ls), cy);
+                                        lnk.insertPointAt(p++, Math.max(cx + M - ls / 2, cx), cy);
+                                        lnk.insertPointAt(p++, cx, cy);
+                                        lnk.insertPointAt(p++, cx, cy);
+                                        lnk.insertPointAt(p++, Math.min(cx - N + ls / 2, cx), cy);
+                                        lnk.insertPointAt(p++, cx - N - ls, cy);
+                                    }
+                                }
+                                else {
+                                    lnk.insertPointAt(p++, cx, cy);
+                                }
+                            }
+                        }
+                        toV = dummy;
+                    }
+                    else {
+                        // dummy === fromV（链尾）
+                        if (p === lnk.firstPickIndex + 1) ;
+                        // 从 fromV 侧收尾
+                        if (toP === null || fromSpot !== Spot.None || isOrtho) {
+                            bx = lnk.getPoint(p - 1).x;
+                            by = lnk.getPoint(p - 1).y;
+                            cx = lnk.getPoint(p).x;
+                            cy = lnk.getPoint(p).y;
+                            if (isOrtho) {
+                                var T2 = this._Ss[fromV.layer];
+                                var L2 = 0;
+                                if (dir === 180 || dir === 0) {
+                                    L2 = by;
+                                    if (L2 >= fromV.bounds.y && L2 <= fromV.bounds.bottom && (dir === 180 ? cx >= fromV.bounds.x : cx <= fromV.bounds.right)) {
+                                        A = fromV.centerX + (dir === 180 ? -T2 : T2);
+                                        L2 = L2 < fromV.bounds.y + fromV.bounds.height / 2 ? fromV.bounds.y - colSp / 2 : fromV.bounds.bottom + colSp / 2;
+                                        lnk.insertPointAt(p++, A, by);
+                                        lnk.insertPointAt(p++, A, L2);
+                                    }
+                                    lnk.insertPointAt(p++, cx, L2);
+                                    lnk.insertPointAt(p++, cx, cy);
+                                }
+                                else {
+                                    L2 = bx;
+                                    if (L2 >= fromV.bounds.x && L2 <= fromV.bounds.right && (dir === 270 ? cy >= fromV.bounds.y : cy <= fromV.bounds.bottom)) {
+                                        A = fromV.centerY + (dir === 270 ? -T2 : T2);
+                                        L2 = L2 < fromV.bounds.x + fromV.bounds.width / 2 ? fromV.bounds.x - colSp / 2 : fromV.bounds.right + colSp / 2;
+                                        lnk.insertPointAt(p++, bx, A);
+                                        lnk.insertPointAt(p++, L2, A);
+                                    }
+                                    lnk.insertPointAt(p++, L2, cy);
+                                    lnk.insertPointAt(p++, cx, cy);
+                                }
+                            }
+                            else if (isBezier) {
+                                N = Math.max(10, this._Js[fromV.layer]);
+                                M = Math.max(10, this._Ss[fromV.layer]);
+                                if (dir === 180 && cx >= fromV.bounds.x) {
+                                    var e2 = fromV.bounds.x + fromV.bounds.width;
+                                    lnk.setPointAt(p - 2, e2, by);
+                                    lnk.setPointAt(p - 1, e2 + M, by);
+                                }
+                                else if (dir === 90 && cy <= fromV.bounds.bottom) {
+                                    var e2 = fromV.bounds.y;
+                                    lnk.setPointAt(p - 2, bx, e2);
+                                    lnk.setPointAt(p - 1, bx, e2 - N);
+                                }
+                                else if (dir === 270 && cy >= fromV.bounds.y) {
+                                    var e2 = fromV.bounds.y + fromV.bounds.height;
+                                    lnk.setPointAt(p - 2, bx, e2);
+                                    lnk.setPointAt(p - 1, bx, e2 + M);
+                                }
+                                else if (dir === 0 && cx <= fromV.bounds.right) {
+                                    var e2 = fromV.bounds.x;
+                                    lnk.setPointAt(p - 2, e2, by);
+                                    lnk.setPointAt(p - 1, e2 - N, by);
+                                }
+                            }
+                            else {
+                                N = Math.max(10, this._Js[fromV.layer]);
+                                M = Math.max(10, this._Ss[fromV.layer]);
+                                var T2 = 0;
+                                if (dir === 180 || dir === 0) {
+                                    if ((dir === 180 ? cx <= fromV.bounds.x : cx >= fromV.bounds.right))
+                                        T2 = (dir === 0 ? M : -N) / 2;
+                                    lnk.insertPointAt(p++, cx + T2, by);
+                                }
+                                else {
+                                    if ((dir === 270 ? cy <= fromV.bounds.y : cy >= fromV.bounds.bottom))
+                                        T2 = (dir === 90 ? M : -N) / 2;
+                                    lnk.insertPointAt(p++, bx, cy + T2);
+                                }
+                                lnk.insertPointAt(p++, cx, cy);
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+            else {
+                // 正向边：从 fromV 向 toV 走 dummy 链
+                for (; fromV !== null && fromV !== toV;) {
+                    dummy = null;
+                    other = null;
+                    var de2 = fromV.destinationEdges.iterator;
+                    for (; de2.next();) {
+                        var te = de2.value;
+                        if (te.link === lnk && (dummy = te.toVertex, other = te.fromVertex, other.node !== null && (other = null), dummy.node === null))
+                            break;
+                    }
+                    if (dummy === null)
+                        break;
+                    if (dummy !== toV) {
+                        bx = lnk.getPoint(p - 1).x;
+                        by = lnk.getPoint(p - 1).y;
+                        cx = dummy.centerX;
+                        cy = dummy.centerY;
+                        if (isOrtho) {
+                            if (dir === 180 || dir === 0) {
+                                if ((other !== null ? other.centerY : by) !== cy) {
+                                    A = this._Yt[dummy.layer] + this._kr.x;
+                                    if (p === lnk.firstPickIndex + 1)
+                                        A = dir === 0 ? Math.max(A, bx) : Math.min(A, bx);
+                                    lnk.insertPointAt(p++, A, by);
+                                    lnk.insertPointAt(p++, A, cy);
+                                }
+                            }
+                            else {
+                                if ((other !== null ? other.centerX : bx) !== cx) {
+                                    A = this._Yt[dummy.layer] + this._kr.y;
+                                    if (p === lnk.firstPickIndex + 1)
+                                        A = dir === 90 ? Math.max(A, by) : Math.min(A, by);
+                                    lnk.insertPointAt(p++, bx, A);
+                                    lnk.insertPointAt(p++, cx, A);
+                                }
+                            }
+                        }
+                        else {
+                            N = Math.max(10, this._Js[dummy.layer]);
+                            M = Math.max(10, this._Ss[dummy.layer]);
+                            if (isBezier) {
+                                if (dir === 180) {
+                                    lnk.insertPointAt(p++, cx + M + Math.max(10, ls), cy);
+                                    lnk.insertPointAt(p++, Math.max(cx + M - ls / 2, cx), cy);
+                                    lnk.insertPointAt(p++, cx, cy);
+                                    lnk.insertPointAt(p++, cx, cy);
+                                    lnk.insertPointAt(p++, Math.min(cx - N + ls / 2, cx), cy);
+                                    lnk.insertPointAt(p++, cx - N - ls, cy);
+                                }
+                                else if (dir === 90) {
+                                    lnk.insertPointAt(p++, cx, cy - N - Math.max(10, ls));
+                                    lnk.insertPointAt(p++, cx, Math.min(cy - N + ls / 2, cy));
+                                    lnk.insertPointAt(p++, cx, cy);
+                                    lnk.insertPointAt(p++, cx, cy);
+                                    lnk.insertPointAt(p++, cx, Math.max(cy + M - ls / 2, cy));
+                                    lnk.insertPointAt(p++, cx, cy + M + ls);
+                                }
+                                else if (dir === 270) {
+                                    lnk.insertPointAt(p++, cx, cy + M + Math.max(10, ls));
+                                    lnk.insertPointAt(p++, cx, Math.max(cy + M - ls / 2, cy));
+                                    lnk.insertPointAt(p++, cx, cy);
+                                    lnk.insertPointAt(p++, cx, cy);
+                                    lnk.insertPointAt(p++, cx, Math.min(cy - N + ls / 2, cy));
+                                    lnk.insertPointAt(p++, cx, cy - N - ls);
+                                }
+                                else {
+                                    lnk.insertPointAt(p++, cx - N - Math.max(10, ls), cy);
+                                    lnk.insertPointAt(p++, Math.min(cx - N + ls / 2, cx), cy);
+                                    lnk.insertPointAt(p++, cx, cy);
+                                    lnk.insertPointAt(p++, cx, cy);
+                                    lnk.insertPointAt(p++, Math.max(cx + M - ls / 2, cx), cy);
+                                    lnk.insertPointAt(p++, cx + M + ls, cy);
+                                }
+                            }
+                            else {
+                                if (dir === 180) {
+                                    lnk.insertPointAt(p++, cx + M, cy);
+                                    lnk.insertPointAt(p++, cx - N, cy);
+                                }
+                                else if (dir === 90) {
+                                    lnk.insertPointAt(p++, cx, cy - N);
+                                    lnk.insertPointAt(p++, cx, cy + M);
+                                }
+                                else if (dir === 270) {
+                                    lnk.insertPointAt(p++, cx, cy + M);
+                                    lnk.insertPointAt(p++, cx, cy - N);
+                                }
+                                else {
+                                    lnk.insertPointAt(p++, cx - N, cy);
+                                    lnk.insertPointAt(p++, cx + M, cy);
+                                }
+                            }
+                        }
+                        fromV = dummy;
+                    }
+                    else {
+                        // dummy === toV（链尾）：从 toV 侧收尾
+                        if (isOrtho) {
+                            bx = lnk.getPoint(p - 1).x;
+                            by = lnk.getPoint(p - 1).y;
+                            cx = lnk.getPoint(p).x;
+                            cy = lnk.getPoint(p).y;
+                            if (dir === 180 || dir === 0) {
+                                if (by !== cy) {
+                                    A = dir === 0 ? Math.min(Math.max((cx + bx) / 2, this._Yt[toV.layer] + this._kr.x), cx) : Math.max(Math.min((cx + bx) / 2, this._Yt[toV.layer] + this._kr.x), cx);
+                                    lnk.insertPointAt(p++, A, by);
+                                    lnk.insertPointAt(p++, A, cy);
+                                }
+                            }
+                            else {
+                                if (bx !== cx) {
+                                    A = dir === 90 ? Math.min(Math.max((cy + by) / 2, this._Yt[toV.layer] + this._kr.y), cy) : Math.max(Math.min((cy + by) / 2, this._Yt[toV.layer] + this._kr.y), cy);
+                                    lnk.insertPointAt(p++, bx, A);
+                                    lnk.insertPointAt(p++, cx, A);
+                                }
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+            if (isBezier && lnk.pointsCount >= 4) {
+                if (fromN !== null && fromP !== null && relink(fromSpot)) {
+                    var cc = fromP.getDocumentPoint(Spot.Center);
+                    if (!cc.isReal())
+                        cc.setTo(fromN.actualBounds.centerX, fromN.actualBounds.centerY);
+                    var t3 = lnk.getPoint(3), t2 = lnk.getPoint(2);
+                    if (dir === 90 || dir === 270) {
+                        lnk.setPointAt(1, t3.x, (t2.y + t3.y) / 2);
+                        lnk.setPointAt(2, t3.x, (t2.y + t3.y) / 2);
+                    }
+                    else {
+                        lnk.setPointAt(1, (t2.x + t3.x) / 2, t3.y);
+                        lnk.setPointAt(2, (t2.x + t3.x) / 2, t3.y);
+                    }
+                    var d0 = lnk.getLinkPointFromPoint(fromN, fromP, cc, lnk.getPoint(1), true);
+                    lnk.setPointAt(0, d0.x, d0.y);
+                }
+                if (toN !== null && toP !== null && relink(toSpot)) {
+                    var cc = toP.getDocumentPoint(Spot.Center);
+                    if (!cc.isReal())
+                        cc.setTo(toN.actualBounds.centerX, toN.actualBounds.centerY);
+                    var tN4 = lnk.getPoint(lnk.pointsCount - 4);
+                    var lEnd = lnk.getLinkPointFromPoint(toN, toP, cc, tN4, false);
+                    var tN3 = lnk.getPoint(lnk.pointsCount - 3);
+                    if (dir === 90 || dir === 270) {
+                        lnk.setPointAt(lnk.pointsCount - 2, tN4.x, (tN3.y + lEnd.y) / 2);
+                        lnk.setPointAt(lnk.pointsCount - 3, tN4.x, (tN3.y + lEnd.y) / 2);
+                    }
+                    else {
+                        lnk.setPointAt(lnk.pointsCount - 2, (tN3.x + lEnd.x) / 2, tN4.y);
+                        lnk.setPointAt(lnk.pointsCount - 3, (tN3.x + lEnd.x) / 2, tN4.y);
+                    }
+                    var dN = lnk.getLinkPointFromPoint(toN, toP, cc, lnk.getPoint(lnk.pointsCount - 2), false);
+                    lnk.setPointAt(lnk.pointsCount - 1, dN.x, dN.y);
+                }
+            }
+            lnk.commitRoute();
+            // 登记布局提交的路线：官方里 commitNodes 的 Kd 失效被紧随的 commitLinks
+            // 重新提交吸收；本项目测量趟快照比对会在布局后再失效一次，靠 _measureArrangeAll
+            // 里的恢复逻辑沿用本条路线（LayeredDigraph 沿 dummy 链插的多点折线，重算会丢）。
+            var _dgt = this.diagram;
+            if (_dgt !== null && _dgt !== undefined)
+                _dgt._layoutCommittedRoutes.add(lnk);
+            edge.commit();
         }
     };
     LayeredDigraphLayout.className = "LayeredDigraphLayout";
+    /** 官方 `nB()`：运行时状态复位（占位，_nB 已实现） */
     // ============ 官方 LayeredDigraphLayout 静态枚举（对齐 go.d.ts，阶段 7） ============
     LayeredDigraphLayout.CycleDepthFirst = LayeredDigraphCycleRemoveDepthFirst;
     LayeredDigraphLayout.CycleGreedy = LayeredDigraphCycleRemoveGreedy;
@@ -57256,6 +61454,12 @@ var CircularLayout = /** @class */ (function (_super) {
             // 样例（如 friendWheel 的 WheelLayout.commitNodes）据此把节点旋转成径向、
             // 并把文字翻正。少了这一步 v.actualAngle 恒为 0，文字就不会沿法线排布。
             v.actualAngle = (angle * 180) / Math.PI;
+            // centerX/centerY 在本项目里是 `bounds + focus` 的派生量，写它会反推
+            // bounds.x/y（官方 centerX setter 语义），把上面刚摆好的左上角覆盖掉。
+            // 官方 CircularLayout 的排列阶段只写 centerX/centerY、由 commitNodes 推位置；
+            // 我们这里反过来 —— 先定左上角，故把 focus 设为半尺寸，使 centerX ≡ x，
+            // 这样再写 centerX/centerY 就是幂等的，不再扰动已摆好的位置。
+            v.focus.setTo(v.width / 2, v.height / 2);
             v.centerX = x;
             v.centerY = y;
         }

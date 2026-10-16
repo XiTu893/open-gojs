@@ -78,6 +78,26 @@ export class LayoutNetwork {
     return edge;
   }
 
+  /**
+   * 官方 `LayoutNetwork.reverseEdge(edge)`：反转边方向并同步两个顶点的边列表
+   * （`from.deleteDestinationEdge → to.deleteSourceEdge → edge.reverseEdge →
+   *   from.addSourceEdge → to.addDestinationEdge`）。
+   * 只交换 `edge.fromVertex/toVertex` 字段是不够的 —— 顶点的
+   * sourceEdges/destinationEdges 是建网时存的列表，不跟着字段走；
+   * 层号分配（memo 沿 destinationEdges 递归）读的是列表，
+   * 环还在 → customExpandCollapse 栈溢出。
+   */
+  reverseEdge(edge: LayoutEdge): void {
+    const f = edge.fromVertex;
+    const t = edge.toVertex;
+    if (f === null || t === null) return;
+    f.deleteDestinationEdge(edge);
+    t.deleteSourceEdge(edge);
+    edge.reverseEdge();
+    f.addSourceEdge(edge);
+    t.addDestinationEdge(edge);
+  }
+
   /** Add a link to the network, creating an edge between the from/to vertexes */
   addLink(link: Link): LayoutEdge | null {
     const fromNode = link.fromNode;

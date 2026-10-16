@@ -325,6 +325,12 @@ get aspectRatio(): number { return this._aspectRatio; }
       // 样例（如 friendWheel 的 WheelLayout.commitNodes）据此把节点旋转成径向、
       // 并把文字翻正。少了这一步 v.actualAngle 恒为 0，文字就不会沿法线排布。
       v.actualAngle = (angle * 180) / Math.PI;
+      // centerX/centerY 在本项目里是 `bounds + focus` 的派生量，写它会反推
+      // bounds.x/y（官方 centerX setter 语义），把上面刚摆好的左上角覆盖掉。
+      // 官方 CircularLayout 的排列阶段只写 centerX/centerY、由 commitNodes 推位置；
+      // 我们这里反过来 —— 先定左上角，故把 focus 设为半尺寸，使 centerX ≡ x，
+      // 这样再写 centerX/centerY 就是幂等的，不再扰动已摆好的位置。
+      v.focus.setTo(v.width / 2, v.height / 2);
       v.centerX = x;
       v.centerY = y;
     }

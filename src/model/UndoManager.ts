@@ -14,7 +14,11 @@ export class UndoManager {
   private _currentTransaction: Transaction | null = null;
   private _transactionLevel: number = 0;
   private _maxHistory: number = 0; // 0 = unlimited
-  private _isEnabled: boolean = true;
+  /** 官方 `UndoManager` 构造器默认 `this.Wi = false`（isEnabled=false）。
+   * 样例想要撤销必须显式 `'undoManager.isEnabled': true`。早先本项目默认 true，
+   * 导致 updateDemo 这类「先赋 model 再开 undo」的样例在初始布局时就冒出
+   * 事务 ChangedEvent（官方因 isEnabled=false 静默不发）。 */
+  private _isEnabled: boolean = false;
   private _hasUndo: boolean = false;
   private _hasRedo: boolean = false;
   private _model: any = null;
@@ -30,12 +34,7 @@ export class UndoManager {
     return this._isEnabled;
   }
   set isEnabled(val: boolean) {
-    if (this._isEnabled !== val) {
-      this._isEnabled = val;
-      if (!val) {
-        this.clear();
-      }
-    }
+    this._isEnabled = val;
   }
 
   get model(): any {
@@ -120,6 +119,16 @@ export class UndoManager {
   commitTransaction(name?: string): boolean {
     if (!this._isEnabled) return false;
     if (this._transactionLevel <= 0) return false;
+    // 官方 zT：`const e=transactionLevel===1; ... e&&t&&jl("CommittingTransaction",...)`，
+    // 顶层提交的 CommittingTransaction 在 `this.vl--` **之前**发（此刻 level 仍为 1）。
+    // 共享 model 的另一张图（updateDemo blue/green 共用一个 model + undoManager）收到
+    // 该事件会同步 maybeUpdate，在蓝图尚未关闭的事务里跑自己的 Initial Layout（嵌套到
+    // lvl2）→ 顶层只提交一次 CommittedTransaction。早先先递减到 0 再发，且排除在
+    // maybeUpdate 之外 → green 只能等下一帧单独开事务（2 次 Committed，undoDisplay 多 3 节点）。
+    const isTopLevel = this._transactionLevel === 1;
+    if (isTopLevel && this._currentTransaction) {
+      this._fireTransactionEvent('CommittingTransaction', this._currentTransaction.name);
+    }
     if (this._nestedTransactionNames.length > 0) this._nestedTransactionNames.pop();
 
     this._transactionLevel--;
@@ -127,9 +136,8 @@ export class UndoManager {
       this._currentTransaction.name = name;
     }
 
-    if (this._transactionLevel === 0) {
+    if (isTopLevel) {
       if (this._currentTransaction) {
-        this._fireTransactionEvent('CommittingTransaction', this._currentTransaction.name);
         for (const change of this._changes) {
           this._currentTransaction.addChange(change);
         }
@@ -194,8 +202,8 @@ export class UndoManager {
 
     this._skipsUndoManager = true;
     const changes = transaction.changes;
-    for (let i = changes.length - 1; i >= 0; i--) {
-      this._undoChange(changes[i]);
+    for (let i = changes.count - 1; i >= 0; i--) {
+      this._undoChange(changes.elt(i));
     }
     this._skipsUndoManager = false;
 
@@ -223,6 +231,13 @@ export class UndoManager {
 
   /** 清空历史 */
   clear(): void {
+    // 官方 UndoManager.clear()：先 `for(i in history){ e=elt(i); e&&e.clear() }` 把每条
+    // 事务的 changes 清空，再 t.clear() 清历史。首帧 Initial Layout 提交后（Yx）会调 clear，
+    // 刚提交的事务对象虽已被 CommittedTransaction 事件引用，但 changes 已被清空 ——
+    // updateDemo 的 undoDisplay 在 setTimeout(+10ms) 才读 tx.changes，官方那时已空
+    // → 只画 1 个父节点；本项目早先直接 `length=0` 不清 changes → undoDisplay 多画 2 个子节点。
+    for (const t of this._undoStack) if (t) t.clear();
+    for (const t of this._redoStack) if (t) t.clear();
     this._undoStack.length = 0;
     this._redoStack.length = 0;
     this._currentTransaction = null;

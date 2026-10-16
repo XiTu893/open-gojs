@@ -78,6 +78,14 @@ export declare class Diagram {
      * 画 graduated 时间轴时报 `Invalid arguments to Rect constructor: 0, Infinity, 0, -Infinity`。
      */
     private _lastRaisedDocBounds;
+    /** 最近一次 raise ViewportChanged 时的 viewportBounds（防重复 raise 的比对基准） */
+    private _lastRaisedViewport;
+    /**
+     * 官方 `Diagram.je`：ViewportBoundsChanged 的 subject（**变化前**的 viewport 快照
+     * `{scale, position, bounds, canvasSize, newCanvasSize, isScroll}`，官方是单例
+     * 复用、每次 raise 前原地改写）。
+     */
+    private _je;
     protected _allowSelect: boolean;
     protected _allowMove: boolean;
     protected _allowCopy: boolean;
@@ -111,6 +119,24 @@ export declare class Diagram {
     private _layout;
     private _isInitial;
     _layoutInvalid: boolean;
+    /**
+     * 官方 GraphObject.Ef→os 置的测量脏位：子元素属性（TextBlock.text、
+     * Shape.width/height 等）变更后，下一个 update 必须跑一遍
+     * measure+arrange（_measureArrangeAll(true)），否则 actualBounds
+     * 停留在旧值（gantt 任务行 Start/Dur. 文本宽 0、时间轴 MAIN 宽度不更新）。
+     */
+    _measureInvalid: boolean;
+    /** 测量进行中（_measureArrangeAll(true) 执行期间）：期间的 _invalidateMeasure 不再重武装
+     *  _measureInvalid —— 否则 _invalidateLinkRoutes→invalidateRoute→_invalidateMeasure 会在
+     *  每次重测时把脏位重新置上，形成「重测→失效路线→重测」的每帧空转（grafcet 避障 link
+     *  在直路/绕障两条路线间每帧闪烁的根因）。 */
+    _isMeasuring: boolean;
+    /** 官方 Part.Kd(oldBounds,newBounds) 的持久化上次 bounds：
+     *  跨测量趟保存各端点部件（Node/Group）的 position+measuredBounds，
+     *  arrange 后比对，变了才 invalidateConnectedLinks。
+     *  快照必须跨趟持久 —— 每趟开始时重取会让两趟之间被 layout 移动的
+     *  部件（如 Group.move 改写成员 position）漏掉失效。 */
+    private _endpointBounds;
     private _contextMenu;
     _layers: Layer[];
     /** 官方 Diagram.ms（grid Panel）与其宿主 Part（XL 创建的常驻 Part） */
@@ -127,6 +153,8 @@ export declare class Diagram {
     private _updateSuspended;
     /** 官方 Ar 入口的 vs 自锁：同步 maybeUpdate 期间禁止嵌套跑第二轮 */
     private _isInUpdate;
+    /** 官方 `Or` 的 `fo`：首帧 Initial Layout 已跑过（跑过后不再开该事务，history 允许记 'Layout'） */
+    private _initialLayoutDone;
     private _resizeObserver;
     private _lastDivWidth;
     private _lastDivHeight;
@@ -263,11 +291,32 @@ export declare class Diagram {
     findNodesByExample(data: any): List<Node>;
     findLinksByExample(data: any): List<Link>;
     findPartAt(point: Point, selectableOnly?: boolean): Part | null;
-    /** 官方 Diagram.findObjectAt：逐层向下调 Layer.findObjectAt（**不过滤 temporary**，与 findPartAt 不同） */
-    findObjectAt(point: Point): GraphObject | null;
+    /**
+     * 官方 Diagram.findObjectAt：逐层向下调 Layer.findObjectAt（**不过滤 temporary**，与 findPartAt 不同）。
+     * 官方签名还带 pred/target（ContextMenuTool 用 `n => !n.layer?.isTemporary` 排除 Tool 层）。
+     */
+    findObjectAt(point: Point, pred?: ((obj: GraphObject) => boolean) | null): GraphObject | null;
     findNodeAt(point: Point): Node | null;
+    /**
+     * 官方 `Diagram.select(t)`：
+     * `t!==null && t.diagram===this && (!t.isSelected || selection.count>1) &&
+     *  (D("ChangingSelection"), clearSelection(!0), t.isSelected=!0, D("ChangedSelection"))`
+     * 早先这里 clearSelection()（带事件）+ 直接改 _isSelected/_selection.add，
+     * **从不 raise ChangedSelection**（首次选中时 clearSelection 里 hadSelection=false 也不发）。
+     * 后果：依赖该事件的样例相机/联动逻辑永不启动
+     * （miningSim 的 ChangedSelection → startFollow 追车相机，viewport 停在
+     *  初始 centerRect 的 620,139，官方一直跟车到 490,593）。
+     */
     select(part: Part | null): void;
-    clearSelection(): void;
+    /**
+     * @param suppressEvent 官方 `clearSelection(t)` 的 t：true 时不 raise ChangedSelection
+     * （供 select/selectCollection 在自己的 Changing/Changed 对之间内部清空用）。
+     */
+    clearSelection(suppressEvent?: boolean): void;
+    /**
+     * 官方 `Diagram.selectCollection(t)`：`D("ChangingSelection"), clearSelection(!0),
+     * 逐个 isSelected=!0, D("ChangedSelection")`。
+     */
     selectCollection(parts: GojsIterable<Part>): void;
     startTransaction(tname?: string): boolean;
     commitTransaction(tname?: string): boolean;
@@ -317,6 +366,16 @@ export declare class Diagram {
      * 面板尺寸 = 视口 + 2×Cf（四周留出一整个周期，平移视口时线相位保持不变）。
      */
     private _updateGridBounds;
+    /**
+     * 官方 `Layer.PL()`：把视口对齐层（isViewportAligned，如 ViewportBackground/
+     * ViewportForeground）里的 Part 按 alignment 摆到当前视口角落。
+     *  - 设备局部坐标：f = a.x*clientW + a.offsetX − (c.x*naturalW + c.offsetX)
+     *                  u = a.y*clientH + a.offsetY − (c.y*naturalH + c.offsetY)
+     *  - 转文档坐标：doc = position + (f/scale, u/scale)
+     *  - 该 Part 的 scale 置为 1/diagramScale，抵消图缩放（图例/水印恒显固定尺寸）
+     * 缺此逻辑时 PERT 图例(legend)停在 (null,null) 不摆放，位置完全错位。
+     */
+    private _layoutViewportAlignedParts;
     private _createDefaultNodeTemplate;
     private _createDefaultLinkTemplate;
     private _clearAllParts;
@@ -544,6 +603,17 @@ export declare class Diagram {
     invalidateDocumentBounds(): void;
     /** 官方语义：文档包围盒发生变化时（且仅此时）raise `DocumentBoundsChanged` */
     private _checkDocumentBoundsChanged;
+    /** viewportBounds 真的变了才 raise ViewportChanged（对齐 _checkDocumentBoundsChanged 的模式） */
+    private _checkViewportChanged;
+    /**
+     * 官方 `Diagram.onViewportBoundsChanged(t,e,i,s)`（t=旧 viewportRect，e=新，
+     * i=旧 scale）：`t.equals(e)` 则不 raise；否则把 **旧值** 填进单例 `this.je`
+     * `{scale, position, bounds, canvasSize, newCanvasSize, isScroll}`，
+     * `this.D("ViewportBoundsChanged", this.je, t)` —— subject 是 je（**旧** viewport）。
+     * 早先这里只传了个裸 Rect 且全是新值，miningSim 监听器里
+     * `e.subject.bounds.width` / `e.subject.position.equals(...)` 直接 TypeError。
+     */
+    private _raiseViewportChanged;
     invalidateViewport(): void;
     zoomToRect(rect: Rect): void;
     zoomPoint(factor: number): void;
@@ -696,6 +766,10 @@ export declare class Diagram {
     private _positionArray;
     /** 官方 `Jr`：computePoints 成功后登记的待避障路由 link 集合 */
     private _invalidRoutes;
+    /** 布局 doLayout 期间提交且路线有效的 link（_measureArrangeAll 快照比对失效后恢复用，一次性）
+     *  —— 仅由 LayeredDigraph._commitLinksOfficial 登记（它沿 dummy 链插的多点折线
+     *  重算会丢；TreeLayout/Grid/Force/Circular 走 computePoints，重算可复现，不登记）。 */
+    _layoutCommittedRoutes: Set<any>;
     /** 官方 `Ta`：路由进行中（vo=true）登记的延迟批 */
     private _invalidRoutesDuringRouting;
     /** 官方 `vo`：doLinkRouting 进行中标志（addInvalidRoute 据此分流） */

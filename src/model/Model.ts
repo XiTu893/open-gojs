@@ -148,7 +148,6 @@ export class Model {
   /** 添加节点数据 */
   addNodeData(data: ObjectData): void {
     if (!data) throw new Error('Cannot add null node data');
-    if (this.isReadOnly) throw new Error('Model is read-only');
     if (this.containsNodeData(data)) return; // 官方 av：重复添加直接 no-op
     this.ensureUniqueKey(data);
     this._nodeDataArray.push(data);
@@ -167,7 +166,6 @@ export class Model {
   /** 移除节点数据 */
   removeNodeData(data: ObjectData): boolean {
     if (!data) return false;
-    if (this.isReadOnly) throw new Error('Model is read-only');
     const idx = this._nodeDataArray.indexOf(data);
     if (idx < 0) return false;
     this._nodeDataArray.splice(idx, 1);
@@ -281,7 +279,6 @@ export class Model {
 
   /** 设置 modelData 中的属性（支持撤销） */
   setModelData(key: string, value: any): void {
-    if (this.isReadOnly) throw new Error('Model is read-only');
     const old = this.modelData[key];
     if (old === value) return;
     this.modelData[key] = value;
@@ -291,7 +288,6 @@ export class Model {
   /** 设置数据属性（支持撤销） */
   setDataProperty(data: ObjectData, propname: string, value: any): void {
     if (!data) return;
-    if (this.isReadOnly) throw new Error('Model is read-only');
     const old = data[propname];
     if (old === value) return;
     data[propname] = value;
@@ -421,8 +417,17 @@ export class Model {
     return e;
   }
 
+  /**
+   * 官方 `UndoManager.jl(t, i, e)`：`s.change=1, s.propertyName=t, s.object=e(事务), s.oldValue=i(事务名)`。
+   * 早先本项目把 `object` 设成了 model 本身 → updateDemo 这类读 `e.object.changes` 的
+   * 样例拿到 `model.changes === undefined`，`.each` 直接崩。
+   */
   raiseTransactionEvent(propertyName: string, tname: string, transObj?: any): ChangedEvent {
-    const e = new ChangedEvent(ChangedEventTransaction, this, propertyName, tname, transObj);
+    const e = new ChangedEvent();
+    e.change = ChangedEventTransaction;
+    e.propertyName = propertyName;
+    e.object = transObj !== undefined ? transObj : null;
+    e.oldValue = tname;
     e.isModelChange = true;
     e.model = this;
     e.transactionName = tname;
@@ -1001,8 +1006,8 @@ export class Model {
       }
     };
     const changes = t.changes;
-    for (let i = 0; i < changes.length; i++) {
-      const e = changes[i];
+    for (let i = 0; i < changes.count; i++) {
+      const e = changes.elt(i);
       if (e.diagram === null || e.diagram === undefined) continue;
       if (e.change === ChangedEventProperty) {
         if (e.object !== null && e.object.panel) link(e.object.panel.data, e.object.panel);
@@ -1062,8 +1067,8 @@ export class Model {
     const modified = new Set<ObjectData>();
     const removes = new Set<ObjectData>();
     const changes = t.changes;
-    for (let i = 0; i < changes.length; i++) {
-      const e = changes[i];
+    for (let i = 0; i < changes.count; i++) {
+      const e = changes.elt(i);
       if (e.model !== this) continue;
       if (e.object === this && e.propertyName === 'nodeDataArray') {
         if (e.change === ChangedEventInsert) inserts.add(e.newValue);

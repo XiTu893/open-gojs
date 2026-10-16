@@ -455,11 +455,10 @@ export class CanvasRenderer {
     applyShort(true);
     applyShort(false);
 
-    // 官方 `Link.makeGeometry()`：正交（或点数===2）且非贝塞尔曲线时，
-    // 在每个拐点处按 `computeCorner()` 画「控制点落在拐点」的二次贝塞尔圆角。
-    // 早先 JumpOver/JumpGap 分支直接拿 points 折线绘制，完全绕过圆角 ——
-    // dynamicPorts 官方是圆滑拐角、我们全是直角折线就是这么来的。
-    if (curve !== CurveBezier && ((link as any).isOrthogonal || arr.length === 2)) {
+    // 官方 `Link.makeGeometry()`：非贝塞尔曲线时，只要 computeCorner()>0 就在每个
+    // 拐点处按「控制点落在拐点」画二次贝塞尔圆角（正交/普通折线都适用；PERT 的
+    // curve:None 多点路由同样需要 corner 圆角，否则转角全是直角不圆滑）。
+    if (curve !== CurveBezier) {
       const radius = typeof (link as any).computeCorner === 'function'
         ? (link as any).computeCorner()
         : 0;
@@ -522,77 +521,227 @@ export class CanvasRenderer {
       ctx.lineWidth = shape.strokeWidth;
       if (shape.strokeDashArray) {
         ctx.setLineDash(shape.strokeDashArray);
+        ctx.lineDashOffset = shape.strokeDashOffset;
       }
       this._strokeNoShadow(ctx);
+    }
+
+    // 官方 `Shape.R3`：主路径形状带 pathPattern 时，沿路径把装饰几何平铺上去
+    // （relationships 的 Single/Dash/Zigzag/Coil 等全靠这条；stroke 常为 transparent）。
+    if (shape.pathPattern) {
+      this._renderLinkPathPattern(ctx, shape, arr, curve, link);
     }
 
     ctx.restore();
   }
 
+  /** 官方 `Shape.R3` 的链接路径平铺：先按已绘制曲线把 arr 采样成密折线，再平铺装饰。 */
+  private _renderLinkPathPattern(
+    ctx: CanvasRenderingContext2D, shape: Shape, arr: Point[], curve: any, link: Link
+  ): void {
+    const patt = shape.pathPattern as Shape;
+    if (!patt) return;
+    const geo = patt._getGeometry();
+    if (!geo) return;
+    const pts = this._sampleLinkPolyline(arr, curve, link);
+    if (pts.length < 4) return;
+    this._drawPathPatternTiling(ctx, pts, patt, geo);
+  }
+
+  /** 把链接路径（含贝塞尔）采样成 [x0,y0,x1,y1,...] 密折线，与 _renderLinkPath 的画法一致。 */
+  private _sampleLinkPolyline(arr: Point[], curve: any, link: Link): number[] {
+    const pts: number[] = [];
+    if (arr.length < 2) return pts;
+    if (curve === CurveBezier) {
+      if (arr.length === 2) {
+        const curviness =
+          typeof (link as any).computeCurviness === 'function'
+            ? (link as any).computeCurviness()
+            : (link as any)._curviness;
+        let cx: number, cy: number;
+        if (curviness && isFinite(curviness) && curviness !== 0) {
+          const dx = arr[1].x - arr[0].x, dy = arr[1].y - arr[0].y;
+          const len = Math.sqrt(dx * dx + dy * dy);
+          const nx = len > 0 ? -dy / len : 0, ny = len > 0 ? dx / len : 1;
+          cx = (arr[0].x + arr[1].x) / 2 + nx * curviness;
+          cy = (arr[0].y + arr[1].y) / 2 + ny * curviness;
+        } else {
+          cx = (arr[0].x + arr[1].x) / 2;
+          cy = (arr[0].y + arr[1].y) / 2;
+        }
+        this._sampleQuad(pts, arr[0].x, arr[0].y, cx, cy, arr[1].x, arr[1].y);
+      } else if (arr.length === 3) {
+        this._sampleQuad(pts, arr[0].x, arr[0].y, arr[1].x, arr[1].y, arr[2].x, arr[2].y);
+      } else {
+        pts.push(arr[0].x, arr[0].y);
+        for (let i = 1; i < arr.length - 2; i += 3) {
+          this._sampleCubic(pts, arr[i - 1].x, arr[i - 1].y,
+            arr[i].x, arr[i].y, arr[i + 1].x, arr[i + 1].y, arr[i + 2].x, arr[i + 2].y);
+        }
+        const rem = (arr.length - 1) % 3;
+        if (rem === 1) pts.push(arr[arr.length - 1].x, arr[arr.length - 1].y);
+        else if (rem === 2) this._sampleQuad(pts, arr[arr.length - 2].x, arr[arr.length - 2].y,
+          arr[arr.length - 2].x, arr[arr.length - 2].y, arr[arr.length - 1].x, arr[arr.length - 1].y);
+      }
+    } else {
+      for (const p of arr) pts.push(p.x, p.y);
+    }
+    return pts;
+  }
+
+  private _sampleQuad(pts: number[], x0: number, y0: number, cx: number, cy: number, x1: number, y1: number): void {
+    pts.push(x0, y0);
+    const n = 24;
+    for (let i = 1; i <= n; i++) {
+      const t = i / n, u = 1 - t;
+      pts.push(u * u * x0 + 2 * u * t * cx + t * t * x1, u * u * y0 + 2 * u * t * cy + t * t * y1);
+    }
+  }
+
+  private _sampleCubic(pts: number[], x0: number, y0: number, c1x: number, c1y: number, c2x: number, c2y: number, x1: number, y1: number): void {
+    pts.push(x0, y0);
+    const n = 24;
+    for (let i = 1; i <= n; i++) {
+      const t = i / n, u = 1 - t;
+      pts.push(
+        u * u * u * x0 + 3 * u * u * t * c1x + 3 * u * t * t * c2x + t * t * t * x1,
+        u * u * u * y0 + 3 * u * u * t * c1y + 3 * u * t * t * c2y + t * t * t * y1
+      );
+    }
+  }
+
+  /** 官方 `Shape.hg`：沿密折线逐格平铺 pathPattern 装饰几何（t=ctx, e=折线, s=装饰 Shape）。 */
+  private _drawPathPatternTiling(ctx: CanvasRenderingContext2D, e: number[], patt: Shape, geo: Geometry): void {
+    const n = e.length;
+    if (n < 4) return;
+    const gb = geo.bounds;
+    const r = Math.max(1, gb.width);
+    const l = gb.height;
+    const sw = typeof patt.strokeWidth === 'number' && patt.strokeWidth > 0 ? patt.strokeWidth : 0;
+    const spacing = (() => { let w = gb.width - sw; return w < 1 ? 1 : w; })();
+
+    // 分段信息 [dx, angle, slope, len]
+    const segs: number[][] = [];
+    let total = 0;
+    let hx = e[0], hy = e[1];
+    for (let C = 2; C < n; C += 2) {
+      const cx = e[C], cy = e[C + 1];
+      let dx = cx - hx, dy = cy - hy;
+      if (dx === 0) dx = 0.001;
+      const slope = dy / dx;
+      const angle = Math.atan2(dy, dx);
+      const len = Math.sqrt(dx * dx + dy * dy);
+      segs.push([dx, angle, slope, len]);
+      total += len;
+      hx = cx; hy = cy;
+    }
+    hx = e[0]; hy = e[1];
+
+    let S = spacing;
+    const k = r / 2;
+    let firstHalf = k !== 0;
+    let A = 0;
+    let seg = segs[A];
+    let u = seg[0], ang = seg[1], m = seg[2], p = seg[3];
+    let M = 0;
+    while (total >= 0.1) {
+      if (M === 0) {
+        if (firstHalf) { S = spacing; S -= k; total -= k; firstHalf = false; }
+        else S = spacing;
+        if (S === 0) S = 1;
+      }
+      if (S > total) break;
+      if (S > p) { M = S - p; S = p; } else M = 0;
+      let adv = Math.sqrt((S * S) / (1 + m * m));
+      if (u < 0) adv = -adv;
+      hx += adv; hy += m * adv;
+      ctx.save();
+      ctx.translate(hx, hy);
+      ctx.rotate(ang);
+      ctx.translate(-r / 2, -l / 2);
+      if (M === 0) this._drawPatternTile(ctx, patt, geo);
+      ctx.restore();
+      total -= S; p -= S;
+      if (M !== 0) {
+        A++;
+        if (A >= segs.length) break;
+        seg = segs[A];
+        u = seg[0]; ang = seg[1]; m = seg[2]; p = seg[3];
+        S = M;
+      }
+    }
+  }
+
+  /** 官方 `Shape.Xh` 的平铺格绘制：把 pathPattern 的几何 fill+stroke 画在当前变换下。 */
+  private _drawPatternTile(ctx: CanvasRenderingContext2D, patt: Shape, geo: Geometry): void {
+    const doFill = !!patt.fill;
+    const doStroke = !!patt.stroke && patt.strokeWidth > 0;
+    const bounds = geo.bounds;
+    const figIt = geo.figures.iterator;
+    while (figIt.next()) {
+      const fig = figIt.value;
+      this._drawFigure(ctx, fig);
+      if (doFill && fig.isFilled) {
+        ctx.fillStyle = this._applyBrush(ctx, patt.fill as string, bounds);
+        ctx.fill();
+      }
+      if (doStroke) {
+        ctx.strokeStyle = this._applyBrush(ctx, patt.stroke as string, bounds);
+        ctx.lineWidth = patt.strokeWidth;
+        ctx.lineCap = patt.strokeCap as CanvasLineCap;
+        ctx.lineJoin = patt.strokeJoin as CanvasLineJoin;
+        this._strokeNoShadow(ctx);
+      }
+    }
+  }
+
   /**
-   * 官方 `Link.f3()` 的拐角圆角：把正交点列改写成带「控制点落在拐点」的二次
-   * 贝塞尔圆角的折线（采样成折线点，便于 JumpGap/JumpOver 分支沿用）。
-   * 半径封顶语义与官方一致：`c = min(radius, |拐点-上一拐点|/2)`，
-   * 再 `min(c, |下一拐点-拐点|/2)`，`c < 0.5` 视作不圆角。
+   * 官方 `Link` 拐角圆角（`computeCorner()` → 几何构建时把折线拐点改写成
+   * 「控制点落在拐点」的二次贝塞尔圆角）。
+   *
+   * 官方对**任意角度**的折线拐角都圆滑，不只正交段 —— PERT 的路由点
+   * `(120,71) → (145,206) → (276,206)` 是「斜线接水平」，早期实现只认
+   * 水平↔垂直两种正交情形，斜线拐角完全没被圆角化，渲染出直角折线。
+   *
+   * 半径封顶与官方一致：`c = min(corner, |拐点-上一点|/2, |下一点-拐点|/2)`，
+   * `c < 0.5` 视作不圆角；共线（straight-through）点跳过不圆角。
    */
   private _roundCorners(src: Point[], radius: number): Point[] {
     const n = src.length;
     if (!(radius > 0) || n < 3) return src;
 
     const out: Point[] = [src[0]];
-    // dirPrev = 上一拐角的圆角终点（官方 `s`/`f`），capPrev = 上一拐点（官方 `l`/`d`）
-    let dirPrev = src[0];
-    let capPrev = src[0];
     for (let i = 1; i < n - 1; i++) {
+      const prev = src[i - 1];
       const nn = src[i];
-      const after = src[i + 1];
-      let start: Point | null = null;
-      let end: Point | null = null;
+      const next = src[i + 1];
+      // 入/出方向单位向量（由拐点指向两侧）
+      let d1x = prev.x - nn.x, d1y = prev.y - nn.y;
+      let d2x = next.x - nn.x, d2y = next.y - nn.y;
+      const l1 = Math.sqrt(d1x * d1x + d1y * d1y);
+      const l2 = Math.sqrt(d2x * d2x + d2y * d2y);
+      if (!(l1 > 1e-6) || !(l2 > 1e-6)) { out.push(nn); continue; }
+      d1x /= l1; d1y /= l1; d2x /= l2; d2y /= l2;
+      // 共线直通（两向量反向）不是拐角，保持为直线段
+      if (Math.abs(d1x + d2x) < 1e-6 && Math.abs(d1y + d2y) < 1e-6) { out.push(nn); continue; }
 
-      if (Math.abs(dirPrev.y - nn.y) < 0.5 && Math.abs(nn.x - after.x) < 0.5) {
-        // 水平段 → 垂直段
-        let c = Math.min(radius, Math.abs(nn.x - capPrev.x) / 2);
-        c = Math.min(c, Math.abs(after.y - nn.y) / 2);
-        if (c >= 0.5) {
-          const u = nn.x > dirPrev.x ? nn.x - c : nn.x + c;
-          const gy = after.y > nn.y ? nn.y + c : nn.y - c;
-          start = new Point(u, nn.y);
-          end = new Point(nn.x, gy);
-        }
-      } else if (Math.abs(dirPrev.x - nn.x) < 0.5 && Math.abs(nn.y - after.y) < 0.5) {
-        // 垂直段 → 水平段
-        let c = Math.min(radius, Math.abs(nn.y - capPrev.y) / 2);
-        c = Math.min(c, Math.abs(after.x - nn.x) / 2);
-        if (c >= 0.5) {
-          const u = nn.y > dirPrev.y ? nn.y - c : nn.y + c;
-          const mx = after.x > nn.x ? nn.x + c : nn.x - c;
-          start = new Point(nn.x, u);
-          end = new Point(mx, nn.y);
-        }
-      }
+      let c = radius;
+      if (c > l1 / 2) c = l1 / 2;
+      if (c > l2 / 2) c = l2 / 2;
+      if (c < 0.5) { out.push(nn); continue; }
 
-      if (start && end) {
-        out.push(start);
-        for (let k = 1; k <= 3; k++) {
-          const t = k / 4;
-          const m = 1 - t;
-          out.push(new Point(
-            m * m * start.x + 2 * m * t * nn.x + t * t * end.x,
-            m * m * start.y + 2 * m * t * nn.y + t * t * end.y,
-          ));
-        }
-        out.push(end);
-        dirPrev = end;
-        capPrev = nn;
-      } else {
-        out.push(nn);
-        // 官方 `Link.cT()` 会跳过共线点：半径封顶要用「上一拐点」而不是共线中间点，
-        // 否则连续两个拐点之间夹着共线点时 |拐点-上一拐点| 会被算成 0 → 圆角消失。
-        const collinearV = Math.abs(dirPrev.x - nn.x) < 0.5 && Math.abs(nn.x - after.x) < 0.5;
-        const collinearH = Math.abs(dirPrev.y - nn.y) < 0.5 && Math.abs(nn.y - after.y) < 0.5;
-        if (!collinearV && !collinearH) capPrev = nn;
-        dirPrev = nn;
+      const sx = nn.x + d1x * c, sy = nn.y + d1y * c;
+      const ex = nn.x + d2x * c, ey = nn.y + d2y * c;
+      out.push(new Point(sx, sy));
+      for (let k = 1; k <= 4; k++) {
+        const t = k / 5;
+        const m = 1 - t;
+        out.push(new Point(
+          m * m * sx + 2 * m * t * nn.x + t * t * ex,
+          m * m * sy + 2 * m * t * nn.y + t * t * ey,
+        ));
       }
+      out.push(new Point(ex, ey));
     }
     out.push(src[n - 1]);
     return out;
@@ -948,6 +1097,30 @@ export class CanvasRenderer {
       ctx.restore();
     }
 
+    // 官方 GraphObject.shadowVisible / eS(panel)：
+    //  - shadowVisible===false → 该对象自身不投影。
+    //  - shadowVisible 默认(null) 且是 Auto/Spot 面板的"非主元素"子对象 → 不投影
+    //    （官方 eS：非主元素子对象虽继承 Part 阴影，但其自身不投影，避免文字等
+    //    在主形状之上出现"重影"；只有主元素 box 投影）。
+    let shadowDisabled = false;
+    const _sv = obj.shadowVisible;
+    if (_sv === false) {
+      shadowDisabled = true;
+    } else if (_sv == null) {
+      const _p = obj.panel;
+      if (_p !== null && (_p.type === PanelAuto || _p.type === PanelSpot)) {
+        const _main = _p.findMainElement();
+        if (_main !== null && _main !== obj) shadowDisabled = true;
+      }
+    }
+    if (shadowDisabled) {
+      ctx.save();
+      ctx.shadowColor = 'rgba(0, 0, 0, 0)';
+      ctx.shadowBlur = 0;
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = 0;
+    }
+
     // Dispatch by type
     if (obj instanceof Shape) {
       this.renderShape(obj as Shape, offsetX, offsetY, paintBox);
@@ -959,6 +1132,10 @@ export class CanvasRenderer {
       this.renderPanel(obj as Panel, offsetX, offsetY);
     } else if (obj instanceof Placeholder) {
       // Placeholder rendering is handled by its parent Group panel
+    }
+
+    if (shadowDisabled) {
+      ctx.restore();
     }
 
     // Restore angle/scale transform
@@ -988,8 +1165,16 @@ export class CanvasRenderer {
     // Apply clipping if isClipping is true（官方：先 clip 再画 background）
     if (panel.isClipping) {
       ctx.save();
+      // 官方 isClipping Spot 面板用【主元素几何】做裁剪区（`clipInsteadOfFill`），
+      // 主元素本身不填充。早先这里用矩形裁剪并把主元素当普通子元素画（默认黑填充），
+      // processFlow 的 CAPSULE 裁剪形状被画成一大块黑底盖住金属渐变。
+      const clipMain = panel.type === PanelSpot ? panel.findMainElement() : null;
       ctx.beginPath();
-      ctx.rect(panelX, panelY, panelW, panelH);
+      if (clipMain instanceof Shape) {
+        this._clipToShapeGeometry(ctx, clipMain, panelX, panelY);
+      } else {
+        ctx.rect(panelX, panelY, panelW, panelH);
+      }
       ctx.clip();
     }
 
@@ -1057,7 +1242,9 @@ export class CanvasRenderer {
           others.push(elem);
         }
       }
-      if (main !== null) {
+      // 官方 isClipping Spot：主元素只用来生成裁剪区（clipInsteadOfFill），不填充。
+      const skipClipMain = panel.isClipping;
+      if (main !== null && !skipClipMain) {
         this.renderGraphObject(main, panelX, panelY);
       }
       for (const elem of others) {
@@ -1097,6 +1284,26 @@ export class CanvasRenderer {
     if (panel.isClipping) {
       ctx.restore();
     }
+  }
+
+  /** 把某 Shape 的几何按其 actualBounds 缩放后画进当前路径（供 isClipping 做裁剪区）。 */
+  private _clipToShapeGeometry(ctx: CanvasRenderingContext2D, shape: Shape, docX: number, docY: number): void {
+    const geo = shape._getGeometry();
+    const ab = shape.actualBounds;
+    if (!geo || !ab || ab.width <= 0 || ab.height <= 0) {
+      if (ab) ctx.rect(docX + ab.x, docY + ab.y, Math.max(ab.width, 0), Math.max(ab.height, 0));
+      return;
+    }
+    const gb = geo.bounds;
+    const sx = gb.width > 0 ? ab.width / gb.width : 1;
+    const sy = gb.height > 0 ? ab.height / gb.height : 1;
+    ctx.save();
+    ctx.translate(docX + ab.x, docY + ab.y);
+    if (sx !== 1 || sy !== 1) ctx.scale(sx, sy);
+    if (gb.x !== 0 || gb.y !== 0) ctx.translate(-gb.x, -gb.y);
+    const figIt = geo.figures.iterator;
+    while (figIt.next()) this._drawFigureSegments(ctx, figIt.value);
+    ctx.restore();
   }
 
   /** Render a Shape */
@@ -1147,6 +1354,7 @@ export class CanvasRenderer {
         ctx.lineWidth = shape.strokeWidth;
         if (shape.strokeDashArray) {
           ctx.setLineDash(shape.strokeDashArray);
+          ctx.lineDashOffset = shape.strokeDashOffset;
         }
         this._strokeRectNoShadow(ctx, shapeX, shapeY, shapeW, shapeH);
         ctx.restore();
@@ -1180,6 +1388,7 @@ export class CanvasRenderer {
     const doStroke = !!shape.stroke && shape.strokeWidth > 0;
     if (doStroke && shape.strokeDashArray) {
       ctx.setLineDash(shape.strokeDashArray);
+      ctx.lineDashOffset = shape.strokeDashOffset;
     }
     const figIt = geo.figures.iterator;
     while (figIt.next()) {
@@ -1630,7 +1839,10 @@ export class CanvasRenderer {
             const stroke = el.stroke;
             const doStroke = !!stroke && el.strokeWidth > 0;
             const doFill = !!el.fill;
-            if (doStroke && el.strokeDashArray) ctx.setLineDash(el.strokeDashArray);
+            if (doStroke && el.strokeDashArray) {
+              ctx.setLineDash(el.strokeDashArray);
+              ctx.lineDashOffset = (el as any).strokeDashOffset || 0;
+            }
             const figIt = geo.figures.iterator;
             while (figIt.next()) {
               const fig = figIt.value;
