@@ -91,3 +91,11 @@ vitest 测试很慢，建议换一种测试方法，尽量使用cdp操作浏览�
 - **根因（非 curviness 常数）**：`Link._XF` 官方与我们都=16（`go-debug static XF=16`），排除调常数。差异在官方 `computeCurviness()` 的 **bundling 分支**：`this.ur`（LinkBundle）非 null 时，按链路在 bundle 中的位置重算 `t=-totalSpacing/2 + spacing_r/2`（官方 `computeCurviness(){...const i=this.ur;if(i!==null){...n=i.gn;for...s+=n[r].computeSpacing()...}`）。relationships 的多条 link 共享端口 → 官方建 LinkBundle（`arrangeBundledLinks` 里 `new LinkBundle(...)`、`c.ur=h`、`h.gg()`），把每条 curviness 从 16 压到 ~12.4。我方 `arrangeBundledLinks`（Link.ts:1494）是 no-op（无 LinkBundle），`computeCurviness()`（Link.ts:1174）恒返回 16。
 - **未修原因（低 ROI）**：实现 bundling = LinkBundle 类（gn/gg/ew/IS/ZN/QN）+ 每条 link `computeSpacing()` + `computeCurviness()` bundling 调整 + Diagram 连线排布时建 bundle 的接线。工作量大、回归风险高（`--all` 全量回退面），换来一条细线 ~3.6px 的曲率偏移（big 占比小）。**记为待办/低 ROI**，若后续要做再实现整套 bundling。
 - **新探针**：`_lkpts.cjs`（dump 前若干 link 的 points 全点）。
+
+## processFlow / run11 残留定位（本轮，2026-10-17，均非高优先）
+- **processFlow（2.83%，由 9.35% 降下）**：剩余差异 = `WAVE_GRADUATED_PANEL` 的 actualBounds.x 官方 -15.7 vs 我方 0（`_tank.cjs` 逐元素 dump 全节点树，**仅此一处 + graduated 刻度细节**）。已排除"stretch 未夹宽"论（`_wavepanel.cjs` 确认官方也量到 5000 宽，与 stretch 无关）。-15.7 偏移来源在 Vertical 面板对 stretch 子元素的 arrange/alignment 细节，水波线被夹到罐宽后影响可见段。属次要打磨，低 ROI。
+- **security（13.6%）**：34 节点无 link，diff 遍布中带——样例从 `commons.wikimedia.org`/`gojs.net` 加载大量外部图片（监控/平面图），网络加载差异所致，非 GoJS 渲染 bug。
+- **beatPaths（1.117%）**：= run11 基线，非回退。
+- **virtualized*（4 个）**：在 `slow.txt`，ab_render 设计性跳过，非 bug。
+- **VirtualizedPacked（0% + ERR）**：样例用 ESM `import go from 'gojs'`，ab_render 的普通 `<script>` 包装不支持 module → harness 限制，非库 bug。
+- **结论**：本轮待办队列的剩余项（relationships bundling / processFlow 水波偏移 / leaflet / security / beatPaths / virtualized* / VirtualizedPacked）全部定位完毕，**均非高优先可修的 GoJS 渲染缺陷**（多为网络/构建/harness 限制或低 ROI 打磨）。转去 Mermaid DSL 功能。
