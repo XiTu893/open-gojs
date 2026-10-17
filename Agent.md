@@ -85,3 +85,9 @@ vitest 测试很慢，建议换一种测试方法，尽量使用cdp操作浏览�
 - **为何官方=0,0**：官方 `on(true)`（applyInitialViewport）首帧跑在样例 `sync()` 放置节点**之前**（documentBounds 非 real → `on(true)` 提前 return，不设 position），随后 sync 设 (0,0) 钉住。我方首帧跑在 sync 之后（节点已放、doc real）→ 自动对齐覆盖。
 - **尝试的修复（已回退）**：`_positionSetBeforeLayout` 标志——`position` setter 在首布局前被调即置位，`_applyInitialViewport` 尊重它跳过自动对齐。leaflet 6.5%→1.2% ✓，但**误伤 platformerLevelCreator(0.40→8.97%) 与 fonticons**——这两个样例在 config 里也设 position，官方**照常自动对齐**到别的值，我的标志让它们跳过 → 位置偏离官方。**根因区分**：leaflet 是"首帧 doc 未 real 时 on(true) 早退"，platformerLevelCreator 是"config 设 position 但 on(true) 仍跑"。标志法无法区分 → **已完全回退，工作树干净**。
 - **教训**：官方 `applyInitialViewport` 的跳过条件不是"应用设过 position"，而是"首帧 documentBounds 未 real 时早退"。修复需要对齐首帧布局相对应用代码的执行时序，是脆弱的竞态，且会误伤其它样例 → 不值得为此动。leaflet 属网络 tile + 时序竞态，记为**待查/不阻塞**。fonticons 6.9% 是 3 个外部 CDN 图标字体加载差异（非 GoJS bug，run9 的 0% 已确认是假阳性）。
+
+## relationships 连线曲率差 = 官方 link bundling（本轮定位，未修）
+- **现象**：relationships link bezier 中点 y=-4.8（我方）vs -1.2（官方）。`_lkpts.cjs` dump 两点式 route 的 4 点：`[(32,10.4),(83.8,-4.8),(135.6,-4.7),(187.6,10.6)]` vs 官方 `[(32,11.2),(83.7,-1.2),(135.3,-1.2),(187.4,11.3)]`。
+- **根因（非 curviness 常数）**：`Link._XF` 官方与我们都=16（`go-debug static XF=16`），排除调常数。差异在官方 `computeCurviness()` 的 **bundling 分支**：`this.ur`（LinkBundle）非 null 时，按链路在 bundle 中的位置重算 `t=-totalSpacing/2 + spacing_r/2`（官方 `computeCurviness(){...const i=this.ur;if(i!==null){...n=i.gn;for...s+=n[r].computeSpacing()...}`）。relationships 的多条 link 共享端口 → 官方建 LinkBundle（`arrangeBundledLinks` 里 `new LinkBundle(...)`、`c.ur=h`、`h.gg()`），把每条 curviness 从 16 压到 ~12.4。我方 `arrangeBundledLinks`（Link.ts:1494）是 no-op（无 LinkBundle），`computeCurviness()`（Link.ts:1174）恒返回 16。
+- **未修原因（低 ROI）**：实现 bundling = LinkBundle 类（gn/gg/ew/IS/ZN/QN）+ 每条 link `computeSpacing()` + `computeCurviness()` bundling 调整 + Diagram 连线排布时建 bundle 的接线。工作量大、回归风险高（`--all` 全量回退面），换来一条细线 ~3.6px 的曲率偏移（big 占比小）。**记为待办/低 ROI**，若后续要做再实现整套 bundling。
+- **新探针**：`_lkpts.cjs`（dump 前若干 link 的 points 全点）。
