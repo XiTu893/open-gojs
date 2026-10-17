@@ -78,3 +78,10 @@ vitest 测试很慢，建议换一种测试方法，尽量使用cdp操作浏览�
   - **orgChartAssistants +0.32**：TreeLayout `commitLinks` 提交的正交路线与重算略有差（**独立布局问题，待办**）。
 - **新探针**：`_dum.cjs`（dump 每条 edge 的 fromV/toV/dummy 链）、`_geo4.cjs`（按 from->to dump link points，PERT/orgChartAssistants 用）、`_fimg.cjs`（canvas 像素 diff 定位 bbox）、`_con.cjs`（捕获页面 console.log）。
 - **教训**：`ab_render` 的 `0%` 若伴随 `ERR(n/n)` 需警惕假阳性（资源加载失败 → 双方空截图）；判回退前先看 run9/run10 的 ERR 计数。
+
+## leaflet 视口回归定位（本轮，2026-10-17）
+- **现象**：leaflet 1.147%→6.5%。GoJS 节点 actualBounds 与官方逐位一致、节点/尺寸全对齐，但 **`_nscan`/canvas 像素探针显示节点区全为透明**（官方渲染红 PIN/黑 glyph，我方 0,0,0,0）。
+- **根因（非渲染，是视口滚动）**：我方 `diagram.position` = `(-9.12,-63.37)`，官方 = `(0,0)`（`_pospoll` 确认 db 两者同 `[8.75,9.25]`）。`_applyInitialViewport` 首帧按当时 documentBounds（链接未路由的瞬时态，起点 -9,-63）用 TopLeft 对齐算出非零 position，覆盖了样例 sync() 显式设的 (0,0)。节点其实画出来了，只是整体被滚到 -9,-63 → 与 OSM 底图错位一整格。
+- **为何官方=0,0**：官方 `on(true)`（applyInitialViewport）首帧跑在样例 `sync()` 放置节点**之前**（documentBounds 非 real → `on(true)` 提前 return，不设 position），随后 sync 设 (0,0) 钉住。我方首帧跑在 sync 之后（节点已放、doc real）→ 自动对齐覆盖。
+- **尝试的修复（已回退）**：`_positionSetBeforeLayout` 标志——`position` setter 在首布局前被调即置位，`_applyInitialViewport` 尊重它跳过自动对齐。leaflet 6.5%→1.2% ✓，但**误伤 platformerLevelCreator(0.40→8.97%) 与 fonticons**——这两个样例在 config 里也设 position，官方**照常自动对齐**到别的值，我的标志让它们跳过 → 位置偏离官方。**根因区分**：leaflet 是"首帧 doc 未 real 时 on(true) 早退"，platformerLevelCreator 是"config 设 position 但 on(true) 仍跑"。标志法无法区分 → **已完全回退，工作树干净**。
+- **教训**：官方 `applyInitialViewport` 的跳过条件不是"应用设过 position"，而是"首帧 documentBounds 未 real 时早退"。修复需要对齐首帧布局相对应用代码的执行时序，是脆弱的竞态，且会误伤其它样例 → 不值得为此动。leaflet 属网络 tile + 时序竞态，记为**待查/不阻塞**。fonticons 6.9% 是 3 个外部 CDN 图标字体加载差异（非 GoJS bug，run9 的 0% 已确认是假阳性）。
