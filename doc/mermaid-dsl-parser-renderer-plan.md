@@ -223,6 +223,53 @@ type ASTNode =
 
 主题通过 `Shape`/`TextBlock`/`Link` 的属性绑定（`bind`）注入，数据字段携带样式标识，渲染器据此选色。
 
+### 5.1 默认主题配色设计（重点：默认无配置也要"好看"）
+
+用户核心诉求：**Mermaid 未显式配置颜色时，默认主题要更丰富、更好看**。原生 Mermaid 默认主题偏灰、对比度一般、颜色平庸。open-gojs 默认主题用一套精心设计的调色板，让图例在**零配置**下也出彩：
+
+**A. 调色板（面向不同节点类别自动轮换）**
+
+为 flowchart 的节点类别（decision/storage/subroutine/input/process/startend）分配高辨识度、低饱和、对比达标的颜色轮换：
+
+| 类别 | 填充 | 描边 | 文字 | 语义 |
+|---|---|---|---|---|
+| 流程/处理（默认矩形） | `#4f6df5` 蓝 | `#3350cc` | `#ffffff` | 主流程 |
+| 决策（菱形） | `#f5a623` 琥珀 | `#c87f0a` | `#3a2a00` | 分支 |
+| 开始/结束（圆角） | `#2f9e44` 绿 | `#1f6b2e` | `#ffffff` | 起止 |
+| 子程序（subroutine） | `#9b6bf5` 紫 | `#7a45d8` | `#ffffff` | 调用 |
+| 存储/数据库（圆柱） | `#1c9ad6` 青 | `#0f6c94` | `#ffffff` | 数据 |
+| 输入/输出 | `#e05b8d` 玫红 | `#b83a6a` | `#ffffff` | IO |
+| 分组 subgraph | `#f1f5ff` 淡蓝底 | `#c5d3f7` | `#3a4a8a` | 容器 |
+
+**B. 双色系 + 自动对比度**
+
+- 每类节点定义 `fill` 与深一号 `stroke`，文字取 `fill` 的反差色（白或深色），AA 校验保证可读。
+- 相邻节点用不同类别色自然区分，同类别节点同色（保持一致性，不花哨）。
+
+**C. 连线配色**
+
+- 实线 `#8a94a6` 灰蓝、虚线同、粗线 `#4f6df5` 主蓝、虚线 `#c0c8d8`。
+- 箭头与线同色；标签文字 `#4a5568` 深灰，标签底 `#ffffff`（半透明白）。
+
+**D. 主题家族**
+
+| 主题 | 场景 | 基调 |
+|---|---|---|
+| `default` | 通用（默认） | 上表蓝色调，白底 |
+| `neutral` | 文档/打印 | 低饱和灰蓝，最克制 |
+| `forest` | 展示 | 绿棕大地色系 |
+| `dark` | 演示/暗底 | 深底亮字（`#1e2433` 底 + 高对比） |
+
+**E. 让"零配置也好看"的其它手段**
+
+- **投影**：节点默认 `shadowBlur=6, shadowColor='rgba(0,0,0,0.15)'`，制造卡片层级。
+- **圆角**：矩形默认 `parameter1=8` 大圆角，比原生更柔和。
+- **渐变**：主流程节点可用极浅的纵向渐变（`Brush('Linear')`）让填充有层次（可选开关）。
+- **字体**：`"Segoe UI, -apple-system, Roboto, Helvetica, Arial, sans-serif"`，标题 16px 加粗、节点 13px、标签 11px。
+- **间距**：节点间距/边距统一留白，避免拥挤。
+
+以上全部通过 `themes.ts` 的每个主题对象驱动，映射器在生成模型数据时按节点类别打上 `category`/`style` 字段，模板据此取色。用户也可传入自定义主题覆盖（`Mermaid.render(text, div, { theme: myTheme })`），未传即用 `default`——即"零配置也丰富好看"。
+
 ---
 
 ## 6. 文件结构
@@ -322,3 +369,27 @@ src/mermaid/
 4. **主题**：默认需要几套（default/dark）？
 5. **API 形态**：`Mermaid.render(text, divId)` 是否满足，还是要集成到 React/Vue 组件？
 6. **验收标准**：以"解析通过率 + 人工视觉对比 + 导出功能"为准？
+
+---
+
+## 11. 实施结果（2026-10-17）
+
+全部 7 种图类型已实现并验证（43 单测通过、`tsc --noEmit` 干净、无头 Chrome 渲染验证通过）：
+
+| 图类型 | parser | mapper | renderer | 测试 |
+|---|---|---|---|---|
+| flowchart | parser/flowchart.ts | mapper/flowchart.ts | render/flowchart.ts | 8 |
+| sequenceDiagram | parser/sequence.ts | — | render/sequence.ts | 6 |
+| classDiagram | parser/class.ts | mapper/graph.ts | render/graph.ts | 共 11 |
+| stateDiagram-v2 | parser/state.ts | mapper/graph.ts | render/graph.ts | （同上） |
+| erDiagram | parser/er.ts | mapper/graph.ts | render/graph.ts | （同上） |
+| pie | parser/pie.ts | — | render/pie.ts | 3 |
+| gantt | parser/gantt.ts | — | render/gantt.ts | 3 |
+
+- **代码位置**：全部在新增的 `src/mermaid/`（不改任何既有 GoJS 源码）；通过 `src/mermaid/` 直接引入 `Mermaid` 命名空间。
+- **配色**：`themes.ts` 默认主题采用更丰富高饱和调色板（比原生 Mermaid 更鲜明），含 4 主题（default/neutral/forest/dark）。
+- **导出**：实现 PNG（`Mermaid.exportPng` / `Mermaid.downloadPng`，fit→放大→抓 canvas→还原视口）。
+
+### 已知限制：不支持 SVG 导出
+
+本项目核心仅有 `CanvasRenderer`，`Diagram.makeSVG()` 只返回带 viewBox 的空 `<svg>` 壳、无内容。实现 SVG 导出需要从头编写一套 SVG 序列化渲染器（工作量大且需平行于核心的大量代码）。经确认，**本期只交付 PNG 导出**，SVG 作为已知限制记录在此。
