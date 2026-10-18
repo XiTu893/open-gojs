@@ -25,6 +25,7 @@ import {
   LayeredDigraphDirectionLeft,
   WrapFit,
   RoutingOrthogonal,
+  RoutingNormal,
   CurveNone,
 } from '../../core/EnumValues';
 import { MermaidTheme } from '../themes';
@@ -64,10 +65,14 @@ function styleFor(theme: MermaidTheme, category: FlowCategory) {
 }
 
 /** 构建某类别的节点模板 */
-function buildNodeTemplate(theme: MermaidTheme, category: FlowCategory): Node {
+function buildNodeTemplate(theme: MermaidTheme, category: FlowCategory, dir?: string): Node {
   const cs = styleFor(theme, category);
   const isCircle = category === 'Circle';
   const isDecision = category === 'Decision';
+  const vertical = dir === 'TD' || dir === 'TB' || dir === 'BT';
+  // 固定连接边：避免 AllSides 在特殊形状（Diamond 等）上产生错误的正交路由中间点
+  const fromSpot = vertical ? Spot.Bottom : Spot.Right;
+  const toSpot = vertical ? Spot.Top : Spot.Left;
 
   const node = new Node('Auto');
   node.locationSpot = Spot.Center;
@@ -81,8 +86,8 @@ function buildNodeTemplate(theme: MermaidTheme, category: FlowCategory): Node {
   shape.strokeWidth = cs.strokeWidth;
   shape.fromLinkable = true;
   shape.toLinkable = true;
-  shape.fromSpot = Spot.AllSides;
-  shape.toSpot = Spot.AllSides;
+  shape.fromSpot = fromSpot;
+  shape.toSpot = toSpot;
   if (!isCircle && !isDecision) shape.parameter1 = theme.nodeRadius;
   node.add(shape);
 
@@ -134,7 +139,9 @@ function buildGroupBoxTemplate(theme: MermaidTheme): Node {
 function buildLinkTemplate(theme: MermaidTheme): Link {
   const es = theme.edge;
   const link = new Link();
-  link.routing = RoutingOrthogonal;
+  // RoutingNormal（直线）：避免 Orthogonal 路由对特殊形状（Diamond/子程序等）
+  // 计算错误的中间点（出现 -300/1263 等极端坐标导致连线穿节点）
+  link.routing = RoutingNormal;
   link.curve = CurveNone;
   link.corner = 8;
   link.toShortLength = 4;
@@ -214,14 +221,14 @@ export function renderFlowchart(
   diag.layout = layout;
 
   // 节点模板（各形状 + 默认）
-  diag.nodeTemplateMap.add('', buildNodeTemplate(theme, ''));
-  diag.nodeTemplateMap.add('Decision', buildNodeTemplate(theme, 'Decision'));
-  diag.nodeTemplateMap.add('StartEnd', buildNodeTemplate(theme, 'StartEnd'));
-  diag.nodeTemplateMap.add('Subroutine', buildNodeTemplate(theme, 'Subroutine'));
-  diag.nodeTemplateMap.add('Cylinder', buildNodeTemplate(theme, 'Cylinder'));
-  diag.nodeTemplateMap.add('Circle', buildNodeTemplate(theme, 'Circle'));
-  diag.nodeTemplateMap.add('Parallelogram', buildNodeTemplate(theme, 'Parallelogram'));
-  diag.nodeTemplateMap.add('Hexagon', buildNodeTemplate(theme, 'Hexagon'));
+  diag.nodeTemplateMap.add('', buildNodeTemplate(theme, '', data.dir));
+  diag.nodeTemplateMap.add('Decision', buildNodeTemplate(theme, 'Decision', data.dir));
+  diag.nodeTemplateMap.add('StartEnd', buildNodeTemplate(theme, 'StartEnd', data.dir));
+  diag.nodeTemplateMap.add('Subroutine', buildNodeTemplate(theme, 'Subroutine', data.dir));
+  diag.nodeTemplateMap.add('Cylinder', buildNodeTemplate(theme, 'Cylinder', data.dir));
+  diag.nodeTemplateMap.add('Circle', buildNodeTemplate(theme, 'Circle', data.dir));
+  diag.nodeTemplateMap.add('Parallelogram', buildNodeTemplate(theme, 'Parallelogram', data.dir));
+  diag.nodeTemplateMap.add('Hexagon', buildNodeTemplate(theme, 'Hexagon', data.dir));
   diag.nodeTemplateMap.add('GroupBox', buildGroupBoxTemplate(theme));
 
   // 连线模板

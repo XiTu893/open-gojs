@@ -209,7 +209,7 @@ function buildMessageNode(theme: MermaidTheme): Node {
   arrowL.width = ARR;
   arrowL.height = 10;
   arrowL.fill = stroke;
-  arrowL.angle = 180;
+  arrowL.angle = 270;
   arrowL.bind('visible', 'reverse', (r: boolean) => !!r);
   node.add(arrowL);
 
@@ -233,7 +233,7 @@ function buildMessageNode(theme: MermaidTheme): Node {
   arrowR.width = ARR;
   arrowR.height = 10;
   arrowR.fill = stroke;
-  arrowR.angle = 0;
+  arrowR.angle = 90;
   arrowR.bind('visible', 'reverse', (r: boolean) => !r);
   node.add(arrowR);
 

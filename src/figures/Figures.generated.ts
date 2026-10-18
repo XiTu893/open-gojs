@@ -2865,8 +2865,8 @@ defineFigureGenerator('Procedure', (shape, w, h) => {
     fig2.add(new PathSegment(SegmentType.Line, (1 - param1) * w, h));
     fig2.add(new PathSegment(SegmentType.Move, param1 * w, 0));
     fig2.add(new PathSegment(SegmentType.Line, param1 * w, h));
-    // ??? geo.spot1 = new Spot(param1, 0);
-    // ??? geo.spot2 = new Spot(1 - param1, 1);
+    geo.spot1 = new Spot(param1, 0);
+    geo.spot2 = new Spot(1 - param1, 1);
     return geo;
 });
 defineFigureGenerator('Process', (shape, w, h) => {
