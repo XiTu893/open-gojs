@@ -48,13 +48,16 @@ export interface MermaidTheme {
   nodeRadius: number;
   shadow: { blur: number; color: string };
   nodeSpacing: number;
+  /** 分类/扇区等的轮换色（gantt section、pie 扇区按序取色） */
+  series: string[];
   categories: Record<NodeCategory, CategoryStyle>;
   edge: EdgeStyle;
 }
 
 /**
- * 默认主题 —— 高辨识度、低饱和、对比达标的调色板。
- * 蓝(主流程)/琥珀(决策)/绿(起止)/紫(子程序)/青(存储)/玫红(IO) 轮换。
+ * 默认主题 —— GoJS 原生黑白风格：
+ * 白底、黑边、黑字、无阴影、黑色 Standard 箭头；容器浅灰底。
+ * series 为灰阶轮换（gantt/pie 深浅交替区分）。
  */
 export const defaultTheme: MermaidTheme = {
   name: 'default',
@@ -62,28 +65,29 @@ export const defaultTheme: MermaidTheme = {
   fontFamily: 'Segoe UI, -apple-system, Roboto, Helvetica, Arial, sans-serif',
   fontSize: { title: 18, node: 13, label: 11 },
   nodeRadius: 8,
-  shadow: { blur: 6, color: 'rgba(0,0,0,0.15)' },
+  shadow: { blur: 0, color: 'rgba(0,0,0,0)' },
   nodeSpacing: 30,
+  series: ['#1a1a1a', '#555555', '#8c8c8c', '#c4c4c4', '#333333', '#707070', '#a8a8a8', '#e0e0e0'],
   categories: {
-    process: { fill: '#4f6df5', stroke: '#3350cc', text: '#ffffff', strokeWidth: 1.5 },
-    decision: { fill: '#f5a623', stroke: '#c87f0a', text: '#3a2a00', strokeWidth: 1.5 },
-    startend: { fill: '#2f9e44', stroke: '#1f6b2e', text: '#ffffff', strokeWidth: 1.5 },
-    subroutine: { fill: '#9b6bf5', stroke: '#7a45d8', text: '#ffffff', strokeWidth: 1.5 },
-    storage: { fill: '#1c9ad6', stroke: '#0f6c94', text: '#ffffff', strokeWidth: 1.5 },
-    inputoutput: { fill: '#e05b8d', stroke: '#b83a6a', text: '#ffffff', strokeWidth: 1.5 },
-    group: { fill: '#f1f5ff', stroke: '#c5d3f7', text: '#3a4a8a', strokeWidth: 1 },
-    class: { fill: '#4f6df5', stroke: '#3350cc', text: '#ffffff', strokeWidth: 1.5 },
-    state: { fill: '#2f9e44', stroke: '#1f6b2e', text: '#ffffff', strokeWidth: 1.5 },
-    er: { fill: '#1c9ad6', stroke: '#0f6c94', text: '#ffffff', strokeWidth: 1.5 },
-    participant: { fill: '#eef2ff', stroke: '#9db3f7', text: '#2c3e8a', strokeWidth: 1 },
-    note: { fill: '#fff8e1', stroke: '#e6c95a', text: '#6b4d00', strokeWidth: 1 },
+    process: { fill: '#ffffff', stroke: '#000000', text: '#000000', strokeWidth: 1 },
+    decision: { fill: '#ffffff', stroke: '#000000', text: '#000000', strokeWidth: 1 },
+    startend: { fill: '#ffffff', stroke: '#000000', text: '#000000', strokeWidth: 1 },
+    subroutine: { fill: '#ffffff', stroke: '#000000', text: '#000000', strokeWidth: 1 },
+    storage: { fill: '#ffffff', stroke: '#000000', text: '#000000', strokeWidth: 1 },
+    inputoutput: { fill: '#ffffff', stroke: '#000000', text: '#000000', strokeWidth: 1 },
+    group: { fill: '#f7f7f8', stroke: '#8c8c8c', text: '#000000', strokeWidth: 1 },
+    class: { fill: '#ffffff', stroke: '#000000', text: '#000000', strokeWidth: 1 },
+    state: { fill: '#ffffff', stroke: '#000000', text: '#000000', strokeWidth: 1 },
+    er: { fill: '#ffffff', stroke: '#000000', text: '#000000', strokeWidth: 1 },
+    participant: { fill: '#ffffff', stroke: '#000000', text: '#000000', strokeWidth: 1 },
+    note: { fill: '#ffffff', stroke: '#000000', text: '#000000', strokeWidth: 1 },
   },
   edge: {
-    solid: '#8a94a6',
-    dotted: '#b9c2d2',
-    thick: '#4f6df5',
-    dashed: '#c0c8d8',
-    label: '#4a5568',
+    solid: '#000000',
+    dotted: '#666666',
+    thick: '#000000',
+    dashed: '#999999',
+    label: '#000000',
     labelBg: 'rgba(255,255,255,0.85)',
   },
 };
@@ -93,6 +97,7 @@ export const neutralTheme: MermaidTheme = {
   ...defaultTheme,
   name: 'neutral',
   background: '#ffffff',
+  series: ['#4a5a78', '#7c8aa8', '#a9b4c8', '#c9d1de', '#5d6b84', '#8d99b0', '#b8c0d0', '#dde2ea'],
   categories: {
     ...defaultTheme.categories,
     process: { fill: '#e8edf5', stroke: '#8fa1c4', text: '#2b3a55', strokeWidth: 1 },
@@ -116,6 +121,7 @@ export const forestTheme: MermaidTheme = {
   ...defaultTheme,
   name: 'forest',
   background: '#fafaf5',
+  series: ['#3d6b3d', '#5a8f5a', '#8a9e5a', '#b4a86a', '#4a7a5a', '#6f9a4a', '#9aad72', '#c5cfa8'],
   categories: {
     ...defaultTheme.categories,
     process: { fill: '#5a8f5a', stroke: '#3d6b3d', text: '#ffffff', strokeWidth: 1.5 },
@@ -143,6 +149,7 @@ export const darkTheme: MermaidTheme = {
   nodeRadius: 8,
   shadow: { blur: 8, color: 'rgba(0,0,0,0.4)' },
   nodeSpacing: 30,
+  series: ['#7b96ff', '#4ec469', '#ffb84d', '#ff7fa9', '#b58aff', '#3fb3ef', '#5aa9c4', '#8fa8d8'],
   categories: {
     process: { fill: '#5b7cff', stroke: '#3b57d6', text: '#ffffff', strokeWidth: 1.5 },
     decision: { fill: '#ffb84d', stroke: '#d6931a', text: '#1a1200', strokeWidth: 1.5 },

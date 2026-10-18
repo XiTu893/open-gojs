@@ -152,7 +152,7 @@ function buildMessageLinkTemplate(theme: MermaidTheme): Link {
   const label = new TextBlock();
   label.margin = new Margin(2, 10, 2, 10);
   label.font = `${theme.fontSize.label}px ${theme.fontFamily}`;
-  label.stroke = '#333';
+  label.stroke = theme.edge.label;
   label.alignmentFocus = Spot.Bottom;
   label.segmentOffset = new Point(0, -4);
   label.bind('text', 'text');
@@ -163,19 +163,20 @@ function buildMessageLinkTemplate(theme: MermaidTheme): Link {
 
 /** note 说明框节点 */
 function buildNoteNode(theme: MermaidTheme): Node {
+  const cs = theme.categories.note;
   const node = new Node('Auto');
   node.locationSpot = Spot.Center;
   node.selectable = false;
   const box = new Shape('RoundedRectangle');
-  box.fill = '#fff8dc';
-  box.stroke = '#d9b84a';
-  box.strokeWidth = 1;
+  box.fill = cs.fill;
+  box.stroke = cs.stroke;
+  box.strokeWidth = cs.strokeWidth;
   box.parameter1 = 6;
   node.add(box);
   const tb = new TextBlock();
   tb.margin = new Margin(6, 12, 6, 12);
   tb.font = `${theme.fontSize.label}px ${theme.fontFamily}`;
-  tb.stroke = '#5a4a12';
+  tb.stroke = cs.text;
   tb.wrap = WrapFit;
   tb.bind('text', 'text');
   node.add(tb);

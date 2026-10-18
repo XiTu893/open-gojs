@@ -114,7 +114,7 @@ export function render(text: string, divId: string, opts: RenderOptions = {}): R
   } else if (parsed.type === 'er') {
     diagram = renderGraph(divId, mapEr(parsed.ast as any), theme, { withMembers: true });
   } else if (parsed.type === 'pie') {
-    diagram = renderPie(divId, mapPie(parsed.ast as any), theme);
+    diagram = renderPie(divId, mapPie(parsed.ast as any, theme), theme);
   } else if (parsed.type === 'gantt') {
     diagram = renderGantt(divId, mapGantt(parsed.ast as any, theme), theme);
   }

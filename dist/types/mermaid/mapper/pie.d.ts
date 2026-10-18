@@ -5,6 +5,7 @@
  * 节点数据含定位/尺寸/角度/配色，渲染层只建模板。
  */
 import { PieAST } from '../ast';
+import { MermaidTheme } from '../themes';
 /** 映射后的节点数据 */
 export interface MappedPieNode {
     key: string;
@@ -18,6 +19,6 @@ export interface MappedPieNode {
     h?: number;
 }
 /** 主入口 */
-export declare function mapPie(ast: PieAST): {
+export declare function mapPie(ast: PieAST, theme: MermaidTheme): {
     nodes: MappedPieNode[];
 };

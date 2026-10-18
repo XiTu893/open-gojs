@@ -39,12 +39,15 @@ export interface MermaidTheme {
         color: string;
     };
     nodeSpacing: number;
+    /** 分类/扇区等的轮换色（gantt section、pie 扇区按序取色） */
+    series: string[];
     categories: Record<NodeCategory, CategoryStyle>;
     edge: EdgeStyle;
 }
 /**
- * 默认主题 —— 高辨识度、低饱和、对比达标的调色板。
- * 蓝(主流程)/琥珀(决策)/绿(起止)/紫(子程序)/青(存储)/玫红(IO) 轮换。
+ * 默认主题 —— GoJS 原生黑白风格：
+ * 白底、黑边、黑字、无阴影、黑色 Standard 箭头；容器浅灰底。
+ * series 为灰阶轮换（gantt/pie 深浅交替区分）。
  */
 export declare const defaultTheme: MermaidTheme;
 /** 中性主题 —— 文档/打印，低饱和克制 */

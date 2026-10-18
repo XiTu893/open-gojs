@@ -54,7 +54,7 @@ function buildBarNode(): Node {
   const bar = new Shape('RoundedRectangle');
   bar.portId = '';
   bar.parameter1 = 4;
-  bar.fill = '#4f6df5';
+  bar.fill = '#999999';
   bar.stroke = 'transparent';
   bar.bind('fill', 'fill');
   bar.bind('width', 'w');

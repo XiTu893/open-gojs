@@ -38,7 +38,7 @@ function buildSliceNode(): Node {
   slice.portId = '';
   slice.stroke = '#ffffff';
   slice.strokeWidth = 2;
-  slice.fill = '#4f6df5';
+  slice.fill = '#555555';
   slice.bind('fill', 'fill');
   slice.bind('parameter1', 'start');
   slice.bind('parameter2', 'sweep');
@@ -57,7 +57,7 @@ function buildLegendNode(theme: MermaidTheme): Node {
   swatch.width = 16;
   swatch.height = 16;
   swatch.stroke = 'transparent';
-  swatch.fill = '#4f6df5';
+  swatch.fill = '#555555';
   swatch.bind('fill', 'fill');
   node.add(swatch);
   const label = new TextBlock();

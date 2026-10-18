@@ -5,13 +5,7 @@
  * 节点数据含定位/尺寸/角度/配色，渲染层只建模板。
  */
 import { PieAST } from '../ast';
-
-/** 饼图配色（高饱和高对比，循环使用） */
-const PIE_COLORS = [
-  '#4f6df5', '#f5a623', '#2f9e44', '#e05b8d', '#9b6bf5',
-  '#1c9ad6', '#f4772e', '#16a085', '#d4344f', '#7d3c98',
-  '#00838f', '#c0392b', '#2874a6', '#b7950b', '#117864',
-];
+import { MermaidTheme } from '../themes';
 
 const R = 150;        // 饼半径
 const CX = 210;       // 圆心 X
@@ -39,11 +33,11 @@ function normalizeAngle(a: number): number {
 }
 
 /** 主入口 */
-export function mapPie(ast: PieAST): { nodes: MappedPieNode[] } {
+export function mapPie(ast: PieAST, theme: MermaidTheme): { nodes: MappedPieNode[] } {
   const total = ast.data.reduce((s, d) => s + Math.max(0, d.value), 0) || 1;
   const nodes: MappedPieNode[] = [];
   const size = 2 * R;
-  const colorOf = (i: number) => PIE_COLORS[i % PIE_COLORS.length];
+  const colorOf = (i: number) => theme.series[i % theme.series.length];
 
   // 扇形（从 12 点方向开始顺时针）
   let angle = -90;

@@ -99,7 +99,7 @@ function resolveTasks(ast: GanttAST): {
 }
 
 function sectionColor(sec: string, theme: MermaidTheme): string {
-  const palette = ['#4f6df5', '#2f9e44', '#f5a623', '#9b6bf5', '#1c9ad6', '#e05b8d'];
+  const palette = theme.series;
   let h = 0;
   for (let i = 0; i < sec.length; i++) h = (h * 31 + sec.charCodeAt(i)) >>> 0;
   return palette[h % palette.length];
