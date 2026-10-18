@@ -75,30 +75,40 @@ export function renderSequence(divId: string, ast: SequenceAST, theme: MermaidTh
     return TOP_H + MSG_H * (row + 1) + MARGIN / 2;
   }
 
-  // 激活盒：activate/deactivate 按行顺序穿插，跨度内画竖条
-  const activeStack = new Map<string, number>();
+  // 激活盒：用消息的 DSL 行号定位 activate→deactivate 的跨度
+  // （activate 之后第一条消息 到 deactivate 之前最后一条消息）
+  const msgRows: { line: number; row: number }[] = [];
+  for (let mi = 0; mi < ast.messages.length; mi++) {
+    msgRows.push({ line: ast.messages[mi].line, row: rowOfMsg.get(mi)! });
+  }
+  msgRows.sort((a, b) => a.line - b.line);
   const actNodes: any[] = [];
-  const events: { r: number; type: 'm' | 'a'; mi?: number; a?: any }[] = [];
-  for (let mi = 0; mi < ast.messages.length; mi++) events.push({ r: rowOfMsg.get(mi)!, type: 'm', mi });
-  // 激活事件排在消息之后（DSL 顺序近似：直接放在所有消息行后）
-  let er = ast.messages.length;
-  for (const a of ast.activations) events.push({ r: er++, type: 'a', a });
-  for (const ev of events) {
-    if (ev.type === 'm') continue;
-    const a = ev.a;
+  const activeStart = new Map<string, number>();
+  for (const a of ast.activations) {
     const ci = colIndex.get(a.actor);
     if (ci === undefined) continue;
     if (a.activate) {
-      if (!activeStack.has(a.actor)) activeStack.set(a.actor, ev.r);
+      if (!activeStart.has(a.actor)) activeStart.set(a.actor, a.line);
     } else {
-      const stRow = activeStack.get(a.actor);
-      if (stRow !== undefined) {
-        activeStack.delete(a.actor);
-        const span = Math.max(1, ev.r - stRow) * MSG_H;
+      const startLine = activeStart.get(a.actor);
+      if (startLine !== undefined) {
+        activeStart.delete(a.actor);
+        // 起始行 = startLine 之后第一条消息；结束行 = a.line 之前最后一条消息
+        let startRow = -1;
+        let endRow = -1;
+        for (const mr of msgRows) {
+          if (mr.line > startLine && startRow === -1) startRow = mr.row;
+          if (mr.line < a.line) endRow = mr.row;
+        }
+        if (startRow === -1) startRow = endRow; // 无消息在 activate 后，退化为单行
+        if (endRow === -1) endRow = startRow;
+        if (startRow < 0 || endRow < 0) continue;
+        const span = Math.max(MSG_H, (Math.max(startRow, endRow) - Math.min(startRow, endRow) + 1) * MSG_H);
+        const topY = rowY(Math.min(startRow, endRow)) - MSG_H / 2;
         actNodes.push({
-          key: `__act_${a.actor}_${ev.r}`,
+          key: `__act_${a.actor}_${a.line}`,
           category: 'activation',
-          loc: `${colX(ci)} ${rowY(Math.min(stRow, ev.r)) - span / 2}`,
+          loc: `${colX(ci)} ${topY}`,
           h: span,
         });
       }
