@@ -4,6 +4,7 @@
  * - 左列任务名，右侧时间轴与任务条
  * - 解析日期（dateFormat）与工期（Nd/Nw/Nm），支持 after 依赖顺延
  * - section 分组标题
+ * - 时间轴：每天一根网格线 + 日期刻度标签；任务条旁显示起止日期
  */
 import { Diagram } from '../../diagram/Diagram';
 import { Node } from '../../view/Node';
@@ -19,7 +20,7 @@ import { GanttAST, GanttTask } from '../ast';
 const LABEL_W = 220;      // 左列宽
 const AXIS_X = LABEL_W + 20;
 const ROW_H = 30;
-const TOP = 80;           // 顶部（标题+轴）
+const TOP = 96;           // 顶部（标题+轴）
 const BAR_H = 18;
 const DAY_PX = 40;        // 每天像素
 const MARGIN = 20;
@@ -46,14 +47,30 @@ function parseDuration(s: string): number {
   return Math.max(1, n * mult) || 1;
 }
 
-/** 展平任务并解析起止（返回 天数起点/工期） */
-function resolveTasks(ast: GanttAST): { task: GanttTask; startDay: number; durDays: number; section: string }[] {
-  // 通过 id 建立索引以支持 after
+/** 毫秒时间戳 → "YYYY-MM-DD"（UTC） */
+function fmtDate(ms: number): string {
+  const d = new Date(ms);
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(d.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
+}
+
+/** 根据总天数选择日期刻度步长（避免标签重叠） */
+function stepFor(maxDay: number): number {
+  if (maxDay <= 10) return 1;
+  if (maxDay <= 30) return 2;
+  if (maxDay <= 80) return 5;
+  if (maxDay <= 200) return 10;
+  return 30;
+}
+
+/** 展平任务并解析起止（返回 天数起点/工期/最小时间戳） */
+function resolveTasks(ast: GanttAST): { tasks: { task: GanttTask; startDay: number; durDays: number; section: string }[]; minT: number; maxDay: number } {
   const byId = new Map<string, GanttTask>();
   const flat: GanttTask[] = [];
   for (const sec of ast.sections) for (const t of sec.tasks) { flat.push(t); byId.set(t.id, t); }
 
-  // 将日期转为相对天数（以最早日期为 0）
   const times: number[] = [];
   for (const t of flat) {
     const ts = typeof t.start === 'string' ? parseDate(t.start) : (typeof t.start === 'number' ? t.start : null);
@@ -61,7 +78,7 @@ function resolveTasks(ast: GanttAST): { task: GanttTask; startDay: number; durDa
   }
   const minT = times.length ? Math.min(...times) : 0;
 
-  const out: { task: GanttTask; startDay: number; durDays: number; section: string }[] = [];
+  const tasks: { task: GanttTask; startDay: number; durDays: number; section: string }[] = [];
   const startById = new Map<string, number>();
   for (const sec of ast.sections) {
     for (const t of sec.tasks) {
@@ -72,21 +89,20 @@ function resolveTasks(ast: GanttAST): { task: GanttTask; startDay: number; durDa
       if (ts != null) {
         startDay = (ts - minT) / 86400000;
       } else {
-        // after id 或默认接续
         const afterMatch = /^after\s+(.+)$/.exec(s);
         if (afterMatch) {
           const dep = startById.get(afterMatch[1].trim());
           startDay = dep != null ? dep : 0;
         } else {
-          // 无有效起点：接在前一个任务后
-          startDay = out.length ? (out[out.length - 1].startDay + out[out.length - 1].durDays) : 0;
+          startDay = tasks.length ? (tasks[tasks.length - 1].startDay + tasks[tasks.length - 1].durDays) : 0;
         }
       }
       startById.set(t.id, startDay);
-      out.push({ task: t, startDay, durDays: dur, section: sec.name });
+      tasks.push({ task: t, startDay, durDays: dur, section: sec.name });
     }
   }
-  return out;
+  const maxDay = tasks.reduce((m, r) => Math.max(m, r.startDay + r.durDays), 1);
+  return { tasks, minT, maxDay };
 }
 
 /** 渲染 gantt 到 div */
@@ -96,27 +112,40 @@ export function renderGantt(divId: string, ast: GanttAST, theme: MermaidTheme): 
 
   diag.nodeTemplateMap.add('GLabel', buildLabelNode(theme));
   diag.nodeTemplateMap.add('GBar', buildBarNode(theme));
+  diag.nodeTemplateMap.add('GDate', buildDateNode(theme));
   diag.nodeTemplateMap.add('GSection', buildSectionNode(theme));
   diag.nodeTemplateMap.add('GTitle', buildTitleNode(theme));
   diag.nodeTemplateMap.add('GAxis', buildAxisNode(theme));
+  diag.nodeTemplateMap.add('GGrid', buildGridNode(theme));
 
-  const resolved = resolveTasks(ast);
+  const { tasks, minT, maxDay } = resolveTasks(ast);
   const nodeDataArray: any[] = [];
+  const axisW = maxDay * DAY_PX + 20;
 
   // 标题
   if (ast.title) nodeDataArray.push({ key: '__t', category: 'GTitle', text: ast.title, loc: `${MARGIN} 30` });
 
-  // 时间轴：最大天数
-  const maxDay = resolved.reduce((m, r) => Math.max(m, r.startDay + r.durDays), 1);
-  nodeDataArray.push({
-    key: '__axis', category: 'GAxis', text: ast.axisFormat || ast.dateFormat,
-    loc: `${AXIS_X} ${TOP - 28}`, w: maxDay * DAY_PX + 40,
-  });
+  // 时间轴刻度标签 + 网格线
+  const step = stepFor(maxDay);
+  for (let d = 0; d <= maxDay; d++) {
+    const x = AXIS_X + d * DAY_PX;
+    // 竖向网格线（贯穿整张图）
+    nodeDataArray.push({
+      key: `__grid_${d}`, category: 'GGrid',
+      loc: `${x} ${TOP}`, h: Math.max(ROW_H, (tasks.length + 2) * ROW_H),
+    });
+    if (d % step === 0) {
+      nodeDataArray.push({
+        key: `__tick_${d}`, category: 'GAxis', text: fmtDate(minT + d * 86400000),
+        loc: `${x} ${TOP - 26}`,
+      });
+    }
+  }
 
+  // 任务行
   let row = 0;
   let lastSection: string | null = null;
-  for (const r of resolved) {
-    // section 标题行
+  for (const r of tasks) {
     if (r.section && r.section !== lastSection) {
       lastSection = r.section;
       nodeDataArray.push({
@@ -127,20 +156,36 @@ export function renderGantt(divId: string, ast: GanttAST, theme: MermaidTheme): 
     }
     const y = TOP + row * ROW_H;
     const barX = AXIS_X + r.startDay * DAY_PX;
-    const barW = Math.max(6, r.durDays * DAY_PX);
+    const barW = Math.max(8, r.durDays * DAY_PX);
     // 任务名（左列）
     nodeDataArray.push({
       key: `lbl_${r.task.id}_${row}`, category: 'GLabel', text: r.task.name,
       loc: `${MARGIN} ${y}`,
     });
     // 任务条
+    const startDate = fmtDate(minT + r.startDay * 86400000);
+    const endDate = fmtDate(minT + (r.startDay + r.durDays) * 86400000 - 1);
     nodeDataArray.push({
       key: `bar_${r.task.id}_${row}`, category: 'GBar',
       loc: `${barX} ${y + (ROW_H - BAR_H) / 2}`,
-      w: barW, h: r.task.isMilestone ? BAR_H : BAR_H,
+      w: barW, h: BAR_H,
       milestone: r.task.isMilestone,
       fill: sectionColor(r.section, theme),
     });
+    // 任务起止日期（条右侧或里程碑上方）
+    if (!r.task.isMilestone) {
+      nodeDataArray.push({
+        key: `dt_${r.task.id}_${row}`, category: 'GDate',
+        text: `${startDate} ~ ${endDate}`,
+        loc: `${Math.min(barX + barW + 6, AXIS_X + axisW + 10)} ${y + (ROW_H - BAR_H) / 2 - 6}`,
+      });
+    } else {
+      nodeDataArray.push({
+        key: `dt_${r.task.id}_${row}`, category: 'GDate',
+        text: `◆ ${startDate}`,
+        loc: `${barX + barW + 6} ${y + (ROW_H - BAR_H) / 2 - 6}`,
+      });
+    }
     row++;
   }
 
@@ -185,6 +230,19 @@ function buildBarNode(theme: MermaidTheme): Node {
   return node;
 }
 
+/** 任务日期文本节点 */
+function buildDateNode(theme: MermaidTheme): Node {
+  const node = new Node();
+  node.locationSpot = Spot.TopLeft;
+  node.selectable = false;
+  const tb = new TextBlock();
+  tb.font = `${theme.fontSize.label - 1}px ${theme.fontFamily}`;
+  tb.stroke = '#777';
+  node.add(tb);
+  (tb as any).bind('text', 'text');
+  return node;
+}
+
 function buildSectionNode(theme: MermaidTheme): Node {
   const node = new Node();
   node.locationSpot = Spot.TopLeft;
@@ -193,27 +251,6 @@ function buildSectionNode(theme: MermaidTheme): Node {
   tb.margin = new Margin(4, 8, 4, 8);
   tb.font = `bold ${theme.fontSize.node}px ${theme.fontFamily}`;
   tb.stroke = '#222';
-  node.add(tb);
-  (tb as any).bind('text', 'text');
-  return node;
-}
-
-function buildAxisNode(theme: MermaidTheme): Node {
-  const node = new Node();
-  node.locationSpot = Spot.TopLeft;
-  node.selectable = false;
-  // 轴线 + 标签
-  const line = new Shape('Rectangle');
-  line.portId = '';
-  line.height = 2;
-  line.fill = '#ccc';
-  line.stroke = 'transparent';
-  line.bind('width', 'w');
-  node.add(line);
-  const tb = new TextBlock();
-  tb.margin = new Margin(2, 0, 0, 0);
-  tb.font = `${theme.fontSize.label}px ${theme.fontFamily}`;
-  tb.stroke = '#888';
   node.add(tb);
   (tb as any).bind('text', 'text');
   return node;
@@ -228,5 +265,34 @@ function buildTitleNode(theme: MermaidTheme): Node {
   tb.stroke = '#222';
   node.add(tb);
   (tb as any).bind('text', 'text');
+  return node;
+}
+
+/** 时间轴刻度标签节点（竖线 + 日期文本） */
+function buildAxisNode(theme: MermaidTheme): Node {
+  const node = new Node('Vertical');
+  node.locationSpot = Spot.TopLeft;
+  node.selectable = false;
+  const tb = new TextBlock();
+  tb.textAlign = 'center';
+  tb.font = `${theme.fontSize.label - 1}px ${theme.fontFamily}`;
+  tb.stroke = '#888';
+  node.add(tb);
+  (tb as any).bind('text', 'text');
+  return node;
+}
+
+/** 竖向网格线节点 */
+function buildGridNode(theme: MermaidTheme): Node {
+  const node = new Node();
+  node.locationSpot = Spot.TopLeft;
+  node.selectable = false;
+  const line = new Shape('Rectangle');
+  line.portId = '';
+  line.width = 1;
+  line.fill = '#e3e6eb';
+  line.stroke = 'transparent';
+  line.bind('height', 'h');
+  node.add(line);
   return node;
 }

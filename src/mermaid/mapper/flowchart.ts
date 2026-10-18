@@ -21,7 +21,8 @@ export type FlowCategory =
   | 'Circle'
   | 'Parallelogram'
   | 'Hexagon'
-  | 'Group';
+  | 'Group'
+  | 'GroupBox';
 
 /** 由节点形状推导模板类别 */
 export function categoryOfShape(shape: FlowShape): FlowCategory {
@@ -43,12 +44,10 @@ export interface MappedNode {
   key: string;
   text: string;
   category: FlowCategory;
-  group?: string;
-  isGroup?: boolean;
   categoryDef?: FlowClassDef;
   styleProps?: Record<string, string>;
+  members?: string[]; // GroupBox：成员节点 key 列表（渲染阶段用于计算包围框）
 }
-
 /** 映射后的连线数据 */
 export interface MappedLink {
   from: string;
@@ -106,23 +105,22 @@ export function mapFlowchart(ast: FlowchartAST): MappedFlowchart {
       key: n.id,
       text: n.text || n.id,
       category,
-      group: n.group,
       categoryDef: catDef,
       styleProps: n.styleProps,
     };
     nodes.push(mn);
   }
 
-  // subgraph → Group 节点
+  // subgraph → 静态背景框节点（非 GoJS Group 嵌套 —— 避免 LayeredDigraphLayout 在
+  // 组成员↔组外连线上进入 update 死循环）。members 供渲染阶段定位用。
   for (const sg of ast.subgraphs) {
-    // 只有当其成员确实存在才建组
     const members = sg.nodes.filter(id => nodeIds.has(id));
     if (!members.length) continue;
     nodes.push({
       key: sg.id,
       text: sg.title || sg.id,
-      category: 'Group',
-      isGroup: true,
+      category: 'GroupBox',
+      members,
     });
   }
 

@@ -9,7 +9,7 @@
  *  - loop / alt / else / opt / par / and 块（简单识别为 note 级块）
  *  - autonumber / title
  */
-import { Token, tokenize, stripComments } from '../lexer';
+import { Token, tokenize, stripComments, smartJoin } from '../lexer';
 import {
   SequenceAST, SeqParticipant, SeqMessage, SeqNote, SeqActivation, ParseError,
 } from '../ast';
@@ -44,12 +44,12 @@ class SeqParser {
 
   /** 拼一行文本（直到换行），可选停在某分隔符 */
   private readLine(stopAt?: string): string {
-    const parts: string[] = [];
+    const toks: Token[] = [];
     while (!this.atEol()) {
       if (stopAt && this.peek().value === stopAt) break;
-      parts.push(this.next().value);
+      toks.push(this.next());
     }
-    return parts.join('').trim();
+    return smartJoin(toks).trim();
   }
 
   /** 确保参与者存在（默认 participant） */
@@ -71,6 +71,7 @@ class SeqParser {
     while (this.peek().kind !== 'eof' && guard++ < 5000) {
       const t = this.peek();
       if (t.kind === 'newline') { this.next(); continue; }
+      if (t.kind === 'ws') { this.next(); continue; } // 跳过缩进/空白
 
       if (t.kind === 'ident') {
         const kw = t.value;
@@ -81,9 +82,11 @@ class SeqParser {
         // participant / actor
         if (kw === 'participant' || kw === 'actor') {
           this.next();
+          while (this.peek().kind === 'ws') this.next();
           const id = this.atEol() ? '' : this.next().value;
+          while (this.peek().kind === 'ws') this.next();
           let alias: string | undefined;
-          if (this.peek().value === 'as') { this.next(); alias = this.readLine(); }
+          if (this.peek().value === 'as') { this.next(); while (this.peek().kind === 'ws') this.next(); alias = this.readLine(); }
           else this.readLine(); // 丢弃行内其余
           if (id) this.ensureParticipant(id, alias, kw === 'actor' ? 'actor' : 'participant');
           continue;
@@ -93,6 +96,7 @@ class SeqParser {
         // activate / deactivate
         if (kw === 'activate' || kw === 'deactivate') {
           this.next();
+          while (this.peek().kind === 'ws') this.next();
           const who = this.atEol() ? '' : this.next().value;
           if (who) { this.ensureParticipant(who); this.activations.push({ actor: who, activate: kw === 'activate', line: t.line }); }
           this.readLine();
@@ -136,6 +140,7 @@ class SeqParser {
   private parseNote(): void {
     const line = this.peek().line;
     this.next(); // 'note'
+    while (this.peek().kind === 'ws') this.next();
     // 位置词
     let pos = 'over';
     const w1 = this.peek();
@@ -145,7 +150,9 @@ class SeqParser {
     // actor 列表（逗号分隔）直到 ':'
     const actors: string[] = [];
     while (!this.atEol() && this.peek().value !== ':') {
-      const v = this.next().value;
+      const tk = this.next();
+      if (tk.kind === 'ws') continue;
+      const v = tk.value;
       if (v === ',') continue;
       actors.push(v);
       this.ensureParticipant(v);
@@ -170,17 +177,24 @@ class SeqParser {
 
   /** 通过行文本正则解析消息（更稳） */
   private parseMessageByLine(fromTok: Token): SeqMessage | null {
-    // 收集整行原始文本
-    const parts: string[] = [];
-    while (!this.atEol()) parts.push(this.next().value);
-    const line = parts.join('');
-    // 匹配：标识符 箭头 标识符 [: 文本]
-    const m = /^([A-Za-z0-9_\u4e00-\u9fa5][\w\u4e00-\u9fa5]*)\s*(<<->>|<<-->|<->>|<-->|-->>|--x|--\)|-x|-\)|->>|->|<<-|<<--)\s*([A-Za-z0-9_\u4e00-\u9fa5][\w\u4e00-\u9fa5]*)\s*(?::\s*(.*))?$/.exec(line);
+    // 收集整行 token（含空白）
+    const parts: Token[] = [];
+    while (!this.atEol()) parts.push(this.next());
+    // 箭头/端点匹配用值拼接的行文本（sequence 箭头含 '-'，会被 lexer 拆段，
+    // 只有值拼接能还原完整箭头如 ->> -->>）
+    const raw = parts.map(t => t.value).join('').trim();
+    const m = /^([A-Za-z0-9_\u4e00-\u9fa5][\w\u4e00-\u9fa5]*)\s*(<<->>|<<-->|<->>|<-->|-->>|--x|--\)|-x|-\)|->>|->|<<-|<<--)\s*([A-Za-z0-9_\u4e00-\u9fa5][\w\u4e00-\u9fa5]*)\s*(?::\s*(.*))?$/.exec(raw);
     if (!m) return null;
-    const [, from, arrow, to, label] = m;
+    const [, from, arrow, to] = m;
     this.ensureParticipant(from);
     this.ensureParticipant(to);
-    const msg: SeqMessage = { from, to, arrow, label: (label || '').trim(), line: fromTok.line };
+    // 标签：取第一个 ':' 之后的 tokens 用 smartJoin，保留原始空格（POST /api/login、200 OK）
+    let label = '';
+    const colonIdx = parts.findIndex(t => t.kind === 'punct' && t.value === ':');
+    if (colonIdx >= 0) {
+      label = smartJoin(parts.slice(colonIdx + 1)).trim();
+    }
+    const msg: SeqMessage = { from, to, arrow, label, line: fromTok.line };
     this.messages.push(msg);
     return msg;
   }

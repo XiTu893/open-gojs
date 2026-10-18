@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mermaid 总览 — 7 种图类型</title>
+<script src="../dist/open-gojs-mermaid.umd.js"></script>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif; margin: 0; padding: 20px; background: #f5f6f8; color: #222; }
+  h1 { margin: 0 0 4px; font-size: 22px; }
+  p.sub { color: #666; margin: 0 0 14px; font-size: 13px; }
+  .toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; }
+  .toolbar label { font-size: 13px; color: #444; }
+  select, button { font-size: 13px; padding: 4px 10px; }
+  #globalStatus { font-size: 13px; font-weight: 600; }
+  .ok { color: #2f9e44; } .bad { color: #c0392b; }
+  .case { background: #fff; border: 1px solid #e2e5ea; border-radius: 8px; padding: 14px 16px; margin-bottom: 16px; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+  .case h2 { font-size: 15px; margin: 0 0 6px; display: flex; align-items: center; gap: 10px; }
+  .case h2 .st { font-size: 12px; font-weight: 500; }
+  .diagram { border: 1px dashed #d6dae0; border-radius: 6px; background: #fff; }
+  .actions { margin-top: 8px; }
+  details { margin-top: 8px; }
+  summary { cursor: pointer; font-size: 12px; color: #555; }
+  pre { background: #f4f6f8; border: 1px solid #e5e8ec; border-radius: 6px; padding: 10px 12px; font-size: 12px; overflow: auto; line-height: 1.5; }
+</style>
+</head>
+<body>
+<h1>Mermaid DSL → open-gojs 渲染（总览）</h1>
+<p class="sub">7 种图类型各一例。交互：拖拽平移、滚轮缩放、点击选中、右键菜单。切换主题后全部重渲染。</p>
+<div class="toolbar">
+  <label>主题
+    <select id="themeSel">
+      <option value="default" selected>default（默认·鲜亮）</option>
+      <option value="neutral">neutral（中性灰）</option>
+      <option value="forest">forest（森林绿）</option>
+      <option value="dark">dark（深色）</option>
+    </select>
+  </label>
+  <button id="rerenderBtn">重新渲染全部</button>
+  <span id="globalStatus">渲染中…</span>
+</div>
+<div id="cases"></div>
+
+<script>
+const CASES = [
+  {
+    id: 'flow', title: '流程图 flowchart', h: 440,
+    dsl: [
+      'flowchart TD',
+      '  A[打开应用] --> B{已登录?}',
+      '  B -->|是| C[加载主页]',
+      '  B -->|否| D[显示登录页]',
+      '  D --> E[输入账号密码]',
+      '  E --> F{凭证有效?}',
+      '  F -->|是| C',
+      '  F -->|否| G[提示错误]',
+      '  G --> E',
+      '  C --> H((结束))'
+    ].join('\n')
+  },
+  {
+    id: 'seq', title: '时序图 sequenceDiagram', h: 380,
+    dsl: [
+      'sequenceDiagram',
+      '  participant U as 用户',
+      '  participant G as 网关',
+      '  participant S as 服务',
+      '  U->>G: POST /api/login',
+      '  activate G',
+      '  G->>S: 鉴权请求',
+      '  S-->>G: 返回令牌',
+      '  G-->>U: 200 OK',
+      '  deactivate G',
+      '  note over U,S: 登录流程完成'
+    ].join('\n')
+  },
+  {
+    id: 'class', title: '类图 classDiagram', h: 440,
+    dsl: [
+      'classDiagram',
+      '  class Animal {',
+      '    +String name',
+      '    +int age',
+      '    +makeSound(): void',
+      '  }',
+      '  class Dog {',
+      '    +fetch(): void',
+      '  }',
+      '  class Cat {',
+      '    +purr(): void',
+      '  }',
+      '  Animal <|-- Dog',
+      '  Animal <|-- Cat',
+      '  Dog ..> Toy : 玩耍'
+    ].join('\n')
+  },
+  {
+    id: 'state', title: '状态图 stateDiagram-v2', h: 320,
+    dsl: [
+      'stateDiagram-v2',
+      '  state "空闲" as Idle',
+      '  state "运行中" as Run',
+      '  [*] --> Idle',
+      '  Idle --> Run : 启动',
+      '  Run --> [*]'
+    ].join('\n')
+  },
+  {
+    id: 'er', title: 'ER 图 erDiagram', h: 480,
+    dsl: [
+      'erDiagram',
+      '  CUSTOMER ||--o{ ORDER : 下单',
+      '  ORDER ||--o{ ITEM : 包含',
+      '  CUSTOMER {',
+      '    string name',
+      '    int id PK',
+      '  }',
+      '  ORDER {',
+      '    int id PK',
+      '    string status',
+      '  }',
+      '  ITEM {',
+      '    int id PK',
+      '    string sku',
+      '  }'
+    ].join('\n')
+  },
+  {
+    id: 'pie', title: '饼图 pie', h: 400,
+    dsl: [
+      'pie title 前端技术栈占比',
+      '  "Vue": 30',
+      '  "React": 28',
+      '  "Svelte": 12',
+      '  "Solid": 10',
+      '  "其他": 20'
+    ].join('\n')
+  },
+  {
+    id: 'gantt', title: '甘特图 gantt', h: 340,
+    dsl: [
+      'gantt',
+      '  title 迭代计划',
+      '  dateFormat YYYY-MM-DD',
+      '  section 设计',
+      '  需求评审 :a1, 2026-10-01, 3d',
+      '  交互稿 :a2, after a1, 4d',
+      '  section 开发',
+      '  前端开发 :a3, after a2, 7d',
+      '  后端开发 :a4, after a2, 10d',
+      '  section 发布',
+      '  上线 :milestone, after a4, 1d'
+    ].join('\n')
+  }
+];
+
+const diagrams = {};
+
+function buildDom() {
+  const root = document.getElementById('cases');
+  for (const c of CASES) {
+    const sec = document.createElement('section');
+    sec.className = 'case';
+    sec.id = 'pane-' + c.id;
+    sec.innerHTML =
+      '<h2>' + c.title + ' <span class="st"></span></h2>' +
+      '<div class="diagram" style="height:' + c.h + 'px"></div>' +
+      '<div class="actions"><button class="pngBtn">导出 PNG</button></div>' +
+      '<details><summary>DSL 源码</summary><pre></pre></details>';
+    sec.querySelector('pre').textContent = c.dsl;
+    sec.querySelector('.pngBtn').addEventListener('click', () => {
+      const d = diagrams[c.id];
+      if (d) go.Mermaid.downloadPng(d, 'mermaid-' + c.id + '.png', { scale: 2 });
+    });
+    root.appendChild(sec);
+  }
+}
+
+function renderAll(theme) {
+  let okCount = 0;
+  for (const c of CASES) {
+    const sec = document.getElementById('pane-' + c.id);
+    const host = sec.querySelector('.diagram');
+    // 换新元素：旧 Diagram 的监听随旧节点一起丢弃
+    const fresh = host.cloneNode(false);
+    fresh.style.height = c.h + 'px';
+    host.replaceWith(fresh);
+    const st = sec.querySelector('.st');
+    try {
+      const res = go.Mermaid.render(c.dsl, fresh, { theme: theme });
+      if (res.diagram && res.diagram.nodes.count > 0) {
+        diagrams[c.id] = res.diagram;
+        st.textContent = '✓ ' + res.diagram.nodes.count + ' 节点';
+        st.className = 'st ok';
+        okCount++;
+      } else {
+        diagrams[c.id] = null;
+        st.textContent = '✗ 无输出 ' + JSON.stringify(res.errors || []);
+        st.className = 'st bad';
+      }
+    } catch (e) {
+      diagrams[c.id] = null;
+      st.textContent = '✗ ' + e.message;
+      st.className = 'st bad';
+    }
+  }
+  const gs = document.getElementById('globalStatus');
+  gs.textContent = okCount + '/' + CASES.length + ' 渲染成功（主题 ' + theme + '）';
+  gs.className = okCount === CASES.length ? 'ok' : 'bad';
+  window.__result = { ok: okCount === CASES.length, okCount, total: CASES.length, theme };
+}
+
+window.addEventListener('load', () => {
+  try {
+    buildDom();
+    const theme = document.getElementById('themeSel').value;
+    renderAll(theme);
+    document.getElementById('themeSel').addEventListener('change', (e) => renderAll(e.target.value));
+    document.getElementById('rerenderBtn').addEventListener('click', () => renderAll(document.getElementById('themeSel').value));
+  } catch (e) {
+    document.getElementById('globalStatus').textContent = 'ERR ' + e.message;
+    window.__result = { ok: false, error: e.message, stack: e.stack };
+  }
+});
+</script>
+</body>
+</html>

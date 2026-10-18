@@ -265,12 +265,12 @@ class FlowParser {
 
   /** class A,B className */
   private parseClassAssignStmt(stmt: Token[]): void {
-    if (!isWord(stmt[1]) || !isWord(stmt[2])) return;
-    const className = stmt[2].value;
-    const ids = stmt[1].value.split(',');
-    for (const raw of ids) {
-      const id = raw.trim();
-      if (!id) continue;
+    // `class A,B cls`：逗号是独立 punct token，故收集全部词型 token，
+    // 最后一个词是类名，其余都是节点 id。
+    const words = stmt.slice(1).filter(t => t.kind === 'ident').map(t => t.value);
+    if (words.length < 2) return;
+    const className = words[words.length - 1];
+    for (const id of words.slice(0, -1)) {
       const n = this.ensureNode(id);
       (n.style ??= []).push(className);
     }
@@ -330,7 +330,7 @@ class FlowParser {
         if (cur.length) { stmts.push(cur); cur = []; }
       } else if (t.kind === 'punct' && t.value === ';') {
         if (cur.length) { stmts.push(cur); cur = []; }
-      } else {
+      } else if (t.kind !== 'ws') {
         cur.push(t);
       }
     }

@@ -90,4 +90,21 @@ describe('mermaid flowchart parser', () => {
     expect(ast.edges[1].from).toBe('B');
     expect(ast.edges[1].to).toBe('C');
   });
+
+  it('handles glued arrows (A-->B) without breaking hyphen ids (A-B)', () => {
+    const ast = parseFlowchart('flowchart TD\nA-->|是|B\nA-B-->C\nE -.-> F');
+    expect(ast.edges.length).toBe(3);
+    expect(ast.edges[0].from).toBe('A');
+    expect(ast.edges[0].to).toBe('B');
+    expect(ast.edges[0].label).toBe('是');
+    expect(ast.edges[1].from).toBe('A-B');
+    expect(ast.nodes.map(n => n.id)).toContain('A-B');
+  });
+
+  it('parses multi-id class assignment (class A,B cls)', () => {
+    const ast = parseFlowchart('flowchart TD\nclassDef ok fill:#2f9e44\nA --> B\nC --> D\nclass A, C ok');
+    expect(ast.nodes.find(n => n.id === 'A')!.style).toEqual(['ok']);
+    expect(ast.nodes.find(n => n.id === 'C')!.style).toEqual(['ok']);
+    expect(ast.nodes.find(n => n.id === 'B')!.style).toBeUndefined();
+  });
 });

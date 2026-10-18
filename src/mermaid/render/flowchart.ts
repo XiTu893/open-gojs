@@ -9,7 +9,6 @@
  */
 import { Diagram } from '../../diagram/Diagram';
 import { Node } from '../../view/Node';
-import { Group } from '../../view/Group';
 import { Shape } from '../../view/Shape';
 import { TextBlock } from '../../view/TextBlock';
 import { Panel } from '../../view/Panel';
@@ -104,17 +103,14 @@ function buildNodeTemplate(theme: MermaidTheme, category: FlowCategory): Node {
   return node;
 }
 
-/** 构建 subgraph Group 模板 */
-function buildGroupTemplate(theme: MermaidTheme): Group {
+/** 构建 subgraph 背景框模板（普通 Node，不参与布局定位，垫底显示） */
+function buildGroupBoxTemplate(theme: MermaidTheme): Node {
   const cs = theme.categories.group;
-  const g = new Group('Auto');
-  const gl = new LayeredDigraphLayout({
-    direction: LayeredDigraphDirectionDown,
-    layerSpacing: 40,
-    columnSpacing: 30,
-  } as any);
-  g.layout = gl;
-  g.selectable = true;
+  const node = new Node('Auto');
+  node.isLayoutPositioned = false; // 由渲染阶段手动定位，不参与 layout
+  node.selectable = false;
+  node.resizable = false;
+  node.movable = false;
 
   const bg = new Shape('RoundedRectangle');
   bg.fill = cs.fill;
@@ -122,7 +118,7 @@ function buildGroupTemplate(theme: MermaidTheme): Group {
   bg.strokeWidth = cs.strokeWidth;
   bg.parameter1 = theme.nodeRadius + 2;
   bg.strokeDashArray = [4, 3];
-  g.add(bg);
+  node.add(bg);
 
   const title = new TextBlock();
   title.font = `bold ${theme.fontSize.label}px ${theme.fontFamily}`;
@@ -130,8 +126,8 @@ function buildGroupTemplate(theme: MermaidTheme): Group {
   title.margin = new Margin(6, 10, 2, 10);
   title.alignment = Spot.Top;
   title.bind('text', 'text');
-  g.add(title);
-  return g;
+  node.add(title);
+  return node;
 }
 
 /** 构建连线模板 */
@@ -226,18 +222,17 @@ export function renderFlowchart(
   diag.nodeTemplateMap.add('Circle', buildNodeTemplate(theme, 'Circle'));
   diag.nodeTemplateMap.add('Parallelogram', buildNodeTemplate(theme, 'Parallelogram'));
   diag.nodeTemplateMap.add('Hexagon', buildNodeTemplate(theme, 'Hexagon'));
-  diag.nodeTemplateMap.add('Group', buildGroupTemplate(theme) as any);
+  diag.nodeTemplateMap.add('GroupBox', buildGroupBoxTemplate(theme));
 
   // 连线模板
   diag.linkTemplate = buildLinkTemplate(theme);
 
-  // 模型数据
-  const nodeDataArray: any[] = [];
+  // 模型数据：成员 + 连线（背景框暂不加入，等 layout 定位后再加）
+  const memberNodes: any[] = [];
+  const boxNodes: any[] = [];
   const linkDataArray: any[] = [];
   for (const n of data.nodes) {
     const d: any = { key: n.key, text: n.text, category: n.category };
-    if (n.group) d.group = n.group;
-    if (n.isGroup) d.isGroup = true;
     if (n.categoryDef) {
       if (n.categoryDef.fill) d.fill = n.categoryDef.fill;
       if (n.categoryDef.stroke) d.stroke = n.categoryDef.stroke;
@@ -248,7 +243,12 @@ export function renderFlowchart(
       if (n.styleProps.stroke) d.stroke = n.styleProps.stroke;
       if (n.styleProps.color) d.textColor = n.styleProps.color;
     }
-    nodeDataArray.push(d);
+    if (n.category === 'GroupBox') {
+      d.members = n.members;
+      boxNodes.push(d);
+    } else {
+      memberNodes.push(d);
+    }
   }
   for (const l of data.links) {
     const d: any = { from: l.from, to: l.to, label: l.label };
@@ -260,6 +260,38 @@ export function renderFlowchart(
     linkDataArray.push(d);
   }
 
-  diag.model = new GraphLinksModel({ nodeDataArray, linkDataArray } as any);
+  diag.model = new GraphLinksModel({ nodeDataArray: memberNodes, linkDataArray } as any);
+
+  // 第一次布局：成员 + 连线（不含背景框，避免 group 嵌套触发 update 死循环）
+  (diag as any).maybeUpdate();
+
+  // 计算背景框包围盒（基于成员实际 bounds），置底显示
+  if (boxNodes.length) {
+    for (const b of boxNodes) {
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (const mk of b.members ?? []) {
+        const n = diag.findNodeForKey(mk) as any;
+        if (!n) continue;
+        const r = n.actualBounds as any;
+        x0 = Math.min(x0, r.x);
+        y0 = Math.min(y0, r.y);
+        x1 = Math.max(x1, r.x + r.width);
+        y1 = Math.max(y1, r.y + r.height);
+      }
+      if (!isFinite(x0)) continue;
+      b.loc = `${x0 - 12} ${y0 - 12}`;
+      b.w = x1 - x0 + 24;
+      b.h = y1 - y0 + 24;
+    }
+    (diag.model as any).commit((m: any) => {
+      for (const b of boxNodes) m.addNodeData(b);
+    }, 'add groupboxes');
+    // 置底：让背景框垫在成员下面
+    for (const b of boxNodes) {
+      const bn = diag.findNodeForKey(b.key) as any;
+      if (bn) bn.zOrder = -1;
+    }
+    (diag as any).maybeUpdate();
+  }
   return diag;
 }

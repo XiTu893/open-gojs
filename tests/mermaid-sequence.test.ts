@@ -59,4 +59,14 @@ describe('mermaid sequence parser', () => {
     expect(ast.activations[0].activate).toBe(true);
     expect(ast.activations[1].activate).toBe(false);
   });
+
+  it('preserves label spacing with indented DSL', () => {
+    const ast = parseSequence(`sequenceDiagram
+      participant U as 用户
+      U->>G: POST /api/login
+      G-->>U: 200 OK`);
+    expect(ast.participants[0].alias).toBe('用户');
+    expect(ast.messages[0].label).toBe('POST /api/login');
+    expect(ast.messages[1].label).toBe('200 OK');
+  });
 });

@@ -14,6 +14,7 @@ export type TokenKind =
   | 'shapeOpen'    // 形状起始 [ ( { [[ (( [(
   | 'shapeClose'   // 形状结束 ] ) } ]] )) ])
   | 'punct'        // 标点 : | ; , 等
+  | 'ws'           // 空白（保留原始空白用于行文本重建）
   | 'newline'
   | 'comment'      // %% 注释内容（可忽略）
   | 'eof';
@@ -34,6 +35,15 @@ const ARROWS: string[] = [
   '<==>', '==x',  '-..',  'o--x', 'x--x', '<==',
   '<<-', '-<',   '--',   '-',    '=>',   '<-',
 ];
+
+/** 在 pos 处能匹配到的最长箭头长度（0 = 无匹配） */
+function arrowLenAt(src: string, pos: number): number {
+  let len = 0;
+  for (const a of ARROWS) {
+    if (a.length > len && src.startsWith(a, pos)) len = a.length;
+  }
+  return len;
+}
 
 /** 形状起始与闭合配对 */
 const SHAPE_OPEN: Record<string, string> = {
@@ -106,10 +116,13 @@ export function tokenize(src: string): Token[] {
       col = 0;
       continue;
     }
-    // 空白（空格/Tab/回车）
+    // 空白（空格/Tab/回车）—— 输出 ws token，保留原始空白用于行文本重建
     if (c === ' ' || c === '\t' || c === '\r') {
-      pos++;
-      col++;
+      let j = pos;
+      while (j < n && (src[j] === ' ' || src[j] === '\t' || src[j] === '\r')) j++;
+      push('ws', src.slice(pos, j));
+      pos = j;
+      col += j - pos;
       continue;
     }
     // 注释 %%
@@ -134,10 +147,7 @@ export function tokenize(src: string): Token[] {
     }
 
     // 连边符号 —— 尝试最长匹配
-    let arrowLen = 0;
-    for (const a of ARROWS) {
-      if (src.startsWith(a, pos) && a.length > arrowLen) arrowLen = a.length;
-    }
+    let arrowLen = arrowLenAt(src, pos);
     if (arrowLen > 0) {
       // 检查是否有嵌入标签如 |text| 或 :label
       let value = src.slice(pos, pos + arrowLen);
@@ -204,7 +214,12 @@ export function tokenize(src: string): Token[] {
     // 标识符（含中文）
     if (isIdentChar(c)) {
       let j = pos;
-      while (j < n && isIdentChar(src[j])) j++;
+      while (j < n && isIdentChar(src[j])) {
+        // 粘连箭头让位：`A-->B` / `A--|>B` / `A-.->B`（`-`/`.` 属于标识符字符，
+        // 不让位会被吞进 ident）。仅 >=2 字符的箭头让位，保证 `A-B` 仍是单标识符。
+        if (j > pos && arrowLenAt(src, j) >= 2) break;
+        j++;
+      }
       push('ident', src.slice(pos, j));
       pos = j;
       col += j - pos + 1;

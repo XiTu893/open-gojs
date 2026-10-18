@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mermaid flowchart 深度示例</title>
+<script src="../dist/open-gojs-mermaid.umd.js"></script>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif; margin: 0; padding: 20px; background: #f5f6f8; color: #222; }
+  h1 { margin: 0 0 4px; font-size: 22px; }
+  p.sub { color: #666; margin: 0 0 14px; font-size: 13px; }
+  #globalStatus { font-size: 13px; font-weight: 600; margin-bottom: 14px; display: inline-block; }
+  .ok { color: #2f9e44; } .bad { color: #c0392b; }
+  .case { background: #fff; border: 1px solid #e2e5ea; border-radius: 8px; padding: 14px 16px; margin-bottom: 16px; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+  .case h2 { font-size: 15px; margin: 0 0 6px; display: flex; align-items: center; gap: 10px; }
+  .case h2 .st { font-size: 12px; font-weight: 500; }
+  .case p.hint { font-size: 12px; color: #777; margin: 4px 0 8px; }
+  .diagram { border: 1px dashed #d6dae0; border-radius: 6px; background: #fff; }
+  details { margin-top: 8px; }
+  summary { cursor: pointer; font-size: 12px; color: #555; }
+  pre { background: #f4f6f8; border: 1px solid #e5e8ec; border-radius: 6px; padding: 10px 12px; font-size: 12px; overflow: auto; line-height: 1.5; }
+</style>
+</head>
+<body>
+<h1>flowchart 深度示例</h1>
+<p class="sub">形状 / 连线样式与标签 / 分组与配色 / 粘连写法（A-->B 无需空格）。</p>
+<span id="globalStatus">渲染中…</span>
+<div id="cases"></div>
+
+<script>
+const CASES = [
+  {
+    id: 'shapes', title: '八种节点形状', h: 300,
+    hint: '矩形、圆角、菱形、子程序、圆柱、圆形、六边形、平行四边形（正反两向）。',
+    dsl: [
+      'flowchart LR',
+      '  A[矩形 process] --> B(圆角 stadium)',
+      '  B --> C{菱形 decision}',
+      '  C --> D[[子程序 subroutine]]',
+      '  D --> E[(圆柱 storage)]',
+      '  E --> F((圆形 circle))',
+      '  F --> G{{六边形 hexagon}}',
+      '  G --> H[/平行四边形/]',
+      '  H --> I[\\平行四边形反向\\]'
+    ].join('\n')
+  },
+  {
+    id: 'edges', title: '连线样式与标签', h: 400,
+    hint: '默认实线 / 粗线 ==> / 点线 -.-> / 无箭头 --- / 双向 <--> / |标签| / -- 中间文本 --> 两种标签写法。',
+    dsl: [
+      'flowchart TD',
+      '  S[开始] --> A[默认实线]',
+      '  S ==> B[粗线]',
+      '  S -.-> C[点线]',
+      '  A --- D[无箭头]',
+      '  A <--> E[双向]',
+      '  S -- 中间文本标签 --> F[带标签边]',
+      '  C --> D',
+      '  E --> F'
+    ].join('\n')
+  },
+  {
+    id: 'group', title: '分组 subgraph 与配色 classDef / linkStyle', h: 420,
+    hint: 'subgraph 成员归组；classDef 定义样式、class 赋给多个节点（class A,B cls）；linkStyle 2 给第 3 条线换色。',
+    dsl: [
+      'flowchart LR',
+      '  subgraph 前端',
+      '    UI[界面] --> STORE[(状态)]',
+      '  end',
+      '  subgraph 后端',
+      '    API[接口] --> DB[(数据库)]',
+      '  end',
+      '  UI -->|HTTPS| API',
+      '  classDef ok fill:#2f9e44,stroke:#1b7e34,color:#ffffff',
+      '  classDef hot fill:#e05b8d,color:#ffffff',
+      '  class API, DB ok',
+      '  class UI hot',
+      '  linkStyle 2 stroke:#4f6df5'
+    ].join('\n')
+  },
+  {
+    id: 'glued', title: '粘连写法（无需空格）', h: 340,
+    hint: '经典 mermaid 粘连语法 A-->B、A-B 作节点 id、-.-> 与 ==> 粘连，以及链式边。',
+    dsl: [
+      'flowchart TD',
+      '  A-->|是|B',
+      '  B-->C',
+      '  C-.->D',
+      '  A-B[带连字符的节点]-->D',
+      '  E==>F',
+      '  D-->F'
+    ].join('\n')
+  }
+];
+
+const diagrams = {};
+
+function buildDom() {
+  const root = document.getElementById('cases');
+  for (const c of CASES) {
+    const sec = document.createElement('section');
+    sec.className = 'case';
+    sec.id = 'pane-' + c.id;
+    sec.innerHTML =
+      '<h2>' + c.title + ' <span class="st"></span></h2>' +
+      '<p class="hint">' + c.hint + '</p>' +
+      '<div class="diagram" style="height:' + c.h + 'px"></div>' +
+      '<details><summary>DSL 源码</summary><pre></pre></details>';
+    sec.querySelector('pre').textContent = c.dsl;
+    root.appendChild(sec);
+  }
+}
+
+function renderAll() {
+  let okCount = 0;
+  for (const c of CASES) {
+    const sec = document.getElementById('pane-' + c.id);
+    const host = sec.querySelector('.diagram');
+    const fresh = host.cloneNode(false);
+    fresh.style.height = c.h + 'px';
+    host.replaceWith(fresh);
+    const st = sec.querySelector('.st');
+    try {
+      const res = go.Mermaid.render(c.dsl, fresh, { theme: 'default' });
+      if (res.diagram && res.diagram.nodes.count > 0) {
+        diagrams[c.id] = res.diagram;
+        st.textContent = '✓ ' + res.diagram.nodes.count + ' 节点 / ' + res.diagram.links.count + ' 连线';
+        st.className = 'st ok';
+        okCount++;
+      } else {
+        st.textContent = '✗ 无输出 ' + JSON.stringify(res.errors || []);
+        st.className = 'st bad';
+      }
+    } catch (e) {
+      st.textContent = '✗ ' + e.message;
+      st.className = 'st bad';
+    }
+  }
+  const gs = document.getElementById('globalStatus');
+  gs.textContent = okCount + '/' + CASES.length + ' 渲染成功';
+  gs.className = okCount === CASES.length ? 'ok' : 'bad';
+  window.__result = { ok: okCount === CASES.length, okCount, total: CASES.length };
+}
+
+window.addEventListener('load', () => {
+  try {
+    buildDom();
+    renderAll();
+  } catch (e) {
+    document.getElementById('globalStatus').textContent = 'ERR ' + e.message;
+    window.__result = { ok: false, error: e.message, stack: e.stack };
+  }
+});
+</script>
+</body>
+</html>

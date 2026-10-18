@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mermaid 主题配色对比</title>
+<script src="../dist/open-gojs-mermaid.umd.js"></script>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif; margin: 0; padding: 20px; background: #f5f6f8; color: #222; }
+  h1 { margin: 0 0 4px; font-size: 22px; }
+  p.sub { color: #666; margin: 0 0 14px; font-size: 13px; }
+  #globalStatus { font-size: 13px; font-weight: 600; margin-bottom: 14px; display: inline-block; }
+  .ok { color: #2f9e44; } .bad { color: #c0392b; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .theme { background: #fff; border: 1px solid #e2e5ea; border-radius: 8px; padding: 14px 16px; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+  .theme h2 { font-size: 15px; margin: 0 0 6px; display: flex; gap: 10px; align-items: center; }
+  .theme h2 .st { font-size: 12px; font-weight: 500; }
+  .diagram { border: 1px dashed #d6dae0; border-radius: 6px; background: #fff; height: 320px; }
+  details { margin-top: 8px; }
+  summary { cursor: pointer; font-size: 12px; color: #555; }
+  pre { background: #f4f6f8; border: 1px solid #e5e8ec; border-radius: 6px; padding: 10px 12px; font-size: 12px; overflow: auto; line-height: 1.5; }
+</style>
+</head>
+<body>
+<h1>主题配色对比（同一张图 × 4 主题）</h1>
+<p class="sub">用于人工对比各主题的节点配色、连线与文字颜色；default 为主题色轮换的鲜亮方案。</p>
+<span id="globalStatus">渲染中…</span>
+<div class="grid" id="grid"></div>
+
+<script>
+const DSL = [
+  'flowchart TD',
+  '  A[开始处理] --> B{参数校验?}',
+  '  B -->|通过| C[(读取数据)]',
+  '  B -->|拒绝| D[返回错误]',
+  '  C --> E[执行计算]',
+  '  E --> F([完成])',
+  '  D --> F'
+].join('\n');
+
+const THEMES = [
+  { key: 'default', label: 'default 默认（鲜亮）' },
+  { key: 'neutral', label: 'neutral 中性（灰阶）' },
+  { key: 'forest',  label: 'forest 森林（绿系）' },
+  { key: 'dark',    label: 'dark 深色' }
+];
+
+function buildDom() {
+  const grid = document.getElementById('grid');
+  for (const t of THEMES) {
+    const box = document.createElement('section');
+    box.className = 'theme';
+    box.id = 'pane-' + t.key;
+    box.innerHTML =
+      '<h2>' + t.label + ' <span class="st"></span></h2>' +
+      '<div class="diagram"></div>' +
+      '<details><summary>DSL 源码</summary><pre></pre></details>';
+    box.querySelector('pre').textContent = DSL;
+    grid.appendChild(box);
+  }
+}
+
+function renderAll() {
+  let okCount = 0;
+  for (const t of THEMES) {
+    const box = document.getElementById('pane-' + t.key);
+    const st = box.querySelector('.st');
+    try {
+      const res = go.Mermaid.render(DSL, box.querySelector('.diagram'), { theme: t.key });
+      if (res.diagram && res.diagram.nodes.count > 0) {
+        st.textContent = '✓ ' + res.diagram.nodes.count + ' 节点';
+        st.className = 'st ok';
+        okCount++;
+      } else {
+        st.textContent = '✗ 无输出';
+        st.className = 'st bad';
+      }
+    } catch (e) {
+      st.textContent = '✗ ' + e.message;
+      st.className = 'st bad';
+    }
+  }
+  const gs = document.getElementById('globalStatus');
+  gs.textContent = okCount + '/' + THEMES.length + ' 主题渲染成功';
+  gs.className = okCount === THEMES.length ? 'ok' : 'bad';
+  window.__result = { ok: okCount === THEMES.length, okCount, total: THEMES.length };
+}
+
+window.addEventListener('load', () => {
+  try {
+    buildDom();
+    renderAll();
+  } catch (e) {
+    document.getElementById('globalStatus').textContent = 'ERR ' + e.message;
+    window.__result = { ok: false, error: e.message, stack: e.stack };
+  }
+});
+</script>
+</body>
+</html>

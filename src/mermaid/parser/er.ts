@@ -28,7 +28,7 @@ class ErParser {
   private readLine(): string {
     const toks: Token[] = [];
     while (!this.atEol()) toks.push(this.next());
-    return smartJoin(toks);
+    return smartJoin(toks).trim();
   }
 
   private ensureEntity(name: string): ErEntity {
@@ -51,6 +51,7 @@ class ErParser {
     while (this.peek().kind !== 'eof' && guard++ < 8000) {
       const t = this.peek();
       if (t.kind === 'newline') { this.next(); continue; }
+      if (t.kind === 'ws') { this.next(); continue; } // 跳过缩进/空白
 
       // 关系行
       if (this.looksLikeRelation()) {
@@ -59,12 +60,18 @@ class ErParser {
       }
 
       // 实体块开始：ENTITY {  或  ENTITY
-      if (t.kind === 'ident' && !braceDepth && this.peek(1)?.value === '{') {
-        const name = t.value;
-        this.next(); this.next(); // 名字 + {
-        current = this.ensureEntity(name);
-        braceDepth = 1;
-        continue;
+      if (t.kind === 'ident' && !braceDepth) {
+        let k = 1;
+        while (this.peek(k).kind === 'ws') k++;
+        if (this.peek(k).value === '{') {
+          const name = t.value;
+          this.next(); // 名字
+          while (this.peek().kind === 'ws') this.next();
+          this.next(); // {
+          current = this.ensureEntity(name);
+          braceDepth = 1;
+          continue;
+        }
       }
 
       if (braceDepth > 0 && current) {

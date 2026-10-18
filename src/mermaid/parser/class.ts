@@ -58,7 +58,7 @@ class ClassParser {
       if (stopAt && this.peek().value === stopAt) break;
       toks.push(this.next());
     }
-    return smartJoin(toks);
+    return smartJoin(toks).trim();
   }
 
   parse(): ClassAST {
@@ -75,6 +75,7 @@ class ClassParser {
     while (this.peek().kind !== 'eof' && guard++ < 8000) {
       const t = this.peek();
       if (t.kind === 'newline') { this.next(); continue; }
+      if (t.kind === 'ws') { this.next(); continue; } // 跳过缩进/空白
 
       if (t.kind === 'ident' && t.value === 'title') {
         this.next(); this.title = this.readLine().trim(); continue;
@@ -89,6 +90,7 @@ class ClassParser {
       // class 定义
       if (t.kind === 'ident' && t.value === 'class') {
         this.next();
+        while (this.peek().kind === 'ws') this.next();
         const name = this.atEol() ? '' : this.next().value;
         if (!name) { this.readLine(); continue; }
         currentClass = this.ensureClass(name);

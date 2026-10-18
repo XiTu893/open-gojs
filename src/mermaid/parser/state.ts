@@ -26,7 +26,7 @@ class StateParser {
   private readLine(): string {
     const toks: Token[] = [];
     while (!this.atEol()) toks.push(this.next());
-    return smartJoin(toks);
+    return smartJoin(toks).trim();
   }
 
   private ensureState(id: string, label?: string): StateNode {
@@ -49,6 +49,7 @@ class StateParser {
     while (this.peek().kind !== 'eof' && guard++ < 5000) {
       const t = this.peek();
       if (t.kind === 'newline') { this.next(); continue; }
+      if (t.kind === 'ws') { this.next(); continue; } // 跳过缩进/空白
 
       if (t.kind === 'ident' && t.value === 'title') { this.next(); this.readLine(); continue; }
 
@@ -73,12 +74,15 @@ class StateParser {
   /** 解析 state 声明（token 级）：state "标签" as S / state S / state S { */
   private parseStateDecl(): void {
     this.next(); // 'state'
+    while (this.peek().kind === 'ws') this.next();
     const t1 = this.peek();
     if (t1.kind === 'str') {
       const label = t1.value;
       this.next();
+      while (this.peek().kind === 'ws') this.next();
       if (this.peek().value === 'as') {
         this.next();
+        while (this.peek().kind === 'ws') this.next();
         const id = this.atEol() ? label : this.next().value;
         this.ensureState(id, label);
       } else {
@@ -87,8 +91,10 @@ class StateParser {
     } else if (t1.kind === 'ident') {
       const id = t1.value;
       this.next();
+      while (this.peek().kind === 'ws') this.next();
       if (this.peek().value === 'as') {
         this.next();
+        while (this.peek().kind === 'ws') this.next();
         const lbl = this.atEol() ? id : this.next().value;
         this.ensureState(id, lbl);
       } else {

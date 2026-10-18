@@ -43,16 +43,15 @@ describe('mermaid flowchart mapper', () => {
     expect(plain.arrow).toBe('none');
   });
 
-  it('maps subgraph to group nodes', () => {
+  it('maps subgraph to background box nodes', () => {
     const ast = parseFlowchart(`flowchart LR
       subgraph one[组一]
         A --> B
       end`);
     const m = mapFlowchart(ast);
-    const group = m.nodes.find(n => n.isGroup)!;
-    expect(group.key).toBe('one');
-    expect(group.category).toBe('Group');
-    expect(m.nodes.find(n => n.key === 'A')!.group).toBe('one');
+    const box = m.nodes.find(n => n.category === 'GroupBox')!;
+    expect(box.key).toBe('one');
+    expect(box.members).toEqual(['A', 'B']);
   });
 
   it('applies classDef styles', () => {
