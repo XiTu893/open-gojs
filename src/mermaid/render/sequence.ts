@@ -1,37 +1,104 @@
 /**
- * sequenceDiagram 渲染器 —— 手动定位（时序图布局是确定性的，非图布局）。
- *
- * - 参与者：顶部标题框 + 向下生命线（垂直面板）
- * - 消息：每条一个独立 Node（水平线 + 箭头 + 标签），不依赖 Link 路由
- * - note：独立说明框节点
- * - activate/deactivate：参与者生命线上的激活盒（跨 activate→deactivate 行范围）
+ * sequenceDiagram 渲染器 —— 对齐官方 sequenceDiagram.html 架构：
+ * - 参与者 = 生命线节点（顶部标题 + 垂直生命线，生命线为端口）
+ * - 消息 = 自定义 MessageLink（继承 go.Link）：getLinkPoint 把端点精确钉在
+ *   (生命线中心 ± 激活盒半宽, 消息行 Y)，getLinkDirection 控制箭头朝向，
+ *   自消息画正交回环；标签用 link midLabel 自动定位到路径中点上方
+ * - note / 激活盒 = 独立节点，按 DSL 行号与消息交错分配行
  */
 import { Diagram } from '../../diagram/Diagram';
 import { Node } from '../../view/Node';
+import { Link } from '../../view/Link';
 import { Shape } from '../../view/Shape';
 import { TextBlock } from '../../view/TextBlock';
 import { Panel } from '../../view/Panel';
+import { GraphObject } from '../../view/GraphObject';
 import { GraphLinksModel } from '../../model/GraphLinksModel';
 import { Margin } from '../../core/Margin';
+import { Point } from '../../core/Point';
 import { Spot } from '../../core/Spot';
-import { WrapFit } from '../../core/EnumValues';
+import { WrapFit, RoutingNormal, CurveNone } from '../../core/EnumValues';
 import { MermaidTheme } from '../themes';
 import { SequenceAST } from '../ast';
 
 const COL_W = 170;      // 参与者列宽
 const TOP_H = 64;       // 顶部标题区高度
-const MSG_H = 48;       // 每条消息行高
+const MSG_H = 48;       // 每行（消息/note）行高
 const LIFELINE_W = 2;   // 生命线线宽
 const ACT_W = 12;       // 激活盒宽度
 const MARGIN = 40;
+const SELF_LOOP_W = 64; // 自消息回环宽度
 
 /** 参与者 X 中心 */
 function colX(index: number): number {
   return MARGIN + COL_W * index + COL_W / 2;
 }
 
+/** 行中心 Y（消息线/激活起点的精确 Y） */
+function rowY(row: number): number {
+  return TOP_H + MSG_H * (row + 1) + MARGIN / 2;
+}
+
+/** mermaid 箭头语法 → toArrow 图形名 */
+function arrowFigure(arrow: string): string {
+  if (arrow.includes('x')) return 'OpenTriangleLine';
+  if (arrow.includes(')')) return 'Circle';
+  if (arrow.includes('>>')) return 'Triangle';
+  return 'OpenTriangle';
+}
+
 /**
- * 渲染时序图到 div。全部元素手动定位（无布局）。
+ * 消息连线 —— 参照官方 sequenceDiagram.html 的 MessageLink：
+ * 端点 Y 精确落在消息行、激活时贴激活盒边缘、自消息正交回环。
+ */
+class MessageLink extends Link {
+  override getLinkPoint(
+    node: Node | null, port: GraphObject, spot: Spot, from: boolean, ortho: boolean,
+    othernode: Node | null, otherport: GraphObject, result?: Point
+  ): Point {
+    const out = result !== undefined && result !== null ? result : new Point();
+    const p = port.getDocumentPoint(Spot.Center);
+    const op = otherport.getDocumentPoint(Spot.Center);
+    const data: any = this.data ?? {};
+    const aw = (from ? data.fromAct : data.toAct) ? ACT_W : 0;
+    const x = op.x > p.x ? p.x + aw / 2 : p.x - aw / 2;
+    out.x = x;
+    out.y = rowY(data.row ?? 0);
+    return out;
+  }
+
+  override getLinkDirection(
+    node: Node | null, port: GraphObject | null, linkpoint: Point, spot: Spot, from: boolean,
+    ortho: boolean, othernode: Node | null, otherport: GraphObject | null
+  ): number {
+    if (port === null || otherport === null) return 0;
+    const p = port.getDocumentPoint(Spot.Center);
+    const op = otherport.getDocumentPoint(Spot.Center);
+    return op.x > p.x ? 0 : 180;
+  }
+
+  override computePoints(): boolean {
+    const data: any = this.data ?? {};
+    const fromNode = this.fromNode;
+    if (fromNode !== null && fromNode === this.toNode) {
+      // 自消息：正交回环（右出 → 下折 → 回到生命线）
+      const p = fromNode.port.getDocumentPoint(Spot.Center);
+      const y = rowY(data.row ?? 0);
+      const aw = data.fromAct ? ACT_W : 0;
+      const x = p.x + aw / 2;
+      this.points.clear();
+      this.addPoint(new Point(x, y));
+      this.addPoint(new Point(x + SELF_LOOP_W, y));
+      this.addPoint(new Point(x + SELF_LOOP_W, y + 10));
+      this.addPoint(new Point(x, y + 10));
+      return true;
+    }
+    return super.computePoints();
+  }
+}
+
+/**
+ * 渲染时序图到 div。参与者/激活盒/note 手动定位，消息由 MessageLink 精确路由。
  */
 export function renderSequence(divId: string, ast: SequenceAST, theme: MermaidTheme): Diagram {
   const diag = new Diagram(divId);
@@ -41,14 +108,30 @@ export function renderSequence(divId: string, ast: SequenceAST, theme: MermaidTh
   const colIndex = new Map<string, number>();
   parts.forEach((p, i) => colIndex.set(p.id, i));
 
-  const totalRows = ast.messages.length + ast.notes.length;
-  const totalH = TOP_H + MSG_H * Math.max(totalRows, 1) + MARGIN;
+  // 按 DSL 行号把消息与 note 交错分配行（保持原始顺序）
+  const rowOfMsg = new Map<number, number>();
+  const rowOfNote = new Map<number, number>();
+  type SeqEv = { kind: 'msg' | 'note'; idx: number; line: number };
+  const events: SeqEv[] = [];
+  ast.messages.forEach((m, i) => events.push({ kind: 'msg', idx: i, line: m.line }));
+  ast.notes.forEach((n, i) => events.push({ kind: 'note', idx: i, line: n.line }));
+  events.sort((a, b) => a.line - b.line);
+  let r = 0;
+  for (const ev of events) {
+    if (ev.kind === 'msg') rowOfMsg.set(ev.idx, r++);
+    else rowOfNote.set(ev.idx, r++);
+  }
+  const totalRows = Math.max(r, 1);
+  const totalH = TOP_H + MSG_H * totalRows + MARGIN;
+
+  const rowOfEvent = (ev: SeqEv): number =>
+    ev.kind === 'msg' ? rowOfMsg.get(ev.idx)! : rowOfNote.get(ev.idx)!;
 
   diag.nodeTemplateMap.add('participant', buildParticipantNode(theme, false));
   diag.nodeTemplateMap.add('actor', buildParticipantNode(theme, true));
-  diag.nodeTemplateMap.add('message', buildMessageNode(theme));
   diag.nodeTemplateMap.add('note', buildNoteNode(theme));
   diag.nodeTemplateMap.add('activation', buildActivationNode(theme));
+  diag.linkTemplate = buildMessageLinkTemplate(theme);
 
   const nodeDataArray: any[] = [];
 
@@ -64,74 +147,63 @@ export function renderSequence(divId: string, ast: SequenceAST, theme: MermaidTh
     });
   }
 
-  // 行号分配：先全部消息行，再 note 行
-  const rowOfMsg = new Map<number, number>();
-  const rowOfNote = new Map<number, number>();
-  let r = 0;
-  for (let mi = 0; mi < ast.messages.length; mi++) rowOfMsg.set(mi, r++);
-  for (let ni = 0; ni < ast.notes.length; ni++) rowOfNote.set(ni, r++);
-
-  function rowY(row: number): number {
-    return TOP_H + MSG_H * (row + 1) + MARGIN / 2;
-  }
-
-  // 激活盒：用消息的 DSL 行号定位 activate→deactivate 的跨度
-  // （activate 之后第一条消息 到 deactivate 之前最后一条消息）
-  const msgRows: { line: number; row: number }[] = [];
-  for (let mi = 0; mi < ast.messages.length; mi++) {
-    msgRows.push({ line: ast.messages[mi].line, row: rowOfMsg.get(mi)! });
-  }
-  msgRows.sort((a, b) => a.line - b.line);
-  const actNodes: any[] = [];
+  // 激活区间（actor → 行区间列表），并生成激活盒节点
+  const actRanges = new Map<string, { startRow: number; endRow: number }[]>();
   const activeStart = new Map<string, number>();
   for (const a of ast.activations) {
-    const ci = colIndex.get(a.actor);
-    if (ci === undefined) continue;
     if (a.activate) {
       if (!activeStart.has(a.actor)) activeStart.set(a.actor, a.line);
     } else {
       const startLine = activeStart.get(a.actor);
-      if (startLine !== undefined) {
-        activeStart.delete(a.actor);
-        // 起始行 = startLine 之后第一条消息；结束行 = a.line 之前最后一条消息
-        let startRow = -1;
-        let endRow = -1;
-        for (const mr of msgRows) {
-          if (mr.line > startLine && startRow === -1) startRow = mr.row;
-          if (mr.line < a.line) endRow = mr.row;
-        }
-        if (startRow === -1) startRow = endRow; // 无消息在 activate 后，退化为单行
-        if (endRow === -1) endRow = startRow;
-        if (startRow < 0 || endRow < 0) continue;
-        const span = Math.max(MSG_H, (Math.max(startRow, endRow) - Math.min(startRow, endRow) + 1) * MSG_H);
-        const topY = rowY(Math.min(startRow, endRow)) - MSG_H / 2;
-        actNodes.push({
-          key: `__act_${a.actor}_${a.line}`,
-          category: 'activation',
-          loc: `${colX(ci)} ${topY}`,
-          h: span,
-        });
+      if (startLine === undefined) continue;
+      activeStart.delete(a.actor);
+      // 起始行 = startLine 之后第一行（消息或 note）；结束行 = a.line 之前最后一行
+      let startRow = -1;
+      let endRow = -1;
+      for (const ev of events) {
+        if (ev.line > startLine && startRow === -1) startRow = rowOfEvent(ev);
+        if (ev.line < a.line) endRow = rowOfEvent(ev);
       }
+      if (startRow === -1) startRow = endRow;
+      if (endRow === -1) endRow = startRow;
+      if (startRow < 0 || endRow < 0) continue;
+      const lo = Math.min(startRow, endRow);
+      const hi = Math.max(startRow, endRow);
+      const list = actRanges.get(a.actor) ?? [];
+      list.push({ startRow: lo, endRow: hi });
+      actRanges.set(a.actor, list);
+      const ci = colIndex.get(a.actor);
+      if (ci === undefined) continue;
+      nodeDataArray.push({
+        key: `__act_${a.actor}_${a.line}`,
+        category: 'activation',
+        loc: `${colX(ci)} ${rowY(lo) - MSG_H / 2}`,
+        h: (hi - lo + 1) * MSG_H,
+      });
     }
   }
-  for (const nd of actNodes) nodeDataArray.push(nd);
 
-  // 消息节点
+  function rowActive(actor: string, row: number): boolean {
+    const rs = actRanges.get(actor);
+    if (rs === undefined) return false;
+    return rs.some((rr) => row >= rr.startRow && row <= rr.endRow);
+  }
+
+  // 消息 → linkDataArray（MessageLink 从 data 读 row/fromAct/toAct 精确定位）
+  const linkDataArray: any[] = [];
   for (let mi = 0; mi < ast.messages.length; mi++) {
     const m = ast.messages[mi];
-    const fi = colIndex.get(m.from);
-    const ti = colIndex.get(m.to);
-    if (fi === undefined || ti === undefined) continue;
-    const x1 = colX(fi);
-    const x2 = colX(ti);
-    nodeDataArray.push({
+    if (!colIndex.has(m.from) || !colIndex.has(m.to)) continue;
+    const row = rowOfMsg.get(mi)!;
+    linkDataArray.push({
       key: `__msg_${mi}`,
-      category: 'message',
-      loc: `${Math.min(x1, x2)} ${rowY(rowOfMsg.get(mi)!)}`,
-      w: Math.max(24, Math.abs(x2 - x1)),
-      reverse: x2 < x1,
+      from: m.from,
+      to: m.to,
+      row,
+      fromAct: rowActive(m.from, row),
+      toAct: rowActive(m.to, row),
       dashed: m.arrow.startsWith('--'),
-      open: m.arrow.includes('x') || m.arrow.includes(')'),
+      arrow: arrowFigure(m.arrow),
       text: m.label,
       stroke: theme.categories.participant.stroke,
     });
@@ -155,11 +227,11 @@ export function renderSequence(divId: string, ast: SequenceAST, theme: MermaidTh
     });
   }
 
-  diag.model = new GraphLinksModel({ nodeDataArray, linkDataArray: [] } as any);
+  diag.model = new GraphLinksModel({ nodeDataArray, linkDataArray } as any);
   return diag;
 }
 
-/** 参与者节点：垂直面板 = 顶部标题框 + 向下生命线 */
+/** 参与者节点：垂直面板 = 顶部标题框 + 向下生命线（生命线为连线端口） */
 function buildParticipantNode(theme: MermaidTheme, isActor: boolean): Node {
   const cs = theme.categories.participant;
   const node = new Node('Vertical');
@@ -192,62 +264,42 @@ function buildParticipantNode(theme: MermaidTheme, isActor: boolean): Node {
   return node;
 }
 
-/** 消息节点：Table 面板 = 标签行(上方) + 箭头+线行(下方)。箭头按方向放目标端 */
-function buildMessageNode(theme: MermaidTheme): Node {
+/** 消息连线模板：主线 + 目标端箭头 + 中点标签（贴在线上方） */
+function buildMessageLinkTemplate(theme: MermaidTheme): Link {
   const stroke = theme.categories.participant.stroke;
-  const node = new Node('Table', { locationSpot: Spot.Left } as any);
-  node.selectable = true;
-  const ARR = 12; // 箭头区域宽
+  const link = new MessageLink();
+  link.selectable = false;
+  link.routing = RoutingNormal;
+  link.curve = CurveNone;
+  link.corner = 0;
+  link.toShortLength = 0;
 
-  // 标签：占满整行，垂直顶部，文字居中
+  const line = new Shape();
+  line.isPanelMain = true;
+  line.stroke = stroke;
+  line.strokeWidth = 2;
+  line.fill = null;
+  line.bind('strokeDashArray', 'dashed', (d: boolean) => (d ? [4, 4] : null));
+  link.add(line);
+
+  const arrow = new Shape();
+  arrow.toArrow = 'OpenTriangle';
+  arrow.scale = 1.4;
+  arrow.stroke = stroke;
+  arrow.fill = stroke;
+  arrow.bind('toArrow', 'arrow', (a: string) => a || 'OpenTriangle');
+  link.add(arrow);
+
   const label = new TextBlock();
-  label.row = 0;
-  label.column = 0;
-  label.columnSpan = 3;
-  label.textAlign = 'center';
+  label.margin = new Margin(2, 10, 2, 10);
   label.font = `${theme.fontSize.label}px ${theme.fontFamily}`;
   label.stroke = '#333';
-  label.margin = new Margin(0, 8, 4, 8);
-  label.wrap = WrapFit;
+  label.alignmentFocus = Spot.Bottom;
+  label.segmentOffset = new Point(0, -4);
   label.bind('text', 'text');
-  node.add(label);
+  link.add(label);
 
-  // 左箭头（反向时显示，指左）
-  const arrowL = new Shape('Triangle');
-  arrowL.row = 1;
-  arrowL.column = 0;
-  arrowL.width = ARR;
-  arrowL.height = 10;
-  arrowL.fill = stroke;
-  arrowL.angle = 270;
-  arrowL.bind('visible', 'reverse', (r: boolean) => !!r);
-  node.add(arrowL);
-
-  // 主线（中间列）
-  const line = new Shape('Rectangle');
-  line.row = 1;
-  line.column = 1;
-  line.portId = '';
-  line.fill = stroke;
-  line.stroke = 'transparent';
-  line.height = 2;
-  line.bind('width', 'w', (w: number) => Math.max(0, w - 2 * ARR));
-  line.bind('fill', 'stroke');
-  line.bind('strokeDashArray', 'dashed', (d: boolean) => (d ? [4, 4] : null));
-  node.add(line);
-
-  // 右箭头（正向显示，指右）
-  const arrowR = new Shape('Triangle');
-  arrowR.row = 1;
-  arrowR.column = 2;
-  arrowR.width = ARR;
-  arrowR.height = 10;
-  arrowR.fill = stroke;
-  arrowR.angle = 90;
-  arrowR.bind('visible', 'reverse', (r: boolean) => !r);
-  node.add(arrowR);
-
-  return node;
+  return link;
 }
 
 /** note 说明框节点 */
