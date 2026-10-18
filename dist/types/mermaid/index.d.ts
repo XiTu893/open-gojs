@@ -1,13 +1,13 @@
 /**
  * Mermaid DSL 解析 + 渲染 公共入口。
  *
+ * 架构：parser（DSL→AST）→ mapper（AST→GoJS 模型数据 JSON）→ render（模板+装配）。
+ * 渲染层不含布局计算，只把 mapper 输出的 nodeDataArray/linkDataArray 装进模型。
+ *
  * 用法：
  *   import { Mermaid } from 'open-gojs';
  *   const result = Mermaid.render(text, 'divId', { theme: 'dark' });
  *   // result.type / result.ast / result.errors / result.diagram
- *
- * 当前完整支持 flowchart；sequence/class/state/er/gantt/pie 走各自解析器，
- * 渲染按阶段推进（未支持的图类型返回 ast 但 diagram 为 null 并带 errors 提示）。
  */
 import { Diagram } from '../diagram/Diagram';
 import { ParseResult, MermaidType } from './ast';
