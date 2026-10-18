@@ -139,9 +139,9 @@ function buildGroupBoxTemplate(theme: MermaidTheme): Node {
 function buildLinkTemplate(theme: MermaidTheme): Link {
   const es = theme.edge;
   const link = new Link();
-  // RoutingNormal（直线）：避免 Orthogonal 路由对特殊形状（Diamond/子程序等）
-  // 计算错误的中间点（出现 -300/1263 等极端坐标导致连线穿节点）
-  link.routing = RoutingNormal;
+  // RoutingOrthogonal：Procedure spot 根因已修（figures/Figures.generated.ts），
+  // 恢复正交折线（更接近原生 mermaid 的直角连线风格）
+  link.routing = RoutingOrthogonal;
   link.curve = CurveNone;
   link.corner = 8;
   link.toShortLength = 4;
