@@ -16,6 +16,10 @@ export interface MappedGanttNode {
     w?: number;
     h?: number;
     milestone?: boolean;
+    /** 任务名单元格最大宽（超长时自动加宽左列） */
+    mw?: number;
+    /** 日期文本宽（用于自适应换行/避让） */
+    dw?: number;
 }
 /** 主入口 */
 export declare function mapGantt(ast: GanttAST, theme: MermaidTheme): {

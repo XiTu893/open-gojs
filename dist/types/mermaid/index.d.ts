@@ -19,11 +19,37 @@ import { isState } from './parser/state';
 import { isEr } from './parser/er';
 import { isPie } from './parser/pie';
 import { isGantt } from './parser/gantt';
+import { isMindmap } from './parser/mindmap';
+import { isTreeView } from './parser/treeview';
+import { isTreemap } from './parser/treemap';
+import { isIshikawa } from './parser/ishikawa';
+import { isTimeline } from './parser/timeline';
+import { isJourney } from './parser/journey';
+import { isKanban } from './parser/kanban';
+import { isPacket } from './parser/packet';
+import { isQuadrant } from './parser/quadrant';
+import { isXYChart } from './parser/xychart';
+import { isRadar } from './parser/radar';
+import { isVenn } from './parser/venn';
+import { isRequirement } from './parser/requirement';
+import { isUsecase } from './parser/usecase';
+import { isBlock } from './parser/block';
+import { isArchitecture } from './parser/architecture';
+import { isGitGraph } from './parser/gitgraph';
+import { isSankey } from './parser/sankey';
+import { isWardley } from './parser/wardley';
+import { isCynefin } from './parser/cynefin';
+import { isEventModeling } from './parser/eventmodeling';
+import { isC4 } from './parser/c4';
+import { isZenUML } from './parser/zenuml';
+import { isSwimlanes } from './parser/swimlanes';
 import { exportPng, downloadPng, PngExportOptions } from './export';
 /** 渲染选项 */
 export interface RenderOptions {
     /** 主题名（default/neutral/forest/dark）或自定义主题 */
     theme?: string | MermaidTheme;
+    /** 渲染后是否自动适配视口（默认 true） */
+    autoFit?: boolean;
 }
 /** 渲染结果 */
 export interface RenderResult extends ParseResult {
@@ -37,7 +63,7 @@ export declare function parse(text: string): ParseResult;
  * 解析并渲染到指定 div。
  * @param text Mermaid DSL 文本
  * @param divId 目标 div 的 id
- * @param opts 选项（主题等）
+ * @param opts 选项（主题、自动适配视口等）
  */
 export declare function render(text: string, divId: string, opts?: RenderOptions): RenderResult;
 /** 命名空间导出 */
@@ -52,6 +78,30 @@ export declare const Mermaid: {
     isEr: typeof isEr;
     isPie: typeof isPie;
     isGantt: typeof isGantt;
+    isMindmap: typeof isMindmap;
+    isTreeView: typeof isTreeView;
+    isTreemap: typeof isTreemap;
+    isIshikawa: typeof isIshikawa;
+    isTimeline: typeof isTimeline;
+    isJourney: typeof isJourney;
+    isKanban: typeof isKanban;
+    isPacket: typeof isPacket;
+    isQuadrant: typeof isQuadrant;
+    isXYChart: typeof isXYChart;
+    isRadar: typeof isRadar;
+    isVenn: typeof isVenn;
+    isRequirement: typeof isRequirement;
+    isUsecase: typeof isUsecase;
+    isBlock: typeof isBlock;
+    isArchitecture: typeof isArchitecture;
+    isGitGraph: typeof isGitGraph;
+    isSankey: typeof isSankey;
+    isWardley: typeof isWardley;
+    isCynefin: typeof isCynefin;
+    isEventModeling: typeof isEventModeling;
+    isC4: typeof isC4;
+    isZenUML: typeof isZenUML;
+    isSwimlanes: typeof isSwimlanes;
     exportPng: typeof exportPng;
     downloadPng: typeof downloadPng;
 };

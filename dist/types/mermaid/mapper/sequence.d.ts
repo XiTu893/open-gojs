@@ -10,8 +10,8 @@
  */
 import { SequenceAST } from '../ast';
 export declare const SEQ_TOP_H = 64;
-/** 参与者 X 中心 */
-export declare function seqColX(index: number): number;
+/** 参与者 X 中心（colW 由 mapSequence 计算后传入；缺省用 COL_W） */
+export declare function seqColX(index: number, colW?: number): number;
 /** 行中心 Y（消息线的精确 Y；MessageLink 模板复用） */
 export declare function seqRowY(row: number): number;
 /** 激活盒宽度（MessageLink 端点贴盒边缘时复用） */
@@ -41,6 +41,8 @@ export interface MappedSeqLink {
 export interface MappedSequence {
     nodes: MappedSeqNode[];
     links: MappedSeqLink[];
+    /** 实际使用的参与者列宽（render 侧如需要可按此换算/复用） */
+    colW: number;
 }
 /** 主入口 */
 export declare function mapSequence(ast: SequenceAST): MappedSequence;
