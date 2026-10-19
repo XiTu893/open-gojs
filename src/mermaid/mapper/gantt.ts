@@ -7,13 +7,32 @@
 import { GanttAST, GanttTask } from '../ast';
 import { MermaidTheme } from '../themes';
 
-const LABEL_W = 220;  // 左列宽
-const AXIS_X = LABEL_W + 20;
+const BASE_LABEL_W = 220;  // 左列宽底线（任务名超长时自动加宽，见 mapGantt）
 const ROW_H = 30;
-const TOP = 96;       // 顶部（标题+轴）
+const TOP = 96;            // 顶部（标题+轴）
 const BAR_H = 18;
-const DAY_PX = 40;    // 每天像素
+const DAY_PX = 40;         // 每天像素
 const MARGIN = 20;
+
+/** 估算文本像素宽（CJK≈1em，latin≈0.55em，em=13px） */
+function textW(s: string, em = 13): number {
+  let w = 0;
+  for (const ch of s) {
+    const c = ch.charCodeAt(0);
+    w += (c >= 0x2e80 && c <= 0x9fff) || (c >= 0x3000 && c <= 0x303f) ? em : em * 0.55;
+  }
+  return w;
+}
+
+/** 根据总天数与标签像素宽选刻度步长（保证标签不重叠） */
+function stepFor(maxDay: number, labelW: number): number {
+  const minStep = Math.max(1, Math.ceil((labelW + 8) / DAY_PX));
+  if (maxDay <= 10) return Math.max(1, minStep);
+  if (maxDay <= 30) return Math.max(2, minStep);
+  if (maxDay <= 80) return Math.max(5, minStep);
+  if (maxDay <= 200) return Math.max(10, minStep);
+  return Math.max(30, minStep);
+}
 
 /** 解析日期字符串为毫秒时间戳（支持 YYYY-MM-DD / YYYY/MM/DD） */
 function parseDate(s: string): number | null {
@@ -44,15 +63,6 @@ function fmtDate(ms: number): string {
   const m = String(d.getUTCMonth() + 1).padStart(2, '0');
   const dd = String(d.getUTCDate()).padStart(2, '0');
   return `${y}-${m}-${dd}`;
-}
-
-/** 根据总天数选择日期刻度步长（避免标签重叠） */
-function stepFor(maxDay: number): number {
-  if (maxDay <= 10) return 1;
-  if (maxDay <= 30) return 2;
-  if (maxDay <= 80) return 5;
-  if (maxDay <= 200) return 10;
-  return 30;
 }
 
 /** 展平任务并解析起止 */
@@ -90,7 +100,7 @@ function resolveTasks(ast: GanttAST): {
           startDay = tasks.length ? (tasks[tasks.length - 1].startDay + tasks[tasks.length - 1].durDays) : 0;
         }
       }
-      startById.set(t.id, startDay);
+      startById.set(t.id, startDay + dur);
       tasks.push({ task: t, startDay, durDays: dur, section: sec.name });
     }
   }
@@ -115,6 +125,10 @@ export interface MappedGanttNode {
   w?: number;
   h?: number;
   milestone?: boolean;
+  /** 任务名单元格最大宽（超长时自动加宽左列） */
+  mw?: number;
+  /** 日期文本宽（用于自适应换行/避让） */
+  dw?: number;
 }
 
 /** 主入口 */
@@ -123,11 +137,16 @@ export function mapGantt(ast: GanttAST, theme: MermaidTheme): { nodes: MappedGan
   const { tasks, minT, maxDay } = resolveTasks(ast);
   const axisW = maxDay * DAY_PX + 20;
 
+  // 左列宽自适应：任务名最长者决定（底线 BASE_LABEL_W，超长自动加宽）
+  const labelW = Math.max(BASE_LABEL_W, tasks.reduce((m, r) => Math.max(m, textW(r.task.name, 13)), 0) + 16);
+  const AXIS_X = labelW + 20;
+
   // 标题
   if (ast.title) nodes.push({ key: '__t', category: 'GTitle', text: ast.title, loc: `${MARGIN} 30` });
 
-  // 时间轴刻度标签 + 网格线
-  const step = stepFor(maxDay);
+  // 时间轴刻度标签 + 网格线（步长按日期标签像素宽自适应，避免重叠）
+  const dateLabelW = textW(fmtDate(minT + maxDay * 86400000), 10);
+  const step = stepFor(maxDay, dateLabelW);
   for (let d = 0; d <= maxDay; d++) {
     const x = AXIS_X + d * DAY_PX;
     nodes.push({
@@ -159,10 +178,24 @@ export function mapGantt(ast: GanttAST, theme: MermaidTheme): { nodes: MappedGan
     const barW = Math.max(8, r.durDays * DAY_PX);
     nodes.push({
       key: `lbl_${r.task.id}_${row}`, category: 'GLabel', text: r.task.name,
-      loc: `${MARGIN} ${y}`,
+      loc: `${MARGIN} ${y}`, mw: labelW,
     });
     const startDate = fmtDate(minT + r.startDay * 86400000);
     const endDate = fmtDate(minT + (r.startDay + r.durDays) * 86400000 - 1);
+    const dateText = r.task.isMilestone ? `◆ ${startDate}` : `${startDate} ~ ${endDate}`;
+    const dw = textW(dateText, 11);
+    // 日期自适应位置：条右→条左→条下（避免与条/网格重叠）
+    let dx = barX + barW + 6;
+    if (dx + dw > AXIS_X + axisW + 10) {
+      dx = barX - dw - 6;
+      if (dx < AXIS_X) dx = AXIS_X; // 仍放不下就贴轴左，会与网格线轻微重叠但不越界
+    }
+    nodes.push({
+      key: `dt_${r.task.id}_${row}`, category: 'GDate',
+      text: dateText,
+      loc: `${dx} ${y + (ROW_H - BAR_H) / 2 - 6}`,
+      dw,
+    });
     nodes.push({
       key: `bar_${r.task.id}_${row}`, category: 'GBar',
       loc: `${barX} ${y + (ROW_H - BAR_H) / 2}`,
@@ -170,19 +203,6 @@ export function mapGantt(ast: GanttAST, theme: MermaidTheme): { nodes: MappedGan
       milestone: r.task.isMilestone,
       fill: sectionColor(r.section, theme),
     });
-    if (!r.task.isMilestone) {
-      nodes.push({
-        key: `dt_${r.task.id}_${row}`, category: 'GDate',
-        text: `${startDate} ~ ${endDate}`,
-        loc: `${Math.min(barX + barW + 6, AXIS_X + axisW + 10)} ${y + (ROW_H - BAR_H) / 2 - 6}`,
-      });
-    } else {
-      nodes.push({
-        key: `dt_${r.task.id}_${row}`, category: 'GDate',
-        text: `◆ ${startDate}`,
-        loc: `${barX + barW + 6} ${y + (ROW_H - BAR_H) / 2 - 6}`,
-      });
-    }
     row++;
   }
 

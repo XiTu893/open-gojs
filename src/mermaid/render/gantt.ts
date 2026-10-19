@@ -2,6 +2,7 @@
  * gantt 渲染器 —— 只建模板 + 装配模型（数据由 mapper/gantt 提供）。
  *
  * 左列任务名，右侧时间轴/网格/任务条与起止日期；section 分组标题。
+ * 左列宽、刻度步长、日期位置全部由 mapper 自适应计算，此处只装配模板。
  */
 import { Diagram } from '../../diagram/Diagram';
 import { Node } from '../../view/Node';
@@ -14,7 +15,7 @@ import { Spot } from '../../core/Spot';
 import { MermaidTheme } from '../themes';
 import { MappedGanttNode } from '../mapper/gantt';
 
-const LABEL_W = 220; // 左列宽（GLabel 文本最大宽）
+const BASE_LABEL_W = 220; // 渲染层回退值（以 mapper 传入的 mw 为准）
 
 /** 渲染 gantt 到 div（data = mapGantt 的输出） */
 export function renderGantt(divId: string, data: { nodes: MappedGanttNode[] }, theme: MermaidTheme): Diagram {
@@ -40,10 +41,9 @@ function buildLabelNode(theme: MermaidTheme): Node {
   const tb = new TextBlock();
   tb.margin = new Margin(6, 8, 6, 8);
   tb.font = `${theme.fontSize.label}px ${theme.fontFamily}`;
-  tb.stroke = '#333';
-  tb.maxSize = new Size(LABEL_W - 16, NaN);
-  node.add(tb);
-  (tb as any).bind('text', 'text');
+  tb.stroke = '#000000';
+  tb.bind('maxSize', 'mw', (v: number | undefined) => new Size((v ?? BASE_LABEL_W) - 16, NaN));
+  tb.bind('text', 'text');
   return node;
 }
 
