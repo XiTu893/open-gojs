@@ -10,8 +10,12 @@ import { MermaidTheme } from '../themes';
 const R = 150;        // 饼半径
 const CX = 210;       // 圆心 X
 const CY = 200;       // 圆心 Y
-const LEGEND_X = 420; // 图例起始 X
 const LEGEND_ROW = 30;// 图例行高
+
+/** 图例起始 X：紧贴饼右缘（标签长时自然向右延伸，不预设固定宽度） */
+function legendX(): number {
+  return CX + R + 24;
+}
 
 /** 映射后的节点数据 */
 export interface MappedPieNode {
@@ -66,7 +70,7 @@ export function mapPie(ast: PieAST, theme: MermaidTheme): { nodes: MappedPieNode
       category: 'Legend',
       text: `${d.label}  ${d.value}`,
       fill: colorOf(i),
-      loc: `${LEGEND_X} ${CY - R + i * LEGEND_ROW}`,
+      loc: `${legendX()} ${CY - R + i * LEGEND_ROW}`,
     });
   });
 
