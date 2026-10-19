@@ -32,8 +32,8 @@ function shapeOf(open: string): FlowNode['shape'] {
     case '((': return 'circle';
     case '([': return 'stadium';
     case '{{': return 'hexagon';
-    case '[/':
-    case '[\\': return 'parallelogram';
+    case '[/': return 'parallelogram';
+    case '[\\': return 'parallelogramInv';
     default: return 'process';
   }
 }

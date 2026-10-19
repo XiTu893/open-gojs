@@ -54,6 +54,7 @@ const SHAPE_FIGURE: Record<FlowShape, string> = {
   diamond: 'Diamond',
   hexagon: 'Hexagon',
   parallelogram: 'Parallelogram1',
+  parallelogramInv: 'Parallelogram1',
 };
 
 /** 估算文本宽度（CJK 全宽） */

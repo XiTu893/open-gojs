@@ -20,6 +20,7 @@ export type FlowCategory =
   | 'Cylinder'
   | 'Circle'
   | 'Parallelogram'
+  | 'ParallelogramInv'
   | 'Hexagon'
   | 'Group'
   | 'GroupBox';
@@ -33,6 +34,7 @@ export function categoryOfShape(shape: FlowShape): FlowCategory {
     case 'cylinder': return 'Cylinder';
     case 'circle': return 'Circle';
     case 'parallelogram': return 'Parallelogram';
+    case 'parallelogramInv': return 'ParallelogramInv';
     case 'hexagon': return 'Hexagon';
     case 'process':
     default: return '';

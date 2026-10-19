@@ -52,7 +52,8 @@ function figureOf(category: FlowCategory): string {
     case 'Subroutine': return 'Subroutine';
     case 'Cylinder': return 'Cylinder1';
     case 'Circle': return 'Circle';
-    case 'Parallelogram': return 'Parallelogram1';
+    case 'Parallelogram':
+    case 'ParallelogramInv': return 'Parallelogram1';
     case 'Hexagon': return 'Hexagon';
     case '':
     default: return 'RoundedRectangle';
@@ -88,7 +89,11 @@ function buildNodeTemplate(theme: MermaidTheme, category: FlowCategory, dir?: st
   shape.toLinkable = true;
   shape.fromSpot = fromSpot;
   shape.toSpot = toSpot;
-  if (!isCircle && !isDecision) shape.parameter1 = theme.nodeRadius;
+  const isParallelogram = category === 'Parallelogram' || category === 'ParallelogramInv';
+  const isSubroutine = category === 'Subroutine';
+  if (!isCircle && !isDecision && !isParallelogram && !isSubroutine) shape.parameter1 = theme.nodeRadius;
+  if (isParallelogram) shape.parameter1 = category === 'Parallelogram' ? 0.1 : -0.1;
+  if (isSubroutine) shape.parameter1 = 0.1;
   node.add(shape);
 
   const tb = new TextBlock();
@@ -228,6 +233,7 @@ export function renderFlowchart(
   diag.nodeTemplateMap.add('Cylinder', buildNodeTemplate(theme, 'Cylinder', data.dir));
   diag.nodeTemplateMap.add('Circle', buildNodeTemplate(theme, 'Circle', data.dir));
   diag.nodeTemplateMap.add('Parallelogram', buildNodeTemplate(theme, 'Parallelogram', data.dir));
+  diag.nodeTemplateMap.add('ParallelogramInv', buildNodeTemplate(theme, 'ParallelogramInv', data.dir));
   diag.nodeTemplateMap.add('Hexagon', buildNodeTemplate(theme, 'Hexagon', data.dir));
   diag.nodeTemplateMap.add('GroupBox', buildGroupBoxTemplate(theme));
 

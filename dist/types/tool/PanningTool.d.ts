@@ -16,6 +16,11 @@ export declare class PanningTool extends Tool {
      * 以前完全没有 button / dragSize 判定，右键或轻微点击也会被当成平移手势。
      */
     canStart(): boolean;
+    /**
+     * 官方 PanningTool.canStartButton（go.js 逐字）：**中键**按下才平移视口。
+     * 基类 Tool.canStartButton 只认左键；官方 pan 语义是中键（左键空白是框选）。
+     */
+    canStartButton(): boolean;
     /** Activate the panning tool. */
     doActivate(): void;
     /** Pan the viewport on mouse move. */

@@ -14,7 +14,7 @@ export interface ParseError {
 /** 流程图方向 */
 export type FlowDir = 'TD' | 'BT' | 'LR' | 'RL';
 /** 流程图节点形状 */
-export type FlowShape = 'process' | 'stadium' | 'subroutine' | 'cylinder' | 'circle' | 'diamond' | 'hexagon' | 'parallelogram';
+export type FlowShape = 'process' | 'stadium' | 'subroutine' | 'cylinder' | 'circle' | 'diamond' | 'hexagon' | 'parallelogram' | 'parallelogramInv';
 /** 流程图节点 */
 export interface FlowNode {
     id: string;

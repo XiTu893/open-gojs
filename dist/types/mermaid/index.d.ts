@@ -50,6 +50,8 @@ export interface RenderOptions {
     theme?: string | MermaidTheme;
     /** 渲染后是否自动适配视口（默认 true） */
     autoFit?: boolean;
+    /** 是否启用默认交互（滚轮缩放 + 左键空白拖拽平移，默认 true） */
+    interaction?: boolean;
 }
 /** 渲染结果 */
 export interface RenderResult extends ParseResult {

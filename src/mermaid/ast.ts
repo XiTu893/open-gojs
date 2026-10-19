@@ -57,7 +57,8 @@ export type FlowShape =
   | 'circle'       // ((text)) 圆形
   | 'diamond'      // {text} 菱形
   | 'hexagon'      // {{text}} 六边形
-  | 'parallelogram'; // [/text/] 平行四边形
+  | 'parallelogram' // [/text/] 平行四边形
+  | 'parallelogramInv'; // [\text\] 反平行四边形
 
 /** 流程图节点 */
 export interface FlowNode {

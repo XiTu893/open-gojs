@@ -12,6 +12,7 @@
 import { Diagram } from '../diagram/Diagram';
 import { ParseResult, MermaidType, MermaidAST } from './ast';
 import { getTheme, MermaidTheme } from './themes';
+import { WheelModeZoom } from '../core/EnumValues';
 // flowchart / sequence / class / state / er / pie / gantt（原有）
 import { parseFlowchart, isFlowchart } from './parser/flowchart';
 import { mapFlowchart } from './mapper/flowchart';
@@ -108,6 +109,8 @@ export interface RenderOptions {
   theme?: string | MermaidTheme;
   /** 渲染后是否自动适配视口（默认 true） */
   autoFit?: boolean;
+  /** 是否启用默认交互（滚轮缩放 + 左键空白拖拽平移，默认 true） */
+  interaction?: boolean;
 }
 
 /** 渲染结果 */
@@ -251,6 +254,16 @@ export function render(text: string, divId: string, opts: RenderOptions = {}): R
   // 关闭选项可传 opts.autoFit=false（如导出 PNG 时通常由 exportPng 自行 fit）
   if (diagram && opts.autoFit !== false) {
     diagram.zoomToFit();
+  }
+
+  // 默认交互（对标官方，仅做 mermaid 侧配置）：
+  //  - 滚轮：官方 ToolManager 默认 Scroll（需 ctrl 才缩放）；图表场景改为 Zoom，滚轮即缩放
+  //  - pan：官方 PanningTool 默认中键拖拽平移（core 已对标），左键空白保持官方框选
+  if (diagram && opts.interaction !== false) {
+    const tm: any = (diagram as any).toolManager;
+    if (tm && typeof tm.mouseWheelBehavior !== 'undefined') {
+      tm.mouseWheelBehavior = WheelModeZoom;
+    }
   }
 
   return { ...parsed, diagram };

@@ -33,6 +33,16 @@ export class PanningTool extends Tool {
     return true;
   }
 
+  /**
+   * 官方 PanningTool.canStartButton（go.js 逐字）：**中键**按下才平移视口。
+   * 基类 Tool.canStartButton 只认左键；官方 pan 语义是中键（左键空白是框选）。
+   */
+  canStartButton(): boolean {
+    const d = this.diagram;
+    if (!d) return false;
+    return d.lastInput.middleButton;
+  }
+
   /** Activate the panning tool. */
   doActivate(): void {
     const diagram = this.diagram;

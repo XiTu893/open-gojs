@@ -9,7 +9,7 @@
  */
 import { FlowchartAST, FlowEdge, FlowShape, FlowClassDef } from '../ast';
 /** 供渲染模板使用的节点类别 */
-export type FlowCategory = '' | 'Decision' | 'StartEnd' | 'Subroutine' | 'Cylinder' | 'Circle' | 'Parallelogram' | 'Hexagon' | 'Group' | 'GroupBox';
+export type FlowCategory = '' | 'Decision' | 'StartEnd' | 'Subroutine' | 'Cylinder' | 'Circle' | 'Parallelogram' | 'ParallelogramInv' | 'Hexagon' | 'Group' | 'GroupBox';
 /** 由节点形状推导模板类别 */
 export declare function categoryOfShape(shape: FlowShape): FlowCategory;
 /** 映射后的节点数据（含渲染所需字段） */
