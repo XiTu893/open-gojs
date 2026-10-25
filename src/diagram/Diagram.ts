@@ -1046,10 +1046,10 @@ export class Diagram {
         (part as any)._isSelected = true;
         this._selection.add(part);
         if (part.selectionAdorned) {
+          // addAdornment 内部已走 diagram.add（进 Adornment 层并设 _diagram），
+          // 再直接 layer.add 会让同一装饰在层 List 里出现两次（无去重）
           const ad = part._createSelectionAdornment();
           part.addAdornment('Selection', ad);
-          const adornmentLayer = this.findLayer('Adornment');
-          if (adornmentLayer) adornmentLayer.add(ad);
         }
         if (this._toolManager) {
           this._toolManager.updateAdornments(part);

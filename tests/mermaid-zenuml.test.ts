@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseZenUML, isZenUML } from '../src/mermaid/parser/zenuml';
+import { parseZenUML, isZenUML } from '../extension/mermaid/parser/zenuml';
 
 describe('mermaid zenuml parser', () => {
   it('detects zenuml header', () => {

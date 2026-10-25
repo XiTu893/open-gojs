@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { parseFlowchart } from '../src/mermaid/parser/flowchart';
-import { mapFlowchart, categoryOfShape } from '../src/mermaid/mapper/flowchart';
-import { Mermaid } from '../src/mermaid/index';
+import { parseFlowchart } from '../extension/mermaid/parser/flowchart';
+import { mapFlowchart, categoryOfShape } from '../extension/mermaid/mapper/flowchart';
+import { Mermaid } from '../extension/mermaid/index';
 
 describe('mermaid flowchart mapper', () => {
   it('maps shapes to categories', () => {

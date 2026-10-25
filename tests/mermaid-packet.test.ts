@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { parsePacket, isPacket } from '../src/mermaid/parser/packet';
-import { mapPacket } from '../src/mermaid/mapper/packet';
-import { defaultTheme } from '../src/mermaid/themes';
+import { parsePacket, isPacket } from '../extension/mermaid/parser/packet';
+import { mapPacket } from '../extension/mermaid/mapper/packet';
+import { defaultTheme } from '../extension/mermaid/themes';
 
 describe('mermaid packet parser', () => {
   it('detects packet by first-line header', () => {

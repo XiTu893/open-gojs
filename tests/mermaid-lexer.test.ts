@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { tokenize, stripComments } from '../src/mermaid/lexer';
+import { tokenize, stripComments } from '../extension/mermaid/lexer';
 
 describe('mermaid lexer', () => {
   it('tokenizes a simple flowchart', () => {

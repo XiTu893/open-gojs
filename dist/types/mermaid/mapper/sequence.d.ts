@@ -15,7 +15,7 @@ export declare function seqColX(index: number, colW?: number): number;
 /** 行中心 Y（消息线的精确 Y；MessageLink 模板复用） */
 export declare function seqRowY(row: number): number;
 /** 激活盒宽度（MessageLink 端点贴盒边缘时复用） */
-export declare const SEQ_ACT_W = 12;
+export declare const SEQ_ACT_W = 10;
 /** 映射后的节点数据 */
 export interface MappedSeqNode {
     key: string;
@@ -24,6 +24,7 @@ export interface MappedSeqNode {
     text?: string;
     lineTo?: number;
     h?: number;
+    w?: number;
 }
 /** 映射后的连线数据 */
 export interface MappedSeqLink {

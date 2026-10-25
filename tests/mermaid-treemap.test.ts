@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { parseTreemap, isTreemap } from '../src/mermaid/parser/treemap';
-import { mapTreemap } from '../src/mermaid/mapper/treemap';
+import { parseTreemap, isTreemap } from '../extension/mermaid/parser/treemap';
+import { mapTreemap } from '../extension/mermaid/mapper/treemap';
 
 describe('mermaid treemap parser', () => {
   it('detects treemap-beta by header', () => {

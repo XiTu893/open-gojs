@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { parseQuadrant, isQuadrant } from '../src/mermaid/parser/quadrant';
-import { mapQuadrant, quadrantPlot, Q_CANVAS_W, Q_CANVAS_H } from '../src/mermaid/mapper/quadrant';
-import { defaultTheme } from '../src/mermaid/themes';
+import { parseQuadrant, isQuadrant } from '../extension/mermaid/parser/quadrant';
+import { mapQuadrant, quadrantPlot, Q_CANVAS_W, Q_CANVAS_H } from '../extension/mermaid/mapper/quadrant';
+import { defaultTheme } from '../extension/mermaid/themes';
 
 const DSL = `quadrantChart
 title 团队能力矩阵

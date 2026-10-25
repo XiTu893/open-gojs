@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { parseGitGraph, isGitGraph } from '../src/mermaid/parser/gitgraph';
-import { mapGitGraph } from '../src/mermaid/mapper/gitgraph';
-import { defaultTheme } from '../src/mermaid/themes';
+import { parseGitGraph, isGitGraph } from '../extension/mermaid/parser/gitgraph';
+import { mapGitGraph } from '../extension/mermaid/mapper/gitgraph';
+import { defaultTheme } from '../extension/mermaid/themes';
 
 describe('mermaid gitgraph parser', () => {
   it('detects gitGraph header', () => {

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { parseC4, isC4 } from '../src/mermaid/parser/c4';
-import { mapC4 } from '../src/mermaid/mapper/c4';
-import { defaultTheme } from '../src/mermaid/themes';
+import { parseC4, isC4 } from '../extension/mermaid/parser/c4';
+import { mapC4 } from '../extension/mermaid/mapper/c4';
+import { defaultTheme } from '../extension/mermaid/themes';
 
 const CONTEXT = `C4Context
 title 银行系统上下文

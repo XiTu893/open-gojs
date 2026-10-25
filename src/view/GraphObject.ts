@@ -957,18 +957,32 @@ export class GraphObject {
       result.setTo(x, y);
       return false;
     }
-    // Liang-Barsky 里 t0 恒从 0 起算：起点在矩形【内】时 t0 仍为 0，
-    // 若先取 t0 就会把起点本身当成交点（连线端点落在节点中心）。
-    // 正确语义：起点在外 → 取进入点 t0；起点在内 → 取离开点 t1；
-    // 整段都在矩形内 → 官方四条边都求不到交点，返回 false。
-    let t: number;
-    if (t0 > 1e-9 && t0 <= 1) t = t0;
-    else if (t1 > 1e-9 && t1 <= 1) t = t1;
-    else {
+    // 本项目调用约定 (x1,y1)=focus、(x2,y2)=aim；官方 Rf 的参数序是 (aim, focus)
+    // 且交点取“离第一参数（aim）最近”的候选。候选 = 进入点 t0 与离开点 t1：
+    // 先过官方闸门 dist²(cand,aim) < dist²(focus,aim)，再取离 aim 最近者。
+    // （起点在矩形内时 t0 恒为 0 被 >1e-9 过滤，天然只剩离开点，端点不会塌回中心。）
+    const adx = x2 - x1;
+    const ady = y2 - y1;
+    const gate = adx * adx + ady * ady;
+    let bestT = NaN;
+    let bestD = Infinity;
+    for (const t of [t0, t1]) {
+      if (!(t > 1e-9 && t <= 1)) continue;
+      const hx = x1 + t * dx;
+      const hy = y1 + t * dy;
+      const gx = hx - x2;
+      const gy = hy - y2;
+      const d2 = gx * gx + gy * gy;
+      if (d2 < gate && d2 < bestD) {
+        bestD = d2;
+        bestT = t;
+      }
+    }
+    if (isNaN(bestT)) {
       result.setTo(x, y);
       return false;
     }
-    result.setTo(x1 + t * dx, y1 + t * dy);
+    result.setTo(x1 + bestT * dx, y1 + bestT * dy);
     return true;
   }
 

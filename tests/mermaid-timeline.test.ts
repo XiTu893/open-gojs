@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { parseTimeline, isTimeline } from '../src/mermaid/parser/timeline';
-import { mapTimeline } from '../src/mermaid/mapper/timeline';
-import { defaultTheme } from '../src/mermaid/themes';
+import { parseTimeline, isTimeline } from '../extension/mermaid/parser/timeline';
+import { mapTimeline } from '../extension/mermaid/mapper/timeline';
+import { defaultTheme } from '../extension/mermaid/themes';
 
 describe('mermaid timeline parser', () => {
   it('detects timeline by first-line header', () => {
@@ -44,46 +44,67 @@ title 标题
 });
 
 describe('mermaid timeline mapper', () => {
-  it('places cards above axis with uniform column spacing', () => {
-    const ast = parseTimeline(`timeline
+  const dsl = `timeline
 title 工业革命
   1760 : 纺织机械化 : 蒸汽机
   1840 : 铁路扩张
-  1900 : 电气化`);
-    const { nodes } = mapTimeline(ast, defaultTheme);
-    const cards = nodes.filter(n => n.category === 'TCard');
-    const dots = nodes.filter(n => n.category === 'TDot');
+  1900 : 电气化`;
+
+  it('emits badges, horizontal axis, vertical dashed lines and event cards', () => {
+    const { nodes } = mapTimeline(parseTimeline(dsl), defaultTheme);
+    const badges = nodes.filter(n => n.category === 'TBadge');
+    const events = nodes.filter(n => n.category === 'TEvent');
+    const lines = nodes.filter(n => n.category === 'TLine');
     const axis = nodes.filter(n => n.category === 'TAxis');
-    expect(cards.length).toBe(3);
-    expect(dots.length).toBe(3);
+    expect(badges.length).toBe(3);
+    expect(events.length).toBe(4);
+    expect(lines.length).toBe(3);
     expect(axis.length).toBe(1);
-    // 卡片在轴线（y=300）上方
-    for (const c of cards) {
-      const y = parseFloat(c.loc.split(' ')[1]);
-      expect(y).toBeLessThan(300);
+
+    // 横向时间轴：粗黑线 + 右端箭头三角，位于徽章下方
+    const ax = axis[0];
+    expect(ax.stroke).toBe('#000000');
+    expect(ax.sw).toBe(4);
+    expect(ax.geo).toContain('Z M');
+    const axisY = parseFloat(ax.geo!.match(/M [\d.]+,([\d.]+)/)![1]);
+    for (const b of badges) {
+      expect(parseFloat(b.loc.split(' ')[1])).toBeLessThan(axisY);
     }
-    // 圆点在轴线上、列距均匀
-    const xs = dots.map(d => parseFloat(d.loc.split(' ')[0]));
-    expect(xs[1] - xs[0]).toBe(xs[2] - xs[1]);
-    for (const d of dots) {
-      expect(parseFloat(d.loc.split(' ')[1])).toBe(300);
+
+    // 纵向虚线：黑色 + dash，列心等距，位于内容之后（顶层）
+    for (const l of lines) {
+      expect(l.stroke).toBe('#000000');
+      expect(l.dash).toEqual([5, 5]);
+      expect(nodes.indexOf(l)).toBeGreaterThan(nodes.indexOf(badges[0]));
     }
-    // 卡片水平对齐对应圆点
-    expect(parseFloat(cards[0].loc.split(' ')[0])).toBeLessThan(xs[0]);
+    const lineXs = lines.map(l => parseFloat(l.geo!.match(/M ([\d.]+),/)![1]));
+    expect(lineXs[1] - lineXs[0]).toBeCloseTo(lineXs[2] - lineXs[1], 5);
+    for (let i = 0; i < badges.length; i++) {
+      const bx = parseFloat(badges[i].loc.split(' ')[0]) + badges[i].w! / 2;
+      expect(lineXs[i]).toBeCloseTo(bx, 5);
+    }
+
+    // 主次区分：徽章 = series 实色；事件 = 白底 + series 描边
+    expect(badges[0].fill).toBe(defaultTheme.series[0]);
+    expect(events[0].fill).toBe('#ffffff');
+    expect(events[0].stroke).toBe(defaultTheme.series[0]);
+
+    // 事件卡片在时间轴下方（次内容）
+    for (const e of events) {
+      expect(parseFloat(e.loc.split(' ')[1])).toBeGreaterThan(axisY);
+    }
   });
 
-  it('emits title node and uses theme series colors', () => {
+  it('emits title node', () => {
     const ast = parseTimeline('timeline\ntitle T\n  a : x');
     const { nodes } = mapTimeline(ast, defaultTheme);
     const title = nodes.find(n => n.category === 'TTitle');
     expect(title?.text).toBe('T');
-    const dot = nodes.find(n => n.category === 'TDot');
-    expect(dot?.fill).toBe(defaultTheme.series[0]);
   });
 
   it('handles empty periods without axis', () => {
     const { nodes } = mapTimeline(parseTimeline('timeline'), defaultTheme);
-    expect(nodes.filter(n => n.category === 'TCard').length).toBe(0);
+    expect(nodes.filter(n => n.category === 'TEvent').length).toBe(0);
     expect(nodes.filter(n => n.category === 'TAxis').length).toBe(0);
   });
 });

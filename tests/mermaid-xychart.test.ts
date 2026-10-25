@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { parseXYChart, isXYChart } from '../src/mermaid/parser/xychart';
-import { mapXYChart, xyPlot, XY_CANVAS_W } from '../src/mermaid/mapper/xychart';
-import { defaultTheme } from '../src/mermaid/themes';
+import { parseXYChart, isXYChart } from '../extension/mermaid/parser/xychart';
+import { mapXYChart, xyPlot, XY_CANVAS_W } from '../extension/mermaid/mapper/xychart';
+import { defaultTheme } from '../extension/mermaid/themes';
 
 const DSL = `xychart-beta
 title 销售额

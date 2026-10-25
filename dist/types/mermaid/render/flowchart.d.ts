@@ -10,5 +10,7 @@
 import { Diagram } from '../../diagram/Diagram';
 import { MermaidTheme } from '../themes';
 import { MappedFlowchart } from '../mapper/flowchart';
-/** 装配 Diagram（div 已就绪） */
-export declare function renderFlowchart(divId: string, data: MappedFlowchart, theme: MermaidTheme): Diagram;
+/** 装配 Diagram（div 已就绪）。opts.lanes：swimlane-beta 列式泳道（subgraph=列，成员按行对齐） */
+export declare function renderFlowchart(divId: string, data: MappedFlowchart, theme: MermaidTheme, opts?: {
+    lanes?: boolean;
+}): Diagram;

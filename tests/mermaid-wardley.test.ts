@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { parseWardley, isWardley } from '../src/mermaid/parser/wardley';
-import { mapWardley } from '../src/mermaid/mapper/wardley';
-import { defaultTheme } from '../src/mermaid/themes';
+import { parseWardley, isWardley } from '../extension/mermaid/parser/wardley';
+import { mapWardley } from '../extension/mermaid/mapper/wardley';
+import { defaultTheme } from '../extension/mermaid/themes';
 
 const SAMPLE = `wardley-beta
 title 我的地图

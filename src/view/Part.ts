@@ -508,6 +508,14 @@ export class Part extends Panel {
 
   // ============ Readonly properties ============
 
+  /**
+   * 官方 `Part.diagram` 直读本部件的 diagram 字段。GraphObject.diagram 走
+   * `this.part` 链——Adornment 等 Part 自身 `_panel` 为 null 时 part 解析为 null，
+   * 会把 `_diagram` 明明有值的装饰读成 null，导致 removeAdornment 跳过
+   * `diagram.remove` → 装饰永久残留在 Adornment 层（选择框不消失）。
+   */
+  get diagram(): any { return this._diagram; }
+
   get isTopLevel(): boolean { return this._containingGroup === null; }
 
   /** 官方 Part.canLayout */
@@ -725,9 +733,10 @@ export class Part extends Panel {
     return this._adornments.get(category) ?? null;
   }
 
-  /** Remove all adornments */
+  /** 官方 `Part.clearAdornments()`：逐个 removeAdornment（从图中摘除），不是只清 map */
   clearAdornments(): void {
-    this._adornments.clear();
+    const cats = Array.from(this._adornments.keys());
+    for (const c of cats) this.removeAdornment(c);
   }
 
   /**
@@ -738,7 +747,9 @@ export class Part extends Panel {
    */
   _createSelectionAdornment(): any {
     if (this._selectionAdornmentTemplate) {
-      return this._selectionAdornmentTemplate.copy();
+      const c = this._selectionAdornmentTemplate.copy();
+      c.category = 'Selection';
+      return c;
     }
     const AdornmentCtor = GraphObject._classRegistry['Adornment'];
     const PlaceholderCtor = GraphObject._classRegistry['Placeholder'];
@@ -752,6 +763,10 @@ export class Part extends Panel {
     shape.stretch = StretchFill;
     adornment.add(shape);
     if (PlaceholderCtor) adornment.add(new PlaceholderCtor());
+    // 必须带 category：Adornment.adornedObject setter 会用 `this.category` 挂载，
+    // 空 category 会把装饰挂到空键上（与随后的 addAdornment('Selection') 双键、
+    // 同对象在 Adornment 层里 add 两次 → 选择框残留/泄漏）。
+    adornment.category = 'Selection';
     return adornment;
   }
 
@@ -1302,6 +1317,8 @@ export class Part extends Panel {
           s = n ? n.copy() : this._createSelectionAdornment();
           if (s !== null && s !== undefined) {
             if (this._className === 'Link' && i === (this as any).path) s.type = PanelLink;
+            // 兜底：模板没带 category 时，adornedObject setter 会以空键挂载（双键/层重复 add）
+            if (s.category !== cat) s.category = cat;
             s.adornedObject = i;
           }
         }

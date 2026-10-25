@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { parseSankey, isSankey, SankeyAST } from '../src/mermaid/parser/sankey';
-import { mapSankey, SANKEY_W, SANKEY_H } from '../src/mermaid/mapper/sankey';
-import { defaultTheme } from '../src/mermaid/themes';
+import { parseSankey, isSankey, SankeyAST } from '../extension/mermaid/parser/sankey';
+import { mapSankey, SANKEY_W, SANKEY_H } from '../extension/mermaid/mapper/sankey';
+import { defaultTheme } from '../extension/mermaid/themes';
 
 /** 从 mapper 输出中取节点竖条位置 */
 function barOf(nodes: { key: string; category: string; loc: string; h?: number }[], id: string) {
@@ -83,18 +83,27 @@ B,D,12`);
     }
   });
 
-  it('emits one filled geometry band per link, within canvas', () => {
+  it('emits one closed ribbon outline per link, within canvas', () => {
     const { nodes } = mapSankey(ast, defaultTheme);
     const flows = nodes.filter(n => n.category === 'SankeyFlow');
     expect(flows.length).toBe(ast.links.length);
     for (const f of flows) {
-      expect(f.loc).toBe('0 0');
-      expect(f.geom).toMatch(/^M [\d.-]+ [\d.-]+ C /);
-      expect(f.geom).toMatch(/ Z$/);
-      // 带状区域 x 坐标在画布范围内
-      const xs = (f.geom!.match(/[\d.-]+/g) ?? []).map(Number);
-      expect(Math.min(...xs)).toBeGreaterThanOrEqual(0);
-      expect(Math.max(...xs)).toBeLessThanOrEqual(SANKEY_W);
+      const [lx, ly] = f.loc.split(' ').map(Number);
+      expect(Number.isFinite(lx)).toBe(true);
+      expect(Number.isFinite(ly)).toBe(true);
+      // 闭合丝带轮廓（上缘 M+C → 右端帽 L → 下缘回程 C → Z），局部坐标 min 角在 0,0
+      expect(f.geom).toMatch(/^M [\d.-]+ [\d.-]+ C [\d.-]+ [\d.-]+ [\d.-]+ [\d.-]+ [\d.-]+ [\d.-]+ L [\d.-]+ [\d.-]+ C [\d.-]+ [\d.-]+ [\d.-]+ [\d.-]+ [\d.-]+ [\d.-]+ Z$/);
+      expect(f.geom).toMatch(/Z$/);
+      expect(f.w).toBeGreaterThan(0);
+      expect(Array.isArray(f.c)).toBe(true);
+      expect(f.c!.length).toBe(2);
+      // 局部坐标非负（M/C/L 均为坐标对：偶数位=x、奇数位=y），
+      // 且 loc + 局部坐标（文档坐标）在画布范围内
+      const nums = (f.geom!.match(/[\d.-]+/g) ?? []).map(Number);
+      expect(Math.min(...nums)).toBeGreaterThanOrEqual(0);
+      const localXs = nums.filter((_, k) => k % 2 === 0);
+      expect(lx + Math.max(...localXs)).toBeLessThanOrEqual(SANKEY_W);
+      expect(ly).toBeGreaterThanOrEqual(0);
     }
   });
 

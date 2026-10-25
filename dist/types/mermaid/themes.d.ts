@@ -13,6 +13,8 @@ export interface CategoryStyle {
     stroke: string;
     text: string;
     strokeWidth: number;
+    /** 按类别异色的阴影（pageFlow 风格）；缺省用 theme.shadow.color */
+    shadow?: string;
 }
 /** 连线样式 */
 export interface EdgeStyle {
@@ -45,9 +47,8 @@ export interface MermaidTheme {
     edge: EdgeStyle;
 }
 /**
- * 默认主题 —— GoJS 原生黑白风格：
- * 白底、黑边、黑字、无阴影、黑色 Standard 箭头；容器浅灰底。
- * series 为灰阶轮换（gantt/pie 深浅交替区分）。
+ * 默认主题 —— pageFlow.html 风格：饱和彩色节点 + 按类别彩色阴影（blur 2 / offset 4,6），
+ * 连线深藏青 #0D2C54，白底。series 为 pageFlow 五主色轮换（gantt/pie 扇区）。
  */
 export declare const defaultTheme: MermaidTheme;
 /** 中性主题 —— 文档/打印，低饱和克制 */

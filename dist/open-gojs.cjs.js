@@ -13109,6 +13109,7 @@ var GraphObject = /** @class */ (function () {
      * 找不到交点时 result 置为矩形左上角并返回 false（与官方一致）。
      */
     GraphObject._nearestIntersection = function (x, y, w, h, x1, y1, x2, y2, result) {
+        var e_6, _a;
         var dx = x2 - x1;
         var dy = y2 - y1;
         var t0 = 0;
@@ -13137,20 +13138,43 @@ var GraphObject = /** @class */ (function () {
             result.setTo(x, y);
             return false;
         }
-        // Liang-Barsky 里 t0 恒从 0 起算：起点在矩形【内】时 t0 仍为 0，
-        // 若先取 t0 就会把起点本身当成交点（连线端点落在节点中心）。
-        // 正确语义：起点在外 → 取进入点 t0；起点在内 → 取离开点 t1；
-        // 整段都在矩形内 → 官方四条边都求不到交点，返回 false。
-        var t;
-        if (t0 > 1e-9 && t0 <= 1)
-            t = t0;
-        else if (t1 > 1e-9 && t1 <= 1)
-            t = t1;
-        else {
+        // 本项目调用约定 (x1,y1)=focus、(x2,y2)=aim；官方 Rf 的参数序是 (aim, focus)
+        // 且交点取“离第一参数（aim）最近”的候选。候选 = 进入点 t0 与离开点 t1：
+        // 先过官方闸门 dist²(cand,aim) < dist²(focus,aim)，再取离 aim 最近者。
+        // （起点在矩形内时 t0 恒为 0 被 >1e-9 过滤，天然只剩离开点，端点不会塌回中心。）
+        var adx = x2 - x1;
+        var ady = y2 - y1;
+        var gate = adx * adx + ady * ady;
+        var bestT = NaN;
+        var bestD = Infinity;
+        try {
+            for (var _b = __values([t0, t1]), _c = _b.next(); !_c.done; _c = _b.next()) {
+                var t = _c.value;
+                if (!(t > 1e-9 && t <= 1))
+                    continue;
+                var hx = x1 + t * dx;
+                var hy = y1 + t * dy;
+                var gx = hx - x2;
+                var gy = hy - y2;
+                var d2 = gx * gx + gy * gy;
+                if (d2 < gate && d2 < bestD) {
+                    bestD = d2;
+                    bestT = t;
+                }
+            }
+        }
+        catch (e_6_1) { e_6 = { error: e_6_1 }; }
+        finally {
+            try {
+                if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
+            }
+            finally { if (e_6) throw e_6.error; }
+        }
+        if (isNaN(bestT)) {
             result.setTo(x, y);
             return false;
         }
-        result.setTo(x1 + t * dx, y1 + t * dy);
+        result.setTo(x1 + bestT * dx, y1 + bestT * dy);
         return true;
     };
     /**
@@ -13256,7 +13280,7 @@ var GraphObject = /** @class */ (function () {
     };
     /** Get the bounding rectangle of this object in document coordinates */
     GraphObject.prototype.getDocumentBounds = function () {
-        var e_6, _a;
+        var e_7, _a;
         // 含旋转 Part 的链：用 4 角经 getDocumentPoint 求 AABB
         //（官方 getDocumentBounds = naturalBounds 经 D 变换的包围盒；本项目
         //  未旋转链的 fast path = ab 平移链，与 measuredBounds(含 stroke) 角点等价）。
@@ -13290,12 +13314,12 @@ var GraphObject = /** @class */ (function () {
                             maxY = p.y;
                     }
                 }
-                catch (e_6_1) { e_6 = { error: e_6_1 }; }
+                catch (e_7_1) { e_7 = { error: e_7_1 }; }
                 finally {
                     try {
                         if (c_4_1 && !c_4_1.done && (_a = c_4.return)) _a.call(c_4);
                     }
-                    finally { if (e_6) throw e_6.error; }
+                    finally { if (e_7) throw e_7.error; }
                 }
                 return new Rect(minX, minY, maxX - minX, maxY - minY);
             }
@@ -13806,7 +13830,7 @@ var GraphObject = /** @class */ (function () {
         return GraphObject.make.apply(GraphObject, __spreadArray([type, init], __read(args), false));
     };
     GraphObject.make = function (type) {
-        var e_7, _a, e_8, _b;
+        var e_8, _a, e_9, _b;
         var args = [];
         for (var _i = 1; _i < arguments.length; _i++) {
             args[_i - 1] = arguments[_i];
@@ -13937,7 +13961,7 @@ var GraphObject = /** @class */ (function () {
                     continue;
                 if (Array.isArray(arg)) {
                     try {
-                        for (var arg_1 = (e_8 = void 0, __values(arg)), arg_1_1 = arg_1.next(); !arg_1_1.done; arg_1_1 = arg_1.next()) {
+                        for (var arg_1 = (e_9 = void 0, __values(arg)), arg_1_1 = arg_1.next(); !arg_1_1.done; arg_1_1 = arg_1.next()) {
                             var item = arg_1_1.value;
                             if (item instanceof GraphObject && typeof obj.add === 'function') {
                                 obj.add(item);
@@ -13947,12 +13971,12 @@ var GraphObject = /** @class */ (function () {
                             }
                         }
                     }
-                    catch (e_8_1) { e_8 = { error: e_8_1 }; }
+                    catch (e_9_1) { e_9 = { error: e_9_1 }; }
                     finally {
                         try {
                             if (arg_1_1 && !arg_1_1.done && (_b = arg_1.return)) _b.call(arg_1);
                         }
-                        finally { if (e_8) throw e_8.error; }
+                        finally { if (e_9) throw e_9.error; }
                     }
                 }
                 else if (arg instanceof RowColumnDefinition) {
@@ -14037,12 +14061,12 @@ var GraphObject = /** @class */ (function () {
                 }
             }
         }
-        catch (e_7_1) { e_7 = { error: e_7_1 }; }
+        catch (e_8_1) { e_8 = { error: e_8_1 }; }
         finally {
             try {
                 if (applyArgs_1_1 && !applyArgs_1_1.done && (_a = applyArgs_1.return)) _a.call(applyArgs_1);
             }
-            finally { if (e_7) throw e_7.error; }
+            finally { if (e_8) throw e_8.error; }
         }
         return obj;
     };
@@ -17398,8 +17422,8 @@ defineFigureGenerator('Procedure', function (shape, w, h) {
     fig2.add(new PathSegment(SegmentType.Line, (1 - param1) * w, h));
     fig2.add(new PathSegment(SegmentType.Move, param1 * w, 0));
     fig2.add(new PathSegment(SegmentType.Line, param1 * w, h));
-    // ??? geo.spot1 = new Spot(param1, 0);
-    // ??? geo.spot2 = new Spot(1 - param1, 1);
+    geo.spot1 = new Spot(param1, 0);
+    geo.spot2 = new Spot(1 - param1, 1);
     return geo;
 });
 defineFigureGenerator('Process', function (shape, w, h) {
@@ -20085,11 +20109,15 @@ var Shape = /** @class */ (function (_super) {
                         var sq = Math.sqrt(disc);
                         var t1 = (-b - sq) / (2 * a);
                         var t2 = (-b + sq) / (2 * a);
-                        // 取沿 p→q 方向上正值的最小 t（射线离开圆/椭圆的点）
+                        // 官方 Rf 语义（参数序反转后）：交点取离 q(aim) 最近的那个，且满足
+                        // 官方闸门 dist²(cand,q) < dist²(p,q)——共线射线时等价于 0<t<2。
                         var t = NaN;
-                        if (t1 > 1e-9 && (isNaN(t) || t1 < t))
+                        var ok = function (tt) { return tt > 1e-9 && tt < 2; };
+                        if (ok(t1) && ok(t2))
+                            t = Math.abs(1 - t1) < Math.abs(1 - t2) ? t1 : t2;
+                        else if (ok(t1))
                             t = t1;
-                        if (t2 > 1e-9 && (isNaN(t) || t2 < t))
+                        else if (ok(t2))
                             t = t2;
                         if (!isNaN(t)) {
                             result.setTo(p.x + t * dx, p.y + t * dy);
@@ -20098,7 +20126,11 @@ var Shape = /** @class */ (function (_super) {
                     }
                 }
             }
-            return _super.prototype.getNearestIntersectionPoint.call(this, p, q, result);
+            // 官方 Rf：射线与椭圆无交点时返回 false，不做矩形兑底
+            // （兑底会让“未命中的子形状包围盒角点”混进 Panel 聚合候选，
+            //   端点被吸到方形角上——donutCharts 对角 link 贴到方角就是这个原因）。
+            result.setTo(q.x, q.y);
+            return false;
         }
         // 其它图形：用实际几何的各条线段与 pq 求交，取离 p 最近者
         var geo = this._getGeometry();
@@ -20115,7 +20147,14 @@ var Shape = /** @class */ (function (_super) {
                 var toDoc = function (lx, ly) {
                     return new Point(ab2_1.x + (lx - geoBounds_1.x) * sx_1, ab2_1.y + (ly - geoBounds_1.y) * sy_1);
                 };
-                var bestT_1 = Infinity;
+                // 官方 Rf 语义（本项目参数序 (p=focus, q=aim) 反转后）：候选交点必须过
+                // 闸门 dist²(cand,q) < dist²(p,q)，并在其中取离 q(aim) 最近的那个——
+                // 注意不能取“离 p 最近”：节点中心在孔洞里时最近交点会落在内圈/标签上，
+                // 端点就缩进图形内部（donutCharts 的 link 全部偏短偏里就是这个原因）。
+                var gateDx = q.x - p.x;
+                var gateDy = q.y - p.y;
+                var gate_1 = gateDx * gateDx + gateDy * gateDy;
+                var bestD2_1 = Infinity;
                 var bestX_1 = 0;
                 var bestY_1 = 0;
                 var found_1 = false;
@@ -20129,11 +20168,18 @@ var Shape = /** @class */ (function (_super) {
                         return; // 平行
                     var t = ((x1 - p.x) * ey - (y1 - p.y) * ex) / den;
                     var u = ((x1 - p.x) * dy_1 - (y1 - p.y) * dx_1) / den;
-                    if (t > 1e-9 && u >= 0 && u <= 1 && t < bestT_1) {
-                        bestT_1 = t;
-                        bestX_1 = p.x + t * dx_1;
-                        bestY_1 = p.y + t * dy_1;
-                        found_1 = true;
+                    if (t > 1e-9 && u >= 0 && u <= 1) {
+                        var hx = p.x + t * dx_1;
+                        var hy = p.y + t * dy_1;
+                        var gx = hx - q.x;
+                        var gy = hy - q.y;
+                        var d2 = gx * gx + gy * gy;
+                        if (d2 < gate_1 && d2 < bestD2_1) {
+                            bestD2_1 = d2;
+                            bestX_1 = hx;
+                            bestY_1 = hy;
+                            found_1 = true;
+                        }
                     }
                 };
                 var fit = geo.figures.iterator;
@@ -20160,6 +20206,40 @@ var Shape = /** @class */ (function (_super) {
                             var a = toDoc(cx, cy);
                             var b = toDoc(seg.endX, seg.endY);
                             hitSeg(a.x, a.y, b.x, b.y);
+                            cx = seg.endX;
+                            cy = seg.endY;
+                        }
+                        else if (name_2 === 'Arc' && !isNaN(seg.startAngle)) {
+                            // 「按角度」圆弧（PathSegment(SegmentType.Arc, a0, sw, cx, cy, rx, ry)）：
+                            // 按角度采样成折线求交（10° 步长，r=70 时弦高误差 <0.5px）。
+                            // 沿用渲染器同一套约定：点 = center + (rx·cosθ, ry·sinθ)，
+                            // 半径 Y 缺省为 0 时按圆处理（官方 6 参构造的 radiusY 默认 0）。
+                            var rx = seg.radiusX;
+                            var ry = seg.radiusY === 0 ? seg.radiusX : seg.radiusY;
+                            var a0 = seg.startAngle;
+                            var sw = seg.sweepAngle;
+                            var steps = Math.max(8, Math.ceil(Math.abs(sw) / 10));
+                            var px = cx;
+                            var py = cy;
+                            for (var i = 1; i <= steps; i++) {
+                                var th = ((a0 + (sw * i) / steps) * Math.PI) / 180;
+                                var ex = seg.centerX + rx * Math.cos(th);
+                                var ey = seg.centerY + ry * Math.sin(th);
+                                var pa = toDoc(px, py);
+                                var pb = toDoc(ex, ey);
+                                hitSeg(pa.x, pa.y, pb.x, pb.y);
+                                px = ex;
+                                py = ey;
+                            }
+                            // 终点按同一套采样约定推导（PathSegment.AngleArc 不填 arcEndX，
+                            // 只在构造器路径里才有；统一重算避免 NaN 污染后续段的当前点）。
+                            var endTh = ((a0 + sw) * Math.PI) / 180;
+                            cx = seg.centerX + rx * Math.cos(endTh);
+                            cy = seg.centerY + ry * Math.sin(endTh);
+                        }
+                        else if (name_2 === 'Arc') {
+                            // SVG 端点弧（PathSegment.Arc()）：本项目图库不使用这种形式，
+                            // 缺圆心参数不作求交，跳过（最终无候选时落矩形兑底，与既往行为一致）。
                             cx = seg.endX;
                             cy = seg.endY;
                         }
@@ -20194,12 +20274,25 @@ var Shape = /** @class */ (function (_super) {
                             cx = seg.endX;
                             cy = seg.endY;
                         }
+                        // 官方：任何段带 isClosed 标志都补一段“当前点 → figure 起点”的闭合边
+                        // （donutCharts 的环形楔子就是 Arc(...).close()，闭合边是第二条径向边）。
+                        if (seg.isClosed && name_2 !== 'Close') {
+                            var a = toDoc(cx, cy);
+                            var b = toDoc(f.startX, f.startY);
+                            hitSeg(a.x, a.y, b.x, b.y);
+                            cx = f.startX;
+                            cy = f.startY;
+                        }
                     }
                 }
                 if (found_1) {
                     result.setTo(bestX_1, bestY_1);
                     return true;
                 }
+                // 显式几何存在但射线没命中任何段：官方 Rf 返回 false（不做矩形兑底），
+                // 让 Panel 聚合跳过该形状、由 Link 层在全军覆没时统一兑底。
+                result.setTo(q.x, q.y);
+                return false;
             }
         }
         return _super.prototype.getNearestIntersectionPoint.call(this, p, q, result);
@@ -27101,8 +27194,19 @@ var Part = /** @class */ (function (_super) {
         enumerable: false,
         configurable: true
     });
-    Object.defineProperty(Part.prototype, "isTopLevel", {
+    Object.defineProperty(Part.prototype, "diagram", {
         // ============ Readonly properties ============
+        /**
+         * 官方 `Part.diagram` 直读本部件的 diagram 字段。GraphObject.diagram 走
+         * `this.part` 链——Adornment 等 Part 自身 `_panel` 为 null 时 part 解析为 null，
+         * 会把 `_diagram` 明明有值的装饰读成 null，导致 removeAdornment 跳过
+         * `diagram.remove` → 装饰永久残留在 Adornment 层（选择框不消失）。
+         */
+        get: function () { return this._diagram; },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(Part.prototype, "isTopLevel", {
         get: function () { return this._containingGroup === null; },
         enumerable: false,
         configurable: true
@@ -27338,9 +27442,23 @@ var Part = /** @class */ (function (_super) {
         var _a;
         return (_a = this._adornments.get(category)) !== null && _a !== void 0 ? _a : null;
     };
-    /** Remove all adornments */
+    /** 官方 `Part.clearAdornments()`：逐个 removeAdornment（从图中摘除），不是只清 map */
     Part.prototype.clearAdornments = function () {
-        this._adornments.clear();
+        var e_3, _a;
+        var cats = Array.from(this._adornments.keys());
+        try {
+            for (var cats_1 = __values(cats), cats_1_1 = cats_1.next(); !cats_1_1.done; cats_1_1 = cats_1.next()) {
+                var c = cats_1_1.value;
+                this.removeAdornment(c);
+            }
+        }
+        catch (e_3_1) { e_3 = { error: e_3_1 }; }
+        finally {
+            try {
+                if (cats_1_1 && !cats_1_1.done && (_a = cats_1.return)) _a.call(cats_1);
+            }
+            finally { if (e_3) throw e_3.error; }
+        }
     };
     /**
      * 官方默认选择装饰（diagram.nodeSelectionAdornmentTemplate 缺省时的兜底）：
@@ -27350,7 +27468,9 @@ var Part = /** @class */ (function (_super) {
      */
     Part.prototype._createSelectionAdornment = function () {
         if (this._selectionAdornmentTemplate) {
-            return this._selectionAdornmentTemplate.copy();
+            var c = this._selectionAdornmentTemplate.copy();
+            c.category = 'Selection';
+            return c;
         }
         var AdornmentCtor = GraphObject._classRegistry['Adornment'];
         var PlaceholderCtor = GraphObject._classRegistry['Placeholder'];
@@ -27365,6 +27485,10 @@ var Part = /** @class */ (function (_super) {
         adornment.add(shape);
         if (PlaceholderCtor)
             adornment.add(new PlaceholderCtor());
+        // 必须带 category：Adornment.adornedObject setter 会用 `this.category` 挂载，
+        // 空 category 会把装饰挂到空键上（与随后的 addAdornment('Selection') 双键、
+        // 同对象在 Adornment 层里 add 两次 → 选择框残留/泄漏）。
+        adornment.category = 'Selection';
         return adornment;
     };
     // ============ 阶段 4：官方 Part.prototype 缺口 ============
@@ -28054,6 +28178,9 @@ var Part = /** @class */ (function (_super) {
                     if (s !== null && s !== undefined) {
                         if (this._className === 'Link' && i === this.path)
                             s.type = PanelLink;
+                        // 兜底：模板没带 category 时，adornedObject setter 会以空键挂载（双键/层重复 add）
+                        if (s.category !== cat)
+                            s.category = cat;
                         s.adornedObject = i;
                     }
                 }
@@ -42297,6 +42424,16 @@ var PanningTool = /** @class */ (function (_super) {
             return false;
         return true;
     };
+    /**
+     * 官方 PanningTool.canStartButton（go.js 逐字）：**中键**按下才平移视口。
+     * 基类 Tool.canStartButton 只认左键；官方 pan 语义是中键（左键空白是框选）。
+     */
+    PanningTool.prototype.canStartButton = function () {
+        var d = this.diagram;
+        if (!d)
+            return false;
+        return d.lastInput.middleButton;
+    };
     /** Activate the panning tool. */
     PanningTool.prototype.doActivate = function () {
         var diagram = this.diagram;
@@ -47943,11 +48080,10 @@ var Diagram = /** @class */ (function () {
                 part._isSelected = true;
                 this._selection.add(part);
                 if (part.selectionAdorned) {
+                    // addAdornment 内部已走 diagram.add（进 Adornment 层并设 _diagram），
+                    // 再直接 layer.add 会让同一装饰在层 List 里出现两次（无去重）
                     var ad = part._createSelectionAdornment();
                     part.addAdornment('Selection', ad);
-                    var adornmentLayer = this.findLayer('Adornment');
-                    if (adornmentLayer)
-                        adornmentLayer.add(ad);
                 }
                 if (this._toolManager) {
                     this._toolManager.updateAdornments(part);
@@ -58092,7 +58228,107 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
             }
             finally { if (e_19) throw e_19.error; }
         }
+        // 补充优化：紧边分量只能移动已连通的节点，孤立节点（如 B→C 长边的目标）无法上移。
+        // 这里再做一轮逐节点上移尝试，等价于 network-simplex 的 cut-value 优化。
+        this._nlvPullUpIsolated(vertexes, edges);
         // 官方 pB 到此结束：全程 sink 基（汇=0，源=最大层），不再取补。
+    };
+    /** 对不在任何源紧边分量中的节点，尝试上移以减小总边长（对标 Dagre network-simplex） */
+    LayeredDigraphLayout.prototype._nlvPullUpIsolated = function (vertexes, edges) {
+        var e_20, _a, e_21, _b, e_22, _c, e_23, _d, e_24, _e;
+        var outgoing = new Map$1();
+        var incoming = new Map$1();
+        try {
+            for (var vertexes_16 = __values(vertexes), vertexes_16_1 = vertexes_16.next(); !vertexes_16_1.done; vertexes_16_1 = vertexes_16.next()) {
+                var v = vertexes_16_1.value;
+                outgoing.set(v, []);
+                incoming.set(v, []);
+            }
+        }
+        catch (e_20_1) { e_20 = { error: e_20_1 }; }
+        finally {
+            try {
+                if (vertexes_16_1 && !vertexes_16_1.done && (_a = vertexes_16.return)) _a.call(vertexes_16);
+            }
+            finally { if (e_20) throw e_20.error; }
+        }
+        try {
+            for (var edges_2 = __values(edges), edges_2_1 = edges_2.next(); !edges_2_1.done; edges_2_1 = edges_2.next()) {
+                var e = edges_2_1.value;
+                if (e.fromVertex && e.toVertex) {
+                    outgoing.get(e.fromVertex).push(e);
+                    incoming.get(e.toVertex).push(e);
+                }
+            }
+        }
+        catch (e_21_1) { e_21 = { error: e_21_1 }; }
+        finally {
+            try {
+                if (edges_2_1 && !edges_2_1.done && (_b = edges_2.return)) _b.call(edges_2);
+            }
+            finally { if (e_21) throw e_21.error; }
+        }
+        for (var pass = 0; pass < 6; pass++) {
+            var moved = false;
+            try {
+                for (var vertexes_17 = (e_22 = void 0, __values(vertexes)), vertexes_17_1 = vertexes_17.next(); !vertexes_17_1.done; vertexes_17_1 = vertexes_17.next()) {
+                    var v = vertexes_17_1.value;
+                    var benefit = 0;
+                    var canMove = true;
+                    try {
+                        for (var _f = (e_23 = void 0, __values(incoming.get(v))), _g = _f.next(); !_g.done; _g = _f.next()) {
+                            var e = _g.value;
+                            var u = e.fromVertex;
+                            if (!u)
+                                continue;
+                            var minLen = this.linkMinLength(e);
+                            if (v.layer - u.layer < minLen + 1) {
+                                canMove = false;
+                                break;
+                            }
+                            benefit += this.linkLengthWeight(e);
+                        }
+                    }
+                    catch (e_23_1) { e_23 = { error: e_23_1 }; }
+                    finally {
+                        try {
+                            if (_g && !_g.done && (_d = _f.return)) _d.call(_f);
+                        }
+                        finally { if (e_23) throw e_23.error; }
+                    }
+                    if (!canMove)
+                        continue;
+                    try {
+                        for (var _h = (e_24 = void 0, __values(outgoing.get(v))), _j = _h.next(); !_j.done; _j = _h.next()) {
+                            var e = _j.value;
+                            if (!e.toVertex)
+                                continue;
+                            benefit -= this.linkLengthWeight(e);
+                        }
+                    }
+                    catch (e_24_1) { e_24 = { error: e_24_1 }; }
+                    finally {
+                        try {
+                            if (_j && !_j.done && (_e = _h.return)) _e.call(_h);
+                        }
+                        finally { if (e_24) throw e_24.error; }
+                    }
+                    if (benefit > 0) {
+                        v.layer -= 1;
+                        moved = true;
+                    }
+                }
+            }
+            catch (e_22_1) { e_22 = { error: e_22_1 }; }
+            finally {
+                try {
+                    if (vertexes_17_1 && !vertexes_17_1.done && (_c = vertexes_17.return)) _c.call(vertexes_17);
+                }
+                finally { if (e_22) throw e_22.error; }
+            }
+            if (!moved)
+                break;
+        }
     };
     /** 官方 `$v(t)`：DFS 到所有汇，逐个做 uU(t)/dU(t) 归并 */
     LayeredDigraphLayout.prototype._nlvVisited = function (t) {
@@ -58110,20 +58346,20 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
     };
     /** 官方 `uU(t)`：把 t 的「紧边连通分量」整体上移（减 layer），使所有边达到最小长度 */
     LayeredDigraphLayout.prototype._nlvMoveUp = function (t) {
-        var e_20, _a, e_21, _b, e_22, _c;
+        var e_25, _a, e_26, _b, e_27, _c;
         var vertexes = this._netVertexes;
         try {
-            for (var vertexes_16 = __values(vertexes), vertexes_16_1 = vertexes_16.next(); !vertexes_16_1.done; vertexes_16_1 = vertexes_16.next()) {
-                var v = vertexes_16_1.value;
+            for (var vertexes_18 = __values(vertexes), vertexes_18_1 = vertexes_18.next(); !vertexes_18_1.done; vertexes_18_1 = vertexes_18.next()) {
+                var v = vertexes_18_1.value;
                 v.component = -1;
             }
         }
-        catch (e_20_1) { e_20 = { error: e_20_1 }; }
+        catch (e_25_1) { e_25 = { error: e_25_1 }; }
         finally {
             try {
-                if (vertexes_16_1 && !vertexes_16_1.done && (_a = vertexes_16.return)) _a.call(vertexes_16);
+                if (vertexes_18_1 && !vertexes_18_1.done && (_a = vertexes_18.return)) _a.call(vertexes_18);
             }
-            finally { if (e_20) throw e_20.error; }
+            finally { if (e_25) throw e_25.error; }
         }
         var i = 0, s = 1;
         var src = t.sourceEdges.iterator;
@@ -58140,8 +58376,8 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
         while (t.component !== i) {
             var r = 0, l = Infinity, a = 0, h = null;
             try {
-                for (var vertexes_17 = (e_21 = void 0, __values(vertexes)), vertexes_17_1 = vertexes_17.next(); !vertexes_17_1.done; vertexes_17_1 = vertexes_17.next()) {
-                    var f = vertexes_17_1.value;
+                for (var vertexes_19 = (e_26 = void 0, __values(vertexes)), vertexes_19_1 = vertexes_19.next(); !vertexes_19_1.done; vertexes_19_1 = vertexes_19.next()) {
+                    var f = vertexes_19_1.value;
                     if (f.component !== s)
                         continue;
                     var u = 0, d = false;
@@ -58177,27 +58413,27 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
                     }
                 }
             }
-            catch (e_21_1) { e_21 = { error: e_21_1 }; }
+            catch (e_26_1) { e_26 = { error: e_26_1 }; }
             finally {
                 try {
-                    if (vertexes_17_1 && !vertexes_17_1.done && (_b = vertexes_17.return)) _b.call(vertexes_17);
+                    if (vertexes_19_1 && !vertexes_19_1.done && (_b = vertexes_19.return)) _b.call(vertexes_19);
                 }
-                finally { if (e_21) throw e_21.error; }
+                finally { if (e_26) throw e_26.error; }
             }
             if (r > 0) {
                 try {
-                    for (var vertexes_18 = (e_22 = void 0, __values(vertexes)), vertexes_18_1 = vertexes_18.next(); !vertexes_18_1.done; vertexes_18_1 = vertexes_18.next()) {
-                        var f = vertexes_18_1.value;
+                    for (var vertexes_20 = (e_27 = void 0, __values(vertexes)), vertexes_20_1 = vertexes_20.next(); !vertexes_20_1.done; vertexes_20_1 = vertexes_20.next()) {
+                        var f = vertexes_20_1.value;
                         if (f.component === s)
                             f.layer += l;
                     }
                 }
-                catch (e_22_1) { e_22 = { error: e_22_1 }; }
+                catch (e_27_1) { e_27 = { error: e_27_1 }; }
                 finally {
                     try {
-                        if (vertexes_18_1 && !vertexes_18_1.done && (_c = vertexes_18.return)) _c.call(vertexes_18);
+                        if (vertexes_20_1 && !vertexes_20_1.done && (_c = vertexes_20.return)) _c.call(vertexes_20);
                     }
-                    finally { if (e_22) throw e_22.error; }
+                    finally { if (e_27) throw e_27.error; }
                 }
                 t.component = i;
             }
@@ -58211,28 +58447,28 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
     };
     /** 官方 `dU(t)`：把 t 的紧边分量整体下移（加 layer） */
     LayeredDigraphLayout.prototype._nlvMoveDown = function (t) {
-        var e_23, _a, e_24, _b, e_25, _c;
+        var e_28, _a, e_29, _b, e_30, _c;
         var vertexes = this._netVertexes;
         try {
-            for (var vertexes_19 = __values(vertexes), vertexes_19_1 = vertexes_19.next(); !vertexes_19_1.done; vertexes_19_1 = vertexes_19.next()) {
-                var v = vertexes_19_1.value;
+            for (var vertexes_21 = __values(vertexes), vertexes_21_1 = vertexes_21.next(); !vertexes_21_1.done; vertexes_21_1 = vertexes_21.next()) {
+                var v = vertexes_21_1.value;
                 v.component = -1;
             }
         }
-        catch (e_23_1) { e_23 = { error: e_23_1 }; }
+        catch (e_28_1) { e_28 = { error: e_28_1 }; }
         finally {
             try {
-                if (vertexes_19_1 && !vertexes_19_1.done && (_a = vertexes_19.return)) _a.call(vertexes_19);
+                if (vertexes_21_1 && !vertexes_21_1.done && (_a = vertexes_21.return)) _a.call(vertexes_21);
             }
-            finally { if (e_23) throw e_23.error; }
+            finally { if (e_28) throw e_28.error; }
         }
         var i = 0, s = 1;
         this._nlvEw(t, s, -1, true, false);
         while (t.component !== i) {
             var n = 0, o = Infinity, r = 0, l = null;
             try {
-                for (var vertexes_20 = (e_24 = void 0, __values(vertexes)), vertexes_20_1 = vertexes_20.next(); !vertexes_20_1.done; vertexes_20_1 = vertexes_20.next()) {
-                    var h = vertexes_20_1.value;
+                for (var vertexes_22 = (e_29 = void 0, __values(vertexes)), vertexes_22_1 = vertexes_22.next(); !vertexes_22_1.done; vertexes_22_1 = vertexes_22.next()) {
+                    var h = vertexes_22_1.value;
                     if (h.component !== s)
                         continue;
                     var c = 0, f = false;
@@ -58268,27 +58504,27 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
                     }
                 }
             }
-            catch (e_24_1) { e_24 = { error: e_24_1 }; }
+            catch (e_29_1) { e_29 = { error: e_29_1 }; }
             finally {
                 try {
-                    if (vertexes_20_1 && !vertexes_20_1.done && (_b = vertexes_20.return)) _b.call(vertexes_20);
+                    if (vertexes_22_1 && !vertexes_22_1.done && (_b = vertexes_22.return)) _b.call(vertexes_22);
                 }
-                finally { if (e_24) throw e_24.error; }
+                finally { if (e_29) throw e_29.error; }
             }
             if (n < 0) {
                 try {
-                    for (var vertexes_21 = (e_25 = void 0, __values(vertexes)), vertexes_21_1 = vertexes_21.next(); !vertexes_21_1.done; vertexes_21_1 = vertexes_21.next()) {
-                        var h = vertexes_21_1.value;
+                    for (var vertexes_23 = (e_30 = void 0, __values(vertexes)), vertexes_23_1 = vertexes_23.next(); !vertexes_23_1.done; vertexes_23_1 = vertexes_23.next()) {
+                        var h = vertexes_23_1.value;
                         if (h.component === s)
                             h.layer -= o;
                     }
                 }
-                catch (e_25_1) { e_25 = { error: e_25_1 }; }
+                catch (e_30_1) { e_30 = { error: e_30_1 }; }
                 finally {
                     try {
-                        if (vertexes_21_1 && !vertexes_21_1.done && (_c = vertexes_21.return)) _c.call(vertexes_21);
+                        if (vertexes_23_1 && !vertexes_23_1.done && (_c = vertexes_23.return)) _c.call(vertexes_23);
                     }
-                    finally { if (e_25) throw e_25.error; }
+                    finally { if (e_30) throw e_30.error; }
                 }
                 t.component = i;
             }
@@ -59329,7 +59565,9 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
                 n.portToPos = 0;
             }
             var f = o.layer;
-            var u = r.layer, d = this._xB(n), m = d === 1 || d === 3, g = d === 2 || d === 3;
+            var u = r.layer;
+            var d = n.rev ? 0 : this._xB(n);
+            var m = d === 1 || d === 3, g = d === 2 || d === 3;
             var p = void 0, y = void 0, x = null, b = 0;
             if (g) {
                 x = this._bB(o, r);
@@ -59355,7 +59593,18 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
             if (m)
                 S--;
             if (f - u > S && f > 0) {
-                for (n.valid = false, y = t.createVertex(), y.node = null, y.bk = 2, y.bounds = new Rect(0, 0, 10, 10), y.focus = new Point(5, 5), y.layer = f - 1, x && b < x.length && y.layer === x[b].layer && (y.near = x[b++]), t.addVertex(y), p = t.linkVertexes(o, y, n.link), p.valid = true, p.rev = n.rev, p.portFromColOffset = g ? 0 : l, p.portToColOffset = 0, p.portFromPos = g ? 0 : a, p.portToPos = 0, o = y, f--; f - u > S && f > 0;) {
+                // 长边拆链：原边作废，并从 from/to 顶点的边列表中移除，
+                // 否则 DFS 索引初始化（_oI）会因列表头部残留 invalid 原边而跳过它，
+                // 导致链整体落到错误一侧。
+                var origFrom = n.fromVertex, origTo = n.toVertex;
+                var origIdx = -1, firstChainEdge = null;
+                if (origFrom) {
+                    origIdx = origFrom.destinationEdges.indexOf(n);
+                    origFrom.deleteDestinationEdge(n);
+                }
+                if (origTo)
+                    origTo.deleteSourceEdge(n);
+                for (n.valid = false, y = t.createVertex(), y.node = null, y.bk = 2, y.bounds = new Rect(0, 0, 10, 10), y.focus = new Point(5, 5), y.layer = f - 1, x && b < x.length && y.layer === x[b].layer && (y.near = x[b++]), t.addVertex(y), p = t.linkVertexes(o, y, n.link), firstChainEdge = p, p.valid = true, p.rev = n.rev, p.portFromColOffset = g ? 0 : l, p.portToColOffset = 0, p.portFromPos = g ? 0 : a, p.portToPos = 0, o = y, f--; f - u > S && f > 0;) {
                     y = t.createVertex();
                     y.node = null;
                     y.bk = 3;
@@ -59384,6 +59633,12 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
                 p.portToColOffset = h;
                 p.portFromPos = 0;
                 p.portToPos = c;
+                // 把链首边插回原边在源顶点出边表中的位置，保持源出边的相对顺序
+                if (origFrom && origIdx >= 0 && firstChainEdge) {
+                    var dl = origFrom.destinationEdges;
+                    dl.remove(firstChainEdge);
+                    dl.insertAt(Math.min(origIdx, dl.length), firstChainEdge);
+                }
             }
             else {
                 n.valid = true;
@@ -59906,7 +60161,7 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
     };
     /** 官方 `MB()`：四向打包 —— 各方向 Pl/Pk 求 Se，FB 对齐，取中位 */
     LayeredDigraphLayout.prototype._MB = function () {
-        var e_26, _a;
+        var e_31, _a;
         var t = [];
         var i = this._Lu.length;
         for (var u = 0; u <= i; u++)
@@ -59935,12 +60190,12 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
                 u.reverse();
             }
         }
-        catch (e_26_1) { e_26 = { error: e_26_1 }; }
+        catch (e_31_1) { e_31 = { error: e_31_1 }; }
         finally {
             try {
                 if (t_1_1 && !t_1_1.done && (_a = t_1.return)) _a.call(t_1);
             }
-            finally { if (e_26) throw e_26.error; }
+            finally { if (e_31) throw e_31.error; }
         }
         if (f) {
             this._Pl(t, s, false);
@@ -59969,7 +60224,7 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
     };
     /** 官方 `DB(t,i)`：收集需要拉直的边到集合 */
     LayeredDigraphLayout.prototype._DB = function (t, i) {
-        var e_27, _a;
+        var e_32, _a;
         var e = t.length;
         for (var s = 1; s < e - 1; s++) {
             var n = 0, o = 0;
@@ -59983,19 +60238,19 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
                     for (; o <= h;) {
                         var d = l[o].getProperSourceEdges();
                         try {
-                            for (var d_1 = (e_27 = void 0, __values(d)), d_1_1 = d_1.next(); !d_1_1.done; d_1_1 = d_1.next()) {
+                            for (var d_1 = (e_32 = void 0, __values(d)), d_1_1 = d_1.next(); !d_1_1.done; d_1_1 = d_1.next()) {
                                 var m = d_1_1.value;
                                 var p = m.fromVertex.index;
                                 if (p < n || p > f)
                                     i.add(m);
                             }
                         }
-                        catch (e_27_1) { e_27 = { error: e_27_1 }; }
+                        catch (e_32_1) { e_32 = { error: e_32_1 }; }
                         finally {
                             try {
                                 if (d_1_1 && !d_1_1.done && (_a = d_1.return)) _a.call(d_1);
                             }
-                            finally { if (e_27) throw e_27.error; }
+                            finally { if (e_32) throw e_32.error; }
                         }
                         o++;
                     }
@@ -60015,14 +60270,14 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
     };
     /** 官方 `Pl(t,i,e)`：按近邻链（Qn/Ec 环）串联 */
     LayeredDigraphLayout.prototype._Pl = function (t, i, e) {
-        var e_28, _a, e_29, _b;
+        var e_33, _a, e_34, _b;
         this._IB(t);
         try {
             for (var t_2 = __values(t), t_2_1 = t_2.next(); !t_2_1.done; t_2_1 = t_2.next()) {
                 var s = t_2_1.value;
                 var n = -1;
                 try {
-                    for (var s_1 = (e_29 = void 0, __values(s)), s_1_1 = s_1.next(); !s_1_1.done; s_1_1 = s_1.next()) {
+                    for (var s_1 = (e_34 = void 0, __values(s)), s_1_1 = s_1.next(); !s_1_1.done; s_1_1 = s_1.next()) {
                         var o = s_1_1.value;
                         var r = e ? o.getProperSourceVertexes() : o.getProperDestinationVertexes(), l = r.length;
                         if (l > 0) {
@@ -60047,21 +60302,21 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
                         }
                     }
                 }
-                catch (e_29_1) { e_29 = { error: e_29_1 }; }
+                catch (e_34_1) { e_34 = { error: e_34_1 }; }
                 finally {
                     try {
                         if (s_1_1 && !s_1_1.done && (_b = s_1.return)) _b.call(s_1);
                     }
-                    finally { if (e_29) throw e_29.error; }
+                    finally { if (e_34) throw e_34.error; }
                 }
             }
         }
-        catch (e_28_1) { e_28 = { error: e_28_1 }; }
+        catch (e_33_1) { e_33 = { error: e_33_1 }; }
         finally {
             try {
                 if (t_2_1 && !t_2_1.done && (_a = t_2.return)) _a.call(t_2);
             }
-            finally { if (e_28) throw e_28.error; }
+            finally { if (e_33) throw e_33.error; }
         }
     };
     /** 官方 `IB(t)`：初始化各顶点的环链（Ec=Qn=自身）与层内位置 */
@@ -60079,13 +60334,13 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
     };
     /** 官方 `Pk(t,i,e)`：单向打包 —— OB 端口、cI 递推 Fu/Se、回写列轴位置 */
     LayeredDigraphLayout.prototype._Pk = function (t, i, e) {
-        var e_30, _a, e_31, _b, e_32, _c, e_33, _d, e_34, _e, e_35, _f;
+        var e_35, _a, e_36, _b, e_37, _c, e_38, _d, e_39, _e, e_40, _f;
         var s = this._isVertical;
         try {
             for (var t_3 = __values(t), t_3_1 = t_3.next(); !t_3_1.done; t_3_1 = t_3.next()) {
                 var o = t_3_1.value;
                 try {
-                    for (var o_1 = (e_31 = void 0, __values(o)), o_1_1 = o_1.next(); !o_1_1.done; o_1_1 = o_1.next()) {
+                    for (var o_1 = (e_36 = void 0, __values(o)), o_1_1 = o_1.next(); !o_1_1.done; o_1_1 = o_1.next()) {
                         var r = o_1_1.value;
                         r.gs = r;
                         r.Fu = Infinity;
@@ -60093,48 +60348,48 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
                         r._n = 0;
                     }
                 }
-                catch (e_31_1) { e_31 = { error: e_31_1 }; }
+                catch (e_36_1) { e_36 = { error: e_36_1 }; }
                 finally {
                     try {
                         if (o_1_1 && !o_1_1.done && (_b = o_1.return)) _b.call(o_1);
                     }
-                    finally { if (e_31) throw e_31.error; }
+                    finally { if (e_36) throw e_36.error; }
                 }
             }
         }
-        catch (e_30_1) { e_30 = { error: e_30_1 }; }
+        catch (e_35_1) { e_35 = { error: e_35_1 }; }
         finally {
             try {
                 if (t_3_1 && !t_3_1.done && (_a = t_3.return)) _a.call(t_3);
             }
-            finally { if (e_30) throw e_30.error; }
+            finally { if (e_35) throw e_35.error; }
         }
         this._OB(t, i, e);
         try {
             for (var t_4 = __values(t), t_4_1 = t_4.next(); !t_4_1.done; t_4_1 = t_4.next()) {
                 var o = t_4_1.value;
                 try {
-                    for (var o_2 = (e_33 = void 0, __values(o)), o_2_1 = o_2.next(); !o_2_1.done; o_2_1 = o_2.next()) {
+                    for (var o_2 = (e_38 = void 0, __values(o)), o_2_1 = o_2.next(); !o_2_1.done; o_2_1 = o_2.next()) {
                         var r = o_2_1.value;
                         if (r.Ec === r)
                             this._cI(r, t);
                     }
                 }
-                catch (e_33_1) { e_33 = { error: e_33_1 }; }
+                catch (e_38_1) { e_38 = { error: e_38_1 }; }
                 finally {
                     try {
                         if (o_2_1 && !o_2_1.done && (_d = o_2.return)) _d.call(o_2);
                     }
-                    finally { if (e_33) throw e_33.error; }
+                    finally { if (e_38) throw e_38.error; }
                 }
             }
         }
-        catch (e_32_1) { e_32 = { error: e_32_1 }; }
+        catch (e_37_1) { e_37 = { error: e_37_1 }; }
         finally {
             try {
                 if (t_4_1 && !t_4_1.done && (_c = t_4.return)) _c.call(t_4);
             }
-            finally { if (e_32) throw e_32.error; }
+            finally { if (e_37) throw e_37.error; }
         }
         for (var o = 0; o < t.length; o++) {
             if (t[o].length <= 0)
@@ -60160,40 +60415,40 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
             for (var t_5 = __values(t), t_5_1 = t_5.next(); !t_5_1.done; t_5_1 = t_5.next()) {
                 var o = t_5_1.value;
                 try {
-                    for (var o_3 = (e_35 = void 0, __values(o)), o_3_1 = o_3.next(); !o_3_1.done; o_3_1 = o_3.next()) {
+                    for (var o_3 = (e_40 = void 0, __values(o)), o_3_1 = o_3.next(); !o_3_1.done; o_3_1 = o_3.next()) {
                         var r = o_3_1.value;
                         r.Se = r.Se + r.gs.Fu + r._n;
                         var l = s ? r.width : r.height;
                         n.set(r, e ? -r.Se - l : r.Se);
                     }
                 }
-                catch (e_35_1) { e_35 = { error: e_35_1 }; }
+                catch (e_40_1) { e_40 = { error: e_40_1 }; }
                 finally {
                     try {
                         if (o_3_1 && !o_3_1.done && (_f = o_3.return)) _f.call(o_3);
                     }
-                    finally { if (e_35) throw e_35.error; }
+                    finally { if (e_40) throw e_40.error; }
                 }
             }
         }
-        catch (e_34_1) { e_34 = { error: e_34_1 }; }
+        catch (e_39_1) { e_39 = { error: e_39_1 }; }
         finally {
             try {
                 if (t_5_1 && !t_5_1.done && (_e = t_5.return)) _e.call(t_5);
             }
-            finally { if (e_34) throw e_34.error; }
+            finally { if (e_39) throw e_39.error; }
         }
         return n;
     };
     /** 官方 `OB(t,i,e)`：沿环链累加端口偏移 _n（归一到 min=0） */
     LayeredDigraphLayout.prototype._OB = function (t, i, e) {
-        var e_36, _a, e_37, _b;
+        var e_41, _a, e_42, _b;
         var s = this._isVertical;
         try {
             for (var t_6 = __values(t), t_6_1 = t_6.next(); !t_6_1.done; t_6_1 = t_6.next()) {
                 var n = t_6_1.value;
                 try {
-                    for (var n_1 = (e_37 = void 0, __values(n)), n_1_1 = n_1.next(); !n_1_1.done; n_1_1 = n_1.next()) {
+                    for (var n_1 = (e_42 = void 0, __values(n)), n_1_1 = n_1.next(); !n_1_1.done; n_1_1 = n_1.next()) {
                         var o = n_1_1.value;
                         if (o.Ec !== o)
                             continue;
@@ -60242,21 +60497,21 @@ var LayeredDigraphLayout = /** @class */ (function (_super) {
                         } while (l !== o);
                     }
                 }
-                catch (e_37_1) { e_37 = { error: e_37_1 }; }
+                catch (e_42_1) { e_42 = { error: e_42_1 }; }
                 finally {
                     try {
                         if (n_1_1 && !n_1_1.done && (_b = n_1.return)) _b.call(n_1);
                     }
-                    finally { if (e_37) throw e_37.error; }
+                    finally { if (e_42) throw e_42.error; }
                 }
             }
         }
-        catch (e_36_1) { e_36 = { error: e_36_1 }; }
+        catch (e_41_1) { e_41 = { error: e_41_1 }; }
         finally {
             try {
                 if (t_6_1 && !t_6_1.done && (_a = t_6.return)) _a.call(t_6);
             }
-            finally { if (e_36) throw e_36.error; }
+            finally { if (e_41) throw e_41.error; }
         }
     };
     /** 官方 `cI(t,i)`：递推组内 Se（相对前一顶点） */

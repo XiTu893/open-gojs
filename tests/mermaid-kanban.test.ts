@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { parseKanban, isKanban } from '../src/mermaid/parser/kanban';
-import { mapKanban, kanbanCardHeight } from '../src/mermaid/mapper/kanban';
-import { defaultTheme } from '../src/mermaid/themes';
+import { parseKanban, isKanban } from '../extension/mermaid/parser/kanban';
+import { mapKanban, kanbanCardHeight } from '../extension/mermaid/mapper/kanban';
+import { defaultTheme } from '../extension/mermaid/themes';
 
 describe('mermaid kanban parser', () => {
   it('detects kanban by first-line header', () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseFlowchart, isFlowchart } from '../src/mermaid/parser/flowchart';
+import { parseFlowchart, isFlowchart } from '../extension/mermaid/parser/flowchart';
 
 describe('mermaid flowchart parser', () => {
   it('detects flowchart headers', () => {
@@ -88,6 +88,19 @@ describe('mermaid flowchart parser', () => {
     expect(ast.edges[0].from).toBe('A');
     expect(ast.edges[0].to).toBe('B');
     expect(ast.edges[1].from).toBe('B');
+    expect(ast.edges[1].to).toBe('C');
+  });
+
+  it('closes stadium ([text]) mid-line so the rest of the line still parses', () => {
+    const ast = parseFlowchart('flowchart TD\n  A([开始]) --> B{判断}\n  B --> C[处理]');
+    const by = (id: string) => ast.nodes.find(n => n.id === id);
+    expect(by('A')!.shape).toBe('stadium');
+    expect(by('A')!.text).toBe('开始');
+    expect(by('B')!.shape).toBe('diamond');
+    expect(by('B')!.text).toBe('判断');
+    expect(ast.edges.length).toBe(2);
+    expect(ast.edges[0].from).toBe('A');
+    expect(ast.edges[0].to).toBe('B');
     expect(ast.edges[1].to).toBe('C');
   });
 

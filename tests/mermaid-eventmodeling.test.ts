@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { parseEventModeling, isEventModeling, inferEventLanes } from '../src/mermaid/parser/eventmodeling';
-import { mapEventModeling } from '../src/mermaid/mapper/eventmodeling';
-import { defaultTheme } from '../src/mermaid/themes';
+import { parseEventModeling, isEventModeling, inferEventLanes } from '../extension/mermaid/parser/eventmodeling';
+import { mapEventModeling } from '../extension/mermaid/mapper/eventmodeling';
+import { defaultTheme } from '../extension/mermaid/themes';
 
 const DSL = `eventmodeling
 tf 01 ui CartUI

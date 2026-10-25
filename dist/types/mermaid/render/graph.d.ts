@@ -31,6 +31,9 @@ export interface GraphLinkData {
     hollowTo?: boolean;
     dashed?: boolean;
     thick?: boolean;
+    /** er 基数记号（贴 from/to 端上方，如 `||`、`o{`） */
+    fromCard?: string;
+    toCard?: string;
 }
 /** 图渲染输入 */
 export interface GraphRenderData {

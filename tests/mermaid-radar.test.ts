@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { parseRadar, isRadar } from '../src/mermaid/parser/radar';
-import { mapRadar, radarGeom } from '../src/mermaid/mapper/radar';
-import { defaultTheme } from '../src/mermaid/themes';
+import { parseRadar, isRadar } from '../extension/mermaid/parser/radar';
+import { mapRadar, radarGeom } from '../extension/mermaid/mapper/radar';
+import { defaultTheme } from '../extension/mermaid/themes';
 
 const DSL = `radar-beta
 title 能力雷达

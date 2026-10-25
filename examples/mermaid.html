@@ -3,21 +3,29 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Mermaid 总览 — 7 种图类型</title>
+<title>Mermaid 总览 — 31 种图类型（open-gojs vs 官方 mermaid.js）</title>
 <script src="../dist/open-gojs-mermaid.umd.js"></script>
+<script src="./vendor/mermaid.min.js"></script>
 <style>
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif; margin: 0; padding: 20px; background: #f5f6f8; color: #222; }
   h1 { margin: 0 0 4px; font-size: 22px; }
   p.sub { color: #666; margin: 0 0 14px; font-size: 13px; }
-  .toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; }
+  .toolbar { display: flex; gap: 12px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
   .toolbar label { font-size: 13px; color: #444; }
   select, button { font-size: 13px; padding: 4px 10px; }
   #globalStatus { font-size: 13px; font-weight: 600; }
-  .ok { color: #2f9e44; } .bad { color: #c0392b; }
+  .ok { color: #2f9e44; } .bad { color: #c0392b; } .warn { color: #b8860b; }
   .case { background: #fff; border: 1px solid #e2e5ea; border-radius: 8px; padding: 14px 16px; margin-bottom: 16px; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
-  .case h2 { font-size: 15px; margin: 0 0 6px; display: flex; align-items: center; gap: 10px; }
+  .case h2 { font-size: 15px; margin: 0 0 6px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .case h2 .st { font-size: 12px; font-weight: 500; }
-  .diagram { border: 1px dashed #d6dae0; border-radius: 6px; background: #fff; }
+  .case h2 .st-off { font-size: 12px; font-weight: 500; }
+  .grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
+  .grid.compare { grid-template-columns: 1fr 1fr; }
+  .pane { min-width: 0; }
+  .pane .tag { font-size: 12px; color: #666; margin: 0 0 4px; }
+  .diagram, .official { border: 1px dashed #d6dae0; border-radius: 6px; background: #fff; overflow: auto; }
+  .official:empty::before { content: "—"; color: #bbb; display: block; text-align: center; padding-top: 40px; }
+  .official svg { max-width: 100%; height: auto; }
   .actions { margin-top: 8px; }
   details { margin-top: 8px; }
   summary { cursor: pointer; font-size: 12px; color: #555; }
@@ -25,136 +33,346 @@
 </style>
 </head>
 <body>
-<h1>Mermaid DSL → open-gojs 渲染（总览）</h1>
-<p class="sub">7 种图类型各一例。交互：拖拽平移、滚轮缩放、点击选中、右键菜单。切换主题后全部重渲染。</p>
+<h1>Mermaid DSL → open-gojs 渲染（31 种图类型 × 官方 mermaid.js 对比）</h1>
+<p class="sub">左栏 open-gojs，右栏官方 mermaid.js（vendor，运行时渲染，不支持的类型显示报错）。交互：拖拽平移、滚轮缩放、点击选中、右键菜单。</p>
 <div class="toolbar">
   <label>主题
     <select id="themeSel">
-      <option value="default" selected>default（默认·黑白）</option>
+      <option value="default" selected>default（pageFlow 彩色）</option>
       <option value="neutral">neutral（中性灰）</option>
       <option value="forest">forest（森林绿）</option>
       <option value="dark">dark（深色）</option>
     </select>
   </label>
+  <label><input type="checkbox" id="compareChk" checked> 与官方 mermaid.js 并排对比</label>
   <button id="rerenderBtn">重新渲染全部</button>
   <span id="globalStatus">渲染中…</span>
 </div>
 <div id="cases"></div>
 
 <script>
+const L = (s) => s;
 const CASES = [
-  {
-    id: 'flow', title: '流程图 flowchart', h: 440,
-    dsl: [
-      'flowchart TD',
-      '  A[打开应用] --> B{已登录?}',
-      '  B -->|是| C[加载主页]',
-      '  B -->|否| D[显示登录页]',
-      '  D --> E[输入账号密码]',
-      '  E --> F{凭证有效?}',
-      '  F -->|是| C',
-      '  F -->|否| G[提示错误]',
-      '  G --> E',
-      '  C --> H((结束))'
-    ].join('\n')
-  },
-  {
-    id: 'seq', title: '时序图 sequenceDiagram', h: 380,
-    dsl: [
-      'sequenceDiagram',
-      '  participant U as 用户',
-      '  participant G as 网关',
-      '  participant S as 服务',
-      '  U->>G: POST /api/login',
-      '  activate G',
-      '  G->>S: 鉴权请求',
-      '  S-->>G: 返回令牌',
-      '  G-->>U: 200 OK',
-      '  deactivate G',
-      '  note over U,S: 登录流程完成'
-    ].join('\n')
-  },
-  {
-    id: 'class', title: '类图 classDiagram', h: 440,
-    dsl: [
-      'classDiagram',
-      '  class Animal {',
-      '    +String name',
-      '    +int age',
-      '    +makeSound(): void',
-      '  }',
-      '  class Dog {',
-      '    +fetch(): void',
-      '  }',
-      '  class Cat {',
-      '    +purr(): void',
-      '  }',
-      '  Animal <|-- Dog',
-      '  Animal <|-- Cat',
-      '  Dog ..> Toy : 玩耍'
-    ].join('\n')
-  },
-  {
-    id: 'state', title: '状态图 stateDiagram-v2', h: 320,
-    dsl: [
-      'stateDiagram-v2',
-      '  state "空闲" as Idle',
-      '  state "运行中" as Run',
-      '  [*] --> Idle',
-      '  Idle --> Run : 启动',
-      '  Run --> [*]'
-    ].join('\n')
-  },
-  {
-    id: 'er', title: 'ER 图 erDiagram', h: 480,
-    dsl: [
-      'erDiagram',
-      '  CUSTOMER ||--o{ ORDER : 下单',
-      '  ORDER ||--o{ ITEM : 包含',
-      '  CUSTOMER {',
-      '    string name',
-      '    int id PK',
-      '  }',
-      '  ORDER {',
-      '    int id PK',
-      '    string status',
-      '  }',
-      '  ITEM {',
-      '    int id PK',
-      '    string sku',
-      '  }'
-    ].join('\n')
-  },
-  {
-    id: 'pie', title: '饼图 pie', h: 400,
-    dsl: [
-      'pie title 前端技术栈占比',
-      '  "Vue": 30',
-      '  "React": 28',
-      '  "Svelte": 12',
-      '  "Solid": 10',
-      '  "其他": 20'
-    ].join('\n')
-  },
-  {
-    id: 'gantt', title: '甘特图 gantt', h: 340,
-    dsl: [
-      'gantt',
-      '  title 迭代计划',
-      '  dateFormat YYYY-MM-DD',
-      '  section 设计',
-      '  需求评审 :a1, 2026-10-01, 3d',
-      '  交互稿 :a2, after a1, 4d',
-      '  section 开发',
-      '  前端开发 :a3, after a2, 7d',
-      '  后端开发 :a4, after a2, 10d',
-      '  section 发布',
-      '  上线 :milestone, after a4, 1d'
-    ].join('\n')
-  }
+  { id: 'flow', title: '流程图 flowchart', h: 440, dsl: [
+    'flowchart TD',
+    '  A[打开应用] --> B{已登录?}',
+    '  B -->|是| C[加载主页]',
+    '  B -->|否| D[显示登录页]',
+    '  D --> E[输入账号密码]',
+    '  E --> F{凭证有效?}',
+    '  F -->|是| C',
+    '  F -->|否| G[提示错误]',
+    '  G --> E',
+    '  C --> H((结束))'
+  ].join('\n') },
+  { id: 'seq', title: '时序图 sequenceDiagram', h: 380, dsl: [
+    'sequenceDiagram',
+    '  participant U as 用户',
+    '  participant G as 网关',
+    '  participant S as 服务',
+    '  U->>G: POST /api/login',
+    '  activate G',
+    '  G->>S: 鉴权请求',
+    '  S-->>G: 返回令牌',
+    '  G-->>U: 200 OK',
+    '  deactivate G',
+    '  note over U,S: 登录流程完成'
+  ].join('\n') },
+  { id: 'class', title: '类图 classDiagram', h: 440, dsl: [
+    'classDiagram',
+    '  class Animal {',
+    '    +String name',
+    '    +int age',
+    '    +makeSound(): void',
+    '  }',
+    '  class Dog {',
+    '    +fetch(): void',
+    '  }',
+    '  class Cat {',
+    '    +purr(): void',
+    '  }',
+    '  Animal <|-- Dog',
+    '  Animal <|-- Cat',
+    '  Dog ..> Toy : 玩耍'
+  ].join('\n') },
+  { id: 'state', title: '状态图 stateDiagram-v2', h: 320, dsl: [
+    'stateDiagram-v2',
+    '  state "空闲" as Idle',
+    '  state "运行中" as Run',
+    '  [*] --> Idle',
+    '  Idle --> Run : 启动',
+    '  Run --> [*]'
+  ].join('\n') },
+  { id: 'er', title: 'ER 图 erDiagram', h: 480, dsl: [
+    'erDiagram',
+    '  CUSTOMER ||--o{ ORDER : 下单',
+    '  ORDER ||--o{ ITEM : 包含',
+    '  CUSTOMER {',
+    '    string name',
+    '    int id PK',
+    '  }',
+    '  ORDER {',
+    '    int id PK',
+    '    string status',
+    '  }',
+    '  ITEM {',
+    '    int id PK',
+    '    string sku',
+    '  }'
+  ].join('\n') },
+  { id: 'pie', title: '饼图 pie', h: 400, dsl: [
+    'pie title 前端技术栈占比',
+    '  "Vue": 30',
+    '  "React": 28',
+    '  "Svelte": 12',
+    '  "Solid": 10',
+    '  "其他": 20'
+  ].join('\n') },
+  { id: 'gantt', title: '甘特图 gantt', h: 340, dsl: [
+    'gantt',
+    '  title 迭代计划',
+    '  dateFormat YYYY-MM-DD',
+    '  section 设计',
+    '  需求评审 :a1, 2026-10-01, 3d',
+    '  交互稿 :a2, after a1, 4d',
+    '  section 开发',
+    '  前端开发 :a3, after a2, 7d',
+    '  后端开发 :a4, after a2, 10d',
+    '  section 发布',
+    '  上线 :milestone, after a4, 1d'
+  ].join('\n') },
+  { id: 'journey', title: '旅程图 journey', h: 360, dsl: [
+    'journey',
+    '  title 购物体验',
+    '  section 浏览',
+    '    搜索商品: 5: 用户, 系统',
+    '    查看详情: 7: 用户',
+    '  section 下单',
+    '    结算支付: 9: 用户, 支付网关'
+  ].join('\n') },
+  { id: 'quadrant', title: '四象限 quadrantChart', h: 420, dsl: [
+    'quadrantChart',
+    '  title 团队能力矩阵',
+    '  x-axis 低技能 --> 高技能',
+    '  y-axis 低影响 --> 高影响',
+    '  quadrant-1 重点培养',
+    '  quadrant-2 核心骨干',
+    '  quadrant-3 待观察',
+    '  quadrant-4 潜力新星',
+    '  points: 张三[0.3, 0.7], 李四[0.8, 0.8], 王五["算法专家"][0.6, 0.4]'
+  ].join('\n') },
+  { id: 'xychart', title: 'XY 图 xychart-beta', h: 360, dsl: [
+    'xychart-beta',
+    '  title 销售额',
+    '  x-axis [Q1, Q2, Q3, Q4]',
+    '  y-axis 0 --> 100',
+    '  bar [30, 55, 80, 66]',
+    '  line [25, 50, 75, 70]',
+    '  area [10, 20, 30, 40]'
+  ].join('\n') },
+  { id: 'sankey', title: '桑基图 sankey-beta', h: 360, dsl: [
+    'sankey-beta',
+    '  A,B,10',
+    '  A,C,5',
+    '  B,C,8',
+    '  B,D,12'
+  ].join('\n') },
+  { id: 'mindmap', title: '思维导图 mindmap', h: 400, dsl: [
+    'mindmap',
+    '  root((产品规划))',
+    '    Origins',
+    '      Long history',
+    '      Research',
+    '    Shapes',
+    '      [(rectangle)]',
+    '      ((circle))'
+  ].join('\n') },
+  { id: 'timeline', title: '时间线 timeline', h: 340, dsl: [
+    'timeline',
+    '  title 工业革命',
+    '  1760 : 纺织机械化 : 蒸汽机',
+    '  1840 : 铁路扩张',
+    '  1870 : 电力应用'
+  ].join('\n') },
+  { id: 'requirement', title: '需求图 requirementDiagram', h: 380, dsl: [
+    'requirementDiagram',
+    '  requirement r1 {',
+    '    id: "R1"',
+    '    text: 系统应支持登录',
+    '    risk: high',
+    '    verifymethod: test',
+    '  }',
+    '  element e1 {',
+    '    type: block',
+    '    docref: "doc.md"',
+    '  }',
+    '  r1 -satisfies-> e1'
+  ].join('\n') },
+  { id: 'usecase', title: '用例图 usecase-beta', h: 400, dsl: [
+    'usecase-beta LR',
+    '  actor user("普通用户")',
+    '  actor business admin',
+    '  login',
+    '  check["校验密码"]',
+    '  systemBoundary sys["系统"] {',
+    '    login',
+    '    check',
+    '  }',
+    '  user --> login',
+    '  login ..> check : include',
+    '  admin --|> user'
+  ].join('\n') },
+  { id: 'gitgraph', title: 'Git 图 gitGraph', h: 340, dsl: [
+    'gitGraph',
+    '  commit id:"A"',
+    '  commit id:"B" tag:"v1.0"',
+    '  branch dev',
+    '  checkout dev',
+    '  commit id:"C" label:"开发中"',
+    '  checkout main',
+    '  commit id:"D"',
+    '  merge dev'
+  ].join('\n') },
+  { id: 'c4', title: 'C4 上下文图 C4Context', h: 380, dsl: [
+    'C4Context',
+    '  title 银行系统上下文',
+    '  Person(cust, "银行客户")',
+    '  System(bank, "核心银行系统")',
+    '  System_Ext(ext, "第三方支付")',
+    '  Rel(cust, bank, "使用", "HTTPS")',
+    '  Rel(bank, ext, "转账")'
+  ].join('\n') },
+  { id: 'zenuml', title: 'ZenUML 图 zenuml', h: 360, dsl: [
+    'zenuml',
+    '  title 登录流程',
+    '  A->B: 请求登录',
+    '  B-->A: 返回令牌',
+    '  while(重试) {',
+    '    A->B: 再次请求',
+    '  }'
+  ].join('\n') },
+  { id: 'block', title: '块图 block-beta', h: 340, dsl: [
+    'block-beta',
+    '  columns 3',
+    '  a["A"] b("B") c[("C")]',
+    '  d(("D")) e{"E"} f[["F"]]',
+    '  a -- go --> d',
+    '  b --- e'
+  ].join('\n') },
+  { id: 'packet', title: '数据包图 packet', h: 300, dsl: [
+    'packet',
+    '  0-3: "Version"',
+    '  +4: "Header Length"',
+    '  4-15: "Total Length"',
+    '  16-31: "Flow Label"'
+  ].join('\n') },
+  { id: 'kanban', title: '看板 kanban', h: 380, dsl: [
+    'kanban',
+    '  todo[待办]',
+    '    t1[写文档]',
+    '      @{ assigned: 张三, priority: High }',
+    '    t2[评审]',
+    '  done[完成]',
+    '    t3[需求分析]'
+  ].join('\n') },
+  { id: 'architecture', title: '架构图 architecture-beta', h: 400, dsl: [
+    'architecture-beta',
+    '  group aws(gcp)[AWS Cloud]',
+    '  service api(gcp)[API Gateway] in aws',
+    '  db users(sql)[Users DB] in aws',
+    '  service svc2(srv)[Second Service]',
+    '  api:R -> L:users',
+    '  api -> svc2'
+  ].join('\n') },
+  { id: 'radar', title: '雷达图 radar-beta', h: 400, dsl: [
+    'radar-beta',
+    '  title 能力雷达',
+    '  axis 速度, 质量, 安全, 成本',
+    '  curve 项目A{8, 6, 7, 5}',
+    '  curve 项目B{5, 9, 6, 8}',
+    '  ticks 5',
+    '  showLegend true'
+  ].join('\n') },
+  { id: 'eventmodeling', title: '事件建模 eventModeling', h: 460, dsl: [
+    'eventmodeling',
+    '  tf 01 ui CartUI',
+    '  tf 02 cmd AddItem { itemId: 1 }',
+    '  tf 03 evt ItemAdded',
+    '  tf 04 rmo Inventory',
+    '  rf 05 evt OtherEvent ->> 03'
+  ].join('\n') },
+  { id: 'treemap', title: '矩形树图 treemap-beta', h: 360, dsl: [
+    'treemap-beta',
+    '  "Section 1"',
+    '    "Leaf 1.1": 12',
+    '    "Leaf 1.2": 8',
+    '  "Section 2"',
+    '    "Leaf 2.1": 20'
+  ].join('\n') },
+  { id: 'venn', title: '韦恩图 venn-beta', h: 360, dsl: [
+    'venn-beta',
+    '  title 团队重叠',
+    '  set A["前端"]: 20',
+    '  set B["后端"]: 16',
+    '  union A,B["全栈"]: 5'
+  ].join('\n') },
+  { id: 'ishikawa', title: '鱼骨图 ishikawa-beta', h: 360, dsl: [
+    'ishikawa-beta',
+    '  Website Outage',
+    '  Infrastructure',
+    '    Server Crash',
+    '    Network Failure',
+    '  Code',
+    '    Bug in Deployment'
+  ].join('\n') },
+  { id: 'wardley', title: 'Wardley 图 wardley-beta', h: 460, dsl: [
+    'wardley-beta',
+    '  title 我的地图',
+    '  size [1100, 600]',
+    '  anchor 用户 [0.9, 0.95]',
+    '  component 界面 [0.8, 0.7]',
+    '  component API [0.6, 0.7] (buy)',
+    '  component 数据库 [0.4, 0.5] (inertia)',
+    '  用户 +> 界面',
+    '  界面 -> API',
+    '  数据库 -> API',
+    '  evolve API 0.85',
+    '  note "关键洞察" [0.4, 0.5]'
+  ].join('\n') },
+  { id: 'cynefin', title: 'Cynefin 框架 cynefin-beta', h: 380, dsl: [
+    'cynefin-beta',
+    '  title 决策框架',
+    '  clear',
+    '    "明确的流程"',
+    '  complicated',
+    '    "需要专家分析"',
+    '  complex',
+    '    "涌现的模式"',
+    '  chaotic',
+    '    "立即行动"'
+  ].join('\n') },
+  { id: 'treeview', title: '目录树 treeView-beta', h: 320, dsl: [
+    'treeView-beta',
+    '    my-project/',
+    '        src/',
+    '            index.js ## entry point',
+    '        "my file.txt"'
+  ].join('\n') },
+  { id: 'swimlanes', title: '泳道图 swimlane-beta', h: 360, dsl: [
+    'swimlane-beta',
+    '  subgraph 财务[财务部]',
+    '    a[提交报销] --> b[审核]',
+    '  end',
+    '  subgraph IT[技术部]',
+    '    c[部署系统]',
+    '  end',
+    '  b --> c'
+  ].join('\n') }
 ];
 
 const diagrams = {};
+let officialReady = false;
+let mmdUid = 0;
 
 function buildDom() {
   const root = document.getElementById('cases');
@@ -163,9 +381,15 @@ function buildDom() {
     sec.className = 'case';
     sec.id = 'pane-' + c.id;
     sec.innerHTML =
-      '<h2>' + c.title + ' <span class="st"></span></h2>' +
-      '<div class="diagram" style="height:' + c.h + 'px"></div>' +
-      '<div class="actions"><button class="pngBtn">导出 PNG</button></div>' +
+      '<h2>' + c.title +
+      ' <span class="st"></span> <span class="st-off"></span></h2>' +
+      '<div class="grid compare">' +
+        '<div class="pane"><p class="tag">open-gojs</p>' +
+          '<div class="diagram" style="height:' + c.h + 'px"></div></div>' +
+        '<div class="pane pane-off"><p class="tag">官方 mermaid.js</p>' +
+          '<div class="official" style="height:' + c.h + 'px"></div></div>' +
+      '</div>' +
+      '<div class="actions"><button class="pngBtn">导出 PNG（open-gojs）</button></div>' +
       '<details><summary>DSL 源码</summary><pre></pre></details>';
     sec.querySelector('pre').textContent = c.dsl;
     sec.querySelector('.pngBtn').addEventListener('click', () => {
@@ -174,14 +398,22 @@ function buildDom() {
     });
     root.appendChild(sec);
   }
+  document.getElementById('compareChk').addEventListener('change', (e) => {
+    const on = e.target.checked;
+    for (const c of CASES) {
+      document.querySelector('#pane-' + c.id + ' .grid').classList.toggle('compare', on);
+      document.querySelector('#pane-' + c.id + ' .pane-off').style.display = on ? '' : 'none';
+      if (!on) document.querySelector('#pane-' + c.id + ' .st-off').textContent = '';
+    }
+    if (on) renderOfficialAll();
+  });
 }
 
-function renderAll(theme) {
+function renderOpenAll(theme) {
   let okCount = 0;
   for (const c of CASES) {
     const sec = document.getElementById('pane-' + c.id);
     const host = sec.querySelector('.diagram');
-    // 换新元素：旧 Diagram 的监听随旧节点一起丢弃
     const fresh = host.cloneNode(false);
     fresh.style.height = c.h + 'px';
     host.replaceWith(fresh);
@@ -190,33 +422,75 @@ function renderAll(theme) {
       const res = go.Mermaid.render(c.dsl, fresh, { theme: theme });
       if (res.diagram && res.diagram.nodes.count > 0) {
         diagrams[c.id] = res.diagram;
-        st.textContent = '✓ ' + res.diagram.nodes.count + ' 节点';
+        st.textContent = 'open✓ ' + res.diagram.nodes.count + ' 节点';
         st.className = 'st ok';
         okCount++;
       } else {
         diagrams[c.id] = null;
-        st.textContent = '✗ 无输出 ' + JSON.stringify(res.errors || []);
+        st.textContent = 'open✗ 无输出 ' + JSON.stringify(res.errors || []);
         st.className = 'st bad';
       }
     } catch (e) {
       diagrams[c.id] = null;
-      st.textContent = '✗ ' + e.message;
+      st.textContent = 'open✗ ' + e.message;
       st.className = 'st bad';
     }
   }
   const gs = document.getElementById('globalStatus');
-  gs.textContent = okCount + '/' + CASES.length + ' 渲染成功（主题 ' + theme + '）';
+  gs.textContent = okCount + '/' + CASES.length + ' open-gojs 渲染成功（主题 ' + theme + '）';
   gs.className = okCount === CASES.length ? 'ok' : 'bad';
   window.__result = { ok: okCount === CASES.length, okCount, total: CASES.length, theme };
+  return okCount;
 }
 
-window.addEventListener('load', () => {
+async function renderOfficialAll() {
+  if (!officialReady) return;
+  let ok = 0;
+  for (const c of CASES) {
+    const sec = document.getElementById('pane-' + c.id);
+    const host = sec.querySelector('.official');
+    const st = sec.querySelector('.st-off');
+    try {
+      const { svg } = await mermaid.render('mmd-off-' + (mmdUid++), c.dsl);
+      host.innerHTML = svg;
+      st.textContent = '官方✓';
+      st.className = 'st-off ok';
+      ok++;
+    } catch (e) {
+      host.innerHTML = '';
+      st.textContent = '官方✗ ' + (e && e.message ? e.message.split('\n')[0].slice(0, 80) : String(e).slice(0, 80));
+      st.className = 'st-off warn';
+    }
+  }
+  const gs = document.getElementById('globalStatus');
+  gs.textContent += '；官方 mermaid.js ' + ok + '/' + CASES.length;
+}
+
+async function renderAll(theme) {
+  renderOpenAll(theme);
+  if (document.getElementById('compareChk').checked) {
+    await renderOfficialAll();
+  }
+}
+
+window.addEventListener('load', async () => {
   try {
     buildDom();
+    try {
+      mermaid.initialize({ startOnLoad: false, securityLevel: 'loose', theme: 'default' });
+      officialReady = true;
+    } catch (e) {
+      officialReady = false;
+      document.getElementById('globalStatus').textContent = '官方 mermaid.js 加载失败：' + e.message;
+    }
     const theme = document.getElementById('themeSel').value;
-    renderAll(theme);
-    document.getElementById('themeSel').addEventListener('change', (e) => renderAll(e.target.value));
-    document.getElementById('rerenderBtn').addEventListener('click', () => renderAll(document.getElementById('themeSel').value));
+    await renderAll(theme);
+    document.getElementById('themeSel').addEventListener('change', (e) => {
+      try { if (officialReady) mermaid.initialize({ startOnLoad: false, securityLevel: 'loose', theme: e.target.value }); } catch (_) {}
+      renderAll(e.target.value);
+    });
+    document.getElementById('rerenderBtn').addEventListener('click', () =>
+      renderAll(document.getElementById('themeSel').value));
   } catch (e) {
     document.getElementById('globalStatus').textContent = 'ERR ' + e.message;
     window.__result = { ok: false, error: e.message, stack: e.stack };

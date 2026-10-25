@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { parseMindmap, isMindmap } from '../src/mermaid/parser/mindmap';
-import { mapMindmap } from '../src/mermaid/mapper/mindmap';
+import { parseMindmap, isMindmap } from '../extension/mermaid/parser/mindmap';
+import { mapMindmap } from '../extension/mermaid/mapper/mindmap';
 
 describe('mermaid mindmap parser', () => {
   it('detects mindmap by header', () => {

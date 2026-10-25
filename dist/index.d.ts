@@ -3371,6 +3371,13 @@ declare class Part extends Panel {
     set category(val: string);
     get itemIndex(): number;
     set itemIndex(val: number);
+    /**
+     * 官方 `Part.diagram` 直读本部件的 diagram 字段。GraphObject.diagram 走
+     * `this.part` 链——Adornment 等 Part 自身 `_panel` 为 null 时 part 解析为 null，
+     * 会把 `_diagram` 明明有值的装饰读成 null，导致 removeAdornment 跳过
+     * `diagram.remove` → 装饰永久残留在 Adornment 层（选择框不消失）。
+     */
+    get diagram(): any;
     get isTopLevel(): boolean;
     /** 官方 Part.canLayout */
     canLayout(): boolean;
@@ -3414,7 +3421,7 @@ declare class Part extends Panel {
     removeAdornment(category: string): void;
     /** Get the adornment for the given category */
     getAdornment(category: string): any | null;
-    /** Remove all adornments */
+    /** 官方 `Part.clearAdornments()`：逐个 removeAdornment（从图中摘除），不是只清 map */
     clearAdornments(): void;
     /**
      * 官方默认选择装饰（diagram.nodeSelectionAdornmentTemplate 缺省时的兜底）：
@@ -5679,6 +5686,11 @@ declare class PanningTool extends Tool {
      * 以前完全没有 button / dragSize 判定，右键或轻微点击也会被当成平移手势。
      */
     canStart(): boolean;
+    /**
+     * 官方 PanningTool.canStartButton（go.js 逐字）：**中键**按下才平移视口。
+     * 基类 Tool.canStartButton 只认左键；官方 pan 语义是中键（左键空白是框选）。
+     */
+    canStartButton(): boolean;
     /** Activate the panning tool. */
     doActivate(): void;
     /** Pan the viewport on mouse move. */
@@ -8869,6 +8881,8 @@ declare class LayeredDigraphLayout extends Layout {
     private _networkMaxDestLayerSpan;
     /** 官方 `fU/$v/uU/dU/Ew`：OptimalLinkLength。先 LongestPathSink，再从源做组归并/双向收缩 */
     private _networkMinimizeLinkLength;
+    /** 对不在任何源紧边分量中的节点，尝试上移以减小总边长（对标 Dagre network-simplex） */
+    private _nlvPullUpIsolated;
     /** 官方 `$v(t)`：DFS 到所有汇，逐个做 uU(t)/dU(t) 归并 */
     private _nlvVisited;
     /** 官方 `uU(t)`：把 t 的「紧边连通分量」整体上移（减 layer），使所有边达到最小长度 */

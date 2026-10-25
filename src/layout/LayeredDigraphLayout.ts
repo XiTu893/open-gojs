@@ -584,7 +584,44 @@ export class LayeredDigraphLayout extends Layout {
     for (const v of vertexes) {
       if (v.sourceEdges.count === 0) this._nlvVisited(v);
     }
+    // 补充优化：紧边分量只能移动已连通的节点，孤立节点（如 B→C 长边的目标）无法上移。
+    // 这里再做一轮逐节点上移尝试，等价于 network-simplex 的 cut-value 优化。
+    this._nlvPullUpIsolated(vertexes, edges);
     // 官方 pB 到此结束：全程 sink 基（汇=0，源=最大层），不再取补。
+  }
+
+  /** 对不在任何源紧边分量中的节点，尝试上移以减小总边长（对标 Dagre network-simplex） */
+  private _nlvPullUpIsolated(vertexes: LayoutVertex[], edges: LayoutEdge[]): void {
+    const outgoing = new Map<LayoutVertex, LayoutEdge[]>();
+    const incoming = new Map<LayoutVertex, LayoutEdge[]>();
+    for (const v of vertexes) { outgoing.set(v, []); incoming.set(v, []); }
+    for (const e of edges) {
+      if (e.fromVertex && e.toVertex) {
+        outgoing.get(e.fromVertex)!.push(e);
+        incoming.get(e.toVertex)!.push(e);
+      }
+    }
+    for (let pass = 0; pass < 6; pass++) {
+      let moved = false;
+      for (const v of vertexes) {
+        let benefit = 0;
+        let canMove = true;
+        for (const e of incoming.get(v)!) {
+          const u = e.fromVertex;
+          if (!u) continue;
+          const minLen = this.linkMinLength(e);
+          if (v.layer - u.layer < minLen + 1) { canMove = false; break; }
+          benefit += this.linkLengthWeight(e);
+        }
+        if (!canMove) continue;
+        for (const e of outgoing.get(v)!) {
+          if (!e.toVertex) continue;
+          benefit -= this.linkLengthWeight(e);
+        }
+        if (benefit > 0) { v.layer -= 1; moved = true; }
+      }
+      if (!moved) break;
+    }
   }
 
   /** 官方 `$v(t)`：DFS 到所有汇，逐个做 uU(t)/dU(t) 归并 */
@@ -1507,7 +1544,9 @@ export class LayeredDigraphLayout extends Layout {
         n.portToColOffset = 0; n.portToPos = 0;
       }
       let f = o.layer;
-      const u = r.layer, d = this._xB(n), m = d === 1 || d === 3, g = d === 2 || d === 3;
+      const u = r.layer;
+      const d = n.rev ? 0 : this._xB(n);
+      const m = d === 1 || d === 3, g = d === 2 || d === 3;
       let p: LayoutEdge, y: LayoutVertex, x: LayoutVertex[] | null = null, b = 0;
       if (g) {
         x = this._bB(o, r);
@@ -1532,7 +1571,14 @@ export class LayeredDigraphLayout extends Layout {
       let S = 1;
       if (m) S--;
       if (f - u > S && f > 0) {
-        for (n.valid = false, y = t.createVertex(), y.node = null, y.bk = 2, y.bounds = new Rect(0, 0, 10, 10), y.focus = new Point(5, 5), y.layer = f - 1, x && b < x.length && y.layer === x[b].layer && (y.near = x[b++]), t.addVertex(y), p = t.linkVertexes(o, y, n.link)!, p.valid = true, p.rev = n.rev, p.portFromColOffset = g ? 0 : l, p.portToColOffset = 0, p.portFromPos = g ? 0 : a, p.portToPos = 0, o = y, f--; f - u > S && f > 0;) {
+        // 长边拆链：原边作废，并从 from/to 顶点的边列表中移除，
+        // 否则 DFS 索引初始化（_oI）会因列表头部残留 invalid 原边而跳过它，
+        // 导致链整体落到错误一侧。
+        const origFrom = n.fromVertex, origTo = n.toVertex;
+        let origIdx = -1, firstChainEdge: LayoutEdge | null = null;
+        if (origFrom) { origIdx = origFrom.destinationEdges.indexOf(n); origFrom.deleteDestinationEdge(n); }
+        if (origTo) origTo.deleteSourceEdge(n);
+        for (n.valid = false, y = t.createVertex(), y.node = null, y.bk = 2, y.bounds = new Rect(0, 0, 10, 10), y.focus = new Point(5, 5), y.layer = f - 1, x && b < x.length && y.layer === x[b].layer && (y.near = x[b++]), t.addVertex(y), p = t.linkVertexes(o, y, n.link)!, firstChainEdge = p, p.valid = true, p.rev = n.rev, p.portFromColOffset = g ? 0 : l, p.portToColOffset = 0, p.portFromPos = g ? 0 : a, p.portToPos = 0, o = y, f--; f - u > S && f > 0;) {
           y = t.createVertex();
           y.node = null;
           y.bk = 3;
@@ -1559,6 +1605,12 @@ export class LayeredDigraphLayout extends Layout {
         p.portToColOffset = h;
         p.portFromPos = 0;
         p.portToPos = c;
+        // 把链首边插回原边在源顶点出边表中的位置，保持源出边的相对顺序
+        if (origFrom && origIdx >= 0 && firstChainEdge) {
+          const dl = origFrom.destinationEdges;
+          dl.remove(firstChainEdge);
+          dl.insertAt(Math.min(origIdx, dl.length), firstChainEdge);
+        }
       } else {
         n.valid = true;
       }

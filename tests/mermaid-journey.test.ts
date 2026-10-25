@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { parseJourney, isJourney } from '../src/mermaid/parser/journey';
-import { mapJourney } from '../src/mermaid/mapper/journey';
-import { defaultTheme } from '../src/mermaid/themes';
+import { parseJourney, isJourney } from '../extension/mermaid/parser/journey';
+import { mapJourney } from '../extension/mermaid/mapper/journey';
+import { defaultTheme } from '../extension/mermaid/themes';
 
 describe('mermaid journey parser', () => {
   it('detects journey by first-line header', () => {

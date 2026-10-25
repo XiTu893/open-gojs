@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { parsePie, isPie } from '../src/mermaid/parser/pie';
-import { parseGantt, isGantt } from '../src/mermaid/parser/gantt';
-import { Mermaid } from '../src/mermaid/index';
+import { parsePie, isPie } from '../extension/mermaid/parser/pie';
+import { parseGantt, isGantt } from '../extension/mermaid/parser/gantt';
+import { Mermaid } from '../extension/mermaid/index';
 
 describe('mermaid pie parser', () => {
   it('detects pie', () => {

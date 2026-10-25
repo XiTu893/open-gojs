@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { parseArchitecture, isArchitecture } from '../src/mermaid/parser/architecture';
-import { mapArchitecture } from '../src/mermaid/mapper/architecture';
+import { parseArchitecture, isArchitecture } from '../extension/mermaid/parser/architecture';
+import { mapArchitecture } from '../extension/mermaid/mapper/architecture';
 
 describe('architecture-beta', () => {
   it('isArchitecture 识别头行', () => {
@@ -86,11 +86,11 @@ api -> svc2
     expect(xy('svc2')[1]).toBeGreaterThanOrEqual(xy('aws')[1] + box.h);
     // 颜色取自主题（默认黑白 + 浅灰组盒）
     for (const n of nodes.filter(x => x.category === 'Service')) {
-      expect(n.fill).toBe('#ffffff');
-      expect(n.stroke).toBe('#000000');
+      expect(n.fill).toBe('#00A6ED');
+      expect(n.stroke).toBe('#0077B6');
       expect(n.textCol).toBe('#000000');
     }
-    expect(box.fill).toBe('#f7f7f8');
+    expect(box.fill).toBe('#F2F6FA');
     // 连线保留端口
     expect(links).toEqual([
       { from: 'api', fromPort: 'R', to: 'users', toPort: 'L' },

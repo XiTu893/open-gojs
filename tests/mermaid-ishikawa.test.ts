@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { parseIshikawa, isIshikawa } from '../src/mermaid/parser/ishikawa';
-import { mapIshikawa } from '../src/mermaid/mapper/ishikawa';
+import { parseIshikawa, isIshikawa } from '../extension/mermaid/parser/ishikawa';
+import { mapIshikawa } from '../extension/mermaid/mapper/ishikawa';
 
 describe('mermaid ishikawa parser', () => {
   it('detects ishikawa-beta by header', () => {
@@ -59,39 +59,99 @@ Infrastructure
 Code
   Bug in Deployment`);
 
-  it('emits spine, problem, bones, categories and causes', () => {
+  const by = (nodes: { category: string }[], c: string) => nodes.filter((n) => n.category === c);
+  const close = (a: number, b: number, tol = 0.05) => Math.abs(a - b) <= tol;
+
+  it('emits spine, head, bones, labels per official layout', () => {
     const { nodes } = mapIshikawa(ast);
-    const by = (c: string) => nodes.filter((n) => n.category === c);
-    expect(by('Bone').length).toBe(3);     // 脊线 + 2 斜骨
-    expect(by('Problem').length).toBe(1);
-    expect(by('Category').length).toBe(2);
-    expect(by('Cause').length).toBe(3);
-    expect(by('Problem')[0].text).toBe('Website Outage');
+    // 骨线：脊线 + 2 斜骨 + 3 水平子因线 = 6 个 Bone；鱼头 path 1
+    expect(by(nodes, 'Bone').length).toBe(6);
+    expect(by(nodes, 'Head').length).toBe(1);
+    expect(by(nodes, 'HeadLabel').length).toBe(1);
+    expect(by(nodes, 'CatLabel').length).toBe(2);
+    expect(by(nodes, 'CauseLabel').length).toBe(3);
+    expect(by(nodes, 'HeadLabel')[0].text).toBe('Website\nOutage');
   });
 
-  it('problem sits at right end of spine', () => {
+  it('spine sits at official y=C=333.33 spanning leftmost text to x=0', () => {
     const { nodes } = mapIshikawa(ast);
     const spine = nodes.find((n) => n.key === 'spine')!;
-    const problem = nodes.find((n) => n.key === 'problem')!;
-    // 脊线几何终点 x = 720；鱼头中心在其右侧
-    const m = /M\s+\d+\s+\d+\s+L\s+(\d+)/.exec(spine.geo!)!;
-    expect(parseFloat(problem.loc.split(' ')[0])).toBeGreaterThan(parseFloat(m[1]));
+    // loc = min 角 = (最左文字 x, C)；geo 局部 `M 0 0 L (0-wCur) 0`
+    const loc = spine.loc.split(' ').map(parseFloat);
+    expect(close(loc[1], 333.333)).toBe(true); // y = C
+    const m = /L\s+(-?[\d.]+)/.exec(spine.geo!)!;
+    // 最左文字 = 上侧倒序子因 "Server Crash"（A=-80.927，宽度>0）→ spine x1 < -80
+    expect(loc[0]).toBeLessThan(-80);
+    // 右端绝对 x = loc[0] + 局部跨度 = 0
+    expect(close(loc[0] + parseFloat(m[1]), 0)).toBe(true);
   });
 
-  it('categories alternate above and below the spine', () => {
+  it('even category (Infrastructure) branches up with official tip', () => {
     const { nodes } = mapIshikawa(ast);
-    const cat0 = nodes.find((n) => n.key === 'cat_0')!;
-    const cat1 = nodes.find((n) => n.key === 'cat_1')!;
-    const mid = 340;
-    const y0 = parseFloat(cat0.loc.split(' ')[1]);
-    const y1 = parseFloat(cat1.loc.split(' ')[1]);
-    expect(y0).toBeLessThan(mid); // 第 1 类在上
-    expect(y1).toBeGreaterThan(mid); // 第 2 类在下
+    const bone = nodes.find((n) => n.category === 'Bone' && /c-1_/.test(n.key))!;
+    // geo 局部坐标（min 角在 0,0），loc = min 角 = (min(x0,tipX), min(y0,tipY))
+    const loc = bone.loc.split(' ').map(parseFloat);
+    expect(close(loc[0], -66.391)).toBe(true); // min x
+    expect(close(loc[1], 3.244)).toBe(true);   // min y = tip y
+    // 绝对 tip = loc + 局部终点
+    const m = /M\s+(-?[\d.]+)\s+(-?[\d.]+)\s+L\s+(-?[\d.]+)\s+(-?[\d.]+)/.exec(bone.geo!)!;
+    expect(close(loc[0] + parseFloat(m[3]), -66.391)).toBe(true); // tip x
+    expect(close(loc[1] + parseFloat(m[4]), 3.244)).toBe(true);   // tip y
   });
 
-  it('returns empty-ish for empty problem/categories without throw', () => {
+  it('odd category (Code) branches down with official tip', () => {
+    const { nodes } = mapIshikawa(ast);
+    const bone = nodes.find((n) => n.category === 'Bone' && /c1_/.test(n.key))!;
+    const loc = bone.loc.split(' ').map(parseFloat);
+    const m = /M\s+(-?[\d.]+)\s+(-?[\d.]+)\s+L\s+(-?[\d.]+)\s+(-?[\d.]+)/.exec(bone.geo!)!;
+    expect(close(loc[0] + parseFloat(m[3]), -43.196)).toBe(true); // tip x
+    expect(close(loc[1] + parseFloat(m[4]), 498.378)).toBe(true); // tip y
+  });
+
+  it('up-side causes reversed: first DSL cause farthest from spine', () => {
+    const { nodes } = mapIshikawa(ast);
+    const subs = nodes.filter((n) => n.category === 'Bone' && /sub_c-1_/.test(n.key));
+    const labels = nodes
+      .filter((n) => n.category === 'CauseLabel' && /cause_c-1_/.test(n.key))
+      .map((n) => n.text);
+    // 上侧倒序：Network Failure 更近脊线(y 大)，Server Crash 更远(y 小)
+    expect(labels).toEqual(['Network Failure', 'Server Crash']);
+    // 子因水平线：loc = (A, y)，geo 局部 `M 0 0 L 30 0`（N-A=30）
+    const s0 = subs[0];
+    const loc0 = s0.loc.split(' ').map(parseFloat);
+    expect(close(loc0[0], -65.464)).toBe(true); // A x（第一子因）
+    expect(close(loc0[1], 223.303)).toBe(true); // y
+    const m0 = /M\s+(-?[\d.]+)/.exec(s0.geo!)!;
+    expect(close(parseFloat(m0[1]), 30)).toBe(true); // N-A=30（局部 M 端在 x=30，A 端在 x=0）
+  });
+
+  it('down-side cause stays in source order', () => {
+    const { nodes } = mapIshikawa(ast);
+    const labels = nodes
+      .filter((n) => n.category === 'CauseLabel' && /cause_c1_/.test(n.key))
+      .map((n) => n.text);
+    // 官方 G7t: 15 字符贪心换行 → "Bug in\nDeployment"（"Network Failure"=15 不换）
+    expect(labels).toEqual(['Bug in\nDeployment']);
+    const lab = nodes.find((n) => n.category === 'CauseLabel' && /cause_c1_/.test(n.key))!;
+    expect(close(parseFloat(lab.loc.split(' ')[1]), 415.856)).toBe(true); // 子因 y
+  });
+
+  it('head path uses official d=60 f≈105.6 and label at d/2+3', () => {
+    const { nodes } = mapIshikawa(ast);
+    const head = nodes.find((n) => n.category === 'Head')!;
+    // "Website Outage" wrap 11 → 2 行，d=max(60, w+6)=60, f=max(40, 2*32.8+40)=105.6
+    const m = /Q\s+(-?[\d.]+)/.exec(head.geo!)!;
+    expect(close(parseFloat(m[1]), 144)).toBe(true); // 2.4d = 144
+    const hl = nodes.find((n) => n.category === 'HeadLabel')!;
+    expect(close(parseFloat(hl.loc.split(' ')[0]), 33)).toBe(true); // d/2+3=33
+    expect(close(parseFloat(hl.loc.split(' ')[1]), 333.333)).toBe(true); // y=C
+  });
+
+  it('returns minimal nodes for empty problem/categories without throw', () => {
     const { nodes } = mapIshikawa({ kind: 'ishikawa', problem: '', categories: [] });
-    expect(nodes.length).toBe(1); // 只有脊线
-    expect(nodes[0].category).toBe('Bone');
+    // 退化脊线 + 鱼头 path + 鱼头标签
+    expect(by(nodes, 'Bone').length).toBe(1);
+    expect(by(nodes, 'Head').length).toBe(1);
+    expect(by(nodes, 'HeadLabel').length).toBe(1);
   });
 });

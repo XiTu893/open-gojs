@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { parseVenn, isVenn } from '../src/mermaid/parser/venn';
-import { mapVenn, vennCenter, VENN_CANVAS_W } from '../src/mermaid/mapper/venn';
-import { defaultTheme } from '../src/mermaid/themes';
+import { parseVenn, isVenn } from '../extension/mermaid/parser/venn';
+import { mapVenn, vennCenter, VENN_CANVAS_W } from '../extension/mermaid/mapper/venn';
+import { defaultTheme } from '../extension/mermaid/themes';
 
 const DSL = `venn-beta
 title 团队重叠

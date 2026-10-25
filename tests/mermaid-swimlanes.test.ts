@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseSwimlanes, isSwimlanes } from '../src/mermaid/parser/swimlanes';
+import { parseSwimlanes, isSwimlanes } from '../extension/mermaid/parser/swimlanes';
 
 const DSL = `swimlane-beta
 subgraph 财务[财务部]

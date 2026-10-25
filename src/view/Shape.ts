@@ -505,10 +505,13 @@ export class Shape extends GraphObject {
             const sq = Math.sqrt(disc);
             const t1 = (-b - sq) / (2 * a);
             const t2 = (-b + sq) / (2 * a);
-            // 取沿 p→q 方向上正值的最小 t（射线离开圆/椭圆的点）
+            // 官方 Rf 语义（参数序反转后）：交点取离 q(aim) 最近的那个，且满足
+            // 官方闸门 dist²(cand,q) < dist²(p,q)——共线射线时等价于 0<t<2。
             let t = NaN;
-            if (t1 > 1e-9 && (isNaN(t) || t1 < t)) t = t1;
-            if (t2 > 1e-9 && (isNaN(t) || t2 < t)) t = t2;
+            const ok = (tt: number): boolean => tt > 1e-9 && tt < 2;
+            if (ok(t1) && ok(t2)) t = Math.abs(1 - t1) < Math.abs(1 - t2) ? t1 : t2;
+            else if (ok(t1)) t = t1;
+            else if (ok(t2)) t = t2;
             if (!isNaN(t)) {
               result.setTo(p.x + t * dx, p.y + t * dy);
               return true;
@@ -516,7 +519,11 @@ export class Shape extends GraphObject {
           }
         }
       }
-      return super.getNearestIntersectionPoint(p, q, result);
+      // 官方 Rf：射线与椭圆无交点时返回 false，不做矩形兑底
+      // （兑底会让“未命中的子形状包围盒角点”混进 Panel 聚合候选，
+      //   端点被吸到方形角上——donutCharts 对角 link 贴到方角就是这个原因）。
+      result.setTo(q.x, q.y);
+      return false;
     }
 
     // 其它图形：用实际几何的各条线段与 pq 求交，取离 p 最近者
@@ -534,7 +541,14 @@ export class Shape extends GraphObject {
         const toDoc = (lx: number, ly: number): Point =>
           new Point(ab2.x + (lx - geoBounds.x) * sx, ab2.y + (ly - geoBounds.y) * sy);
 
-        let bestT = Infinity;
+        // 官方 Rf 语义（本项目参数序 (p=focus, q=aim) 反转后）：候选交点必须过
+        // 闸门 dist²(cand,q) < dist²(p,q)，并在其中取离 q(aim) 最近的那个——
+        // 注意不能取“离 p 最近”：节点中心在孔洞里时最近交点会落在内圈/标签上，
+        // 端点就缩进图形内部（donutCharts 的 link 全部偏短偏里就是这个原因）。
+        const gateDx = q.x - p.x;
+        const gateDy = q.y - p.y;
+        const gate = gateDx * gateDx + gateDy * gateDy;
+        let bestD2 = Infinity;
         let bestX = 0;
         let bestY = 0;
         let found = false;
@@ -548,11 +562,18 @@ export class Shape extends GraphObject {
           if (Math.abs(den) < 1e-12) return; // 平行
           const t = ((x1 - p.x) * ey - (y1 - p.y) * ex) / den;
           const u = ((x1 - p.x) * dy - (y1 - p.y) * dx) / den;
-          if (t > 1e-9 && u >= 0 && u <= 1 && t < bestT) {
-            bestT = t;
-            bestX = p.x + t * dx;
-            bestY = p.y + t * dy;
-            found = true;
+          if (t > 1e-9 && u >= 0 && u <= 1) {
+            const hx = p.x + t * dx;
+            const hy = p.y + t * dy;
+            const gx = hx - q.x;
+            const gy = hy - q.y;
+            const d2 = gx * gx + gy * gy;
+            if (d2 < gate && d2 < bestD2) {
+              bestD2 = d2;
+              bestX = hx;
+              bestY = hy;
+              found = true;
+            }
           }
         };
 
@@ -576,6 +597,36 @@ export class Shape extends GraphObject {
               const a = toDoc(cx, cy);
               const b = toDoc(seg.endX, seg.endY);
               hitSeg(a.x, a.y, b.x, b.y);
+              cx = seg.endX; cy = seg.endY;
+            } else if (name === 'Arc' && !isNaN(seg.startAngle)) {
+              // 「按角度」圆弧（PathSegment(SegmentType.Arc, a0, sw, cx, cy, rx, ry)）：
+              // 按角度采样成折线求交（10° 步长，r=70 时弦高误差 <0.5px）。
+              // 沿用渲染器同一套约定：点 = center + (rx·cosθ, ry·sinθ)，
+              // 半径 Y 缺省为 0 时按圆处理（官方 6 参构造的 radiusY 默认 0）。
+              const rx = seg.radiusX;
+              const ry = seg.radiusY === 0 ? seg.radiusX : seg.radiusY;
+              const a0 = seg.startAngle;
+              const sw = seg.sweepAngle;
+              const steps = Math.max(8, Math.ceil(Math.abs(sw) / 10));
+              let px = cx;
+              let py = cy;
+              for (let i = 1; i <= steps; i++) {
+                const th = ((a0 + (sw * i) / steps) * Math.PI) / 180;
+                const ex = seg.centerX + rx * Math.cos(th);
+                const ey = seg.centerY + ry * Math.sin(th);
+                const pa = toDoc(px, py);
+                const pb = toDoc(ex, ey);
+                hitSeg(pa.x, pa.y, pb.x, pb.y);
+                px = ex; py = ey;
+              }
+              // 终点按同一套采样约定推导（PathSegment.AngleArc 不填 arcEndX，
+              // 只在构造器路径里才有；统一重算避免 NaN 污染后续段的当前点）。
+              const endTh = ((a0 + sw) * Math.PI) / 180;
+              cx = seg.centerX + rx * Math.cos(endTh);
+              cy = seg.centerY + ry * Math.sin(endTh);
+            } else if (name === 'Arc') {
+              // SVG 端点弧（PathSegment.Arc()）：本项目图库不使用这种形式，
+              // 缺圆心参数不作求交，跳过（最终无候选时落矩形兑底，与既往行为一致）。
               cx = seg.endX; cy = seg.endY;
             } else {
               // 曲线段：按多段折线近似求交（步长足够细，误差远小于一个像素）
@@ -605,12 +656,24 @@ export class Shape extends GraphObject {
               }
               cx = seg.endX; cy = seg.endY;
             }
+            // 官方：任何段带 isClosed 标志都补一段“当前点 → figure 起点”的闭合边
+            // （donutCharts 的环形楔子就是 Arc(...).close()，闭合边是第二条径向边）。
+            if (seg.isClosed && name !== 'Close') {
+              const a = toDoc(cx, cy);
+              const b = toDoc(f.startX, f.startY);
+              hitSeg(a.x, a.y, b.x, b.y);
+              cx = f.startX; cy = f.startY;
+            }
           }
         }
         if (found) {
           result.setTo(bestX, bestY);
           return true;
         }
+        // 显式几何存在但射线没命中任何段：官方 Rf 返回 false（不做矩形兑底），
+        // 让 Panel 聚合跳过该形状、由 Link 层在全军覆没时统一兑底。
+        result.setTo(q.x, q.y);
+        return false;
       }
     }
 

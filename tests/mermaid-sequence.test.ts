@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseSequence, isSequence } from '../src/mermaid/parser/sequence';
+import { parseSequence, isSequence } from '../extension/mermaid/parser/sequence';
 
 describe('mermaid sequence parser', () => {
   it('detects sequence header', () => {

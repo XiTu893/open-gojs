@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { parseTreeView, isTreeView } from '../src/mermaid/parser/treeview';
-import { mapTreeView } from '../src/mermaid/mapper/treeview';
+import { parseTreeView, isTreeView } from '../extension/mermaid/parser/treeview';
+import { mapTreeView } from '../extension/mermaid/mapper/treeview';
 
 describe('mermaid treeview parser', () => {
   it('detects treeView-beta by header', () => {
@@ -59,8 +59,10 @@ describe('mermaid treeview mapper', () => {
         b
         c`);
     const { nodes, links } = mapTreeView(ast);
-    expect(nodes.length).toBe(4);
-    expect(links.length).toBe(3);
+    // 合成根 "/" 行（对齐官方）+ 4 个条目；一级条目挂根下
+    expect(nodes.length).toBe(5);
+    expect(links.length).toBe(4);
+    expect(nodes[0].text).toBe('/');
     const root = nodes[0];
     const rx = parseFloat(root.loc.split(' ')[0]);
     const ry = parseFloat(root.loc.split(' ')[1]);
@@ -68,7 +70,8 @@ describe('mermaid treeview mapper', () => {
     expect(parseFloat(nodes[1].loc.split(' ')[0])).toBeGreaterThan(rx);
     expect(ay).toBeGreaterThan(ry); // 每行 y 递增
     const ys = nodes.map((n) => n.loc.split(' ')[1]);
-    expect(new Set(ys).size).toBe(4);
+    expect(new Set(ys).size).toBe(5);
+    expect(links[0]).toEqual({ from: 0, to: 1 }); // 首条目连到合成根
   });
 
   it('dir nodes get bold font, desc appended to text', () => {
@@ -76,9 +79,9 @@ describe('mermaid treeview mapper', () => {
     src/ ## sources
         index.js`);
     const { nodes } = mapTreeView(ast);
-    expect(nodes[0].font.startsWith('bold ')).toBe(true);
-    expect(nodes[0].text).toBe('src  (sources)');
-    expect(nodes[1].font.startsWith('bold ')).toBe(false);
+    expect(nodes[1].font.startsWith('bold ')).toBe(true);
+    expect(nodes[1].text).toBe('src  (sources)');
+    expect(nodes[2].font.startsWith('bold ')).toBe(false);
   });
 
   it('returns empty for empty ast', () => {

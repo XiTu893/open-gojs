@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { parseClass, isClass } from '../src/mermaid/parser/class';
-import { parseState, isState } from '../src/mermaid/parser/state';
-import { parseEr, isEr } from '../src/mermaid/parser/er';
-import { Mermaid } from '../src/mermaid/index';
+import { parseClass, isClass } from '../extension/mermaid/parser/class';
+import { parseState, isState } from '../extension/mermaid/parser/state';
+import { parseEr, isEr } from '../extension/mermaid/parser/er';
+import { Mermaid } from '../extension/mermaid/index';
 
 describe('mermaid class parser', () => {
   it('detects classDiagram', () => {

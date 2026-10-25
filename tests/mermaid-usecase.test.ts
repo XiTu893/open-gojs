@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { parseUsecase, isUsecase } from '../src/mermaid/parser/usecase';
-import { mapUsecase } from '../src/mermaid/mapper/usecase';
+import { parseUsecase, isUsecase } from '../extension/mermaid/parser/usecase';
+import { mapUsecase } from '../extension/mermaid/mapper/usecase';
 
 describe('usecase-beta', () => {
   it('isUsecase 识别头行', () => {
@@ -98,8 +98,8 @@ login ..> check : include
     }
     const proc = nodes.filter(n => n.category !== 'GroupBox');
     for (const n of proc) {
-      expect(n.fill).toBe('#ffffff');
-      expect(n.stroke).toBe('#000000');
+      expect(n.fill).toBe('#00A6ED');
+      expect(n.stroke).toBe('#0077B6');
       expect(n.textCol).toBe('#000000');
     }
     const y = (k: string) => parseInt(nodes.find(n => n.key === k)!.loc.split(' ')[1], 10);
@@ -107,7 +107,7 @@ login ..> check : include
     expect(gbox.category).toBe('GroupBox');
     expect(gbox.title).toBe('系统');
     expect(gbox.members).toEqual(['login', 'check']);
-    expect(gbox.fill).toBe('#f7f7f8');
+    expect(gbox.fill).toBe('#F2F6FA');
     // 三层：actors 在上 → boundary 层 → 松散用例在下
     expect(y('user')).toBeLessThan(y('sys'));
     expect(y('sys')).toBeLessThan(y('extra'));

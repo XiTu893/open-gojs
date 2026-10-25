@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { parseRequirement, isRequirement } from '../src/mermaid/parser/requirement';
-import { mapRequirement } from '../src/mermaid/mapper/requirement';
+import { parseRequirement, isRequirement } from '../extension/mermaid/parser/requirement';
+import { mapRequirement } from '../extension/mermaid/mapper/requirement';
 
 describe('requirementDiagram', () => {
   it('isRequirement 识别头行', () => {
@@ -78,8 +78,8 @@ r2 -satisfies-> e1
       expect(n.loc).toMatch(/^-?\d+ -?\d+$/);
       expect(n.w).toBeGreaterThan(0);
       expect(n.h).toBeGreaterThan(0);
-      expect(n.fill).toBe('#ffffff');
-      expect(n.stroke).toBe('#000000');
+      expect(n.fill).toBe('#00A6ED');
+      expect(n.stroke).toBe('#0077B6');
       expect(n.textCol).toBe('#000000');
     }
     // 分层：r1 在 r2 上方，r2 在 e1 上方（y 递增）

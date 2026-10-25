@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { parseBlock, isBlock } from '../src/mermaid/parser/block';
-import { mapBlock } from '../src/mermaid/mapper/block';
+import { parseBlock, isBlock } from '../extension/mermaid/parser/block';
+import { mapBlock } from '../extension/mermaid/mapper/block';
 
 describe('block-beta', () => {
   it('isBlock 识别头行', () => {
@@ -83,8 +83,8 @@ d(("D")) e{"E"} f[["F"]]
       expect(n.loc).toMatch(/^-?\d+ -?\d+$/);
       expect(n.w).toBeGreaterThan(0);
       expect(n.h).toBeGreaterThan(0);
-      expect(n.fill).toBe('#ffffff');
-      expect(n.stroke).toBe('#000000');
+      expect(n.fill).toBe('#00A6ED');
+      expect(n.stroke).toBe('#0077B6');
     }
     const xy = (k: string) => byKey.get(k)!.loc.split(' ').map(Number);
     // 3 列网格：a b c 同一行（y 相同），d/e/f 第二行（y 更大）；同列 x 相同
