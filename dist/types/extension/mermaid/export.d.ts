@@ -22,3 +22,19 @@ export declare function exportPng(diagram: Diagram, opts?: PngExportOptions): st
  * 触发浏览器下载 PNG。
  */
 export declare function downloadPng(diagram: Diagram, filename?: string, opts?: PngExportOptions): boolean;
+/** SVG 导出选项 */
+export interface SvgExportOptions {
+    /** 缩放倍数（默认 1） */
+    scale?: number;
+    /** 背景色（默认白；传 'transparent' 则不画底色） */
+    background?: string;
+}
+/**
+ * 导出 SVG 字符串（静态快照，基于核心 SvgRenderer；不改变当前视口）。
+ * @returns SVG 源串；失败返回 null。
+ */
+export declare function exportSvg(diagram: Diagram, opts?: SvgExportOptions): string | null;
+/**
+ * 触发浏览器下载 SVG。
+ */
+export declare function downloadSvg(diagram: Diagram, filename?: string, opts?: SvgExportOptions): boolean;

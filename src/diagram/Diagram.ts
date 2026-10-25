@@ -30,6 +30,7 @@ import {
   PanelAuto, PanelVertical, PanelLink, PanelGrid
 } from '../core/EnumValues';
 import { CanvasRenderer } from '../render/CanvasRenderer';
+import { SvgRenderer, type MakeSvgOptions } from '../render/SvgRenderer';
 import { ToolManager } from '../tool/ToolManager';
 import { CommandHandler } from '../command/CommandHandler';
 import { AnimationManager } from '../animation/AnimationManager';
@@ -3915,17 +3916,24 @@ export class Diagram {
 
   private _isUpdateRequestedFlag: boolean = false;
 
-  makeSVG(opts?: any): any {
-    const ns = 'http://www.w3.org/2000/svg';
-    const svg = document.createElementNS(ns, 'svg');
-    const db = this.documentBounds;
-    svg.setAttribute('width', String(db.width));
-    svg.setAttribute('height', String(db.height));
-    svg.setAttribute('viewBox', db.x + ' ' + db.y + ' ' + db.width + ' ' + db.height);
-    return svg;
+  /**
+   * 导出当前内容为 SVG（官方 Diagram.makeSvg 语义；静态快照，不接管交互）。
+   * 选项：scale / bounds / background / includeAdornments / layers（见 MakeSvgOptions）。
+   */
+  makeSVG(opts?: MakeSvgOptions): SVGSVGElement {
+    return SvgRenderer.render(this, opts);
   }
-  makeSvg(opts?: any): any { return this.makeSVG(opts); }
-  makeImageData(opts?: any): string { return ''; }
+  makeSvg(opts?: MakeSvgOptions): SVGSVGElement { return this.makeSVG(opts); }
+  /** 导出当前画布的 PNG dataURL（交互画布快照；无渲染器时返回空串） */
+  makeImageData(opts?: any): string {
+    const canvas = this._renderer ? (this._renderer as any).canvas : null;
+    if (!canvas) return '';
+    try {
+      return canvas.toDataURL(opts && opts.type ? String(opts.type) : 'image/png');
+    } catch {
+      return '';
+    }
+  }
   makeImage(opts?: any): any {
     const data = this.makeImageData(opts);
     if (!data) return null;

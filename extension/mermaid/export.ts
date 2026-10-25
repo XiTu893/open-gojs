@@ -98,3 +98,49 @@ export function downloadPng(diagram: Diagram, filename = 'mermaid.png', opts: Pn
     return false;
   }
 }
+
+/** SVG 导出选项 */
+export interface SvgExportOptions {
+  /** 缩放倍数（默认 1） */
+  scale?: number;
+  /** 背景色（默认白；传 'transparent' 则不画底色） */
+  background?: string;
+}
+
+/**
+ * 导出 SVG 字符串（静态快照，基于核心 SvgRenderer；不改变当前视口）。
+ * @returns SVG 源串；失败返回 null。
+ */
+export function exportSvg(diagram: Diagram, opts: SvgExportOptions = {}): string | null {
+  try {
+    const svg = diagram.makeSvg({
+      scale: opts.scale ?? 1,
+      background: opts.background === 'transparent' ? undefined : (opts.background ?? '#ffffff'),
+    });
+    return new XMLSerializer().serializeToString(svg);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 触发浏览器下载 SVG。
+ */
+export function downloadSvg(diagram: Diagram, filename = 'mermaid.svg', opts: SvgExportOptions = {}): boolean {
+  const src = exportSvg(diagram, opts);
+  if (!src) return false;
+  try {
+    const blob = new Blob([src], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+    return true;
+  } catch {
+    return false;
+  }
+}

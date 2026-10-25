@@ -101,7 +101,7 @@ import { renderC4 } from './render/c4';
 // ZenUML 复用 sequence；swimlanes 复用 flowchart（仅自写 parser）
 import { parseZenUML, isZenUML } from './parser/zenuml';
 import { parseSwimlanes, isSwimlanes } from './parser/swimlanes';
-import { exportPng, downloadPng, PngExportOptions } from './export';
+import { exportPng, downloadPng, exportSvg, downloadSvg, PngExportOptions, SvgExportOptions } from './export';
 
 /** 渲染选项 */
 export interface RenderOptions {
@@ -313,10 +313,12 @@ export const Mermaid = {
   isSwimlanes,
   exportPng,
   downloadPng,
+  exportSvg,
+  downloadSvg,
 };
 
-export type { PngExportOptions };
-export { exportPng, downloadPng };
+export type { PngExportOptions, SvgExportOptions };
+export { exportPng, downloadPng, exportSvg, downloadSvg };
 
 // 主题再导出，便于外部自定义
 export { defaultTheme, neutralTheme, forestTheme, darkTheme, themes, getTheme } from './themes';

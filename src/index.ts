@@ -117,6 +117,8 @@ export { AnimationManager } from './animation/AnimationManager';
 export { CommandHandler } from './command/CommandHandler';
 
 export { CanvasRenderer } from './render/CanvasRenderer';
+export { SvgRenderer } from './render/SvgRenderer';
+export type { MakeSvgOptions } from './render/SvgRenderer';
 
 export { figures, getFigureGeometry } from './figures/Figures';
 

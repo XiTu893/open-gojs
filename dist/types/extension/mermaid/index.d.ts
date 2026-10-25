@@ -43,7 +43,7 @@ import { isEventModeling } from './parser/eventmodeling';
 import { isC4 } from './parser/c4';
 import { isZenUML } from './parser/zenuml';
 import { isSwimlanes } from './parser/swimlanes';
-import { exportPng, downloadPng, PngExportOptions } from './export';
+import { exportPng, downloadPng, exportSvg, downloadSvg, PngExportOptions, SvgExportOptions } from './export';
 /** 渲染选项 */
 export interface RenderOptions {
     /** 主题名（default/neutral/forest/dark）或自定义主题 */
@@ -106,9 +106,11 @@ export declare const Mermaid: {
     isSwimlanes: typeof isSwimlanes;
     exportPng: typeof exportPng;
     downloadPng: typeof downloadPng;
+    exportSvg: typeof exportSvg;
+    downloadSvg: typeof downloadSvg;
 };
-export type { PngExportOptions };
-export { exportPng, downloadPng };
+export type { PngExportOptions, SvgExportOptions };
+export { exportPng, downloadPng, exportSvg, downloadSvg };
 export { defaultTheme, neutralTheme, forestTheme, darkTheme, themes, getTheme } from './themes';
 export type { MermaidTheme, NodeCategory, CategoryStyle, EdgeStyle } from './themes';
 export type { ParseResult, MermaidAST, MermaidType } from './ast';
