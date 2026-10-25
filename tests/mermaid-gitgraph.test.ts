@@ -67,7 +67,7 @@ describe('mermaid gitgraph mapper', () => {
 
   it('lays commits left-to-right and branches on separate rows', () => {
     const { nodes } = mapGitGraph(ast, defaultTheme);
-    const dots = nodes.filter(n => n.category === 'GitDot');
+    const dots = nodes.filter(n => n.category === 'GitCommit');
     expect(dots.length).toBe(5);
     const locs = dots.map(d => d.loc.split(' ').map(Number));
     // x 严格递增（时间轴）
@@ -101,7 +101,8 @@ describe('mermaid gitgraph mapper', () => {
     const { nodes } = mapGitGraph(ast, defaultTheme);
     const labels = nodes.filter(n => n.category === 'GitBranchLabel');
     expect(labels.map(l => l.text).sort()).toEqual(['dev', 'main']);
-    const texts = nodes.filter(n => n.category === 'GitText');
+    // 现行设计：commit 文本合并进 GitCommit 节点（圆点 + 下方 id·label）
+    const texts = nodes.filter(n => n.category === 'GitCommit' && !!n.text);
     expect(texts.length).toBe(5);
   });
 });
