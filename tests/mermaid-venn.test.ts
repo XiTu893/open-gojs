@@ -62,8 +62,9 @@ describe('mermaid venn mapper', () => {
     expect(circles.length).toBe(2);
     const rA = (circles[0].w ?? 0) / 2;
     const rB = (circles[1].w ?? 0) / 2;
-    expect(rA).toBeCloseTo(15.5 * Math.sqrt(20), 1);
-    expect(rB).toBeCloseTo(15.5 * Math.sqrt(16), 1);
+    // 现行半径公式：RADIUS_K(32) * √size，钳制 [40,200]
+    expect(rA).toBeCloseTo(32 * Math.sqrt(20), 1);
+    expect(rB).toBeCloseTo(32 * Math.sqrt(16), 1);
     // loc 为圆包围盒左上角（TopLeft），圆心 = loc + r
     const [ax, ay] = locOf(m.nodes, 'set_A');
     const [bx, by] = locOf(m.nodes, 'set_B');
@@ -86,8 +87,11 @@ describe('mermaid venn mapper', () => {
     const bx = bx0 + rB;
     const [lax] = locOf(m.nodes, 'setlbl_A');
     const [lbx] = locOf(m.nodes, 'setlbl_B');
-    expect(lax).toBeLessThan(ax - rA);          // A 标签在圆左侧外
-    expect(lbx).toBeGreaterThan(bx + rB);       // B 标签在圆右侧外
+    // 现行设计：set 标签在圆内、远离群落中心的一侧（距圆心 0.4r）
+    expect(lax).toBeGreaterThan(ax - rA);
+    expect(lax).toBeLessThan(ax);
+    expect(lbx).toBeLessThan(bx + rB);
+    expect(lbx).toBeGreaterThan(bx);
     const [ux, uy] = locOf(m.nodes, 'union_0');
     expect(ux).toBeCloseTo((ax + bx) / 2, 1);   // 交集中心 = 两圆圆心均值
     expect(uy).toBeCloseTo(vennCenter.cy, 1);

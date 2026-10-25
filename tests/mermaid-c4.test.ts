@@ -124,8 +124,11 @@ Container(db, "数据库")`), defaultTheme);
       expect(x + cell.w).toBeLessThanOrEqual(bx + box.w);
       expect(y + cell.h).toBeLessThanOrEqual(by + box.h);
     }
+    // 现行布局为纵向链式：db 在 Boundary 下方、水平居中
     const db = m.nodes.find(n => n.key === 'db')!;
-    expect(Number(db.loc.split(' ')[0])).toBeGreaterThanOrEqual(bx + box.w);
+    const [dbx, dby] = db.loc.split(' ').map(Number);
+    expect(dby).toBeGreaterThanOrEqual(by + box.h);
+    expect(dbx + (db.w ?? 0) / 2).toBeCloseTo(bx + box.w / 2, 0);
   });
 
   it('maps rels to links (bi included) and marks ext dashed', () => {
