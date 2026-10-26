@@ -39655,6 +39655,1189 @@ var CanvasRenderer = /** @class */ (function () {
     return CanvasRenderer;
 }());
 
+var SVG_NS = 'http://www.w3.org/2000/svg';
+/** 导出型 SVG 渲染器 */
+var SvgRenderer = /** @class */ (function () {
+    function SvgRenderer() {
+        this.scale = 1;
+        this.includeAdornments = false;
+        this.layerFilter = null;
+        this.brushSeq = 0;
+        this.clipSeq = 0;
+        this.filterSeq = 0;
+        this.currentShadow = null;
+    }
+    /** 把 diagram 当前内容渲染为一个 <svg> 元素 */
+    SvgRenderer.render = function (diagram, options) {
+        var r = new SvgRenderer();
+        return r._render(diagram, options);
+    };
+    /** 把 diagram 当前内容渲染为 SVG 字符串 */
+    SvgRenderer.renderToString = function (diagram, options) {
+        var svg = SvgRenderer.render(diagram, options);
+        return new XMLSerializer().serializeToString(svg);
+    };
+    SvgRenderer.prototype._render = function (diagram, options) {
+        this.diagram = diagram;
+        var opts = options || {};
+        this.scale = opts.scale && isFinite(opts.scale) && opts.scale > 0 ? opts.scale : 1;
+        this.includeAdornments = opts.includeAdornments === true;
+        this.layerFilter = Array.isArray(opts.layers) ? opts.layers.slice() : null;
+        var doc = diagram.documentBounds;
+        var base = opts.bounds
+            ? opts.bounds
+            : new Rect(doc.x, doc.y, Math.max(doc.width, 1), Math.max(doc.height, 1));
+        // 留一点边距，避免描边/阴影被 viewBox 裁掉
+        var pad = 2;
+        this.bounds = new Rect(base.x - pad, base.y - pad, base.width + pad * 2, base.height + pad * 2);
+        var svg = document.createElementNS(SVG_NS, 'svg');
+        svg.setAttribute('xmlns', SVG_NS);
+        svg.setAttribute('width', String(Math.ceil(this.bounds.width * this.scale)));
+        svg.setAttribute('height', String(Math.ceil(this.bounds.height * this.scale)));
+        svg.setAttribute('viewBox', "".concat(this.bounds.x, " ").concat(this.bounds.y, " ").concat(this.bounds.width, " ").concat(this.bounds.height));
+        svg.style.background = opts.background || '#FFFFFF';
+        this.defs = document.createElementNS(SVG_NS, 'defs');
+        svg.appendChild(this.defs);
+        // 背景（可选，覆盖导出范围）
+        if (opts.background) {
+            var bg = this._el('rect', {
+                x: String(this.bounds.x), y: String(this.bounds.y),
+                width: String(this.bounds.width), height: String(this.bounds.height),
+                fill: opts.background,
+            });
+            svg.appendChild(bg);
+        }
+        // 图层（按绘制顺序）
+        var layersIt = diagram.layers;
+        while (layersIt.next()) {
+            var layer = layersIt.value;
+            this._renderLayer(layer, svg);
+        }
+        this.svg = svg;
+        return svg;
+    };
+    // ============ 图层 / 部件 ============
+    SvgRenderer.prototype._renderLayer = function (layer, root) {
+        if (!layer || layer.visible === false)
+            return;
+        var name = (layer.name || '').toLowerCase();
+        if (!this.includeAdornments && (name === 'adornment' || name === 'tool'))
+            return;
+        if (this.layerFilter && this.layerFilter.indexOf(layer.name) < 0)
+            return;
+        var g = this._el('g', { 'data-layer': layer.name || '' });
+        var it = layer.parts;
+        while (it.next()) {
+            var part = it.value;
+            if (!part || part.visible === false)
+                continue;
+            if (!this.includeAdornments && part instanceof Adornment)
+                continue;
+            if (part.isTemporary)
+                continue;
+            var ab = part.actualBounds;
+            if (!ab || ab.width <= 0 || ab.height <= 0)
+                continue;
+            // 完全在导出范围外 → 跳过
+            if (!this._intersects(ab, this.bounds))
+                continue;
+            this._renderPart(part, g);
+        }
+        root.appendChild(g);
+    };
+    SvgRenderer.prototype._intersects = function (a, b) {
+        return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+    };
+    SvgRenderer.prototype._renderPart = function (part, parent) {
+        var _a;
+        var g = this._el('g', {});
+        if (part.opacity !== undefined && part.opacity < 1)
+            g.setAttribute('opacity', String(part.opacity));
+        // 部件阴影（Part.isShadowed）：整部件加 feDropShadow 滤镜
+        if (part.isShadowed) {
+            var filterId = this._dropShadowFilter(part.shadowColor || 'rgba(0, 0, 0, 0.35)', (_a = part.shadowBlur) !== null && _a !== void 0 ? _a : 4, part.shadowOffset ? part.shadowOffset.x : 0, part.shadowOffset ? part.shadowOffset.y : 0);
+            g.setAttribute('filter', "url(#".concat(filterId, ")"));
+        }
+        // Part 的 angle/scale（镜像 CanvasRenderer._applyTransform；内容按文档坐标绘制）
+        var tf = this._partTransform(part);
+        if (tf)
+            g.setAttribute('transform', tf);
+        if (part instanceof Link) {
+            this._renderLink(part, g);
+        }
+        else {
+            this._renderObject(part, g, 0, 0);
+        }
+        parent.appendChild(g);
+    };
+    /** 镜像 CanvasRenderer._applyTransform（枢轴旋转 + 缩放） */
+    SvgRenderer.prototype._partTransform = function (part) {
+        var _a;
+        var angle = part._angle;
+        var sc = part._scale;
+        var r = (_a = part._rotPivot) !== null && _a !== void 0 ? _a : null;
+        if (angle && !isNaN(angle) && angle !== 0 && r !== null) {
+            var ab = part.actualBounds;
+            var mb = part.measuredBounds;
+            var c0x = ab.x + r.x;
+            var c0y = ab.y + r.y;
+            var qx = ab.x + r.x * sc - (mb ? mb.x : 0);
+            var qy = ab.y + r.y * sc - (mb ? mb.y : 0);
+            return "translate(".concat(num(qx), ",").concat(num(qy), ")").concat(sc !== 1 ? " scale(".concat(num(sc), ")") : '', " rotate(").concat(num(angle), ") translate(").concat(num(-c0x), ",").concat(num(-c0y), ")");
+        }
+        if (angle && !isNaN(angle) && angle !== 0) {
+            var ab = part.actualBounds;
+            var cx = ab.x + ab.width / 2;
+            var cy = ab.y + ab.height / 2;
+            return "translate(".concat(num(cx), ",").concat(num(cy), ") rotate(").concat(num(angle), ") translate(").concat(num(-cx), ",").concat(num(-cy), ")");
+        }
+        if (sc && sc !== 1) {
+            var ab = part.actualBounds;
+            return "translate(".concat(num(ab.x), ",").concat(num(ab.y), ") scale(").concat(num(sc), ") translate(").concat(num(-ab.x), ",").concat(num(-ab.y), ")");
+        }
+        return null;
+    };
+    // ============ 对象树 ============
+    /** offsetX/offsetY：父级原点在本对象坐标系中的偏移（与 CanvasRenderer 语义一致） */
+    SvgRenderer.prototype._renderObject = function (obj, parent, offsetX, offsetY) {
+        if (!obj || obj.visible === false)
+            return;
+        var ab = obj.actualBounds;
+        if (!ab)
+            return;
+        var wrapper = parent;
+        var needOpacity = obj.opacity !== undefined && obj.opacity < 1;
+        var hasTransform = obj.angle !== 0 || obj.scale !== 1;
+        if (needOpacity) {
+            wrapper = this._el('g', { opacity: String(obj.opacity) });
+            parent.appendChild(wrapper);
+        }
+        var paintBox = null;
+        if (hasTransform) {
+            var nb = obj.naturalBounds;
+            var lp = obj instanceof Shape ? obj.strokeWidth : 0;
+            var cx = offsetX + ab.x + ab.width / 2;
+            var cy = offsetY + ab.y + ab.height / 2;
+            var bw = nb.width + lp;
+            var bh = nb.height + lp;
+            paintBox = new Rect(cx - bw / 2, cy - bh / 2, bw, bh);
+            var tx = this._el('g', {
+                transform: this._rotateScale(obj.angle, obj.scale, offsetX + ab.x + ab.width / 2, offsetY + ab.y + ab.height / 2),
+            });
+            wrapper.appendChild(tx);
+            wrapper = tx;
+        }
+        // 通用背景色（非 Panel）
+        if (obj.background && !(obj instanceof Panel)) {
+            var bgRect = paintBox
+                ? paintBox
+                : new Rect(offsetX + ab.x, offsetY + ab.y, ab.width, ab.height);
+            var paint = this._brushPaint(obj.background, bgRect);
+            var bg = this._el('rect', {
+                x: String(bgRect.x), y: String(bgRect.y),
+                width: String(bgRect.width), height: String(bgRect.height),
+                fill: paint,
+            });
+            wrapper.appendChild(bg);
+        }
+        if (obj instanceof Shape) {
+            this._renderShape(obj, wrapper, offsetX, offsetY, paintBox);
+        }
+        else if (obj instanceof TextBlock) {
+            this._renderTextBlock(obj, wrapper, offsetX, offsetY);
+        }
+        else if (obj instanceof Picture) {
+            this._renderPicture(obj, wrapper, offsetX, offsetY);
+        }
+        else if (obj instanceof Panel) {
+            this._renderPanel(obj, wrapper, offsetX, offsetY);
+        }
+        // Placeholder 由父 Group 面板处理（导出忽略）
+    };
+    SvgRenderer.prototype._renderPanel = function (panel, parent, offsetX, offsetY) {
+        var e_1, _a, e_2, _b, e_3, _c, e_4, _d, e_5, _e;
+        var ab = panel.actualBounds;
+        var panelX = offsetX + ab.x;
+        var panelY = offsetY + ab.y;
+        var panelW = ab.width;
+        var panelH = ab.height;
+        var wrapper = parent;
+        // 裁剪面板：以面板矩形（或 Spot 主元素几何）裁剪
+        if (panel.isClipping) {
+            var clipId = "svgclip".concat(++this.clipSeq);
+            var clipPath = this._el('clipPath', { id: clipId });
+            var clipMain = panel.type === PanelSpot ? panel.findMainElement() : null;
+            if (clipMain instanceof Shape) {
+                this._appendShapeClip(clipPath, clipMain, panelX, panelY);
+            }
+            else {
+                clipPath.appendChild(this._el('rect', {
+                    x: String(panelX), y: String(panelY), width: String(panelW), height: String(panelH),
+                }));
+            }
+            this.defs.appendChild(clipPath);
+            wrapper = this._el('g', { 'clip-path': "url(#".concat(clipId, ")") });
+            parent.appendChild(wrapper);
+        }
+        // 面板背景
+        if (panel.background) {
+            var paint = this._brushPaint(panel.background, new Rect(panelX, panelY, panelW, panelH));
+            wrapper.appendChild(this._el('rect', {
+                x: String(panelX), y: String(panelY),
+                width: String(panelW), height: String(panelH),
+                fill: paint,
+            }));
+        }
+        // Grid：仅导出网格线以外的内容（不画 renderer 级网格线，MVP）
+        if (panel.type === PanelGrid) {
+            return;
+        }
+        // Row/Col 面板：子元素坐标在 TABLE 空间（继承父偏移）
+        var isRowCol = panel.type === PanelTableRow || panel.type === PanelTableColumn;
+        var childOX = isRowCol ? offsetX : panelX;
+        var childOY = isRowCol ? offsetY : panelY;
+        var elements = (panel._elements || []);
+        if (panel.type === PanelAuto) {
+            var main = null;
+            var others = [];
+            try {
+                for (var elements_1 = __values(elements), elements_1_1 = elements_1.next(); !elements_1_1.done; elements_1_1 = elements_1.next()) {
+                    var elem = elements_1_1.value;
+                    if (!elem.visible)
+                        continue;
+                    if (main === null || elem.isPanelMain) {
+                        if (main !== null && !main.isPanelMain)
+                            others.push(main);
+                        main = elem;
+                    }
+                    else {
+                        others.push(elem);
+                    }
+                }
+            }
+            catch (e_1_1) { e_1 = { error: e_1_1 }; }
+            finally {
+                try {
+                    if (elements_1_1 && !elements_1_1.done && (_a = elements_1.return)) _a.call(elements_1);
+                }
+                finally { if (e_1) throw e_1.error; }
+            }
+            if (main)
+                this._renderObject(main, wrapper, panelX, panelY);
+            try {
+                for (var others_1 = __values(others), others_1_1 = others_1.next(); !others_1_1.done; others_1_1 = others_1.next()) {
+                    var elem = others_1_1.value;
+                    this._renderObject(elem, wrapper, childOX, childOY);
+                }
+            }
+            catch (e_2_1) { e_2 = { error: e_2_1 }; }
+            finally {
+                try {
+                    if (others_1_1 && !others_1_1.done && (_b = others_1.return)) _b.call(others_1);
+                }
+                finally { if (e_2) throw e_2.error; }
+            }
+            return;
+        }
+        if (panel.type === PanelSpot) {
+            var main = null;
+            var others = [];
+            try {
+                for (var elements_2 = __values(elements), elements_2_1 = elements_2.next(); !elements_2_1.done; elements_2_1 = elements_2.next()) {
+                    var elem = elements_2_1.value;
+                    if (!elem.visible)
+                        continue;
+                    if (main === null)
+                        main = elem;
+                    else
+                        others.push(elem);
+                }
+            }
+            catch (e_3_1) { e_3 = { error: e_3_1 }; }
+            finally {
+                try {
+                    if (elements_2_1 && !elements_2_1.done && (_c = elements_2.return)) _c.call(elements_2);
+                }
+                finally { if (e_3) throw e_3.error; }
+            }
+            var skipMain = panel.isClipping;
+            if (main && !skipMain)
+                this._renderObject(main, wrapper, panelX, panelY);
+            try {
+                for (var others_2 = __values(others), others_2_1 = others_2.next(); !others_2_1.done; others_2_1 = others_2.next()) {
+                    var elem = others_2_1.value;
+                    this._renderObject(elem, wrapper, childOX, childOY);
+                }
+            }
+            catch (e_4_1) { e_4 = { error: e_4_1 }; }
+            finally {
+                try {
+                    if (others_2_1 && !others_2_1.done && (_d = others_2.return)) _d.call(others_2);
+                }
+                finally { if (e_4) throw e_4.error; }
+            }
+            return;
+        }
+        try {
+            // 其余面板（Vertical/Horizontal/Table/Position/Link/Viewbox/Graduated）：按顺序画子元素
+            // Viewbox/Graduated 的缩放/刻度装饰暂不导出（MVP），子元素照常输出。
+            for (var elements_3 = __values(elements), elements_3_1 = elements_3.next(); !elements_3_1.done; elements_3_1 = elements_3.next()) {
+                var elem = elements_3_1.value;
+                this._renderObject(elem, wrapper, childOX, childOY);
+            }
+        }
+        catch (e_5_1) { e_5 = { error: e_5_1 }; }
+        finally {
+            try {
+                if (elements_3_1 && !elements_3_1.done && (_e = elements_3.return)) _e.call(elements_3);
+            }
+            finally { if (e_5) throw e_5.error; }
+        }
+    };
+    // ============ Shape ============
+    SvgRenderer.prototype._renderShape = function (shape, parent, offsetX, offsetY, paintBox) {
+        var anyShape = shape;
+        var rawSW = shape.strokeWidth;
+        var sw = typeof rawSW === 'number' && isFinite(rawSW) && rawSW > 0 ? rawSW : 0;
+        var ab = shape.actualBounds;
+        var shapeX = (paintBox ? paintBox.x : offsetX + ab.x) + sw / 2;
+        var shapeY = (paintBox ? paintBox.y : offsetY + ab.y) + sw / 2;
+        var shapeW = Math.max((paintBox ? paintBox.width : ab.width) - sw, 0);
+        var shapeH = Math.max((paintBox ? paintBox.height : ab.height) - sw, 0);
+        var geo = anyShape._getGeometry();
+        if (geo && anyShape._figure && !anyShape._geometry && !anyShape._geometryString &&
+            !(anyShape._toArrow && anyShape._toArrow !== 'None') &&
+            !(anyShape._fromArrow && anyShape._fromArrow !== 'None')) {
+            var rg = getFigureGeometry(anyShape._figure, shapeW, shapeH, anyShape._parameter1, anyShape._parameter2, shape);
+            if (rg)
+                geo = rg;
+        }
+        if (!geo) {
+            if (shape.fill) {
+                parent.appendChild(this._el('rect', {
+                    x: String(shapeX), y: String(shapeY),
+                    width: String(shapeW), height: String(shapeH),
+                    fill: this._brushPaint(shape.fill, new Rect(shapeX, shapeY, shapeW, shapeH)),
+                }));
+            }
+            if (shape.stroke && shape.strokeWidth > 0) {
+                var rect = this._el('rect', {
+                    x: String(shapeX), y: String(shapeY),
+                    width: String(shapeW), height: String(shapeH),
+                    fill: 'none',
+                    stroke: this._brushPaint(shape.stroke, new Rect(shapeX, shapeY, shapeW, shapeH)),
+                    'stroke-width': String(shape.strokeWidth),
+                });
+                this._applyStrokeStyle(rect, shape);
+                parent.appendChild(rect);
+            }
+            return;
+        }
+        var geoBounds = geo.bounds;
+        var scaleX = geoBounds.width > 0 ? shapeW / geoBounds.width : 1;
+        var scaleY = geoBounds.height > 0 ? shapeH / geoBounds.height : 1;
+        var g = this._el('g', {
+            transform: "".concat(this._translate(shapeX, shapeY)).concat(scaleX !== 1 || scaleY !== 1
+                ? " scale(".concat(scaleX, ",").concat(scaleY, ")") : '').concat(!anyShape.isGeometryPositioned && (geoBounds.x !== 0 || geoBounds.y !== 0)
+                ? " translate(".concat(-geoBounds.x, ",").concat(-geoBounds.y, ")") : ''),
+        });
+        var geoRect = new Rect(0, 0, geoBounds.width, geoBounds.height);
+        var doFill = !!shape.fill;
+        var doStroke = !!shape.stroke && shape.strokeWidth > 0;
+        var strokePaint = doStroke
+            ? this._brushPaint(shape.stroke, geoRect)
+            : 'none';
+        var fillPaint = doFill
+            ? this._brushPaint(shape.fill, geoRect)
+            : 'none';
+        var figIt = geo.figures.iterator;
+        while (figIt.next()) {
+            var fig = figIt.value;
+            var d = this._figurePathData(fig);
+            if (!d)
+                continue;
+            if (doFill && fig.isFilled) {
+                g.appendChild(this._el('path', { d: d, fill: fillPaint, stroke: 'none' }));
+            }
+            if (doStroke) {
+                var path = this._el('path', {
+                    d: d,
+                    fill: 'none',
+                    stroke: strokePaint,
+                    'stroke-width': String(shape.strokeWidth / Math.max(scaleX, scaleY)),
+                    'stroke-linecap': shape.strokeCap || 'butt',
+                    'stroke-linejoin': shape.strokeJoin || 'miter',
+                });
+                this._applyStrokeStyle(path, shape);
+                g.appendChild(path);
+            }
+        }
+        parent.appendChild(g);
+    };
+    SvgRenderer.prototype._applyStrokeStyle = function (el, shape) {
+        var dash = shape.strokeDashArray;
+        if (Array.isArray(dash) && dash.length) {
+            el.setAttribute('stroke-dasharray', dash.join(','));
+            var off = shape.strokeDashOffset;
+            if (off)
+                el.setAttribute('stroke-dashoffset', String(off));
+        }
+    };
+    // ============ TextBlock ============
+    SvgRenderer.prototype._renderTextBlock = function (tb, parent, offsetX, offsetY) {
+        var _this = this;
+        var text = tb.text;
+        if (!text)
+            return;
+        var ab = tb.actualBounds;
+        var tbX = offsetX + ab.x;
+        var tbY = offsetY + ab.y;
+        var tbW = ab.width;
+        var tbH = ab.height;
+        var wrapper = parent;
+        if (tbW > 0 && tbH > 0) {
+            var clipId = "svgclip".concat(++this.clipSeq);
+            var clipPath = this._el('clipPath', { id: clipId });
+            clipPath.appendChild(this._el('rect', {
+                x: String(tbX), y: String(tbY), width: String(tbW), height: String(tbH),
+            }));
+            this.defs.appendChild(clipPath);
+            wrapper = this._el('g', { 'clip-path': "url(#".concat(clipId, ")") });
+            parent.appendChild(wrapper);
+        }
+        // 行数据取 measure 缓存（与 CanvasRenderer 一致）
+        var cachedLines = null;
+        var widths = null;
+        try {
+            var m = tb.getMetrics();
+            if (m && m[6] === text && Array.isArray(m[5])) {
+                cachedLines = m[5];
+                widths = Array.isArray(m[4]) ? m[4] : null;
+            }
+        }
+        catch ( /* ignore */_a) { /* ignore */ }
+        if (cachedLines === null)
+            return; // 未测量（隐藏/未布局）→ 不导出
+        var align = tb.textAlign;
+        if (align === 'start')
+            align = 'left';
+        else if (align === 'end')
+            align = 'right';
+        else if (align !== 'center' && align !== 'right' && align !== 'left')
+            align = 'left';
+        var anchor = align === 'center' ? 'middle' : align === 'right' ? 'end' : 'start';
+        var fill = tb.stroke
+            ? this._brushPaint(tb.stroke, new Rect(tbX, tbY, tbW, tbH))
+            : 'black';
+        var lineHeight = tb.lineHeight;
+        var spacingAbove = tb.spacingAbove;
+        var spacingBelow = tb.spacingBelow;
+        var lineCount = cachedLines.length;
+        var naturalHeight = (spacingAbove + lineHeight + spacingBelow) * lineCount;
+        var u = 0;
+        if (tbH > naturalHeight) {
+            var va = tb.verticalAlignment;
+            var vy = va === VerticalCenter ? 0.5 : va === VerticalBottom ? 1 : 0;
+            u = vy * tbH - vy * naturalHeight;
+        }
+        var anchorX = align === 'center' ? tbX + tbW / 2 : align === 'right' ? tbX + tbW : tbX;
+        var underlineStroke = typeof tb.stroke === 'string' ? tb.stroke : 'black';
+        var thickness = Math.floor(lineHeight / 20) || 1;
+        var drawLine = function (lineText, i) {
+            var baseline = tbY + u + lineHeight * 0.75;
+            var t = _this._el('text', {
+                x: String(anchorX),
+                y: String(baseline),
+                fill: fill,
+                'font-family': 'inherit',
+                'text-anchor': anchor,
+                'xml:space': 'preserve',
+            });
+            t.setAttribute('font', tb.font || '');
+            // font 属性不是 SVG 有效属性 → 解析成 font-family/size/weight/style
+            _this._applyFont(t, tb.font || '');
+            var ls = tb.letterSpacing;
+            var ws = tb.wordSpacing;
+            if (ls)
+                t.setAttribute('letter-spacing', String(ls));
+            if (ws)
+                t.setAttribute('word-spacing', String(ws));
+            t.textContent = lineText;
+            wrapper.appendChild(t);
+            var lw = widths ? Math.min(widths[i], tbW) : null;
+            if ((tb.isUnderline || tb.isStrikethrough) && lw !== null) {
+                var f = align === 'center' ? tbW / 2 : align === 'right' ? tbW : 0;
+                if (align === 'right')
+                    f -= lw;
+                else if (align === 'center')
+                    f -= lw / 2;
+                var x0 = tbX + f;
+                if (tb.isUnderline) {
+                    var uy = tbY + u + lineHeight * 0.8;
+                    wrapper.appendChild(_this._el('line', {
+                        x1: String(x0), y1: String(uy), x2: String(x0 + lw), y2: String(uy),
+                        stroke: underlineStroke, 'stroke-width': String(thickness),
+                    }));
+                }
+                if (tb.isStrikethrough) {
+                    var sy = (tbY + u + lineHeight - lineHeight / 2.2) | 0;
+                    if (thickness % 2 !== 0)
+                        sy += 0.5;
+                    wrapper.appendChild(_this._el('line', {
+                        x1: String(x0), y1: String(sy), x2: String(x0 + lw), y2: String(sy),
+                        stroke: underlineStroke, 'stroke-width': String(thickness),
+                    }));
+                }
+            }
+        };
+        if (lineCount === 1) {
+            u += spacingAbove;
+            drawLine(cachedLines[0], 0);
+        }
+        else {
+            for (var i = 0; i < lineCount; i++) {
+                u += spacingAbove;
+                drawLine(cachedLines[i], i);
+                u += lineHeight + spacingBelow;
+            }
+        }
+    };
+    SvgRenderer.prototype._applyFont = function (el, font) {
+        // 形如 "bold 13px Segoe UI, Arial, sans-serif" / "italic 600 13px serif"
+        var m = /^\s*(?:(italic|oblique)\s+)?(?:(bold|bolder|lighter|[1-9]00)\s+)?([\d.]+)px\s+(.+)$/i.exec(font || '');
+        if (!m) {
+            el.setAttribute('font-family', font || 'sans-serif');
+            return;
+        }
+        if (m[1])
+            el.setAttribute('font-style', m[1]);
+        if (m[2])
+            el.setAttribute('font-weight', m[2]);
+        el.setAttribute('font-size', m[3] + 'px');
+        el.setAttribute('font-family', m[4].trim());
+    };
+    // ============ Picture ============
+    SvgRenderer.prototype._renderPicture = function (pic, parent, offsetX, offsetY) {
+        var anyPic = pic;
+        var ab = pic.actualBounds;
+        var x = offsetX + ab.x;
+        var y = offsetY + ab.y;
+        var el = anyPic.element;
+        var src = anyPic.source;
+        var href = null;
+        if (el && el.src)
+            href = el.src;
+        else if (src)
+            href = src;
+        if (!href)
+            return;
+        var stretch = anyPic.imageStretch;
+        var par = stretch === ImageStretchFill
+            ? 'none'
+            : stretch === ImageStretchUniform
+                ? 'xMidYMid meet'
+                : stretch === ImageStretchUniformToFill
+                    ? 'xMidYMid slice'
+                    : 'xMidYMid meet';
+        var img = this._el('image', {
+            x: String(x), y: String(y),
+            width: String(ab.width), height: String(ab.height),
+            preserveAspectRatio: par,
+        });
+        img.setAttribute('href', href);
+        img.setAttributeNS('http://www.w3.org/1999/xlink', 'xlink:href', href);
+        parent.appendChild(img);
+    };
+    // ============ 画笔 → SVG paint ============
+    SvgRenderer.prototype._brushPaint = function (brush, bounds) {
+        var e_6, _a, e_7, _b;
+        if (!brush)
+            return 'transparent';
+        if (typeof brush === 'string')
+            return brush;
+        if (!Brush.isBrush(brush))
+            return 'black';
+        if (brush.type === BrushSolid)
+            return brush.color || 'black';
+        if (brush.type === BrushLinear) {
+            var s = brush.start, e = brush.end;
+            var x1 = bounds.x + s.x * bounds.width + (s.offsetX || 0);
+            var y1 = bounds.y + s.y * bounds.height + (s.offsetY || 0);
+            var x2 = bounds.x + e.x * bounds.width + (e.offsetX || 0);
+            var y2 = bounds.y + e.y * bounds.height + (e.offsetY || 0);
+            if (!isFinite(x1) || !isFinite(y1) || !isFinite(x2) || !isFinite(y2)) {
+                return brush.color || 'transparent';
+            }
+            var id = "svggrad".concat(++this.brushSeq);
+            var grad = this._el('linearGradient', {
+                id: id,
+                gradientUnits: 'userSpaceOnUse',
+                x1: String(x1), y1: String(y1), x2: String(x2), y2: String(y2),
+            });
+            try {
+                for (var _c = __values(brush.stops), _d = _c.next(); !_d.done; _d = _c.next()) {
+                    var stop_1 = _d.value;
+                    grad.appendChild(this._el('stop', {
+                        offset: String(stop_1.offset), 'stop-color': stop_1.color,
+                    }));
+                }
+            }
+            catch (e_6_1) { e_6 = { error: e_6_1 }; }
+            finally {
+                try {
+                    if (_d && !_d.done && (_a = _c.return)) _a.call(_c);
+                }
+                finally { if (e_6) throw e_6.error; }
+            }
+            this.defs.appendChild(grad);
+            return "url(#".concat(id, ")");
+        }
+        if (brush.type === BrushRadial) {
+            var s = brush.start, e = brush.end;
+            var fx = bounds.x + s.x * bounds.width + (s.offsetX || 0);
+            var fy = bounds.y + s.y * bounds.height + (s.offsetY || 0);
+            var cx = bounds.x + e.x * bounds.width + (e.offsetX || 0);
+            var cy = bounds.y + e.y * bounds.height + (e.offsetY || 0);
+            var maxWH = Math.max(bounds.width, bounds.height);
+            var er = brush.endRadius;
+            var sr = void 0;
+            if (isNaN(brush.startRadius)) {
+                sr = 0;
+                er = maxWH / 2;
+            }
+            else {
+                sr = brush.startRadius;
+                if (isNaN(er))
+                    er = maxWH / 2;
+            }
+            if (!isFinite(fx) || !isFinite(fy) || !isFinite(cx) || !isFinite(cy) || !isFinite(sr) || !isFinite(er)) {
+                return brush.color || 'transparent';
+            }
+            var id = "svggrad".concat(++this.brushSeq);
+            var grad = this._el('radialGradient', {
+                id: id,
+                gradientUnits: 'userSpaceOnUse',
+                cx: String(cx), cy: String(cy), r: String(er),
+                fx: String(fx), fy: String(fy),
+            });
+            try {
+                for (var _e = __values(brush.stops), _f = _e.next(); !_f.done; _f = _e.next()) {
+                    var stop_2 = _f.value;
+                    grad.appendChild(this._el('stop', {
+                        offset: String(stop_2.offset), 'stop-color': stop_2.color,
+                    }));
+                }
+            }
+            catch (e_7_1) { e_7 = { error: e_7_1 }; }
+            finally {
+                try {
+                    if (_f && !_f.done && (_b = _e.return)) _b.call(_e);
+                }
+                finally { if (e_7) throw e_7.error; }
+            }
+            this.defs.appendChild(grad);
+            return "url(#".concat(id, ")");
+        }
+        if (brush.type === BrushPattern) {
+            var pat = brush.pattern;
+            if (!pat)
+                return 'black';
+            var href = null;
+            if (pat instanceof HTMLImageElement)
+                href = pat.src;
+            else if (pat instanceof HTMLCanvasElement) {
+                try {
+                    href = pat.toDataURL('image/png');
+                }
+                catch (_g) {
+                    href = null;
+                }
+            }
+            if (!href)
+                return 'black';
+            var id = "svgpat".concat(++this.brushSeq);
+            var pw = pat.width || 10;
+            var ph = pat.height || 10;
+            var pattern = this._el('pattern', {
+                id: id,
+                patternUnits: 'userSpaceOnUse',
+                width: String(pw), height: String(ph),
+            });
+            var img = this._el('image', { x: '0', y: '0', width: String(pw), height: String(ph) });
+            img.setAttribute('href', href);
+            img.setAttributeNS('http://www.w3.org/1999/xlink', 'xlink:href', href);
+            pattern.appendChild(img);
+            this.defs.appendChild(pattern);
+            return "url(#".concat(id, ")");
+        }
+        return 'black';
+    };
+    SvgRenderer.prototype._dropShadowFilter = function (color, blur, dx, dy) {
+        var id = "svgshadow".concat(++this.filterSeq);
+        var f = this._el('filter', {
+            id: id,
+            x: '-50%', y: '-50%', width: '200%', height: '200%',
+            filterUnits: 'userSpaceOnUse',
+        });
+        f.appendChild(this._el('feDropShadow', {
+            dx: String(dx), dy: String(dy),
+            stdDeviation: String(Math.max(0, blur / 2)),
+            'flood-color': color,
+        }));
+        this.defs.appendChild(f);
+        return id;
+    };
+    // ============ 几何 → path d ============
+    /** 单 figure 的 SVG path 数据 */
+    SvgRenderer.prototype._figurePathData = function (fig) {
+        var _a, _b, _c, _d;
+        var parts = [];
+        var curX = fig.startX;
+        var curY = fig.startY;
+        parts.push("M ".concat(num(curX), " ").concat(num(curY)));
+        var it = fig.segments.iterator;
+        while (it.next()) {
+            var seg = it.value;
+            var typeName = seg.type && seg.type._name ? seg.type._name : '';
+            switch (typeName) {
+                case 'Line':
+                    parts.push("L ".concat(num(seg.endX), " ").concat(num(seg.endY)));
+                    curX = seg.endX;
+                    curY = seg.endY;
+                    break;
+                case 'QuadraticBezier':
+                    parts.push("Q ".concat(num(seg.x1), " ").concat(num(seg.y1), " ").concat(num(seg.endX), " ").concat(num(seg.endY)));
+                    curX = seg.endX;
+                    curY = seg.endY;
+                    break;
+                case 'CubicBezier':
+                case 'Bezier':
+                    parts.push("C ".concat(num(seg.x1), " ").concat(num(seg.y1), " ").concat(num(seg.x2), " ").concat(num(seg.y2), " ").concat(num(seg.endX), " ").concat(num(seg.endY)));
+                    curX = seg.endX;
+                    curY = seg.endY;
+                    break;
+                case 'Arc': {
+                    if (!isNaN(seg.startAngle) && !isNaN(seg.centerX)) {
+                        // 「按角度」圆弧 → 采样为多段 SVG 弧
+                        var rX = Math.abs(seg.radiusX), rY = Math.abs(seg.radiusY);
+                        if (rX > 0 && rY > 0) {
+                            var a0 = seg.startAngle;
+                            var sweepAng = seg.sweepAngle || 0;
+                            var steps = Math.max(1, Math.ceil(Math.abs(sweepAng) / 90));
+                            for (var k = 0; k < steps; k++) {
+                                var aStart = a0 + sweepAng * (k / steps);
+                                var aEnd = a0 + sweepAng * ((k + 1) / steps);
+                                var x0 = seg.centerX + rX * Math.cos(aStart * Math.PI / 180);
+                                var y0 = seg.centerY + rY * Math.sin(aStart * Math.PI / 180);
+                                var x1 = seg.centerX + rX * Math.cos(aEnd * Math.PI / 180);
+                                var y1 = seg.centerY + rY * Math.sin(aEnd * Math.PI / 180);
+                                if (k === 0)
+                                    parts.push("L ".concat(num(x0), " ").concat(num(y0)));
+                                parts.push("A ".concat(num(rX), " ").concat(num(rY), " 0 0 ").concat(sweepAng >= 0 ? 1 : 0, " ").concat(num(x1), " ").concat(num(y1)));
+                            }
+                            curX = seg.centerX + rX * Math.cos((a0 + sweepAng) * Math.PI / 180);
+                            curY = seg.centerY + rY * Math.sin((a0 + sweepAng) * Math.PI / 180);
+                            break;
+                        }
+                        parts.push("L ".concat(num((_a = seg.arcEndX) !== null && _a !== void 0 ? _a : seg.endX), " ").concat(num((_b = seg.arcEndY) !== null && _b !== void 0 ? _b : seg.endY)));
+                        curX = (_c = seg.arcEndX) !== null && _c !== void 0 ? _c : seg.endX;
+                        curY = (_d = seg.arcEndY) !== null && _d !== void 0 ? _d : seg.endY;
+                        break;
+                    }
+                    var rx = seg.radiusX, ry = seg.radiusY;
+                    if (rx > 0 && ry > 0) {
+                        parts.push("A ".concat(num(rx), " ").concat(num(ry), " ").concat(num(seg.xAxisRotation || 0), " ").concat(seg.largeArc ? 1 : 0, " ").concat(seg.clockwise ? 1 : 0, " ").concat(num(seg.endX), " ").concat(num(seg.endY)));
+                    }
+                    else {
+                        parts.push("L ".concat(num(seg.endX), " ").concat(num(seg.endY)));
+                    }
+                    curX = seg.endX;
+                    curY = seg.endY;
+                    break;
+                }
+                case 'MoveTo':
+                    parts.push("M ".concat(num(seg.endX), " ").concat(num(seg.endY)));
+                    curX = seg.endX;
+                    curY = seg.endY;
+                    break;
+                case 'Close':
+                    parts.push('Z');
+                    curX = fig.startX;
+                    curY = fig.startY;
+                    break;
+            }
+            if (seg.isClosed && typeName !== 'Close') {
+                parts.push('Z');
+                curX = fig.startX;
+                curY = fig.startY;
+            }
+        }
+        return parts.join(' ');
+    };
+    /** 把 Shape 的几何以带变换的 path 追加进 clipPath */
+    SvgRenderer.prototype._appendShapeClip = function (clipPath, shape, docX, docY) {
+        var anyShape = shape;
+        var ab = shape.actualBounds;
+        var geo = anyShape._getGeometry();
+        if (!geo || ab.width <= 0 || ab.height <= 0) {
+            clipPath.appendChild(this._el('rect', {
+                x: String(docX + ab.x), y: String(docY + ab.y),
+                width: String(Math.max(ab.width, 0)), height: String(Math.max(ab.height, 0)),
+            }));
+            return;
+        }
+        var gb = geo.bounds;
+        var sx = gb.width > 0 ? ab.width / gb.width : 1;
+        var sy = gb.height > 0 ? ab.height / gb.height : 1;
+        var tf = "translate(".concat(num(docX + ab.x), ",").concat(num(docY + ab.y), ")").concat(sx !== 1 || sy !== 1 ? " scale(".concat(num(sx), ",").concat(num(sy), ")") : '').concat(gb.x !== 0 || gb.y !== 0 ? " translate(".concat(num(-gb.x), ",").concat(num(-gb.y), ")") : '');
+        var it = geo.figures.iterator;
+        while (it.next()) {
+            var d = this._figurePathData(it.value);
+            if (!d)
+                continue;
+            clipPath.appendChild(this._el('path', { d: d, transform: tf }));
+        }
+    };
+    // ============ Link ============
+    /** 连线：主路径按 link.points（含端点 shortLength/圆角）绘制，箭头单独定位，其余子元素常规绘制 */
+    SvgRenderer.prototype._renderLink = function (link, parent) {
+        var e_8, _a, e_9, _b;
+        var points = link.points;
+        if (!points || points.count < 2)
+            return;
+        var lgb = link.getDocumentBounds();
+        var ox = lgb.x;
+        var oy = lgb.y;
+        var elements = (link._elements || []);
+        var hasExplicitMain = false;
+        try {
+            for (var elements_4 = __values(elements), elements_4_1 = elements_4.next(); !elements_4_1.done; elements_4_1 = elements_4.next()) {
+                var elem = elements_4_1.value;
+                if (elem instanceof Shape && elem.isPanelMain) {
+                    hasExplicitMain = true;
+                    break;
+                }
+            }
+        }
+        catch (e_8_1) { e_8 = { error: e_8_1 }; }
+        finally {
+            try {
+                if (elements_4_1 && !elements_4_1.done && (_a = elements_4.return)) _a.call(elements_4);
+            }
+            finally { if (e_8) throw e_8.error; }
+        }
+        var firstShape = true;
+        try {
+            for (var elements_5 = __values(elements), elements_5_1 = elements_5.next(); !elements_5_1.done; elements_5_1 = elements_5.next()) {
+                var elem = elements_5_1.value;
+                if (!elem.visible)
+                    continue;
+                if (elem instanceof Shape) {
+                    var shape = elem;
+                    var isMain = shape.isPanelMain || (!hasExplicitMain && firstShape);
+                    firstShape = false;
+                    if (isMain) {
+                        this._renderLinkPath(shape, link, parent);
+                    }
+                    else if (shape._toArrow || shape._fromArrow) {
+                        this._renderArrow(shape, link, parent);
+                    }
+                    else {
+                        this._renderObject(elem, parent, ox, oy);
+                    }
+                }
+                else {
+                    this._renderObject(elem, parent, ox, oy);
+                }
+            }
+        }
+        catch (e_9_1) { e_9 = { error: e_9_1 }; }
+        finally {
+            try {
+                if (elements_5_1 && !elements_5_1.done && (_b = elements_5.return)) _b.call(elements_5);
+            }
+            finally { if (e_9) throw e_9.error; }
+        }
+    };
+    /** 主路径：镜像 CanvasRenderer._renderLinkPath（直线/贝塞尔/圆角） */
+    SvgRenderer.prototype._renderLinkPath = function (shape, link, parent) {
+        var points = link.points;
+        var arr = points.toArray();
+        var curve = link._curve;
+        var applyShort = function (isFrom) {
+            var li = link.computeShortLength;
+            if (typeof li !== 'function')
+                return;
+            var a = li.call(link, isFrom);
+            if (!isFinite(a) || a === 0)
+                return;
+            var i = isFrom ? 0 : arr.length - 1;
+            var j = isFrom ? 1 : arr.length - 2;
+            if (i < 0 || j < 0 || i >= arr.length || j >= arr.length)
+                return;
+            var dx = arr[j].x - arr[i].x;
+            var dy = arr[j].y - arr[i].y;
+            var len = Math.sqrt(dx * dx + dy * dy);
+            if (len === 0)
+                return;
+            var cap = points.count === 2 ? len * 0.5 : len;
+            var k = a > cap ? cap : a;
+            arr[i] = new Point(arr[i].x + (k * dx) / len, arr[i].y + (k * dy) / len);
+        };
+        applyShort(true);
+        applyShort(false);
+        var bezier = curve === 'Bezier';
+        if (!bezier) {
+            var radius = typeof link.computeCorner === 'function'
+                ? link.computeCorner()
+                : 0;
+            if (radius > 0)
+                arr = this._roundCorners(arr, radius);
+        }
+        var d = bezier ? this._bezierPathData(arr, link) : this._polylinePathData(arr);
+        if (!d)
+            return;
+        var bounds = link.getDocumentBounds();
+        var paint = shape.stroke ? this._brushPaint(shape.stroke, bounds) : 'none';
+        var path = this._el('path', {
+            d: d,
+            fill: 'none', stroke: paint,
+            'stroke-width': String(shape.strokeWidth || 1),
+            'stroke-linecap': shape.strokeCap || 'butt',
+            'stroke-linejoin': shape.strokeJoin || 'miter',
+        });
+        this._applyStrokeStyle(path, shape);
+        parent.appendChild(path);
+    };
+    SvgRenderer.prototype._polylinePathData = function (arr) {
+        if (!arr.length)
+            return '';
+        var parts = ["M ".concat(num(arr[0].x), " ").concat(num(arr[0].y))];
+        for (var i = 1; i < arr.length; i++) {
+            if (arr[i].x === arr[i - 1].x && arr[i].y === arr[i - 1].y)
+                continue;
+            parts.push("L ".concat(num(arr[i].x), " ").concat(num(arr[i].y)));
+        }
+        return parts.join(' ');
+    };
+    SvgRenderer.prototype._bezierPathData = function (arr, link) {
+        if (arr.length < 2)
+            return '';
+        var parts = ["M ".concat(num(arr[0].x), " ").concat(num(arr[0].y))];
+        if (arr.length === 2) {
+            var curviness = typeof link.computeCurviness === 'function'
+                ? link.computeCurviness()
+                : link._curviness;
+            if (curviness && isFinite(curviness) && curviness !== 0) {
+                var dx = arr[1].x - arr[0].x;
+                var dy = arr[1].y - arr[0].y;
+                var len = Math.sqrt(dx * dx + dy * dy);
+                var nx = len > 0 ? -dy / len : 0;
+                var ny = len > 0 ? dx / len : 1;
+                var cx = (arr[0].x + arr[1].x) / 2 + nx * curviness;
+                var cy = (arr[0].y + arr[1].y) / 2 + ny * curviness;
+                parts.push("Q ".concat(num(cx), " ").concat(num(cy), " ").concat(num(arr[1].x), " ").concat(num(arr[1].y)));
+            }
+            else {
+                parts.push("L ".concat(num(arr[1].x), " ").concat(num(arr[1].y)));
+            }
+        }
+        else if (arr.length === 3) {
+            parts.push("Q ".concat(num(arr[1].x), " ").concat(num(arr[1].y), " ").concat(num(arr[2].x), " ").concat(num(arr[2].y)));
+        }
+        else {
+            for (var i = 1; i < arr.length - 2; i += 3) {
+                parts.push("C ".concat(num(arr[i].x), " ").concat(num(arr[i].y), " ").concat(num(arr[i + 1].x), " ").concat(num(arr[i + 1].y), " ").concat(num(arr[i + 2].x), " ").concat(num(arr[i + 2].y)));
+            }
+            var remaining = (arr.length - 1) % 3;
+            if (remaining === 1) {
+                parts.push("L ".concat(num(arr[arr.length - 1].x), " ").concat(num(arr[arr.length - 1].y)));
+            }
+            else if (remaining === 2) {
+                parts.push("Q ".concat(num(arr[arr.length - 2].x), " ").concat(num(arr[arr.length - 2].y), " ").concat(num(arr[arr.length - 1].x), " ").concat(num(arr[arr.length - 1].y)));
+            }
+        }
+        return parts.join(' ');
+    };
+    /** 圆角采样（镜像 CanvasRenderer._roundCorners） */
+    SvgRenderer.prototype._roundCorners = function (src, radius) {
+        var n = src.length;
+        if (!(radius > 0) || n < 3)
+            return src;
+        var out = [src[0]];
+        for (var i = 1; i < n - 1; i++) {
+            var prev = src[i - 1], nn = src[i], next = src[i + 1];
+            var d1x = prev.x - nn.x, d1y = prev.y - nn.y;
+            var d2x = next.x - nn.x, d2y = next.y - nn.y;
+            var l1 = Math.sqrt(d1x * d1x + d1y * d1y);
+            var l2 = Math.sqrt(d2x * d2x + d2y * d2y);
+            if (!(l1 > 1e-6) || !(l2 > 1e-6)) {
+                out.push(nn);
+                continue;
+            }
+            d1x /= l1;
+            d1y /= l1;
+            d2x /= l2;
+            d2y /= l2;
+            if (Math.abs(d1x + d2x) < 1e-6 && Math.abs(d1y + d2y) < 1e-6) {
+                out.push(nn);
+                continue;
+            }
+            var c = radius;
+            if (c > l1 / 2)
+                c = l1 / 2;
+            if (c > l2 / 2)
+                c = l2 / 2;
+            if (c < 0.5) {
+                out.push(nn);
+                continue;
+            }
+            var sx = nn.x + d1x * c, sy = nn.y + d1y * c;
+            var ex = nn.x + d2x * c, ey = nn.y + d2y * c;
+            out.push(new Point(sx, sy));
+            for (var k = 1; k <= 4; k++) {
+                var t = k / 5;
+                var m = 1 - t;
+                out.push(new Point(m * m * sx + 2 * m * t * nn.x + t * t * ex, m * m * sy + 2 * m * t * nn.y + t * t * ey));
+            }
+            out.push(new Point(ex, ey));
+        }
+        out.push(src[n - 1]);
+        return out;
+    };
+    /** 箭头：镜像 CanvasRenderer._renderArrow（tip 定位 + 方向旋转 + 几何缩放矩阵） */
+    SvgRenderer.prototype._renderArrow = function (shape, link, parent) {
+        var points = link.points;
+        if (!points || points.count < 2)
+            return;
+        var arr = points.toArray();
+        var toArrowName = shape._toArrow;
+        var fromArrowName = shape._fromArrow;
+        var isToArrow = !!(toArrowName && toArrowName !== 'None');
+        var arrowType = isToArrow ? toArrowName : fromArrowName;
+        if (!arrowType || arrowType === 'None')
+            return;
+        var tipX, tipY, dirX = 0, dirY = 0;
+        if (isToArrow) {
+            var tip = arr[arr.length - 1];
+            tipX = tip.x;
+            tipY = tip.y;
+            for (var i = arr.length - 2; i >= 0; i--) {
+                var dx = tip.x - arr[i].x, dy = tip.y - arr[i].y;
+                if (dx !== 0 || dy !== 0) {
+                    dirX = dx;
+                    dirY = dy;
+                    break;
+                }
+            }
+        }
+        else {
+            var tip = arr[0];
+            tipX = tip.x;
+            tipY = tip.y;
+            for (var i = 1; i < arr.length; i++) {
+                var dx = arr[i].x - tip.x, dy = arr[i].y - tip.y;
+                if (dx !== 0 || dy !== 0) {
+                    dirX = dx;
+                    dirY = dy;
+                    break;
+                }
+            }
+        }
+        var len = Math.sqrt(dirX * dirX + dirY * dirY);
+        if (len === 0)
+            return;
+        dirX /= len;
+        dirY /= len;
+        var geoFn = Shape._getArrowheadGeometry;
+        var geo = typeof geoFn === 'function' ? geoFn.call(Shape, arrowType || 'Standard') : null;
+        if (!geo)
+            return;
+        var arrowScale = shape.scale || 1;
+        var arrowW = shape.width;
+        var arrowH = shape.height;
+        var stroke = shape._stroke;
+        var fill = shape._fill;
+        var strokeWidth = shape._strokeWidth || 1;
+        var gbounds = geo.bounds;
+        var tf = "translate(".concat(num(tipX), ",").concat(num(tipY), ") rotate(").concat(num(Math.atan2(dirY, dirX) * 180 / Math.PI), ")");
+        if (gbounds.width > 0 && gbounds.height > 0) {
+            var dir = isToArrow ? 1 : -1;
+            var sx = typeof arrowW === 'number' && !isNaN(arrowW) && arrowW > 0
+                ? dir * arrowW / gbounds.width : dir * arrowScale;
+            var sy = typeof arrowH === 'number' && !isNaN(arrowH) && arrowH > 0
+                ? arrowH / gbounds.height : arrowScale;
+            var inset = (strokeWidth * arrowScale) / 2;
+            var tx = -(gbounds.x + gbounds.width) * sx + (isToArrow ? -inset : inset);
+            var ty = -(gbounds.y + gbounds.height / 2) * sy;
+            tf += " matrix(".concat(num(sx), " 0 0 ").concat(num(sy), " ").concat(num(tx), " ").concat(num(ty), ")");
+        }
+        var g = this._el('g', { transform: tf });
+        var it = geo.figures.iterator;
+        while (it.next()) {
+            var d = this._figurePathData(it.value);
+            if (!d)
+                continue;
+            var attrs = { d: d };
+            if (fill)
+                attrs.fill = typeof fill === 'string' ? fill : '#000000';
+            if (stroke) {
+                attrs.stroke = typeof stroke === 'string' ? stroke : '#000000';
+                attrs['stroke-width'] = String(strokeWidth * arrowScale);
+            }
+            if (!fill && !stroke)
+                attrs.fill = '#000000';
+            if (!attrs.fill && !attrs.stroke)
+                attrs.fill = '#000000';
+            g.appendChild(this._el('path', attrs));
+        }
+        parent.appendChild(g);
+    };
+    // ============ 小工具 ============
+    SvgRenderer.prototype._el = function (name, attrs) {
+        var e_10, _a;
+        var el = document.createElementNS(SVG_NS, name);
+        if (attrs) {
+            try {
+                for (var _b = __values(Object.keys(attrs)), _c = _b.next(); !_c.done; _c = _b.next()) {
+                    var k = _c.value;
+                    el.setAttribute(k, attrs[k]);
+                }
+            }
+            catch (e_10_1) { e_10 = { error: e_10_1 }; }
+            finally {
+                try {
+                    if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
+                }
+                finally { if (e_10) throw e_10.error; }
+            }
+        }
+        return el;
+    };
+    SvgRenderer.prototype._translate = function (x, y) {
+        return "translate(".concat(num(x), ",").concat(num(y), ")");
+    };
+    SvgRenderer.prototype._rotateScale = function (angle, scale, cx, cy) {
+        var parts = [];
+        parts.push("translate(".concat(num(cx), ",").concat(num(cy), ")"));
+        if (angle)
+            parts.push("rotate(".concat(num(angle), ")"));
+        if (scale !== 1)
+            parts.push("scale(".concat(num(scale), ")"));
+        parts.push("translate(".concat(num(-cx), ",").concat(num(-cy), ")"));
+        return parts.join(' ');
+    };
+    SvgRenderer.className = 'SvgRenderer';
+    return SvgRenderer;
+}());
+/** 数字格式化（保留 3 位，避免科学计数法） */
+function num(v) {
+    if (!isFinite(v))
+        return '0';
+    var r = Math.round(v * 1000) / 1000;
+    return String(r);
+}
+
 /**
  * Tool - base class for all interactive tools in the diagram.
  * Provides virtual methods for mouse/keyboard/touch event handling,
@@ -51713,17 +52896,26 @@ var Diagram = /** @class */ (function () {
         enumerable: false,
         configurable: true
     });
+    /**
+     * 导出当前内容为 SVG（官方 Diagram.makeSvg 语义；静态快照，不接管交互）。
+     * 选项：scale / bounds / background / includeAdornments / layers（见 MakeSvgOptions）。
+     */
     Diagram.prototype.makeSVG = function (opts) {
-        var ns = 'http://www.w3.org/2000/svg';
-        var svg = document.createElementNS(ns, 'svg');
-        var db = this.documentBounds;
-        svg.setAttribute('width', String(db.width));
-        svg.setAttribute('height', String(db.height));
-        svg.setAttribute('viewBox', db.x + ' ' + db.y + ' ' + db.width + ' ' + db.height);
-        return svg;
+        return SvgRenderer.render(this, opts);
     };
     Diagram.prototype.makeSvg = function (opts) { return this.makeSVG(opts); };
-    Diagram.prototype.makeImageData = function (opts) { return ''; };
+    /** 导出当前画布的 PNG dataURL（交互画布快照；无渲染器时返回空串） */
+    Diagram.prototype.makeImageData = function (opts) {
+        var canvas = this._renderer ? this._renderer.canvas : null;
+        if (!canvas)
+            return '';
+        try {
+            return canvas.toDataURL(opts && opts.type ? String(opts.type) : 'image/png');
+        }
+        catch (_a) {
+            return '';
+        }
+    };
     Diagram.prototype.makeImage = function (opts) {
         var data = this.makeImageData(opts);
         if (!data)
@@ -63437,6 +64629,7 @@ exports.StretchNone = StretchNone;
 exports.StretchUniform = StretchUniform;
 exports.StretchUniformToFill = StretchUniformToFill;
 exports.StretchVertical = StretchVertical;
+exports.SvgRenderer = SvgRenderer;
 exports.TextBlock = TextBlock;
 exports.TextEditingAccept = TextEditingAccept;
 exports.TextEditingAcceptEnter = TextEditingAcceptEnter;

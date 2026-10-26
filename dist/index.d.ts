@@ -5255,6 +5255,87 @@ declare class CanvasRenderer {
     isInViewport(r: Rect): boolean;
 }
 
+declare class SvgRendererOptions {
+    static readonly className: string;
+    /** The width of the rendered SVG in pixels */
+    width: number;
+    /** The height of the rendered SVG in pixels */
+    height: number;
+    /** The background color for the rendered SVG */
+    background: string;
+    /** Whether to include interactive layer information */
+    showBounds: boolean;
+    /** Whether to antialias the rendered output */
+    antialias: boolean;
+    /** The format for font rendering */
+    fontFormat: string;
+    constructor(options?: Partial<SvgRendererOptions>);
+}
+
+/** makeSvg 选项（在 SvgRendererOptions 之上补充导出范围/缩放/图层过滤） */
+interface MakeSvgOptions extends Partial<SvgRendererOptions> {
+    /** 缩放倍数（默认 1） */
+    scale?: number;
+    /** 导出范围（文档坐标；缺省用 diagram.documentBounds） */
+    bounds?: Rect;
+    /** 是否包含选中装饰层（默认 false） */
+    includeAdornments?: boolean;
+    /** 仅导出这些图层名（缺省全部可见图层，Adornment/Tool 除外） */
+    layers?: string[];
+}
+/** 导出型 SVG 渲染器 */
+declare class SvgRenderer {
+    static readonly className = "SvgRenderer";
+    private diagram;
+    private svg;
+    private defs;
+    private scale;
+    private bounds;
+    private includeAdornments;
+    private layerFilter;
+    private brushSeq;
+    private clipSeq;
+    private filterSeq;
+    private currentShadow;
+    /** 把 diagram 当前内容渲染为一个 <svg> 元素 */
+    static render(diagram: any, options?: MakeSvgOptions): SVGSVGElement;
+    /** 把 diagram 当前内容渲染为 SVG 字符串 */
+    static renderToString(diagram: any, options?: MakeSvgOptions): string;
+    private _render;
+    private _renderLayer;
+    private _intersects;
+    private _renderPart;
+    /** 镜像 CanvasRenderer._applyTransform（枢轴旋转 + 缩放） */
+    private _partTransform;
+    /** offsetX/offsetY：父级原点在本对象坐标系中的偏移（与 CanvasRenderer 语义一致） */
+    private _renderObject;
+    private _renderPanel;
+    private _renderShape;
+    private _applyStrokeStyle;
+    private _renderTextBlock;
+    private _applyFont;
+    private _renderPicture;
+    private _brushPaint;
+    private _dropShadowFilter;
+    /** 单 figure 的 SVG path 数据 */
+    private _figurePathData;
+    /** 把 Shape 的几何以带变换的 path 追加进 clipPath */
+    private _appendShapeClip;
+    /** 连线：主路径按 link.points（含端点 shortLength/圆角）绘制，箭头单独定位，其余子元素常规绘制 */
+    private _renderLink;
+    /** 主路径：镜像 CanvasRenderer._renderLinkPath（直线/贝塞尔/圆角） */
+    private _renderLinkPath;
+    private _polylinePathData;
+    private _bezierPathData;
+    /** 圆角采样（镜像 CanvasRenderer._roundCorners） */
+    private _roundCorners;
+    /** 箭头：镜像 CanvasRenderer._renderArrow（tip 定位 + 方向旋转 + 几何缩放矩阵） */
+    private _renderArrow;
+    private _el;
+    private _translate;
+    private _rotateScale;
+}
+
 /**
  * InputEvent - 输入事件
  * 封装鼠标/键盘/触摸事件信息
@@ -7073,8 +7154,13 @@ declare class Diagram {
     maybeUpdate(): void;
     get isUpdateRequested(): boolean;
     private _isUpdateRequestedFlag;
-    makeSVG(opts?: any): any;
-    makeSvg(opts?: any): any;
+    /**
+     * 导出当前内容为 SVG（官方 Diagram.makeSvg 语义；静态快照，不接管交互）。
+     * 选项：scale / bounds / background / includeAdornments / layers（见 MakeSvgOptions）。
+     */
+    makeSVG(opts?: MakeSvgOptions): SVGSVGElement;
+    makeSvg(opts?: MakeSvgOptions): SVGSVGElement;
+    /** 导出当前画布的 PNG dataURL（交互画布快照；无渲染器时返回空串） */
     makeImageData(opts?: any): string;
     makeImage(opts?: any): any;
     private _routers;
@@ -9848,5 +9934,5 @@ declare const TextOverflow: {
     Ellipsis: EnumValue;
 };
 
-export { ActionTool, Adornment, AdornmentContextMenu, AdornmentLinkReshape, AdornmentRelink, AdornmentResize, AdornmentRotate, AdornmentSelection, AdornmentToolTip, Animation, AnimationDefault, AnimationEaseIn, AnimationEaseInOut, AnimationEaseOut, AnimationEaseOutBounce, AnimationLinear, AnimationManager, AnimationState, AnimationStyle, AnimationStyleAnimateLocations, AnimationStyleDefault, AnimationStyleNone, AnimationTrigger, Arrowheads, AutoScale, AutoScaleNone, AutoScaleUniform, AutoScaleUniformToFill, Binding, BindingMode, Brush, BrushLinear, BrushPattern, BrushRadial, BrushSolid, BrushType, Builders, CanvasRenderer, ChangeType, ChangedEvent, ChangedEventInsert, ChangedEventProperty, ChangedEventRemove, ChangedEventTransaction, CircularArrangement, CircularArrangementConstantAngle, CircularArrangementConstantDistance, CircularArrangementConstantRadius, CircularArrangementConstantSpacing, CircularArrangementPacked, CircularDirection, CircularDirectionBidirectionalLeft, CircularDirectionBidirectionalRight, CircularDirectionClockwise, CircularDirectionCounterclockwise, CircularEdge, CircularLayout, CircularNetwork, CircularNodeDiameterFormula, CircularNodeDiameterFormulaCircular, CircularNodeDiameterFormulaPythagorean, CircularSorting, CircularSortingAscending, CircularSortingDescending, CircularSortingForwards, CircularSortingOptimized, CircularSortingReverse, CircularVertex, ClickCreatingTool, ClickSelectingTool, CollapsePolicy, CollapsePolicyAllParents, CollapsePolicyAnyParents, CollapsePolicyTreeParent, Color, ColorSpace, ColorSpaceHSL, ColorSpaceLab, ColorSpaceOklch, CommandHandler, ContextMenuTool, Curve, CurveBezier, CurveJumpGap, CurveJumpOver, CurveNone, CycleAll, CycleDestinationTree, CycleMode, CycleNotDirected, CycleNotDirectedFast, CycleNotUndirected, CycleSourceTree, Diagram, DiagramEvent, DiagramEventAnimationFinished, DiagramEventAnimationStarting, DiagramEventChanged, DiagramEventClipboardChanged, DiagramEventGroupCollapsed, DiagramEventGroupExpanded, DiagramEventInitialAnimationStarting, DiagramEventInitialLayoutCompleted, DiagramEventLayoutCompleted, DiagramEventLinkDrawn, DiagramEventLinkRelinked, DiagramEventLinkReshaped, DiagramEventModelChanged, DiagramEventPartCreated, DiagramEventPartResized, DiagramEventPartRotated, DiagramEventSelectionCopied, DiagramEventSelectionDeleted, DiagramEventSelectionGrouped, DiagramEventSelectionMoved, DiagramEventSelectionMoved2, DiagramEventSelectionUngrouped, DiagramEventSubGraphCollapsed, DiagramEventSubGraphExpanded, DiagramEventTextEdited, DiagramEventUndoManagerStateChanged, DiagramEventViewportBoundsChanged, DragSelectingTool, DraggingInfo, DraggingOptions, DraggingTool, EnumValue, Figures, Flip, FlipBoth, FlipHorizontal, FlipNone, FlipVertical, ForceDirectedEdge, ForceDirectedLayout, ForceDirectedNetwork, ForceDirectedVertex, Geometry, GeometryStretch, GeometryStretchDefault, GeometryStretchFill, GeometryStretchNone, GeometryStretchUniform, GeometryStretchUniformToFill, GeometryType, GeometryTypeEllipse, GeometryTypeLine, GeometryTypePath, GeometryTypeRectangle, GestureMode, GestureModeCancel, GestureModeNone, GestureModeZoom, GraduatedPanCenter, GraduatedPanLeft, GraduatedPanNone, GraduatedPanRight, GraphLinksModel, GraphObject, GridAlignment, GridAlignmentLocation, GridAlignmentPosition, GridArrangement, GridArrangementBottomToTop, GridArrangementLeftToRight, GridArrangementRightToLeft, GridArrangementTopToBottom, GridLayout, GridLayoutCenter, GridLayoutLocation, GridSorting, GridSortingAscending, GridSortingDescending, GridSortingForwards, GridSortingReverse, GridWrappingFit, GridWrappingNone, Group, HTMLInfo, ImageStretch, ImageStretchFill, ImageStretchNone, ImageStretchUniform, ImageStretchUniformToFill, InputEvent, Layer, LayerAdornment, LayerBackground, LayerForeground, LayerGrid, LayerNames, LayerTool, LayeredDigraphAggressive, LayeredDigraphAggressiveAll, LayeredDigraphAggressiveHorizontal, LayeredDigraphAggressiveLess, LayeredDigraphAggressiveMore, LayeredDigraphAggressiveNone, LayeredDigraphAggressiveVertical, LayeredDigraphAlign, LayeredDigraphAlignAll, LayeredDigraphAlignBottom, LayeredDigraphAlignCenter, LayeredDigraphAlignLower, LayeredDigraphAlignLowerLeft, LayeredDigraphAlignLowerRight, LayeredDigraphAlignNone, LayeredDigraphAlignTop, LayeredDigraphAlignUpper, LayeredDigraphAlignUpperLeft, LayeredDigraphAlignUpperRight, LayeredDigraphCycleRemove, LayeredDigraphCycleRemoveDepthFirst, LayeredDigraphCycleRemoveFromLayers, LayeredDigraphCycleRemoveGreedy, LayeredDigraphDirection, LayeredDigraphDirectionDown, LayeredDigraphDirectionLeft, LayeredDigraphDirectionRight, LayeredDigraphDirectionUp, LayeredDigraphEdge, LayeredDigraphInit, LayeredDigraphInitDepthFirstIn, LayeredDigraphInitDepthFirstOut, LayeredDigraphInitNaive, LayeredDigraphLayering, LayeredDigraphLayeringLongestPathSink, LayeredDigraphLayeringLongestPathSource, LayeredDigraphLayeringOptimalLinkLength, LayeredDigraphLayout, LayeredDigraphNetwork, LayeredDigraphPack, LayeredDigraphPackAll, LayeredDigraphPackExpand, LayeredDigraphPackMaybeExpand, LayeredDigraphPackMedian, LayeredDigraphPackNone, LayeredDigraphPackStraighten, LayeredDigraphVertex, Layout, LayoutConditions, LayoutConditionsAdded, LayoutConditionsAll, LayoutConditionsGroupLayout, LayoutConditionsHidden, LayoutConditionsNodeReplaced, LayoutConditionsNodeSized, LayoutConditionsNone, LayoutConditionsRemoved, LayoutConditionsShown, LayoutConditionsStandard, LayoutEdge, LayoutNetwork, LayoutVertex, Link, LinkAdjusting, LinkAdjustingEnd, LinkAdjustingNone, LinkAdjustingScale, LinkAdjustingStretch, LinkReshapingTool, LinkingBaseTool, LinkingDirection, LinkingDirectionBackwardsOnly, LinkingDirectionEither, LinkingDirectionForwardsOnly, LinkingTool, List, Map$1 as Map, Margin, Model, Node, Orientation, OrientationAlong, OrientationMinus90, OrientationMinus90Upright, OrientationNone, OrientationOpposite, OrientationPlus180, OrientationPlus90, OrientationPlus90Upright, OrientationUpright, OrientationUpright45, Overflow, OverflowClip, OverflowEllipsis, Overview, Palette, Panel, PanelAuto, PanelGraduated, PanelGrid, PanelHorizontal, PanelLayout, PanelLink, PanelPosition, PanelSpot, PanelTable, PanelTableColumn, PanelTableRow, PanelTypes, PanelVertical, PanelViewbox, PanningTool, Part, PathFigure, PathSegment, PathSegmentArc, PathSegmentClose, PathSegmentCubicBezier, PathSegmentLine, PathSegmentMoveTo, PathSegmentQuadraticBezier, Picture, Placeholder, Point, PortSpreading, PortSpreadingEvenly, PortSpreadingNone, PortSpreadingPacked, Quadtree, Rect, RelinkingTool, ReshapingBehavior, ReshapingBehaviorAll, ReshapingBehaviorHorizontal, ReshapingBehaviorNone, ReshapingBehaviorVertical, ResizingTool, RotatingTool, Router, Routing, RoutingAvoidsNodes, RoutingAvoidsNodesStraight, RoutingNone, RoutingNormal, RoutingOrthogonal, RowColumnDefinition, ScrollDocument, ScrollInfinite, ScrollMode, SegmentOrientationAlong, SegmentOrientationNone, SegmentOrientationOpposite, SegmentOrientationOrthogonal, SegmentOrientationParallel, SegmentOrientationPerpendicular, SegmentType, SegmentTypeBezier, SegmentTypeMove, SegmentTypeSvgArc, Set, Shape, Size, Sizing, SizingAuto, SizingDefault, SizingNone, SizingProp, SizingProportionalExtra, Spot, Stretch, StretchDefault, StretchFill, StretchHorizontal, StretchNone, StretchUniform, StretchUniformToFill, StretchVertical, TextBlock, TextEditingAccept, TextEditingAcceptEnter, TextEditingAcceptLostFocus, TextEditingAcceptMouseDown, TextEditingAcceptTab, TextEditingStarting, TextEditingStartingDoubleClick, TextEditingStartingSingleClick, TextEditingStartingSingleClickSelected, TextEditingState, TextEditingStateActive, TextEditingStateEditing, TextEditingStateInvalid, TextEditingStateNone, TextEditingStateValidated, TextEditingStateValidating, TextEditingTool, TextFormat, TextFormatNone, TextFormatTrim, TextOverflow, ThemeBinding, ThemeManager, Themes, Tool, ToolManager, ToolNames, Transaction, TreeAlignment, TreeAlignmentBottomRightBus, TreeAlignmentBus, TreeAlignmentBusBranching, TreeAlignmentCenterChildren, TreeAlignmentCenterSubtrees, TreeAlignmentCustom, TreeAlignmentEnd, TreeAlignmentStart, TreeAlignmentTopLeftBus, TreeArrangement, TreeArrangementFixedRoots, TreeArrangementHorizontal, TreeArrangementVertical, TreeCompaction, TreeCompactionBlock, TreeCompactionNone, TreeEdge, TreeLayerStyle, TreeLayerStyleIndividual, TreeLayerStyleSiblings, TreeLayerStyleUniform, TreeLayout, TreeModel, TreeNetwork, TreePath, TreePathDefault, TreePathDestination, TreePathSource, TreeSorting, TreeSortingAscending, TreeSortingDescending, TreeSortingForwards, TreeSortingReverse, TreeStyle, TreeStyleAlternating, TreeStyleCompact, TreeStyleLastParents, TreeStyleLayered, TreeStyleRootOnly, TreeVertex, TriggerStart, TriggerStartBundled, TriggerStartDefault, TriggerStartImmediate, UndoManager, VerticalBottom, VerticalCenter, VerticalTop, ViewboxStretch, ViewboxStretchFill, ViewboxStretchNone, ViewboxStretchUniform, ViewboxStretchUniformToFill, WheelMode, WheelModeNone, WheelModeScroll, WheelModeZoom, Wrap, WrapBreakAll, WrapDesiredSize, WrapFit, WrapNone, figures, getFigureGeometry, version };
-export type { AnimationConfig, BrushLike, BrushStop, ChangedEventListener, IKeyValuePair, IMapIterator, Iterable$1 as Iterable, Iterator, MarginLike, ObjectData };
+export { ActionTool, Adornment, AdornmentContextMenu, AdornmentLinkReshape, AdornmentRelink, AdornmentResize, AdornmentRotate, AdornmentSelection, AdornmentToolTip, Animation, AnimationDefault, AnimationEaseIn, AnimationEaseInOut, AnimationEaseOut, AnimationEaseOutBounce, AnimationLinear, AnimationManager, AnimationState, AnimationStyle, AnimationStyleAnimateLocations, AnimationStyleDefault, AnimationStyleNone, AnimationTrigger, Arrowheads, AutoScale, AutoScaleNone, AutoScaleUniform, AutoScaleUniformToFill, Binding, BindingMode, Brush, BrushLinear, BrushPattern, BrushRadial, BrushSolid, BrushType, Builders, CanvasRenderer, ChangeType, ChangedEvent, ChangedEventInsert, ChangedEventProperty, ChangedEventRemove, ChangedEventTransaction, CircularArrangement, CircularArrangementConstantAngle, CircularArrangementConstantDistance, CircularArrangementConstantRadius, CircularArrangementConstantSpacing, CircularArrangementPacked, CircularDirection, CircularDirectionBidirectionalLeft, CircularDirectionBidirectionalRight, CircularDirectionClockwise, CircularDirectionCounterclockwise, CircularEdge, CircularLayout, CircularNetwork, CircularNodeDiameterFormula, CircularNodeDiameterFormulaCircular, CircularNodeDiameterFormulaPythagorean, CircularSorting, CircularSortingAscending, CircularSortingDescending, CircularSortingForwards, CircularSortingOptimized, CircularSortingReverse, CircularVertex, ClickCreatingTool, ClickSelectingTool, CollapsePolicy, CollapsePolicyAllParents, CollapsePolicyAnyParents, CollapsePolicyTreeParent, Color, ColorSpace, ColorSpaceHSL, ColorSpaceLab, ColorSpaceOklch, CommandHandler, ContextMenuTool, Curve, CurveBezier, CurveJumpGap, CurveJumpOver, CurveNone, CycleAll, CycleDestinationTree, CycleMode, CycleNotDirected, CycleNotDirectedFast, CycleNotUndirected, CycleSourceTree, Diagram, DiagramEvent, DiagramEventAnimationFinished, DiagramEventAnimationStarting, DiagramEventChanged, DiagramEventClipboardChanged, DiagramEventGroupCollapsed, DiagramEventGroupExpanded, DiagramEventInitialAnimationStarting, DiagramEventInitialLayoutCompleted, DiagramEventLayoutCompleted, DiagramEventLinkDrawn, DiagramEventLinkRelinked, DiagramEventLinkReshaped, DiagramEventModelChanged, DiagramEventPartCreated, DiagramEventPartResized, DiagramEventPartRotated, DiagramEventSelectionCopied, DiagramEventSelectionDeleted, DiagramEventSelectionGrouped, DiagramEventSelectionMoved, DiagramEventSelectionMoved2, DiagramEventSelectionUngrouped, DiagramEventSubGraphCollapsed, DiagramEventSubGraphExpanded, DiagramEventTextEdited, DiagramEventUndoManagerStateChanged, DiagramEventViewportBoundsChanged, DragSelectingTool, DraggingInfo, DraggingOptions, DraggingTool, EnumValue, Figures, Flip, FlipBoth, FlipHorizontal, FlipNone, FlipVertical, ForceDirectedEdge, ForceDirectedLayout, ForceDirectedNetwork, ForceDirectedVertex, Geometry, GeometryStretch, GeometryStretchDefault, GeometryStretchFill, GeometryStretchNone, GeometryStretchUniform, GeometryStretchUniformToFill, GeometryType, GeometryTypeEllipse, GeometryTypeLine, GeometryTypePath, GeometryTypeRectangle, GestureMode, GestureModeCancel, GestureModeNone, GestureModeZoom, GraduatedPanCenter, GraduatedPanLeft, GraduatedPanNone, GraduatedPanRight, GraphLinksModel, GraphObject, GridAlignment, GridAlignmentLocation, GridAlignmentPosition, GridArrangement, GridArrangementBottomToTop, GridArrangementLeftToRight, GridArrangementRightToLeft, GridArrangementTopToBottom, GridLayout, GridLayoutCenter, GridLayoutLocation, GridSorting, GridSortingAscending, GridSortingDescending, GridSortingForwards, GridSortingReverse, GridWrappingFit, GridWrappingNone, Group, HTMLInfo, ImageStretch, ImageStretchFill, ImageStretchNone, ImageStretchUniform, ImageStretchUniformToFill, InputEvent, Layer, LayerAdornment, LayerBackground, LayerForeground, LayerGrid, LayerNames, LayerTool, LayeredDigraphAggressive, LayeredDigraphAggressiveAll, LayeredDigraphAggressiveHorizontal, LayeredDigraphAggressiveLess, LayeredDigraphAggressiveMore, LayeredDigraphAggressiveNone, LayeredDigraphAggressiveVertical, LayeredDigraphAlign, LayeredDigraphAlignAll, LayeredDigraphAlignBottom, LayeredDigraphAlignCenter, LayeredDigraphAlignLower, LayeredDigraphAlignLowerLeft, LayeredDigraphAlignLowerRight, LayeredDigraphAlignNone, LayeredDigraphAlignTop, LayeredDigraphAlignUpper, LayeredDigraphAlignUpperLeft, LayeredDigraphAlignUpperRight, LayeredDigraphCycleRemove, LayeredDigraphCycleRemoveDepthFirst, LayeredDigraphCycleRemoveFromLayers, LayeredDigraphCycleRemoveGreedy, LayeredDigraphDirection, LayeredDigraphDirectionDown, LayeredDigraphDirectionLeft, LayeredDigraphDirectionRight, LayeredDigraphDirectionUp, LayeredDigraphEdge, LayeredDigraphInit, LayeredDigraphInitDepthFirstIn, LayeredDigraphInitDepthFirstOut, LayeredDigraphInitNaive, LayeredDigraphLayering, LayeredDigraphLayeringLongestPathSink, LayeredDigraphLayeringLongestPathSource, LayeredDigraphLayeringOptimalLinkLength, LayeredDigraphLayout, LayeredDigraphNetwork, LayeredDigraphPack, LayeredDigraphPackAll, LayeredDigraphPackExpand, LayeredDigraphPackMaybeExpand, LayeredDigraphPackMedian, LayeredDigraphPackNone, LayeredDigraphPackStraighten, LayeredDigraphVertex, Layout, LayoutConditions, LayoutConditionsAdded, LayoutConditionsAll, LayoutConditionsGroupLayout, LayoutConditionsHidden, LayoutConditionsNodeReplaced, LayoutConditionsNodeSized, LayoutConditionsNone, LayoutConditionsRemoved, LayoutConditionsShown, LayoutConditionsStandard, LayoutEdge, LayoutNetwork, LayoutVertex, Link, LinkAdjusting, LinkAdjustingEnd, LinkAdjustingNone, LinkAdjustingScale, LinkAdjustingStretch, LinkReshapingTool, LinkingBaseTool, LinkingDirection, LinkingDirectionBackwardsOnly, LinkingDirectionEither, LinkingDirectionForwardsOnly, LinkingTool, List, Map$1 as Map, Margin, Model, Node, Orientation, OrientationAlong, OrientationMinus90, OrientationMinus90Upright, OrientationNone, OrientationOpposite, OrientationPlus180, OrientationPlus90, OrientationPlus90Upright, OrientationUpright, OrientationUpright45, Overflow, OverflowClip, OverflowEllipsis, Overview, Palette, Panel, PanelAuto, PanelGraduated, PanelGrid, PanelHorizontal, PanelLayout, PanelLink, PanelPosition, PanelSpot, PanelTable, PanelTableColumn, PanelTableRow, PanelTypes, PanelVertical, PanelViewbox, PanningTool, Part, PathFigure, PathSegment, PathSegmentArc, PathSegmentClose, PathSegmentCubicBezier, PathSegmentLine, PathSegmentMoveTo, PathSegmentQuadraticBezier, Picture, Placeholder, Point, PortSpreading, PortSpreadingEvenly, PortSpreadingNone, PortSpreadingPacked, Quadtree, Rect, RelinkingTool, ReshapingBehavior, ReshapingBehaviorAll, ReshapingBehaviorHorizontal, ReshapingBehaviorNone, ReshapingBehaviorVertical, ResizingTool, RotatingTool, Router, Routing, RoutingAvoidsNodes, RoutingAvoidsNodesStraight, RoutingNone, RoutingNormal, RoutingOrthogonal, RowColumnDefinition, ScrollDocument, ScrollInfinite, ScrollMode, SegmentOrientationAlong, SegmentOrientationNone, SegmentOrientationOpposite, SegmentOrientationOrthogonal, SegmentOrientationParallel, SegmentOrientationPerpendicular, SegmentType, SegmentTypeBezier, SegmentTypeMove, SegmentTypeSvgArc, Set, Shape, Size, Sizing, SizingAuto, SizingDefault, SizingNone, SizingProp, SizingProportionalExtra, Spot, Stretch, StretchDefault, StretchFill, StretchHorizontal, StretchNone, StretchUniform, StretchUniformToFill, StretchVertical, SvgRenderer, TextBlock, TextEditingAccept, TextEditingAcceptEnter, TextEditingAcceptLostFocus, TextEditingAcceptMouseDown, TextEditingAcceptTab, TextEditingStarting, TextEditingStartingDoubleClick, TextEditingStartingSingleClick, TextEditingStartingSingleClickSelected, TextEditingState, TextEditingStateActive, TextEditingStateEditing, TextEditingStateInvalid, TextEditingStateNone, TextEditingStateValidated, TextEditingStateValidating, TextEditingTool, TextFormat, TextFormatNone, TextFormatTrim, TextOverflow, ThemeBinding, ThemeManager, Themes, Tool, ToolManager, ToolNames, Transaction, TreeAlignment, TreeAlignmentBottomRightBus, TreeAlignmentBus, TreeAlignmentBusBranching, TreeAlignmentCenterChildren, TreeAlignmentCenterSubtrees, TreeAlignmentCustom, TreeAlignmentEnd, TreeAlignmentStart, TreeAlignmentTopLeftBus, TreeArrangement, TreeArrangementFixedRoots, TreeArrangementHorizontal, TreeArrangementVertical, TreeCompaction, TreeCompactionBlock, TreeCompactionNone, TreeEdge, TreeLayerStyle, TreeLayerStyleIndividual, TreeLayerStyleSiblings, TreeLayerStyleUniform, TreeLayout, TreeModel, TreeNetwork, TreePath, TreePathDefault, TreePathDestination, TreePathSource, TreeSorting, TreeSortingAscending, TreeSortingDescending, TreeSortingForwards, TreeSortingReverse, TreeStyle, TreeStyleAlternating, TreeStyleCompact, TreeStyleLastParents, TreeStyleLayered, TreeStyleRootOnly, TreeVertex, TriggerStart, TriggerStartBundled, TriggerStartDefault, TriggerStartImmediate, UndoManager, VerticalBottom, VerticalCenter, VerticalTop, ViewboxStretch, ViewboxStretchFill, ViewboxStretchNone, ViewboxStretchUniform, ViewboxStretchUniformToFill, WheelMode, WheelModeNone, WheelModeScroll, WheelModeZoom, Wrap, WrapBreakAll, WrapDesiredSize, WrapFit, WrapNone, figures, getFigureGeometry, version };
+export type { AnimationConfig, BrushLike, BrushStop, ChangedEventListener, IKeyValuePair, IMapIterator, Iterable$1 as Iterable, Iterator, MakeSvgOptions, MarginLike, ObjectData };
